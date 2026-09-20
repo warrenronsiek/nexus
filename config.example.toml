@@ -32,17 +32,18 @@ command = "claude"
 enabled = true
 implementation_provider = "codex"
 provider = "claude"
-timeout_seconds = 180
+timeout_seconds = 600
 # skill_root = "/absolute/path/to/.codex/skills"
 
 [review.codex]
 command = "codex"
 # model = "your-codex-review-model"
-reasoning_effort = "high"
+reasoning_effort = "xhigh"
 
 [review.claude]
 command = "claude"
 # model = "claude-opus-5"
+reasoning_effort = "xhigh"
 
 # Uncomment to override platform-specific state paths.
 # [storage]

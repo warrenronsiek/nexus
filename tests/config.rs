@@ -6,6 +6,15 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn review_defaults_allow_deep_cross_model_analysis() {
+    let review = Config::default().review;
+
+    assert_eq!(review.timeout_seconds, 600);
+    assert_eq!(review.codex.reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(review.claude.reasoning_effort.as_deref(), Some("xhigh"));
+}
+
+#[test]
 fn user_choices_load_from_toml_and_environment_has_precedence() {
     let _guard = ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();

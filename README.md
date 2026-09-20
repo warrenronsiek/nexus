@@ -137,7 +137,7 @@ Every `Store` instantiation runs embedded, ordered [flyway-rs](https://github.co
 
 The local pre-commit hook runs two read-only reviews concurrently after deterministic checks: `$code-architect` and `$code-deletion`. The configured reviewer must differ from the implementation provider. Review text and provider errors are advisory output for the implementation agent; they never become a permission or commit-denial decision.
 
-Configure the implementation/review pairing and model selections under `[review]` in [`config.example.toml`](config.example.toml). The default assumes Codex implementation and Claude review. Run the review directly with:
+Configure the implementation/review pairing and model selections under `[review]` in [`config.example.toml`](config.example.toml). The default assumes Codex implementation and Claude review, with `xhigh` reasoning and a ten-minute timeout. Run the review directly with:
 
 ```sh
 cargo run -- review-commit

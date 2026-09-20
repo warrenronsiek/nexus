@@ -136,10 +136,16 @@ impl Default for ReviewConfig {
             enabled: true,
             implementation_provider: ModelProvider::Codex,
             provider: ModelProvider::Claude,
-            timeout_seconds: 180,
+            timeout_seconds: 600,
             skill_root: None,
-            codex: ModelConfig::codex(),
-            claude: ModelConfig::claude(),
+            codex: ModelConfig {
+                reasoning_effort: Some("xhigh".into()),
+                ..ModelConfig::codex()
+            },
+            claude: ModelConfig {
+                reasoning_effort: Some("xhigh".into()),
+                ..ModelConfig::claude()
+            },
         }
     }
 }
