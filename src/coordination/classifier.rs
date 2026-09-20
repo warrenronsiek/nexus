@@ -4,7 +4,7 @@
 use super::domain::{Advisory, Claim, ClaimState, Operation, PathIntent, Severity, ToolPayload};
 use regex::Regex;
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
@@ -63,6 +63,22 @@ pub fn classify(intent: &PathIntent, existing: &Claim) -> Option<Classification>
             message: format!("another session has an active claim on {}", intent.path),
         }),
     }
+}
+
+pub fn strongest_overlaps(intent: &PathIntent, claims: Vec<Claim>) -> Vec<(Claim, Classification)> {
+    let mut by_session = BTreeMap::<String, (Claim, Classification)>::new();
+    for claim in claims {
+        let Some(classification) = classify(intent, &claim) else {
+            continue;
+        };
+        let entry = by_session
+            .entry(claim.session_id.clone())
+            .or_insert_with(|| (claim.clone(), classification.clone()));
+        if classification.severity > entry.1.severity {
+            *entry = (claim, classification);
+        }
+    }
+    by_session.into_values().collect()
 }
 
 pub fn advisory(classification: Classification, path: &str, other_session_id: &str) -> Advisory {
@@ -368,6 +384,27 @@ mod tests {
         };
         let result = classify(&intent, &claim(Some(20), Some(30), Operation::Write)).unwrap();
         assert_eq!(result.severity, Severity::Info);
+    }
+
+    #[test]
+    fn keeps_only_the_strongest_overlap_per_session() {
+        let intent = PathIntent {
+            path: "/repo/a.rs".into(),
+            operation: Operation::Write,
+            line_start: Some(10),
+            line_end: Some(20),
+        };
+        let overlaps = strongest_overlaps(
+            &intent,
+            vec![
+                claim(Some(30), Some(40), Operation::Write),
+                claim(Some(15), Some(25), Operation::Write),
+            ],
+        );
+
+        assert_eq!(overlaps.len(), 1);
+        assert_eq!(overlaps[0].1.severity, Severity::Critical);
+        assert_eq!(overlaps[0].1.kind, "hunk_overlap");
     }
 
     #[test]

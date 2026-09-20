@@ -90,7 +90,6 @@ pub struct SessionStopInput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
-    Read,
     Write,
     Delete,
     Rename,
@@ -103,7 +102,6 @@ impl Operation {
 }
 
 string_enum!(display Operation, "operation", {
-    Read => "read",
     Write => "write",
     Delete => "delete",
     Rename => "rename",

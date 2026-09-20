@@ -14,8 +14,6 @@ pub struct Config {
     pub privacy: PrivacyConfig,
     pub analyst: AnalystConfig,
     pub review: ReviewConfig,
-    pub integrations: IntegrationsConfig,
-    pub retention: RetentionConfig,
     pub storage: StorageConfig,
     pub runtime: RuntimeConfig,
 }
@@ -24,7 +22,6 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct CoordinationConfig {
     pub claim_ttl_seconds: i64,
-    pub heartbeat_seconds: u64,
     pub reconcile_seconds: u64,
     pub record_ignored_advisories: bool,
 }
@@ -43,7 +40,6 @@ pub struct AnalystConfig {
     pub enabled: bool,
     pub provider: ModelProvider,
     pub timeout_seconds: u64,
-    pub max_concurrent_per_project: usize,
     pub codex: ModelConfig,
     pub claude: ModelConfig,
 }
@@ -75,25 +71,6 @@ pub struct ModelConfig {
     pub reasoning_effort: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct IntegrationsConfig {
-    pub codex: IntegrationConfig,
-    pub claude: IntegrationConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct IntegrationConfig {
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct RetentionConfig {
-    pub policy: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StorageConfig {
@@ -109,22 +86,14 @@ pub struct RuntimeConfig {
 
 impl Default for Config {
     fn default() -> Self {
-        let state = default_state_dir();
         Self {
             schema_version: 1,
             coordination: CoordinationConfig::default(),
             privacy: PrivacyConfig::default(),
             analyst: AnalystConfig::default(),
             review: ReviewConfig::default(),
-            integrations: IntegrationsConfig::default(),
-            retention: RetentionConfig::default(),
-            storage: StorageConfig {
-                database_path: state.join("nexus.db"),
-            },
-            runtime: RuntimeConfig {
-                socket_path: state.join("nexus.sock"),
-                lock_path: state.join("nexus.lock"),
-            },
+            storage: StorageConfig::default(),
+            runtime: RuntimeConfig::default(),
         }
     }
 }
@@ -133,7 +102,6 @@ impl Default for CoordinationConfig {
     fn default() -> Self {
         Self {
             claim_ttl_seconds: 120,
-            heartbeat_seconds: 15,
             reconcile_seconds: 30,
             record_ignored_advisories: true,
         }
@@ -156,7 +124,6 @@ impl Default for AnalystConfig {
             enabled: false,
             provider: ModelProvider::Codex,
             timeout_seconds: 60,
-            max_concurrent_per_project: 1,
             codex: ModelConfig::codex(),
             claude: ModelConfig::claude(),
         }
@@ -191,20 +158,6 @@ impl ModelConfig {
             command: "claude".into(),
             model: None,
             reasoning_effort: None,
-        }
-    }
-}
-
-impl Default for IntegrationConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
-
-impl Default for RetentionConfig {
-    fn default() -> Self {
-        Self {
-            policy: "indefinite".into(),
         }
     }
 }
@@ -284,23 +237,14 @@ impl Config {
         if self.coordination.claim_ttl_seconds <= 0 {
             bail!("coordination.claim_ttl_seconds must be positive");
         }
-        if self.coordination.heartbeat_seconds == 0 {
-            bail!("coordination.heartbeat_seconds must be positive");
-        }
         if self.privacy.prompt_synopsis_max_chars == 0 {
             bail!("privacy.prompt_synopsis_max_chars must be positive");
-        }
-        if self.analyst.max_concurrent_per_project == 0 {
-            bail!("analyst.max_concurrent_per_project must be positive");
         }
         if self.review.timeout_seconds == 0 {
             bail!("review.timeout_seconds must be positive");
         }
         if self.review.implementation_provider == self.review.provider {
             bail!("review.provider must differ from review.implementation_provider");
-        }
-        if self.retention.policy != "indefinite" {
-            bail!("retention.policy currently supports only 'indefinite'");
         }
         Ok(())
     }

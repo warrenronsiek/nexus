@@ -3,15 +3,13 @@
 // @entrypoint Store::open
 // @boundary dynamic-json
 use super::models::{
-    claim_from_row, conflict_from_row, encode_line, parse_time, session_from_row, ClaimRow,
-    ConflictRow, EventRow, NewAdvisory, NewClaim, NewConflict, NewEvent, NewSession, SessionRow,
+    claim_from_row, encode_line, parse_time, session_from_row, ClaimRow, EventRow, NewClaim,
+    NewEvent, NewSession, SessionRow,
 };
 use super::schema::{advisories, claims, conflicts, events, sessions};
-use crate::agents::analyst::AnalysisResult;
 use crate::coordination::domain::{
-    Advisory, Claim, ClaimRelease, ClaimState, ConflictRecord, ConflictScope, EventRecord,
-    IgnoredAdvisoryPolicy, PathIntent, RecordScope, SessionRecord, StatusCounts, ToolCompletion,
-    ToolResultEvent,
+    Claim, ClaimRelease, ClaimState, EventRecord, IgnoredAdvisoryPolicy, PathIntent, RecordScope,
+    SessionRecord, StatusCounts, ToolCompletion, ToolResultEvent,
 };
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
@@ -24,7 +22,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub struct Store {
-    connection: SqliteConnection,
+    pub(super) connection: SqliteConnection,
     #[cfg(test)]
     _temporary_database: Option<tempfile::TempDir>,
 }
@@ -229,60 +227,6 @@ impl Store {
         })
     }
 
-    pub(crate) fn record_conflict(
-        &mut self,
-        project_key: &str,
-        left_claim: &Claim,
-        right_claim: &Claim,
-        advisory: &mut Advisory,
-        tool_key: &str,
-    ) -> Result<()> {
-        let now = Utc::now().to_rfc3339();
-        let conflict_id = Uuid::new_v4().to_string();
-        advisory.conflict_id = Some(conflict_id.clone());
-        let severity = advisory.severity.to_string();
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                diesel::insert_into(conflicts::table)
-                    .values(NewConflict {
-                        id: &conflict_id,
-                        project_id: project_key,
-                        left_claim_id: &left_claim.id,
-                        right_claim_id: &right_claim.id,
-                        path: &advisory.path,
-                        severity: &severity,
-                        kind: &advisory.kind,
-                        status: "open",
-                        message: &advisory.message,
-                        created_at: &now,
-                        updated_at: &now,
-                    })
-                    .execute(connection)?;
-                diesel::insert_into(advisories::table)
-                    .values(NewAdvisory {
-                        id: &advisory.id,
-                        project_id: project_key,
-                        session_id: &left_claim.session_id,
-                        tool_use_id: tool_key,
-                        conflict_id: Some(&conflict_id),
-                        severity: &severity,
-                        kind: &advisory.kind,
-                        path: &advisory.path,
-                        message: &advisory.message,
-                        created_at: &now,
-                    })
-                    .execute(connection)?;
-                append_event(
-                    connection,
-                    project_key,
-                    Some(&left_claim.session_id),
-                    "conflict_detected",
-                    serde_json::to_value(&*advisory)?,
-                )?;
-                Ok(())
-            })
-    }
-
     pub(crate) fn record_tool_inspection(
         &mut self,
         project_key: &str,
@@ -480,85 +424,6 @@ impl Store {
         rows.into_iter().map(claim_from_row).collect()
     }
 
-    pub fn list_conflicts(
-        &mut self,
-        project_key: Option<&str>,
-        scope: ConflictScope,
-    ) -> Result<Vec<ConflictRecord>> {
-        let mut query = conflicts::table.into_boxed();
-        if let Some(project_key) = project_key {
-            query = query.filter(conflicts::project_id.eq(project_key));
-        }
-        if scope == ConflictScope::Open {
-            query = query.filter(conflicts::status.eq("open"));
-        }
-        let rows = query
-            .order(conflicts::created_at.desc())
-            .select(ConflictRow::as_select())
-            .load::<ConflictRow>(&mut self.connection)?;
-        rows.into_iter().map(conflict_from_row).collect()
-    }
-
-    pub(crate) fn conflict_by_id(&mut self, conflict_key: &str) -> Result<Option<ConflictRecord>> {
-        conflicts::table
-            .filter(conflicts::id.eq(conflict_key))
-            .select(ConflictRow::as_select())
-            .first::<ConflictRow>(&mut self.connection)
-            .optional()?
-            .map(conflict_from_row)
-            .transpose()
-    }
-
-    pub(crate) fn record_analysis(
-        &mut self,
-        project_key: &str,
-        conflict_key: &str,
-        analysis: &AnalysisResult,
-        config_hash: &str,
-    ) -> Result<()> {
-        append_event(
-            &mut self.connection,
-            project_key,
-            None,
-            "conflict_analyzed",
-            json!({"conflict_id":conflict_key,"analysis":analysis,"config_hash":config_hash}),
-        )
-    }
-
-    pub(crate) fn resolve_conflict(
-        &mut self,
-        conflict_key: &str,
-        resolution: &str,
-    ) -> Result<bool> {
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                let row = conflicts::table
-                    .filter(conflicts::id.eq(conflict_key))
-                    .select((conflicts::project_id, conflicts::status))
-                    .first::<(String, String)>(connection)
-                    .optional()?;
-                let Some((project_key, current_status)) = row else {
-                    return Ok(false);
-                };
-                if current_status == "open" {
-                    diesel::update(conflicts::table.filter(conflicts::id.eq(conflict_key)))
-                        .set((
-                            conflicts::status.eq("resolved"),
-                            conflicts::updated_at.eq(Utc::now().to_rfc3339()),
-                        ))
-                        .execute(connection)?;
-                    append_event(
-                        connection,
-                        &project_key,
-                        None,
-                        "conflict_resolved",
-                        json!({"conflict_id":conflict_key,"resolution":resolution}),
-                    )?;
-                }
-                Ok(true)
-            })
-    }
-
     pub(crate) fn release_claims(
         &mut self,
         session_key: &str,
@@ -641,7 +506,7 @@ impl Store {
     }
 }
 
-fn append_event(
+pub(super) fn append_event(
     connection: &mut SqliteConnection,
     project_key: &str,
     session_key: Option<&str>,

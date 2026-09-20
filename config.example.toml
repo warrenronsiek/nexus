@@ -4,7 +4,6 @@ schema_version = 1
 
 [coordination]
 claim_ttl_seconds = 120
-heartbeat_seconds = 15
 reconcile_seconds = 30
 record_ignored_advisories = true
 
@@ -17,7 +16,6 @@ store_full_prompts = false
 enabled = false
 provider = "codex"
 timeout_seconds = 60
-max_concurrent_per_project = 1
 
 [analyst.codex]
 command = "codex"
@@ -45,15 +43,6 @@ reasoning_effort = "high"
 [review.claude]
 command = "claude"
 # model = "claude-opus-5"
-
-[integrations.codex]
-enabled = true
-
-[integrations.claude]
-enabled = true
-
-[retention]
-policy = "indefinite"
 
 # Uncomment to override platform-specific state paths.
 # [storage]

@@ -7,7 +7,7 @@ use super::api::{
     ReleasedResponse, ResolveCommand, ResolvedResponse, ServiceRequest, ServiceResponse,
     SessionQuery, SessionsResponse, StatusResponse, ToolHookPhase,
 };
-use super::classifier::{advisory, classify, extract_path_intents};
+use super::classifier::{advisory, extract_path_intents, strongest_overlaps};
 use super::domain::{
     HookResponse, IgnoredAdvisoryPolicy, SessionStopInput, ToolCompletion, ToolHookInput,
     ToolResultEvent, UserPromptInput,
@@ -158,18 +158,15 @@ impl NexusService {
                     &intent,
                     self.loaded.config.coordination.claim_ttl_seconds,
                 )?;
-                for existing in active {
-                    if let Some(classification) = classify(&intent, &existing) {
-                        let mut item = advisory(classification, &intent.path, &existing.session_id);
-                        store.record_conflict(
-                            &project.id,
-                            &claim,
-                            &existing,
-                            &mut item,
-                            &input.tool_use_id,
-                        )?;
-                        advisories.push(item);
-                    }
+                for (existing, classification) in strongest_overlaps(&intent, active) {
+                    let item = advisory(classification, &intent.path, &existing.session_id);
+                    advisories.push(store.record_conflict(
+                        &project.id,
+                        &claim,
+                        &existing,
+                        item,
+                        &input.tool_use_id,
+                    )?);
                 }
             }
             Ok(HookResponse::allow(advisories))
@@ -428,5 +425,54 @@ mod tests {
             response["advisories"][0]["kind"], "hunk_overlap",
             "{response}"
         );
+    }
+
+    #[test]
+    fn repeated_claims_produce_one_advisory_and_conflict_per_session_pair() {
+        let service = service();
+        for (tool_use_id, line_start, line_end) in [("t1", 1, 5), ("t2", 10, 20), ("t3", 15, 25)] {
+            let request = json!({
+                "session_id": "one",
+                "agent": "codex",
+                "project_root": "/tmp",
+                "tool_use_id": tool_use_id,
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": "a.rs",
+                    "line_start": line_start,
+                    "line_end": line_end
+                }
+            });
+            service.handle(ServiceRequest::decode("pre_tool_use", request).unwrap());
+        }
+
+        let overlapping = |tool_use_id: &str| {
+            ServiceRequest::decode(
+                "pre_tool_use",
+                json!({
+                    "session_id": "two",
+                    "agent": "claude",
+                    "project_root": "/tmp",
+                    "tool_use_id": tool_use_id,
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": "a.rs",
+                        "line_start": 16,
+                        "line_end": 18
+                    }
+                }),
+            )
+            .unwrap()
+        };
+        for tool_use_id in ["t4", "t5"] {
+            let response = service.handle(overlapping(tool_use_id)).to_json();
+            assert_eq!(response["advisories"].as_array().unwrap().len(), 1);
+            assert_eq!(response["advisories"][0]["kind"], "hunk_overlap");
+        }
+
+        let conflicts = service
+            .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
+            .to_json();
+        assert_eq!(conflicts["conflicts"].as_array().unwrap().len(), 1);
     }
 }

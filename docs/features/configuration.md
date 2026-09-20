@@ -10,7 +10,7 @@ Configuration gathers user and project decisions into one validated `LoadedConfi
 
 ## Why it exists
 
-Nexus coordinates different agents and installations, so choices such as implementation and cross-model review providers, model names, storage paths, retention behavior, reconciliation timing, and privacy settings cannot be hard-coded. At the same time, silently accepting a misspelled property would make behavior unpredictable. Configuration therefore permits layering but rejects unknown or invalid final values.
+Nexus coordinates different agents and installations, so choices such as implementation and cross-model review providers, model names, storage paths, reconciliation timing, and privacy settings cannot be hard-coded. At the same time, silently accepting a misspelled property would make behavior unpredictable. Configuration therefore permits layering but rejects unknown or invalid final values.
 
 ## Data flow
 

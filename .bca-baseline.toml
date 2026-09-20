@@ -152,7 +152,7 @@ value = 6.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::analyze::<anon@L330>"
+qualified = "NexusService::analyze::<anon@L327>"
 metric = "nexits"
 value = 6.0
 
@@ -173,6 +173,12 @@ path = "src/main.rs"
 qualified = "main"
 metric = "abc"
 value = 51.40038910358559
+
+[[entry]]
+path = "src/persistence/conflicts.rs"
+qualified = "Store::record_conflict"
+metric = "halstead.effort"
+value = 57678.51555514988
 
 [[entry]]
 path = "src/main.rs"

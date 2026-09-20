@@ -51,8 +51,8 @@ flowchart TD
 4. **Identify project and summarize task** uses the canonical Git common directory when available. This gives worktrees one shared identity while retaining the current worktree for reconciliation.
 5. **Extract path intents** translates tool-specific payloads into typed path, operation, and optional line-range records. Unknown tools produce no claims rather than guessed claims.
 6. **Read active claims for each path** considers claims from other sessions that have not expired or been released.
-7. **Classify overlap** deterministically assigns informational, warning, or critical severity based on operations and line ranges.
-8. **Persist claim, conflict, and advisory** records both history and queryable projections before returning context.
+7. **Classify overlap** deterministically assigns informational, warning, or critical severity based on operations and line ranges. When one session has several active claims on the path, Nexus returns only its strongest overlap so repeated edits do not flood the caller with duplicate advice.
+8. **Persist claim, conflict, and advisory** records both history and queryable projections before returning context. A project, path, and unordered session pair identify one conflict projection; later observations update that projection while preserving each advisory occurrence in history.
 9. **Permissive HookResponse with context** always reports `permitted: true`. Advisories are information for the calling agent.
 10. **Record completion state** records success or failure. Successful tool calls move matching claims to `modified`; configured history can note that an advisory was knowingly crossed.
 11. **Release session claims** ends a session's active coordination footprint without deleting history.
@@ -73,6 +73,7 @@ The main invariants are:
 - the classifier, not an LLM, determines severity;
 - project identity is stable across Git worktrees;
 - dynamic tool shapes do not escape the extraction boundary;
+- each other session contributes at most one advisory per inspected path;
 - Git reconciliation can observe edits that bypass hooks.
 
 Unit tests cover extraction, severity, typed request decoding, and service overlap behavior. Process tests in `tests/mcp_hooks.rs` exercise the same flows through a real MCP process, daemon socket, and SQLite database.
