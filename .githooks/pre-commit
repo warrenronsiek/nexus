@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# @feature architecture-tooling
+# @feature commit-review
+# @spec docs/features/architecture-tooling.md
+# @spec docs/features/commit-review.md
+set -euo pipefail
+
+repository_root="$(git rev-parse --show-toplevel)"
+"${repository_root}/scripts/check.sh"
+
+if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" -- review-commit; then
+  printf '%s\n' "warning: cross-model commit review failed; deterministic checks passed" >&2
+fi

@@ -1,0 +1,25 @@
+# @feature complexity-analysis
+# @spec docs/features/complexity-analysis.md
+
+# BCA is the source of truth for AST-based metric gates.
+paths = ["src", "tests", "scripts"]
+exclude_from = ".bcaignore"
+
+# In Rust, linear error propagation is not a policy branch.
+cyclomatic_count_try = false
+
+[check]
+baseline = ".bca-baseline.toml"
+strict = true
+
+[thresholds]
+cognitive = 15
+cyclomatic = 15
+abc = 40
+nargs = 5
+nexits = 5
+"halstead.effort" = 50000
+"loc.ploc" = 600
+"loc.sloc" = 1200
+nom = 30
+wmc = 60

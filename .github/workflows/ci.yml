@@ -1,0 +1,21 @@
+# @feature architecture-tooling
+# @spec docs/features/architecture-tooling.md
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python3 -m pip install big-code-analysis-cli==2.2.0
+      - run: ./scripts/check.sh

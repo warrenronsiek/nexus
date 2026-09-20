@@ -1,0 +1,17 @@
+# @feature complexity-analysis
+# @spec docs/features/complexity-analysis.md
+
+# This transparent score ranks review attention. It is not a quality gate.
+[ranking]
+lloc = 1.0
+arguments = 3.0
+declarations = 8.0
+cyclomatic = 5.0
+cognitive = 2.0
+
+# Broad matches are advisory. Hooks fail only when both sequence similarity and
+# shared-shingle containment identify a substantial unit as a near-copy.
+[repetition]
+minimum_tokens = 48
+warning_similarity = 0.82
+fail_similarity = 0.96
