@@ -4,11 +4,23 @@ use super::models::{conflict_from_row, ConflictRow, NewAdvisory, NewConflict};
 use super::schema::{advisories, conflicts};
 use super::store::{append_event, Store};
 use crate::agents::analyst::AnalysisResult;
-use crate::coordination::domain::{Advisory, Claim, ConflictRecord, ConflictScope};
+use crate::coordination::domain::{Advisory, Claim, ConflictRecord, ConflictScope, ConflictStatus};
 use anyhow::Result;
 use chrono::Utc;
 use diesel::prelude::*;
+use diesel::sqlite::SqliteConnection;
 use serde_json::json;
+
+struct ConflictObservation<'a> {
+    project_key: &'a str,
+    left_claim: &'a Claim,
+    right_claim: &'a Claim,
+    advisory: &'a Advisory,
+    tool_key: &'a str,
+    conflict_id: &'a str,
+    severity: &'a str,
+    now: &'a str,
+}
 
 impl Store {
     pub(crate) fn record_conflict(
@@ -23,57 +35,24 @@ impl Store {
         let conflict_id = conflict_id(project_key, &advisory.path, left_claim, right_claim)?;
         advisory.conflict_id = Some(conflict_id.clone());
         let severity = advisory.severity.to_string();
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                diesel::insert_into(conflicts::table)
-                    .values(NewConflict {
-                        id: &conflict_id,
-                        project_id: project_key,
-                        left_claim_id: &left_claim.id,
-                        right_claim_id: &right_claim.id,
-                        path: &advisory.path,
-                        severity: &severity,
-                        kind: &advisory.kind,
-                        status: "open",
-                        message: &advisory.message,
-                        created_at: &now,
-                        updated_at: &now,
-                    })
-                    .on_conflict(conflicts::id)
-                    .do_update()
-                    .set((
-                        conflicts::left_claim_id.eq(&left_claim.id),
-                        conflicts::right_claim_id.eq(&right_claim.id),
-                        conflicts::severity.eq(&severity),
-                        conflicts::kind.eq(&advisory.kind),
-                        conflicts::status.eq("open"),
-                        conflicts::message.eq(&advisory.message),
-                        conflicts::updated_at.eq(&now),
-                    ))
-                    .execute(connection)?;
-                diesel::insert_into(advisories::table)
-                    .values(NewAdvisory {
-                        id: &advisory.id,
-                        project_id: project_key,
-                        session_id: &left_claim.session_id,
-                        tool_use_id: tool_key,
-                        conflict_id: Some(&conflict_id),
-                        severity: &severity,
-                        kind: &advisory.kind,
-                        path: &advisory.path,
-                        message: &advisory.message,
-                        created_at: &now,
-                    })
-                    .execute(connection)?;
-                append_event(
-                    connection,
-                    project_key,
-                    Some(&left_claim.session_id),
-                    "conflict_detected",
-                    serde_json::to_value(&advisory)?,
-                )
-            })
-            .map(|()| advisory)
+        let result = {
+            let observation = ConflictObservation {
+                project_key,
+                left_claim,
+                right_claim,
+                advisory: &advisory,
+                tool_key,
+                conflict_id: &conflict_id,
+                severity: &severity,
+                now: &now,
+            };
+            self.connection
+                .transaction::<_, anyhow::Error, _>(|connection| {
+                    merge_projection(connection, &observation)?;
+                    record_occurrence(connection, &observation)
+                })
+        };
+        result.map(|()| advisory)
     }
 
     pub fn list_conflicts(
@@ -96,13 +75,7 @@ impl Store {
     }
 
     pub(crate) fn conflict_by_id(&mut self, conflict_key: &str) -> Result<Option<ConflictRecord>> {
-        conflicts::table
-            .filter(conflicts::id.eq(conflict_key))
-            .select(ConflictRow::as_select())
-            .first::<ConflictRow>(&mut self.connection)
-            .optional()?
-            .map(conflict_from_row)
-            .transpose()
+        find_conflict(&mut self.connection, conflict_key)
     }
 
     pub(crate) fn record_analysis(
@@ -154,6 +127,100 @@ impl Store {
                 Ok(true)
             })
     }
+}
+
+fn merge_projection(
+    connection: &mut SqliteConnection,
+    observation: &ConflictObservation<'_>,
+) -> Result<()> {
+    let current = find_conflict(connection, observation.conflict_id)?;
+    diesel::insert_into(conflicts::table)
+        .values(NewConflict {
+            id: observation.conflict_id,
+            project_id: observation.project_key,
+            left_claim_id: &observation.left_claim.id,
+            right_claim_id: &observation.right_claim.id,
+            path: &observation.advisory.path,
+            severity: observation.severity,
+            kind: &observation.advisory.kind,
+            status: "open",
+            message: &observation.advisory.message,
+            created_at: observation.now,
+            updated_at: observation.now,
+        })
+        .on_conflict(conflicts::id)
+        .do_update()
+        .set(conflicts::updated_at.eq(observation.now))
+        .execute(connection)?;
+    if let Some(previous) =
+        current.filter(|previous| observation.advisory.severity > previous.severity)
+    {
+        diesel::update(conflicts::table.filter(conflicts::id.eq(observation.conflict_id)))
+            .set((
+                conflicts::left_claim_id.eq(&observation.left_claim.id),
+                conflicts::right_claim_id.eq(&observation.right_claim.id),
+                conflicts::severity.eq(observation.severity),
+                conflicts::kind.eq(&observation.advisory.kind),
+                conflicts::status.eq("open"),
+                conflicts::message.eq(&observation.advisory.message),
+                conflicts::updated_at.eq(observation.now),
+            ))
+            .execute(connection)?;
+        if previous.status == ConflictStatus::Resolved {
+            append_event(
+                connection,
+                observation.project_key,
+                Some(&observation.left_claim.session_id),
+                "conflict_reopened",
+                json!({
+                    "conflict_id": observation.conflict_id,
+                    "previous_severity": previous.severity,
+                    "new_severity": observation.advisory.severity,
+                }),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn record_occurrence(
+    connection: &mut SqliteConnection,
+    observation: &ConflictObservation<'_>,
+) -> Result<()> {
+    diesel::insert_into(advisories::table)
+        .values(NewAdvisory {
+            id: &observation.advisory.id,
+            project_id: observation.project_key,
+            session_id: &observation.left_claim.session_id,
+            tool_use_id: observation.tool_key,
+            conflict_id: Some(observation.conflict_id),
+            severity: observation.severity,
+            kind: &observation.advisory.kind,
+            path: &observation.advisory.path,
+            message: &observation.advisory.message,
+            created_at: observation.now,
+        })
+        .execute(connection)?;
+    append_event(
+        connection,
+        observation.project_key,
+        Some(&observation.left_claim.session_id),
+        "conflict_detected",
+        serde_json::to_value(observation.advisory)?,
+    )
+}
+
+fn find_conflict(
+    connection: &mut SqliteConnection,
+    conflict_key: &str,
+) -> Result<Option<ConflictRecord>> {
+    conflicts::table
+        .filter(conflicts::id.eq(conflict_key))
+        .select(ConflictRow::as_select())
+        .first::<ConflictRow>(connection)
+        .optional()?
+        .map(conflict_from_row)
+        .transpose()
 }
 
 fn conflict_id(

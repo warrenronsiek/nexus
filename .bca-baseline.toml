@@ -176,9 +176,9 @@ value = 51.40038910358559
 
 [[entry]]
 path = "src/persistence/conflicts.rs"
-qualified = "Store::record_conflict"
+qualified = "merge_projection"
 metric = "halstead.effort"
-value = 57678.51555514988
+value = 56210.40350560419
 
 [[entry]]
 path = "src/main.rs"
@@ -203,18 +203,6 @@ path = "src/main.rs"
 qualified = "main"
 metric = "nexits"
 value = 8.0
-
-[[entry]]
-path = "src/persistence/store.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 647.0
-
-[[entry]]
-path = "src/persistence/store.rs"
-qualified = "Store"
-metric = "nom"
-value = 32.0
 
 [[entry]]
 path = "src/persistence/store.rs"

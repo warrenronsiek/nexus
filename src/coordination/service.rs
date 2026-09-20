@@ -405,6 +405,31 @@ mod tests {
         )
     }
 
+    fn edit(
+        session_id: &str,
+        tool_use_id: &str,
+        path: &str,
+        line_start: u32,
+        line_end: u32,
+    ) -> ServiceRequest {
+        ServiceRequest::decode(
+            "pre_tool_use",
+            json!({
+                "session_id": session_id,
+                "agent": "test",
+                "project_root": "/tmp",
+                "tool_use_id": tool_use_id,
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": path,
+                    "line_start": line_start,
+                    "line_end": line_end
+                }
+            }),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn second_session_gets_overlap_advisory() {
         let service = service();
@@ -428,51 +453,60 @@ mod tests {
     }
 
     #[test]
-    fn repeated_claims_produce_one_advisory_and_conflict_per_session_pair() {
+    fn weaker_observations_do_not_downgrade_or_reopen_a_conflict() {
         let service = service();
         for (tool_use_id, line_start, line_end) in [("t1", 1, 5), ("t2", 10, 20), ("t3", 15, 25)] {
-            let request = json!({
-                "session_id": "one",
-                "agent": "codex",
-                "project_root": "/tmp",
-                "tool_use_id": tool_use_id,
-                "tool_name": "Edit",
-                "tool_input": {
-                    "file_path": "a.rs",
-                    "line_start": line_start,
-                    "line_end": line_end
-                }
-            });
-            service.handle(ServiceRequest::decode("pre_tool_use", request).unwrap());
+            service.handle(edit("one", tool_use_id, "a.rs", line_start, line_end));
         }
 
-        let overlapping = |tool_use_id: &str| {
-            ServiceRequest::decode(
-                "pre_tool_use",
-                json!({
-                    "session_id": "two",
-                    "agent": "claude",
-                    "project_root": "/tmp",
-                    "tool_use_id": tool_use_id,
-                    "tool_name": "Edit",
-                    "tool_input": {
-                        "file_path": "a.rs",
-                        "line_start": 16,
-                        "line_end": 18
-                    }
-                }),
-            )
-            .unwrap()
-        };
-        for tool_use_id in ["t4", "t5"] {
-            let response = service.handle(overlapping(tool_use_id)).to_json();
-            assert_eq!(response["advisories"].as_array().unwrap().len(), 1);
-            assert_eq!(response["advisories"][0]["kind"], "hunk_overlap");
-        }
+        let critical = service.handle(edit("two", "t4", "a.rs", 16, 18)).to_json();
+        assert_eq!(critical["advisories"].as_array().unwrap().len(), 1);
+        assert_eq!(critical["advisories"][0]["kind"], "hunk_overlap");
+        let weaker = service
+            .handle(edit("two", "t5", "a.rs", 100, 110))
+            .to_json();
+        assert_eq!(weaker["advisories"].as_array().unwrap().len(), 1);
+        assert_eq!(weaker["advisories"][0]["severity"], "info");
 
-        let conflicts = service
+        let current = service
             .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
             .to_json();
-        assert_eq!(conflicts["conflicts"].as_array().unwrap().len(), 1);
+        assert_eq!(current["conflicts"].as_array().unwrap().len(), 1);
+        assert_eq!(current["conflicts"][0]["severity"], "critical");
+        assert_eq!(current["conflicts"][0]["kind"], "hunk_overlap");
+        let conflict_id = current["conflicts"][0]["id"].as_str().unwrap().to_owned();
+        service.handle(ServiceRequest::Resolve(ResolveCommand {
+            conflict_id,
+            resolution: "coordinated".into(),
+        }));
+        service.handle(edit("two", "t6", "a.rs", 120, 130));
+        let open = service
+            .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
+            .to_json();
+        assert!(open["conflicts"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn stronger_observation_reopens_a_resolved_conflict() {
+        let service = service();
+        service.handle(edit("one", "t7", "b.rs", 1, 5));
+        service.handle(edit("two", "t8", "b.rs", 100, 110));
+        let all = service
+            .handle(ServiceRequest::Conflicts(ConflictQuery {
+                project_id: None,
+                scope: crate::coordination::domain::ConflictScope::All,
+            }))
+            .to_json();
+        let minor_id = all["conflicts"][0]["id"].as_str().unwrap().to_owned();
+        service.handle(ServiceRequest::Resolve(ResolveCommand {
+            conflict_id: minor_id,
+            resolution: "separate hunks".into(),
+        }));
+        service.handle(edit("two", "t9", "b.rs", 2, 4));
+        let reopened = service
+            .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
+            .to_json();
+        assert_eq!(reopened["conflicts"].as_array().unwrap().len(), 1);
+        assert_eq!(reopened["conflicts"][0]["severity"], "critical");
     }
 }

@@ -1,7 +1,7 @@
 // @feature coordination
 // @spec docs/features/coordination.md
 // @boundary dynamic-json
-use super::domain::{Advisory, Claim, ClaimState, Operation, PathIntent, Severity, ToolPayload};
+use super::domain::{Advisory, Claim, Operation, PathIntent, Severity, ToolPayload};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,22 +15,16 @@ pub struct Classification {
     pub message: String,
 }
 
-pub fn classify(intent: &PathIntent, existing: &Claim) -> Option<Classification> {
-    if normalize_path(&intent.path) != normalize_path(&existing.path)
-        || existing.state == ClaimState::Released
-    {
-        return None;
-    }
-
+fn classify(intent: &PathIntent, existing: &Claim) -> Classification {
     if intent.operation.is_destructive() || existing.operation.is_destructive() {
-        return Some(Classification {
+        return Classification {
             severity: Severity::Critical,
             kind: "destructive_overlap",
             message: format!(
                 "another session has an active {} claim on {}; proceeding may overwrite or remove its work",
                 existing.operation, intent.path
             ),
-        });
+        };
     }
 
     match (
@@ -40,37 +34,35 @@ pub fn classify(intent: &PathIntent, existing: &Claim) -> Option<Classification>
         existing.line_end,
     ) {
         (Some(a1), Some(a2), Some(b1), Some(b2)) if ranges_overlap(a1, a2, b1, b2) => {
-            Some(Classification {
+            Classification {
                 severity: Severity::Critical,
                 kind: "hunk_overlap",
                 message: format!(
                     "another session is editing overlapping lines {}-{} of {}",
                     b1, b2, intent.path
                 ),
-            })
+            }
         }
-        (Some(_), Some(_), Some(_), Some(_)) => Some(Classification {
+        (Some(_), Some(_), Some(_), Some(_)) => Classification {
             severity: Severity::Info,
             kind: "same_file_distinct_hunks",
             message: format!(
                 "another session is editing a different known region of {}",
                 intent.path
             ),
-        }),
-        _ => Some(Classification {
+        },
+        _ => Classification {
             severity: Severity::Warning,
             kind: "path_overlap",
             message: format!("another session has an active claim on {}", intent.path),
-        }),
+        },
     }
 }
 
 pub fn strongest_overlaps(intent: &PathIntent, claims: Vec<Claim>) -> Vec<(Claim, Classification)> {
     let mut by_session = BTreeMap::<String, (Claim, Classification)>::new();
     for claim in claims {
-        let Some(classification) = classify(intent, &claim) else {
-            continue;
-        };
+        let classification = classify(intent, &claim);
         let entry = by_session
             .entry(claim.session_id.clone())
             .or_insert_with(|| (claim.clone(), classification.clone()));
@@ -342,6 +334,7 @@ fn ranges_overlap(a1: u32, a2: u32, b1: u32, b2: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::coordination::domain::ClaimState;
     use chrono::Utc;
     use serde_json::json;
 
@@ -369,7 +362,7 @@ mod tests {
             line_start: Some(10),
             line_end: Some(20),
         };
-        let result = classify(&intent, &claim(Some(15), Some(30), Operation::Write)).unwrap();
+        let result = classify(&intent, &claim(Some(15), Some(30), Operation::Write));
         assert_eq!(result.severity, Severity::Critical);
         assert_eq!(result.kind, "hunk_overlap");
     }
@@ -382,7 +375,7 @@ mod tests {
             line_start: Some(1),
             line_end: Some(2),
         };
-        let result = classify(&intent, &claim(Some(20), Some(30), Operation::Write)).unwrap();
+        let result = classify(&intent, &claim(Some(20), Some(30), Operation::Write));
         assert_eq!(result.severity, Severity::Info);
     }
 
