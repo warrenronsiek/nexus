@@ -17,6 +17,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `architecture-tooling`: feature annotations, exploration, architectural lint, and repository validation.
 - `complexity-analysis`: feature-scoped structural metrics, repetition analysis, and regression gates.
 - `commit-review`: parallel cross-model architecture and deletion review for staged commits.
+- `installation`: one-command machine setup and repository onboarding.
 
 Every code file must declare at least one `@feature` and matching `@spec` in its leading comment block. Symbols inherit those file annotations. Declare the small number of useful starting points with `@entrypoint`. Files that intentionally decode open-ended external values must also declare an explanatory `@boundary`.
 

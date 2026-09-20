@@ -4,27 +4,44 @@ Nexus is a local coordination service for coding agents. It observes tool activi
 
 The invariant is structural: every lifecycle-hook response permits the original tool call. Nexus emits no deny, block, approval, or input-rewrite decision.
 
-## Build and run
+## Install
+
+From a Nexus source checkout, one command installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, and migrated SQLite store:
 
 ```sh
-cargo build
-./target/debug/nexus doctor
-./target/debug/nexus daemon
+./scripts/install.sh
+```
+
+Then one command installs Nexus into any existing Git repository:
+
+```sh
+cd /path/to/repository && nexus install
+```
+
+`nexus install` writes the shared configuration to the Git common directory, so every worktree participates in the same project without repeated setup. Existing configuration is preserved. Nexus remains advisory: setup adds no enforcement or blocking mode. Codex and Claude start the local daemon through MCP when they need it.
+
+The bootstrap currently runs from a source checkout because this repository has no configured release remote. Once release hosting exists, that script is the stable boundary a remote one-liner can invoke.
+
+## Run and inspect
+
+```sh
+nexus doctor
+nexus daemon
 ```
 
 In another terminal:
 
 ```sh
-./target/debug/nexus status
-./target/debug/nexus sessions
-./target/debug/nexus claims
-./target/debug/nexus conflicts
+nexus status
+nexus sessions
+nexus claims
+nexus conflicts
 ```
 
 The MCP stdio server starts the daemon automatically when needed:
 
 ```sh
-./target/debug/nexus mcp
+nexus mcp
 ```
 
 Nexus supports macOS and Linux. If a macOS machine has full Xcode selected but its license is pending, builds can use the separately installed Command Line Tools without changing system-wide state:
@@ -35,11 +52,13 @@ DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo build
 
 ## Agent integrations
 
+`./scripts/install.sh` performs these integrations automatically. The commands below are inspection tools for development and troubleshooting.
+
 Print current MCP registration and lifecycle-hook JSON for either host:
 
 ```sh
-./target/debug/nexus integrate codex
-./target/debug/nexus integrate claude
+nexus integrate codex
+nexus integrate claude
 ```
 
 The output includes the host's MCP registration command and a `settings_fragment` to merge into its hooks file. Nexus hooks cover user prompts, pre-tool inspection, successful tool completion, and—where supported—tool failure and session end.
@@ -169,3 +188,11 @@ cargo test --all-targets
 ```
 
 The suite includes unit tests for extraction and classification plus process-level tests that launch a real daemon and MCP stdio server. Those tests call user-prompt, pre-tool, post-tool, failure, resolution, analyst, and session-stop surfaces; inspect the Diesel-backed SQLite projections; exercise Edit, Write, apply-patch, shell, unknown-tool, malformed-input, and unavailable-daemon cases; and verify background Git reconciliation.
+
+The fresh-install worktree test is intentionally ignored because it consumes real Codex and Claude Opus 5 resources and requires both CLIs to be authenticated. Run it explicitly with:
+
+```sh
+cargo test --test install_e2e fresh_install_coordinates_real_agents_across_worktrees -- --ignored --exact
+```
+
+It installs Nexus into a disposable prefix, initializes a repository, creates separate Codex and Claude worktrees, makes both models call the Nexus MCP server for overlapping hunks, and requires the stored result to be a critical conflict.

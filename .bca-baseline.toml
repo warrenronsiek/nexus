@@ -142,7 +142,7 @@ value = 44.0
 path = "src/coordination/service.rs"
 qualified = "NexusService"
 metric = "wmc"
-value = 81.0
+value = 80.0
 
 [[entry]]
 path = "src/coordination/service.rs"
@@ -169,16 +169,22 @@ metric = "nexits"
 value = 7.0
 
 [[entry]]
+path = "src/installation.rs"
+qualified = "merge_hooks"
+metric = "nexits"
+value = 9.0
+
+[[entry]]
+path = "src/installation.rs"
+qualified = "setup_machine"
+metric = "nexits"
+value = 6.0
+
+[[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "abc"
-value = 51.40038910358559
-
-[[entry]]
-path = "src/persistence/conflicts.rs"
-qualified = "merge_projection"
-metric = "halstead.effort"
-value = 56210.40350560419
+value = 60.489668539346454
 
 [[entry]]
 path = "src/main.rs"
@@ -190,19 +196,25 @@ value = 16.0
 path = "src/main.rs"
 qualified = "main"
 metric = "cyclomatic"
-value = 23.0
+value = 25.0
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "halstead.effort"
-value = 97764.32974435035
+value = 119779.61738185579
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "nexits"
-value = 8.0
+value = 11.0
+
+[[entry]]
+path = "src/persistence/conflicts.rs"
+qualified = "merge_projection"
+metric = "halstead.effort"
+value = 56210.40350560419
 
 [[entry]]
 path = "src/persistence/store.rs"
@@ -251,6 +263,24 @@ path = "src/runtime/mcp.rs"
 qualified = "tool_call"
 metric = "halstead.effort"
 value = 57843.253985364376
+
+[[entry]]
+path = "tests/install_e2e.rs"
+qualified = "fresh_install_coordinates_real_agents_across_worktrees"
+metric = "abc"
+value = 80.049984384758
+
+[[entry]]
+path = "tests/install_e2e.rs"
+qualified = "fresh_install_coordinates_real_agents_across_worktrees"
+metric = "halstead.effort"
+value = 50220.20051693353
+
+[[entry]]
+path = "tests/installation.rs"
+qualified = "machine_setup_and_repository_install_are_complete_commands"
+metric = "abc"
+value = 50.695167422546305
 
 [[entry]]
 path = "tests/mcp_hooks.rs"

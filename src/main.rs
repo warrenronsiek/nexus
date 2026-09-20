@@ -12,6 +12,7 @@ use nexus::coordination::api::{
     ServiceRequest, SessionQuery,
 };
 use nexus::coordination::domain::{ConflictScope, RecordScope};
+use nexus::installation;
 use nexus::runtime::{daemon, mcp};
 use nexus::Config;
 use std::path::PathBuf;
@@ -32,6 +33,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Configure installed agent hosts and bundled review skills on this machine.
+    Setup,
+    /// Install Nexus coordination into the current Git repository.
+    Install,
     /// Run the local coordination daemon in the foreground.
     Daemon,
     /// Run the MCP server over stdio, starting the daemon when necessary.
@@ -112,6 +117,16 @@ async fn main() -> Result<()> {
     let root = std::env::current_dir()?;
     let loaded = Config::load(cli.config.as_deref(), Some(&root))?;
     match cli.command {
+        Command::Setup => {
+            let report = installation::setup_machine(&std::env::current_exe()?)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::Install => {
+            let report = installation::install_repository(&root, cli.config.as_deref())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
         Command::Daemon => daemon::serve(loaded).await,
         Command::Mcp => mcp::serve_stdio(loaded, cli.config.as_deref()).await,
         Command::Status => {
