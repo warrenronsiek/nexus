@@ -32,6 +32,7 @@ fi
 "${python_command}" scripts/feature_map.py --root . --lint
 "${python_command}" scripts/complexity_analysis.py --check
 "${python_command}" -m unittest tests/test_feature_map.py tests/test_complexity_analysis.py
+scripts/check-ui.sh
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets

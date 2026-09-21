@@ -18,6 +18,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `complexity-analysis`: feature-scoped structural metrics, repetition analysis, and regression gates.
 - `commit-review`: parallel cross-model architecture and deletion review for staged commits.
 - `installation`: one-command machine setup and repository onboarding.
+- `observability-ui`: read-only Axum, Elm, and D3 operational visibility.
 
 Every code file must declare at least one `@feature` and matching `@spec` in its leading comment block. Symbols inherit those file annotations. Declare the small number of useful starting points with `@entrypoint`. Files that intentionally decode open-ended external values must also declare an explanatory `@boundary`.
 

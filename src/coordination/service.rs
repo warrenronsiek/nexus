@@ -3,9 +3,10 @@
 // @entrypoint NexusService::handle
 use super::api::{
     AnalysisResponse, AnalyzeCommand, ClaimQuery, ClaimsResponse, ConfigResponse, ConflictQuery,
-    ConflictsResponse, EventQuery, EventsResponse, PromptResponse, ReleaseCommand,
-    ReleasedResponse, ResolveCommand, ResolvedResponse, ServiceRequest, ServiceResponse,
-    SessionQuery, SessionsResponse, StatusResponse, ToolHookPhase,
+    ConflictsResponse, DashboardQuery, DashboardResponse, EventQuery, EventsResponse,
+    ProjectsResponse, PromptResponse, ReleaseCommand, ReleasedResponse, ResolveCommand,
+    ResolvedResponse, ServiceRequest, ServiceResponse, SessionQuery, SessionsResponse,
+    StatusResponse, ToolHookPhase,
 };
 use super::classifier::{advisory, extract_path_intents, strongest_overlaps};
 use super::domain::{
@@ -61,6 +62,8 @@ impl NexusService {
             ServiceRequest::Resolve(command) => self.resolve(command),
             ServiceRequest::Release(command) => self.release(command),
             ServiceRequest::Analyze(command) => self.analyze(command),
+            ServiceRequest::Projects => self.projects(),
+            ServiceRequest::Dashboard(query) => self.dashboard(query),
             ServiceRequest::Config => ServiceResponse::Config(Box::new(ConfigResponse {
                 ok: true,
                 config: self.loaded.config.clone(),
@@ -339,6 +342,41 @@ impl NexusService {
         }
     }
 
+    fn projects(&self) -> ServiceResponse {
+        match self
+            .store
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .and_then(|mut store| store.list_projects())
+        {
+            Ok(projects) => ServiceResponse::Projects(ProjectsResponse { ok: true, projects }),
+            Err(error) => ServiceResponse::error(error),
+        }
+    }
+
+    fn dashboard(&self, query: DashboardQuery) -> ServiceResponse {
+        match self
+            .store
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .and_then(|mut store| {
+                store.dashboard(
+                    query.project_id.as_deref(),
+                    self.loaded.config.ui.recent_event_limit,
+                    self.loaded.config.ui.recent_record_limit,
+                )
+            }) {
+            Ok(records) => ServiceResponse::Dashboard(DashboardResponse {
+                ok: true,
+                project_id: query.project_id,
+                generated_at: chrono::Utc::now(),
+                refresh_interval_ms: self.loaded.config.ui.refresh_interval_ms,
+                records,
+            }),
+            Err(error) => ServiceResponse::error(error),
+        }
+    }
+
     fn lifecycle_store(&self) -> Result<std::sync::MutexGuard<'_, Store>> {
         self.store
             .try_lock()
@@ -384,7 +422,10 @@ mod tests {
     use serde_json::json;
 
     fn service() -> NexusService {
-        let config = Config::default();
+        service_with(Config::default())
+    }
+
+    fn service_with(config: Config) -> NexusService {
         let encoded = toml::to_string(&config).unwrap();
         NexusService::from_store(
             LoadedConfig {
@@ -522,5 +563,56 @@ mod tests {
             .to_json();
         assert_eq!(reopened["conflicts"].as_array().unwrap().len(), 1);
         assert_eq!(reopened["conflicts"][0]["severity"], "critical");
+    }
+
+    #[test]
+    fn dashboard_is_scoped_and_bounded_while_projects_remain_global() {
+        let temporary = tempfile::tempdir().unwrap();
+        let first_root = temporary.path().join("first");
+        let second_root = temporary.path().join("second");
+        std::fs::create_dir_all(&first_root).unwrap();
+        std::fs::create_dir_all(&second_root).unwrap();
+        let mut config = Config::default();
+        config.ui.recent_event_limit = 2;
+        config.ui.recent_record_limit = 1;
+        let service = service_with(config);
+
+        let prompt = |session_id: &str, root: &std::path::Path| {
+            ServiceRequest::decode(
+                "user_prompt",
+                json!({
+                    "session_id":session_id,
+                    "agent":"test",
+                    "project_root":root,
+                    "prompt":"work on the dashboard"
+                }),
+            )
+            .unwrap()
+        };
+        let first_project = service.handle(prompt("one", &first_root)).to_json()["project_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        service.handle(prompt("two", &first_root));
+        service.handle(prompt("three", &second_root));
+
+        let projects = service.handle(ServiceRequest::Projects).to_json();
+        assert_eq!(projects["projects"].as_array().unwrap().len(), 2);
+        assert_eq!(projects["projects"][0]["agents"][0], "test");
+
+        let dashboard = service
+            .handle(ServiceRequest::Dashboard(DashboardQuery {
+                project_id: Some(first_project.clone()),
+            }))
+            .to_json();
+        assert_eq!(dashboard["project_id"], first_project);
+        assert_eq!(dashboard["counts"]["active_sessions"], 2);
+        assert_eq!(dashboard["events"]["items"].as_array().unwrap().len(), 2);
+        assert_eq!(dashboard["events"]["truncated"], true);
+        assert_eq!(dashboard["sessions"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(dashboard["sessions"]["truncated"], true);
+        assert_eq!(dashboard["claims"]["truncated"], false);
+        assert_eq!(dashboard["conflicts"]["truncated"], false);
+        assert_eq!(dashboard["refresh_interval_ms"], 2_000);
     }
 }

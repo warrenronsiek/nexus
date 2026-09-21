@@ -1,11 +1,13 @@
 // @feature installation
 // @spec docs/features/installation.md
 // @boundary child-process-json
+mod support;
+
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use std::process::{Child, Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output, Stdio};
+use support::{assert_success, git_command, wait_for_path};
 
 #[test]
 #[ignore = "requires authenticated Codex and Claude CLIs and consumes model resources"]
@@ -57,7 +59,7 @@ fn fresh_install_coordinates_real_agents_across_worktrees() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    wait_for_socket(&state.join("nexus.sock"), &mut daemon);
+    wait_for_path(&state.join("nexus.sock"), &mut daemon);
 
     let codex = codex_call(&nexus, &state, &worktree_a);
     let claude = claude_call(&nexus, &state, &worktree_b, temporary.path());
@@ -169,39 +171,18 @@ fn initialize_repository(repository: &Path) {
     run_git(repository, ["commit", "-m", "fixture"]);
 }
 
-fn wait_for_socket(socket: &Path, daemon: &mut Child) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        assert!(daemon.try_wait().unwrap().is_none(), "daemon exited early");
-        if socket.exists() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    panic!("daemon socket did not appear at {}", socket.display());
-}
-
 fn require_command(command: &str) {
     let output = Command::new(command).arg("--version").output().unwrap();
     assert_success(command, &output);
 }
 
 fn run_git<const N: usize>(directory: &Path, arguments: [&str; N]) {
-    let output = Command::new("git")
+    let output = git_command()
         .args(arguments)
         .current_dir(directory)
         .output()
         .unwrap();
     assert_success("git", &output);
-}
-
-fn assert_success(label: &str, output: &Output) {
-    assert!(
-        output.status.success(),
-        "{label} failed\nstdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 fn path(path: &Path) -> &str {

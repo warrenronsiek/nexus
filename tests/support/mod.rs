@@ -2,18 +2,25 @@
 // @feature persistence
 // @feature runtime
 // @feature analyst
+// @feature installation
+// @feature observability-ui
 // @spec docs/features/coordination.md
 // @spec docs/features/persistence.md
 // @spec docs/features/runtime.md
 // @spec docs/features/analyst.md
+// @spec docs/features/installation.md
+// @spec docs/features/observability-ui.md
 // @boundary dynamic-json
+// Each integration-test crate uses a different subset of these shared helpers.
+#![allow(dead_code)]
+
 use nexus::coordination::domain::RecordScope;
 use nexus::persistence::Store;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
@@ -271,9 +278,45 @@ pub fn run_git(root: &std::path::Path, arguments: &[&str]) {
     );
 }
 
+pub fn wait_for_path(target: &Path, daemon: &mut Child) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        assert!(daemon.try_wait().unwrap().is_none(), "daemon exited early");
+        if target.exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("path never became ready at {}", target.display());
+}
+
+pub fn assert_success(label: &str, output: &Output) {
+    assert!(
+        output.status.success(),
+        "{label} failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 pub fn write_executable(path: &Path, contents: &str) {
     std::fs::write(path, contents).unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();
+}
+
+pub fn git_command() -> Command {
+    let mut command = Command::new("git");
+    for variable in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+    ] {
+        command.env_remove(variable);
+    }
+    command
 }

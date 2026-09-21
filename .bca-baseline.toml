@@ -56,6 +56,12 @@ value = 17.0
 
 [[entry]]
 path = "scripts/feature_map.py"
+qualified = "discover_symbols"
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "scripts/feature_map.py"
 qualified = "lint"
 metric = "cognitive"
 value = 35.0
@@ -99,14 +105,26 @@ value = 7.0
 [[entry]]
 path = "src/coordination/api.rs"
 qualified = "ServiceRequest::decode"
+metric = "abc"
+value = 42.15447781671598
+
+[[entry]]
+path = "src/coordination/api.rs"
+qualified = "ServiceRequest::decode"
+metric = "cyclomatic"
+value = 17.0
+
+[[entry]]
+path = "src/coordination/api.rs"
+qualified = "ServiceRequest::decode"
 metric = "nexits"
-value = 12.0
+value = 13.0
 
 [[entry]]
 path = "src/coordination/api.rs"
 qualified = "ServiceRequest::wire_parts"
 metric = "nexits"
-value = 10.0
+value = 11.0
 
 [[entry]]
 path = "src/coordination/classifier.rs"
@@ -136,13 +154,13 @@ value = 109081.00331728932
 path = "src/coordination/service.rs"
 qualified = "NexusService"
 metric = "nom"
-value = 44.0
+value = 50.0
 
 [[entry]]
 path = "src/coordination/service.rs"
 qualified = "NexusService"
 metric = "wmc"
-value = 80.0
+value = 92.0
 
 [[entry]]
 path = "src/coordination/service.rs"
@@ -152,9 +170,15 @@ value = 6.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::analyze::<anon@L315>"
+qualified = "NexusService::analyze::<anon@L318>"
 metric = "nexits"
 value = 6.0
+
+[[entry]]
+path = "src/coordination/service.rs"
+qualified = "NexusService::handle"
+metric = "cyclomatic"
+value = 16.0
 
 [[entry]]
 path = "src/coordination/service.rs"
@@ -164,7 +188,7 @@ value = 7.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::pre_tool_use::<anon@L118>"
+qualified = "NexusService::pre_tool_use::<anon@L121>"
 metric = "nexits"
 value = 7.0
 
@@ -184,37 +208,55 @@ value = 6.0
 path = "src/main.rs"
 qualified = "main"
 metric = "abc"
-value = 60.489668539346454
+value = 69.91423317179414
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "cognitive"
-value = 16.0
+value = 23.0
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "cyclomatic"
-value = 25.0
+value = 29.0
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "halstead.effort"
-value = 119779.61738185579
+value = 141518.27706103484
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "nexits"
-value = 11.0
+value = 13.0
 
 [[entry]]
 path = "src/persistence/conflicts.rs"
 qualified = "merge_projection"
 metric = "halstead.effort"
 value = 56210.40350560419
+
+[[entry]]
+path = "src/persistence/dashboard.rs"
+qualified = "Store::dashboard"
+metric = "abc"
+value = 75.05997601918082
+
+[[entry]]
+path = "src/persistence/dashboard.rs"
+qualified = "Store::dashboard"
+metric = "halstead.effort"
+value = 111022.60489881203
+
+[[entry]]
+path = "src/persistence/dashboard.rs"
+qualified = "Store::dashboard"
+metric = "nexits"
+value = 11.0
 
 [[entry]]
 path = "src/persistence/store.rs"
@@ -244,7 +286,7 @@ value = 6.0
 path = "src/runtime/daemon.rs"
 qualified = "serve"
 metric = "halstead.effort"
-value = 56409.00518213102
+value = 67273.65706343006
 
 [[entry]]
 path = "src/runtime/daemon.rs"
@@ -263,6 +305,12 @@ path = "src/runtime/mcp.rs"
 qualified = "tool_call"
 metric = "halstead.effort"
 value = 57843.253985364376
+
+[[entry]]
+path = "src/runtime/web.rs"
+qualified = "health_check"
+metric = "nexits"
+value = 6.0
 
 [[entry]]
 path = "tests/install_e2e.rs"
@@ -299,3 +347,27 @@ path = "tests/mcp_hooks.rs"
 qualified = "mcp_lifecycle_classifies_conflicts_and_persists_projections"
 metric = "halstead.effort"
 value = 94444.75898694253
+
+[[entry]]
+path = "tests/ui_http.rs"
+qualified = "daemon_serves_read_only_observability_ui"
+metric = "halstead.effort"
+value = 51443.174889024565
+
+[[entry]]
+path = "tests/ui_http.rs"
+qualified = "dashboard_reports_conflicts_seeded_from_separate_worktrees"
+metric = "abc"
+value = 46.57252408878007
+
+[[entry]]
+path = "ui/src/activity-chart.ts"
+qualified = "renderActivityChart"
+metric = "abc"
+value = 60.03332407921454
+
+[[entry]]
+path = "ui/src/activity-chart.ts"
+qualified = "renderActivityChart"
+metric = "halstead.effort"
+value = 87273.78662677897

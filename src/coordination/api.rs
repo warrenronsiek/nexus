@@ -2,8 +2,9 @@
 // @spec docs/features/coordination.md
 // @boundary dynamic-json
 use super::domain::{
-    Claim, ClaimRelease, ConflictRecord, ConflictScope, EventRecord, HookResponse, RecordScope,
-    SessionRecord, SessionStopInput, StatusCounts, ToolCompletion, ToolHookInput, UserPromptInput,
+    Claim, ClaimRelease, ConflictRecord, ConflictScope, DashboardRecords, EventRecord,
+    HookResponse, ProjectSummary, RecordScope, SessionRecord, SessionStopInput, StatusCounts,
+    ToolCompletion, ToolHookInput, UserPromptInput,
 };
 use crate::agents::analyst::AnalysisResult;
 use crate::config::Config;
@@ -28,6 +29,8 @@ pub enum ServiceRequest {
     Resolve(ResolveCommand),
     Release(ReleaseCommand),
     Analyze(AnalyzeCommand),
+    Projects,
+    Dashboard(DashboardQuery),
     Config,
 }
 
@@ -56,6 +59,8 @@ impl ServiceRequest {
             "resolve" => Self::Resolve(decode(params)?),
             "release" => Self::Release(decode(params)?),
             "analyze" => Self::Analyze(decode(params)?),
+            "projects" => Self::Projects,
+            "dashboard" => Self::Dashboard(decode(params)?),
             "config" => Self::Config,
             _ => bail!("unknown method {method}"),
         })
@@ -74,6 +79,8 @@ impl ServiceRequest {
             Self::Resolve(command) => ("resolve", serde_json::to_value(command)?),
             Self::Release(command) => ("release", serde_json::to_value(command)?),
             Self::Analyze(command) => ("analyze", serde_json::to_value(command)?),
+            Self::Projects => ("projects", Value::Object(Default::default())),
+            Self::Dashboard(query) => ("dashboard", serde_json::to_value(query)?),
             Self::Config => ("config", Value::Object(Default::default())),
         })
     }
@@ -203,6 +210,13 @@ pub struct AnalyzeCommand {
     pub conflict_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct DashboardQuery {
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum ServiceResponse {
@@ -216,6 +230,8 @@ pub enum ServiceResponse {
     Resolved(ResolvedResponse),
     Released(ReleasedResponse),
     Analysis(AnalysisResponse),
+    Projects(ProjectsResponse),
+    Dashboard(DashboardResponse),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),
 }
@@ -290,6 +306,22 @@ pub struct ReleasedResponse {
 pub struct AnalysisResponse {
     pub ok: bool,
     pub analysis: AnalysisResult,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectsResponse {
+    pub ok: bool,
+    pub projects: Vec<ProjectSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DashboardResponse {
+    pub ok: bool,
+    pub project_id: Option<String>,
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+    pub refresh_interval_ms: u64,
+    #[serde(flatten)]
+    pub records: DashboardRecords,
 }
 
 #[derive(Debug, Serialize)]

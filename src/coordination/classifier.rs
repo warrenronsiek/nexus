@@ -310,7 +310,11 @@ fn canonical_claim_path(path: &str, project_root: Option<&str>) -> String {
     } else {
         path.to_path_buf()
     };
-    normalize_path(&joined.to_string_lossy())
+    let normalized = PathBuf::from(normalize_path(&joined.to_string_lossy()));
+    project_root
+        .and_then(|root| normalized.strip_prefix(Path::new(root)).ok())
+        .map(|relative| normalize_path(&relative.to_string_lossy()))
+        .unwrap_or_else(|| normalized.to_string_lossy().into_owned())
 }
 
 fn normalize_path(path: &str) -> String {
@@ -407,7 +411,7 @@ mod tests {
         assert_eq!(
             result,
             vec![PathIntent {
-                path: "/repo/src/a.rs".into(),
+                path: "src/a.rs".into(),
                 operation: Operation::Write,
                 line_start: Some(10),
                 line_end: Some(12)
@@ -419,7 +423,7 @@ mod tests {
     fn extracts_codex_apply_patch_command_shape() {
         let value = json!({"command": "*** Begin Patch\n*** Update File: src/a.rs\n@@ -2,1 +2,1 @@\n-old\n+new\n*** End Patch"});
         let result = extract_path_intents("apply_patch", &value.into(), Some("/repo"));
-        assert_eq!(result[0].path, "/repo/src/a.rs");
+        assert_eq!(result[0].path, "src/a.rs");
         assert_eq!(result[0].line_start, Some(2));
     }
 
@@ -431,6 +435,6 @@ mod tests {
             Some("/repo"),
         );
         assert_eq!(result[0].operation, Operation::Delete);
-        assert_eq!(result[0].path, "/repo/src/a.rs");
+        assert_eq!(result[0].path, "src/a.rs");
     }
 }

@@ -17,5 +17,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
       - run: python3 -m pip install big-code-analysis-cli==2.2.0
       - run: ./scripts/check.sh

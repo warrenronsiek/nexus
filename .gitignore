@@ -1,4 +1,6 @@
 /target/
+/ui/elm-stuff/
+/ui/node_modules/
 __pycache__/
 *.pyc
 *.db

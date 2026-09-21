@@ -44,6 +44,6 @@ flowchart TD
 
 ## Implementation details
 
-`src/config.rs` owns defaults, merge precedence, environment handling, validation, project-file discovery, and hashing. The temporary `toml::Value` exists only inside this annotated configuration boundary; typed structs are used everywhere after loading.
+`src/config.rs` owns defaults, merge precedence, environment handling, validation, project-file discovery, and hashing. The temporary `toml::Value` exists only inside this annotated configuration boundary; typed structs are used everywhere after loading. UI configuration is also typed: its bind address must parse as a loopback `SocketAddr`, and its refresh and record-window limits must be positive.
 
 All configuration structs reject unknown fields. `ModelProvider` is an enum, and analyst and commit-review settings each select provider-specific command and model records. Review configuration also owns enablement, timeout, and an optional installed-skill root. Its built-in provider records use `xhigh` reasoning and a 600-second timeout; user properties can override either choice. Tests verify merge precedence, defaults, selected model values, cross-model validation, unknown-property rejection, and invalid numeric values. `config.example.toml` is annotated and should remain synchronized with the typed schema.

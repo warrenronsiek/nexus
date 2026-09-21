@@ -4,6 +4,7 @@
 // @boundary dynamic-config
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,7 @@ pub struct Config {
     pub review: ReviewConfig,
     pub storage: StorageConfig,
     pub runtime: RuntimeConfig,
+    pub ui: UiConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +86,16 @@ pub struct RuntimeConfig {
     pub lock_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UiConfig {
+    pub enabled: bool,
+    pub bind_address: SocketAddr,
+    pub refresh_interval_ms: u64,
+    pub recent_event_limit: usize,
+    pub recent_record_limit: usize,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -94,6 +106,7 @@ impl Default for Config {
             review: ReviewConfig::default(),
             storage: StorageConfig::default(),
             runtime: RuntimeConfig::default(),
+            ui: UiConfig::default(),
         }
     }
 }
@@ -186,6 +199,18 @@ impl Default for RuntimeConfig {
     }
 }
 
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7337),
+            refresh_interval_ms: 2_000,
+            recent_event_limit: 500,
+            recent_record_limit: 100,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LoadedConfig {
     pub config: Config,
@@ -251,6 +276,18 @@ impl Config {
         }
         if self.review.implementation_provider == self.review.provider {
             bail!("review.provider must differ from review.implementation_provider");
+        }
+        if !self.ui.bind_address.ip().is_loopback() {
+            bail!("ui.bind_address must use a loopback address");
+        }
+        if self.ui.refresh_interval_ms == 0 {
+            bail!("ui.refresh_interval_ms must be positive");
+        }
+        if self.ui.recent_event_limit == 0 {
+            bail!("ui.recent_event_limit must be positive");
+        }
+        if self.ui.recent_record_limit == 0 {
+            bail!("ui.recent_record_limit must be positive");
         }
         Ok(())
     }

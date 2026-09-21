@@ -36,7 +36,10 @@ nexus status
 nexus sessions
 nexus claims
 nexus conflicts
+nexus ui
 ```
+
+`nexus ui` opens a local, read-only operations dashboard with machine-wide activity, repository filtering, conflict/session/claim panels, a one-hour activity chart, and progressively disclosed record details. Use `nexus ui --launch print` to start it and print the URL without opening a browser. The dashboard is optional: a UI bind or browser-launch failure never stops Unix-socket coordination.
 
 The MCP stdio server starts the daemon automatically when needed:
 
@@ -84,6 +87,8 @@ nexus config show
 
 Agent autonomy is not a configurable property. There is intentionally no enforcement or blocking mode.
 
+The `[ui]` properties select dashboard enablement, the loopback bind address, polling interval, and bounded event/record windows. Nexus rejects non-loopback addresses and zero limits; remote access and authentication are intentionally out of scope.
+
 ## Optional conflict analyst
 
 The deterministic classifier is always the source of conflict severity. An optional analyst can add a summary and suggested resolutions using an existing local Codex or Claude installation:
@@ -124,7 +129,9 @@ The source tree follows capability boundaries rather than a flat layer list:
 - `coordination/` owns the typed service API, domain states, classification, and workspace observation.
 - `persistence/` owns Diesel models, schema, migrations, and projection queries.
 - `runtime/` owns the Unix-socket daemon and MCP protocol adapters.
+- `runtime/web.rs` owns the read-only local HTTP adapter and embedded frontend.
 - `agents/` owns optional analyst processes and host integration generation.
+- `ui/` owns the Elm application and the narrow typed D3 adapter; compiled `ui/dist` assets are tracked and embedded in the Rust binary.
 
 JSON is decoded at runtime boundaries into the closed `ServiceRequest` enum. Open-ended tool input remains isolated in the named `ToolPayload` boundary type; coordination and persistence APIs use explicit records and enums. Behavioral choices such as record scope, conflict scope, completion state, and release target are enums rather than boolean arguments.
 
@@ -170,6 +177,8 @@ Install the pinned complexity analyzer, then run the same validation entry point
 uv tool install big-code-analysis-cli==2.2.0
 ./scripts/check.sh
 ```
+
+UI development also requires Node 24 and uses the locked `ui/package-lock.json`; `scripts/check.sh` installs that tree, runs Elm and TypeScript tests, type-checks, and verifies the committed bundle is reproducible.
 
 If `uv` is unavailable, `python3 -m pip install big-code-analysis-cli==2.2.0` installs the same pinned CLI.
 

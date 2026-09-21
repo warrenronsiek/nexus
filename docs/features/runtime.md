@@ -6,7 +6,7 @@ feature: runtime
 
 ## What this feature does
 
-Runtime connects agent hosts and people to the coordination core. It provides the command-line interface, a local Unix-socket daemon, an MCP stdio server, MCP resources, and generated hook configuration for Codex and Claude.
+Runtime connects agent hosts and people to the coordination core. It provides the command-line interface, a local Unix-socket daemon, an MCP stdio server, a loopback read-only HTTP adapter, MCP resources, and generated hook configuration for Codex and Claude.
 
 ## Why it exists
 
@@ -61,5 +61,7 @@ flowchart TD
 `src/runtime/mcp.rs` is the MCP entry point and tool catalog. `hooks.rs` decodes the host's session-end stdin and releases the session without writing hook output. `daemon.rs` owns socket lifecycle, one-daemon locking, typed request dispatch, background Git reconciliation ticks, and `lifecycle_request`, the single bounded fail-open path used by both MCP lifecycle tools and the session-end command hook. `src/main.rs` owns command parsing and maps CLI flags such as `--all` to explicit domain scopes before making a request.
 
 `src/agents/integration.rs` generates registration commands and host hook fragments. Host-specific differences remain data and small enum dispatches: Claude exposes a distinct tool-failure event. Both hosts use MCP tool hooks while their MCP client exists and an absolute-path command hook for `SessionEnd`, which cannot use MCP. Neither receives a blocking decision from Nexus.
+
+`src/runtime/web.rs` is the optional observability adapter described in the observability-ui specification. It shares `NexusService` with the Unix listener, serves only embedded assets and typed read requests, and treats bind failure as a warning. `nexus ui` ensures the daemon exists and performs a bounded HTTP readiness check; browser launch remains a best-effort convenience.
 
 The runtime boundary intentionally handles `serde_json::Value`, because JSON-RPC and MCP are open wire protocols. That dynamic data is annotated as a boundary and decoded into typed requests before service execution. Process-level tests launch the real daemon and MCP binaries, verify auto-start and fail-open behavior, and inspect the resulting database state.

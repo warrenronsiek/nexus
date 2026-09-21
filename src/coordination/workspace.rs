@@ -76,10 +76,7 @@ pub(super) fn changed_paths(worktree: &str) -> Vec<PathIntent> {
             Operation::Write
         };
         intents.push(PathIntent {
-            path: PathBuf::from(worktree)
-                .join(path)
-                .to_string_lossy()
-                .into_owned(),
+            path,
             operation,
             line_start: None,
             line_end: None,

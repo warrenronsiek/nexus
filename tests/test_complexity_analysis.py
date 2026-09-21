@@ -65,6 +65,29 @@ class ComplexityAnalysisTests(unittest.TestCase):
             selected = analysis.select_paths(root, "demo", None)
             self.assertEqual(selected, [root / "demo.rs"])
 
+    def test_feature_scope_includes_authored_typescript(self) -> None:
+        analysis = load_complexity_analysis()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "docs" / "features").mkdir(parents=True)
+            (root / "docs" / "features" / "ui.md").write_text(
+                "---\nfeature: ui\n---\n# UI\n", encoding="utf-8"
+            )
+            source = root / "ui" / "src" / "chart.ts"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "// @feature ui\n"
+                "// @spec docs/features/ui.md\n"
+                "export function render(): void {}\n",
+                encoding="utf-8",
+            )
+            generated = root / "ui" / "dist" / "app.js"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("function bundled() {}\n", encoding="utf-8")
+
+            selected = analysis.select_paths(root, "ui", None)
+            self.assertEqual(selected, [source])
+
     def test_unit_preserves_bca_metrics_and_adds_declarations(self) -> None:
         analysis = load_complexity_analysis()
         with tempfile.TemporaryDirectory() as directory:
@@ -90,6 +113,18 @@ class ComplexityAnalysisTests(unittest.TestCase):
             self.assertEqual(units[0].declarations, 1)
             self.assertEqual(units[0].metrics, raw_metrics)
             self.assertEqual(units[0].architectural_load, 13.0)
+
+    def test_typescript_declarations_are_counted_explicitly(self) -> None:
+        analysis = load_complexity_analysis()
+        source = Path("chart.ts")
+        lines = [
+            "export interface Bucket { count: number }",
+            "export type Renderer = (bucket: Bucket) => void;",
+            "const colors = {};",
+            "export function render(bucket: Bucket): void {}",
+        ]
+
+        self.assertEqual(analysis.declaration_count(source, lines, 1, 4), 4)
 
 
 if __name__ == "__main__":

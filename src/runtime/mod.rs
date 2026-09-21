@@ -3,3 +3,4 @@
 pub mod daemon;
 pub mod hooks;
 pub mod mcp;
+pub mod web;

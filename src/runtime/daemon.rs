@@ -6,6 +6,7 @@ use crate::config::LoadedConfig;
 use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::domain::HookResponse;
 use crate::coordination::NexusService;
+use crate::runtime::web;
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,9 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     }
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind {}", socket_path.display()))?;
+    let ui_config = loaded.config.ui.clone();
     let service = Arc::new(NexusService::new(loaded)?);
+    let ui = web::spawn(&ui_config, service.clone()).await;
     let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds));
     reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -66,6 +69,9 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
         }
     }
     let _ = std::fs::remove_file(&socket_path);
+    if let Some(ui) = ui {
+        ui.abort();
+    }
     drop(lock);
     Ok(())
 }

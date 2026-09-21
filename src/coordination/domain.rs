@@ -321,3 +321,34 @@ pub struct StatusCounts {
     pub open_conflicts: i64,
     pub events: i64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordWindow<T> {
+    pub items: Vec<T>,
+    pub truncated: bool,
+}
+
+impl<T> RecordWindow<T> {
+    pub(crate) fn bounded(mut items: Vec<T>, maximum: usize) -> Self {
+        let truncated = items.len() > maximum;
+        items.truncate(maximum);
+        Self { items, truncated }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectSummary {
+    pub project_id: String,
+    pub worktrees: Vec<String>,
+    pub agents: Vec<String>,
+    pub last_seen_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DashboardRecords {
+    pub counts: StatusCounts,
+    pub events: RecordWindow<EventRecord>,
+    pub sessions: RecordWindow<SessionRecord>,
+    pub claims: RecordWindow<Claim>,
+    pub conflicts: RecordWindow<ConflictRecord>,
+}

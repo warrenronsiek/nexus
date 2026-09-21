@@ -21,7 +21,7 @@ from typing import Mapping, Sequence
 
 import feature_map
 
-ANALYZABLE_SUFFIXES = {".py", ".rs"}
+ANALYZABLE_SUFFIXES = {".js", ".jsx", ".mjs", ".py", ".rs", ".ts", ".tsx"}
 BCA_METRICS = "cognitive,cyclomatic,lloc,nargs,nexits,nom,tokens,halstead,mi,abc"
 RANKING_FORMULA = (
     "LLOC + 3*arguments + 8*declarations + "
@@ -291,6 +291,11 @@ def declaration_count(path: Path, lines: Sequence[str], start: int, end: int) ->
             r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?"
             r"(?:let|const|static|struct|enum|trait|type)\b"
         )
+    elif path.suffix in {".js", ".jsx", ".mjs", ".ts", ".tsx"}:
+        pattern = re.compile(
+            r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?"
+            r"(?:function|class|interface|type|enum|const|let|var)\b"
+        )
     else:
         pattern = re.compile(
             r"(?m)^\s*(?:async\s+def|def|class)\s+|"
@@ -532,7 +537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         policy = load_policy(root)
         paths = select_paths(root, arguments.feature, arguments.path)
         if not paths:
-            raise AnalysisError("the selected scope has no Rust or Python source files")
+            raise AnalysisError("the selected scope has no BCA-analyzable source files")
         units = collect_units(root, run_bca_metrics(root, paths), policy.ranking)
         if arguments.symbol is not None:
             units = [unit for unit in units if unit.name == arguments.symbol]
