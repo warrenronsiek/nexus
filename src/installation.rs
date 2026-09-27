@@ -70,7 +70,7 @@ pub fn setup_machine(executable: &Path) -> Result<MachineSetupReport> {
     ] {
         if host_available(host) {
             register_mcp(host, executable)?;
-            merge_hooks(&settings, hook_configuration(host))?;
+            merge_hooks(&settings, hook_configuration(host, executable))?;
             hosts.push(host.name().to_owned());
         }
     }
@@ -214,7 +214,7 @@ fn merge_hooks(path: &Path, generated: Value) -> Result<()> {
             .or_insert_with(|| Value::Array(Vec::new()))
             .as_array_mut()
             .with_context(|| format!("hook event {event} must be an array"))?;
-        entries.retain(|entry| !contains_nexus_server(entry));
+        entries.retain(|entry| !contains_nexus_hook(entry));
         entries.extend(
             generated_entries
                 .as_array()
@@ -230,13 +230,17 @@ fn merge_hooks(path: &Path, generated: Value) -> Result<()> {
         .with_context(|| format!("write {}", path.display()))
 }
 
-fn contains_nexus_server(value: &Value) -> bool {
+fn contains_nexus_hook(value: &Value) -> bool {
     match value {
         Value::Object(object) => {
             object.get("server").and_then(Value::as_str) == Some("nexus")
-                || object.values().any(contains_nexus_server)
+                || object
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .is_some_and(|command| command.contains(" hook-session-end --agent "))
+                || object.values().any(contains_nexus_hook)
         }
-        Value::Array(values) => values.iter().any(contains_nexus_server),
+        Value::Array(values) => values.iter().any(contains_nexus_hook),
         _ => false,
     }
 }

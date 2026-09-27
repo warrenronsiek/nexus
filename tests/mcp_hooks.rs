@@ -173,6 +173,78 @@ impl Drop for Harness {
 }
 
 #[test]
+fn post_tool_use_returns_hook_compatible_text_and_structured_coordination_data() {
+    let mut harness = Harness::start();
+    let root = harness.root.to_string_lossy().to_string();
+    let arguments = json!({
+        "session_id":"codex-hook-output",
+        "project_root":root,
+        "agent":"codex",
+        "tool_use_id":"tool-output-1",
+        "tool_name":"Write",
+        "tool_input":{"file_path":"src/lib.rs"}
+    });
+    harness.call("nexus_pre_tool_use", arguments.clone());
+
+    let response = harness.request(
+        "tools/call",
+        json!({"name":"nexus_post_tool_use","arguments":arguments}),
+    );
+    let result = &response["result"];
+
+    assert_eq!(result["content"][0]["text"], "{}");
+    assert_eq!(result["structuredContent"]["permitted"], true);
+    assert_eq!(result["structuredContent"]["recorded"], true);
+}
+
+#[test]
+fn session_end_command_hook_releases_claims_without_hook_output() {
+    let mut harness = Harness::start();
+    let root = harness.root.to_string_lossy().to_string();
+    harness.hook(
+        "nexus_pre_tool_use",
+        "codex-session-end",
+        "tool-session-end",
+        "Write",
+        json!({"file_path":"src/lib.rs"}),
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nexus"))
+        .args([
+            "--config",
+            harness._temp.path().join("config.toml").to_str().unwrap(),
+        ])
+        .args(["hook-session-end", "--agent", "codex"])
+        .current_dir(&harness.root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"session_id":"codex-session-end","cwd":root})
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+    let mut store = harness.store();
+    let claims = store.list_claims(None, RecordScope::All).unwrap();
+    assert!(claims.iter().any(|claim| {
+        claim.session_id == "codex-session-end" && claim.state == ClaimState::Released
+    }));
+}
+
+#[test]
 fn mcp_lifecycle_classifies_conflicts_and_persists_projections() {
     let mut harness = Harness::start();
 

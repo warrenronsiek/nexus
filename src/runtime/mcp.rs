@@ -81,40 +81,56 @@ async fn tool_call(
         }
         Err(error) => json!({"ok":false,"error":error.to_string()}),
     };
-    if method == "pre_tool_use" {
-        if let Some(items) = result.get("advisories").and_then(Value::as_array) {
-            if !items.is_empty() {
-                let context = items
-                    .iter()
-                    .map(|item| {
-                        format!(
-                            "[{}] {} (session {})",
-                            item.get("severity")
-                                .and_then(Value::as_str)
-                                .unwrap_or("warning"),
-                            item.get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("overlapping work detected"),
-                            item.get("other_session_id")
-                                .and_then(Value::as_str)
-                                .unwrap_or("unknown")
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if let Some(object) = result.as_object_mut() {
-                    object.insert(
-                        "hookSpecificOutput".into(),
-                        json!({
-                            "hookEventName":"PreToolUse",
-                            "additionalContext":format!("Nexus coordination advisories (informational only; you remain responsible for proceeding):\n{context}")
-                        }),
-                    );
-                }
-            }
-        }
+    add_pre_tool_context(method, &mut result);
+    let text = hook_text(method, &result);
+    json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&text).unwrap()}],"structuredContent":result,"isError":false}})
+}
+
+fn add_pre_tool_context(method: &str, result: &mut Value) {
+    if method != "pre_tool_use" {
+        return;
     }
-    json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&result).unwrap()}],"structuredContent":result,"isError":false}})
+    let Some(items) = result.get("advisories").and_then(Value::as_array) else {
+        return;
+    };
+    if items.is_empty() {
+        return;
+    }
+    let context = items
+        .iter()
+        .map(|item| {
+            format!(
+                "[{}] {} (session {})",
+                item.get("severity")
+                    .and_then(Value::as_str)
+                    .unwrap_or("warning"),
+                item.get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("overlapping work detected"),
+                item.get("other_session_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    result.as_object_mut().unwrap().insert(
+        "hookSpecificOutput".into(),
+        json!({
+            "hookEventName":"PreToolUse",
+            "additionalContext":format!("Nexus coordination advisories (informational only; you remain responsible for proceeding):\n{context}")
+        }),
+    );
+}
+
+fn hook_text(method: &str, result: &Value) -> Value {
+    if !ServiceRequest::is_lifecycle_method(method) {
+        return result.clone();
+    }
+    result
+        .get("hookSpecificOutput")
+        .map(|output| json!({"hookSpecificOutput":output}))
+        .unwrap_or_else(|| json!({}))
 }
 
 async fn resource_read(

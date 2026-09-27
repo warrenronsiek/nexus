@@ -31,23 +31,7 @@ fn machine_setup_and_repository_install_are_complete_commands() {
             .unwrap();
         assert_success(&setup);
     }
-    assert!(codex_home.join("skills/code-architect/SKILL.md").is_file());
-    assert!(codex_home.join("skills/code-deletion/SKILL.md").is_file());
-    assert!(codex_home.join("skills/tdd/SKILL.md").is_file());
-    let codex_hooks = settings(&codex_home.join("hooks.json"));
-    assert_eq!(codex_hooks["theme"], "user-choice");
-    assert!(serde_json::to_string(&codex_hooks)
-        .unwrap()
-        .contains("keep-me"));
-    assert_eq!(count_server(&codex_hooks, "nexus"), 3);
-    assert_hook(&codex_hooks, "nexus_pre_tool_use");
-    assert_hook(
-        &settings(&home.join(".claude/settings.json")),
-        "nexus_session_stop",
-    );
-    let registrations = fs::read_to_string(&host_log).unwrap();
-    assert!(registrations.contains("codex mcp add nexus"));
-    assert!(registrations.contains("claude mcp add --transport stdio --scope user nexus"));
+    assert_machine_setup(&home, &codex_home, &host_log);
 
     let repository = temporary.path().join("repository");
     run(Command::new("git").args(["init", repository.to_str().unwrap()]));
@@ -64,6 +48,24 @@ fn machine_setup_and_repository_install_are_complete_commands() {
     let report: Value = serde_json::from_slice(&install.stdout).unwrap();
     assert_eq!(report["mode"], "advisory_only");
     assert_eq!(report["database"], "ready");
+}
+
+fn assert_machine_setup(home: &Path, codex_home: &Path, host_log: &Path) {
+    assert!(codex_home.join("skills/code-architect/SKILL.md").is_file());
+    assert!(codex_home.join("skills/code-deletion/SKILL.md").is_file());
+    assert!(codex_home.join("skills/tdd/SKILL.md").is_file());
+    let codex_hooks = settings(&codex_home.join("hooks.json"));
+    assert_eq!(codex_hooks["theme"], "user-choice");
+    assert!(serde_json::to_string(&codex_hooks)
+        .unwrap()
+        .contains("keep-me"));
+    assert_eq!(count_server(&codex_hooks, "nexus"), 3);
+    assert_hook(&codex_hooks, "nexus_pre_tool_use");
+    assert_session_end_hook(&codex_hooks, "codex");
+    assert_session_end_hook(&settings(&home.join(".claude/settings.json")), "claude");
+    let registrations = fs::read_to_string(host_log).unwrap();
+    assert!(registrations.contains("codex mcp add nexus"));
+    assert!(registrations.contains("claude mcp add --transport stdio --scope user nexus"));
 }
 
 fn nexus_command(
@@ -103,6 +105,13 @@ fn settings(path: &Path) -> Value {
 
 fn assert_hook(settings: &Value, tool: &str) {
     assert!(serde_json::to_string(settings).unwrap().contains(tool));
+}
+
+fn assert_session_end_hook(settings: &Value, agent: &str) {
+    let command = format!("hook-session-end --agent {agent}");
+    let serialized = serde_json::to_string(settings).unwrap();
+    assert!(serialized.contains(&command));
+    assert_eq!(serialized.matches(&command).count(), 1);
 }
 
 fn count_server(value: &Value, server: &str) -> usize {

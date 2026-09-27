@@ -61,7 +61,7 @@ nexus integrate codex
 nexus integrate claude
 ```
 
-The output includes the host's MCP registration command and a `settings_fragment` to merge into its hooks file. Nexus hooks cover user prompts, pre-tool inspection, successful tool completion, and—where supported—tool failure and session end.
+The output includes the host's MCP registration command and a `settings_fragment` to merge into its hooks file. Nexus uses MCP hooks for user prompts, pre-tool inspection, successful tool completion, and Claude tool failures. Both hosts use a command hook for session end because MCP context is unavailable during teardown.
 
 ## Configuration
 

@@ -13,9 +13,9 @@ use nexus::coordination::api::{
 };
 use nexus::coordination::domain::{ConflictScope, RecordScope};
 use nexus::installation;
-use nexus::runtime::{daemon, mcp};
-use nexus::Config;
-use std::path::PathBuf;
+use nexus::runtime::{daemon, hooks, mcp};
+use nexus::{Config, LoadedConfig};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -41,6 +41,12 @@ enum Command {
     Daemon,
     /// Run the MCP server over stdio, starting the daemon when necessary.
     Mcp,
+    /// Receive a host SessionEnd hook over stdin and release its claims.
+    #[command(hide = true)]
+    HookSessionEnd {
+        #[arg(long)]
+        agent: String,
+    },
     /// Show daemon status and projection counts.
     Status,
     /// Show recent events.
@@ -115,7 +121,8 @@ enum IntegrationHost {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let root = std::env::current_dir()?;
-    let loaded = Config::load(cli.config.as_deref(), Some(&root))?;
+    let explicit_config = cli.config;
+    let loaded = Config::load(explicit_config.as_deref(), Some(&root))?;
     match cli.command {
         Command::Setup => {
             let report = installation::setup_machine(&std::env::current_exe()?)?;
@@ -123,12 +130,27 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Install => {
-            let report = installation::install_repository(&root, cli.config.as_deref())?;
+            let report = installation::install_repository(&root, explicit_config.as_deref())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
         Command::Daemon => daemon::serve(loaded).await,
-        Command::Mcp => mcp::serve_stdio(loaded, cli.config.as_deref()).await,
+        Command::Mcp => mcp::serve_stdio(loaded, explicit_config.as_deref()).await,
+        Command::HookSessionEnd { agent } => {
+            hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
+            Ok(())
+        }
+        query @ (Command::Status
+        | Command::Events { .. }
+        | Command::Sessions { .. }
+        | Command::Claims { .. }
+        | Command::Conflicts { .. }) => run_query_command(query, &loaded).await,
+        command => run_admin_command(command, &root, &loaded).await,
+    }
+}
+
+async fn run_query_command(command: Command, loaded: &LoadedConfig) -> Result<()> {
+    match command {
         Command::Status => {
             let result =
                 daemon::request(&loaded.config.runtime.socket_path, &ServiceRequest::Status)
@@ -149,7 +171,7 @@ async fn main() -> Result<()> {
         }
         Command::Sessions { all } => {
             request_and_print(
-                &loaded,
+                loaded,
                 ServiceRequest::Sessions(SessionQuery {
                     scope: if all {
                         RecordScope::All
@@ -162,7 +184,7 @@ async fn main() -> Result<()> {
         }
         Command::Claims { project_id, all } => {
             request_and_print(
-                &loaded,
+                loaded,
                 ServiceRequest::Claims(ClaimQuery {
                     project_id,
                     scope: if all {
@@ -176,7 +198,7 @@ async fn main() -> Result<()> {
         }
         Command::Conflicts { project_id, all } => {
             request_and_print(
-                &loaded,
+                loaded,
                 ServiceRequest::Conflicts(ConflictQuery {
                     project_id,
                     scope: if all {
@@ -188,12 +210,18 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        _ => unreachable!("non-query command handled by main"),
+    }
+}
+
+async fn run_admin_command(command: Command, root: &Path, loaded: &LoadedConfig) -> Result<()> {
+    match command {
         Command::Resolve {
             conflict_id,
             resolution,
         } => {
             request_and_print(
-                &loaded,
+                loaded,
                 ServiceRequest::Resolve(ResolveCommand {
                     conflict_id,
                     resolution,
@@ -203,20 +231,20 @@ async fn main() -> Result<()> {
         }
         Command::Release { session_id, path } => {
             request_and_print(
-                &loaded,
+                loaded,
                 ServiceRequest::Release(ReleaseCommand { session_id, path }),
             )
             .await
         }
         Command::Analyze { conflict_id } => {
             request_and_print(
-                &loaded,
+                loaded,
                 ServiceRequest::Analyze(AnalyzeCommand { conflict_id }),
             )
             .await
         }
         Command::ReviewCommit => {
-            let report = reviewer::review_staged_commit(&loaded.config.review, &root)?;
+            let report = reviewer::review_staged_commit(&loaded.config.review, root)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
@@ -250,6 +278,7 @@ async fn main() -> Result<()> {
             );
             Ok(())
         }
+        _ => unreachable!("non-administrative command handled by main"),
     }
 }
 

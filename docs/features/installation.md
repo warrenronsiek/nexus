@@ -38,7 +38,7 @@ flowchart TD
 4. **Install bundled skills** places the exact architecture, deletion, and TDD policies where Nexus and supported agents can discover them.
 5. **Detect Codex and Claude** configures only hosts whose commands are executable.
 6. **Register Nexus MCP server** replaces the named `nexus` registration with the installed executable path.
-7. **Merge lifecycle hooks** removes earlier Nexus entries and appends the current generated entries while retaining unrelated settings and hooks.
+7. **Merge lifecycle hooks** removes earlier Nexus entries and appends the current generated entries while retaining unrelated settings and hooks. Per-turn events use the registered MCP server; session teardown uses the installed executable as a command hook because hosts no longer expose MCP context then.
 8. **Initialize SQLite and migrations** opens the configured store, which applies every unseen embedded Flyway migration.
 9. **nexus install in repository** is the one repository-local command.
 10. **Resolve Git common directory** gives all worktrees one configuration and project identity.

@@ -21,8 +21,8 @@ impl Host {
 }
 
 pub fn instructions(host: Host, executable: &Path) -> Value {
-    let executable = executable.to_string_lossy();
-    let quoted = shell_words::quote(&executable);
+    let executable_text = executable.to_string_lossy();
+    let quoted = shell_words::quote(&executable_text);
     let registration_command = match host {
         Host::Codex => format!("codex mcp add nexus -- {quoted} mcp"),
         Host::Claude => {
@@ -37,13 +37,15 @@ pub fn instructions(host: Host, executable: &Path) -> Value {
         "host":host.name(),
         "registration_command":registration_command,
         "hooks_file":settings_path,
-        "settings_fragment":hook_configuration(host),
+        "settings_fragment":hook_configuration(host, executable),
         "note":"Merge the hooks object with existing settings. Every Nexus hook is advisory and returns no blocking decision."
     })
 }
 
-pub fn hook_configuration(host: Host) -> Value {
+pub fn hook_configuration(host: Host, executable: &Path) -> Value {
     let agent = host.name();
+    let executable_text = executable.to_string_lossy();
+    let executable = shell_words::quote(&executable_text);
     let common = |tool: &str, fields: Value| {
         json!({
             "type":"mcp_tool",
@@ -86,6 +88,15 @@ pub fn hook_configuration(host: Host) -> Value {
         "PostToolUse".into(),
         json!([{"matcher":"*","hooks":[post_tool]}]),
     );
+    hooks.insert(
+        "SessionEnd".into(),
+        json!([{"hooks":[{
+            "type":"command",
+            "command":format!("{executable} hook-session-end --agent {agent}"),
+            "timeout":3,
+            "statusMessage":"Releasing coordination claims"
+        }]}]),
+    );
 
     if host == Host::Claude {
         let failure = common(
@@ -96,15 +107,10 @@ pub fn hook_configuration(host: Host) -> Value {
                 "error":"${error}"
             }),
         );
-        let stop = common(
-            "nexus_session_stop",
-            json!({"session_id":"${session_id}","project_root":"${cwd}","agent":agent}),
-        );
         hooks.insert(
             "PostToolUseFailure".into(),
             json!([{"matcher":"*","hooks":[failure]}]),
         );
-        hooks.insert("SessionEnd".into(), json!([{"hooks":[stop]}]));
     }
     json!({"hooks":hooks})
 }
@@ -116,7 +122,7 @@ mod tests {
     #[test]
     fn generated_hooks_call_nexus_without_decision_fields() {
         for host in [Host::Codex, Host::Claude] {
-            let generated = hook_configuration(host);
+            let generated = hook_configuration(host, Path::new("/opt/nexus"));
             let encoded = serde_json::to_string(&generated).unwrap();
             assert!(encoded.contains("nexus_pre_tool_use"));
             assert!(encoded.contains("${tool_input}"));
@@ -126,12 +132,20 @@ mod tests {
     }
 
     #[test]
-    fn claude_includes_failure_and_session_end_hooks() {
-        let generated = hook_configuration(Host::Claude);
-        assert!(generated["hooks"]["PostToolUseFailure"].is_array());
-        assert!(generated["hooks"]["SessionEnd"].is_array());
-        assert!(hook_configuration(Host::Codex)["hooks"]
-            .get("SessionEnd")
-            .is_none());
+    fn all_hosts_use_command_hooks_for_session_end() {
+        for host in [Host::Codex, Host::Claude] {
+            let generated = hook_configuration(host, Path::new("/opt/nexus"));
+            let hook = &generated["hooks"]["SessionEnd"][0]["hooks"][0];
+            assert_eq!(hook["type"], "command");
+            assert!(hook["command"]
+                .as_str()
+                .unwrap()
+                .contains("hook-session-end"));
+        }
+        assert!(
+            hook_configuration(Host::Claude, Path::new("/opt/nexus"))["hooks"]
+                ["PostToolUseFailure"]
+                .is_array()
+        );
     }
 }
