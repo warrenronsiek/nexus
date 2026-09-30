@@ -380,10 +380,15 @@ impl Store {
         })
     }
 
-    pub(crate) fn active_sessions(&mut self) -> Result<Vec<SessionRecord>> {
+    pub(crate) fn reconcilable_sessions(
+        &mut self,
+        activity_window_seconds: i64,
+    ) -> Result<Vec<SessionRecord>> {
+        let cutoff = (Utc::now() - Duration::seconds(activity_window_seconds)).to_rfc3339();
         sessions::table
             .filter(sessions::status.eq("active"))
             .filter(sessions::worktree.is_not_null())
+            .filter(sessions::last_seen_at.gt(cutoff))
             .select(SessionRow::as_select())
             .load::<SessionRow>(&mut self.connection)?
             .into_iter()
@@ -480,29 +485,76 @@ impl Store {
         intents: &[PathIntent],
         ttl_seconds: i64,
     ) -> Result<()> {
+        let mut newly_observed = Vec::new();
         for intent in intents {
-            let tool_key = format!(
-                "git-reconcile:{}",
-                blake3::hash(intent.path.as_bytes()).to_hex()
-            );
-            self.insert_claim(
-                &session.project_id,
-                &session.session_id,
-                &tool_key,
-                intent,
-                ttl_seconds,
-            )?;
+            if self.refresh_reconciled_claim(session, intent, ttl_seconds)? {
+                newly_observed.push(intent);
+            }
         }
-        if !intents.is_empty() {
+        if !newly_observed.is_empty() {
             append_event(
                 &mut self.connection,
                 &session.project_id,
                 Some(&session.session_id),
                 "git_reconciled",
-                json!({"changed_paths":intents}),
+                json!({"changed_paths":newly_observed}),
             )?;
         }
         Ok(())
+    }
+
+    fn refresh_reconciled_claim(
+        &mut self,
+        session: &SessionRecord,
+        intent: &PathIntent,
+        ttl_seconds: i64,
+    ) -> Result<bool> {
+        let tool_key = format!(
+            "git-reconcile:{}",
+            blake3::hash(intent.path.as_bytes()).to_hex()
+        );
+        let existing = self.reconciled_claim(session, intent, &tool_key)?;
+        let now = Utc::now();
+        let is_active = existing.as_ref().is_some_and(|claim| {
+            matches!(claim.state.as_str(), "claimed" | "modified")
+                && parse_time(&claim.expires_at).is_ok_and(|expires| expires > now)
+        });
+        if let Some(claim) = existing.filter(|_| is_active) {
+            diesel::update(claims::table.filter(claims::id.eq(claim.id)))
+                .set((
+                    claims::expires_at.eq((now + Duration::seconds(ttl_seconds)).to_rfc3339()),
+                    claims::updated_at.eq(now.to_rfc3339()),
+                ))
+                .execute(&mut self.connection)?;
+            return Ok(false);
+        }
+        self.insert_claim(
+            &session.project_id,
+            &session.session_id,
+            &tool_key,
+            intent,
+            ttl_seconds,
+        )?;
+        Ok(true)
+    }
+
+    fn reconciled_claim(
+        &mut self,
+        session: &SessionRecord,
+        intent: &PathIntent,
+        tool_key: &str,
+    ) -> Result<Option<ClaimRow>> {
+        Ok(claims::table
+            .filter(claims::project_id.eq(&session.project_id))
+            .filter(claims::session_id.eq(&session.session_id))
+            .filter(claims::tool_use_id.eq(tool_key))
+            .filter(claims::path.eq(&intent.path))
+            .filter(claims::operation.eq(intent.operation.to_string()))
+            .filter(claims::line_start.eq(encode_line(intent.line_start)))
+            .filter(claims::line_end.eq(encode_line(intent.line_end)))
+            .select(ClaimRow::as_select())
+            .first::<ClaimRow>(&mut self.connection)
+            .optional()?)
     }
 }
 

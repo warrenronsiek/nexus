@@ -152,7 +152,7 @@ value = 6.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::analyze::<anon@L327>"
+qualified = "NexusService::analyze::<anon@L315>"
 metric = "nexits"
 value = 6.0
 
@@ -164,7 +164,7 @@ value = 7.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::pre_tool_use::<anon@L121>"
+qualified = "NexusService::pre_tool_use::<anon@L118>"
 metric = "nexits"
 value = 7.0
 
@@ -283,13 +283,13 @@ metric = "abc"
 value = 50.695167422546305
 
 [[entry]]
-path = "tests/mcp_hooks.rs"
+path = "tests/support/mod.rs"
 qualified = "Harness::start_with_analyst"
 metric = "abc"
 value = 54.85435260760991
 
 [[entry]]
-path = "tests/mcp_hooks.rs"
+path = "tests/support/mod.rs"
 qualified = "Harness::start_with_analyst"
 metric = "halstead.effort"
 value = 54438.69955137801

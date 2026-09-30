@@ -7,170 +7,14 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/analyst.md
 // @boundary dynamic-json
-use nexus::coordination::domain::{ClaimState, RecordScope};
-use nexus::persistence::Store;
-use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+mod support;
+
+use nexus::coordination::domain::{ClaimState, ConflictScope, RecordScope};
+use serde_json::json;
+use std::io::Write;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use tempfile::TempDir;
-
-struct Harness {
-    _temp: TempDir,
-    root: PathBuf,
-    database: PathBuf,
-    daemon: Child,
-    mcp: Child,
-    input: ChildStdin,
-    output: BufReader<ChildStdout>,
-    next_id: u64,
-}
-
-impl Harness {
-    fn start() -> Self {
-        Self::start_with_analyst(None)
-    }
-
-    fn start_with_analyst(analyst_command: Option<&std::path::Path>) -> Self {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("project");
-        std::fs::create_dir_all(&root).unwrap();
-        let state = temp.path().join("state");
-        std::fs::create_dir_all(&state).unwrap();
-        let database = state.join("nexus.db");
-        let socket = state.join("nexus.sock");
-        let lock = state.join("nexus.lock");
-        let config = temp.path().join("config.toml");
-        let analyst_command = analyst_command
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "claude".into());
-        std::fs::write(
-            &config,
-            format!(
-                r#"
-schema_version = 1
-
-[coordination]
-reconcile_seconds = 1
-
-[storage]
-database_path = '{}'
-
-[runtime]
-socket_path = '{}'
-lock_path = '{}'
-
-[analyst]
-enabled = {}
-provider = "claude"
-
-[analyst.claude]
-command = '{}'
-"#,
-                database.display(),
-                socket.display(),
-                lock.display(),
-                analyst_command != "claude",
-                analyst_command
-            ),
-        )
-        .unwrap();
-
-        let executable = env!("CARGO_BIN_EXE_nexus");
-        let daemon = Command::new(executable)
-            .args(["--config", config.to_str().unwrap(), "daemon"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !socket.exists() {
-            assert!(Instant::now() < deadline, "daemon socket did not appear");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        let mut mcp = Command::new(executable)
-            .args(["--config", config.to_str().unwrap(), "mcp"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let input = mcp.stdin.take().unwrap();
-        let output = BufReader::new(mcp.stdout.take().unwrap());
-        Self {
-            _temp: temp,
-            root,
-            database,
-            daemon,
-            mcp,
-            input,
-            output,
-            next_id: 1,
-        }
-    }
-
-    fn request(&mut self, method: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        writeln!(
-            self.input,
-            "{}",
-            json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
-        )
-        .unwrap();
-        self.input.flush().unwrap();
-        let mut line = String::new();
-        self.output.read_line(&mut line).unwrap();
-        let response: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(response["id"], id);
-        response
-    }
-
-    fn call(&mut self, name: &str, arguments: Value) -> Value {
-        self.request("tools/call", json!({"name":name,"arguments":arguments}))["result"]
-            ["structuredContent"]
-            .clone()
-    }
-
-    fn hook(
-        &mut self,
-        name: &str,
-        session: &str,
-        tool_id: &str,
-        tool_name: &str,
-        tool_input: Value,
-    ) -> Value {
-        let root = self.root.to_string_lossy().to_string();
-        self.call(
-            name,
-            json!({
-                "session_id":session,
-                "project_root":root,
-                "agent":if session.starts_with("codex") { "codex" } else { "claude" },
-                "tool_use_id":tool_id,
-                "tool_name":tool_name,
-                "tool_input":tool_input
-            }),
-        )
-    }
-
-    fn store(&self) -> Store {
-        Store::open(&self.database).unwrap()
-    }
-}
-
-impl Drop for Harness {
-    fn drop(&mut self) {
-        let _ = self.mcp.kill();
-        let _ = self.mcp.wait();
-        let _ = self.daemon.kill();
-        let _ = self.daemon.wait();
-    }
-}
+use support::{write_executable, Harness, HOST_HOOK_BUDGET};
 
 #[test]
 fn post_tool_use_returns_hook_compatible_text_and_structured_coordination_data() {
@@ -506,61 +350,48 @@ fn malformed_hook_and_unavailable_daemon_never_deny_execution() {
 #[test]
 fn git_reconciliation_observes_edits_that_bypass_hooks() {
     let mut harness = Harness::start();
-    run_git(&harness.root, &["init"]);
-    run_git(
-        &harness.root,
-        &["config", "user.email", "nexus@example.test"],
-    );
-    run_git(&harness.root, &["config", "user.name", "Nexus Test"]);
-    std::fs::write(harness.root.join("tracked.txt"), "initial\n").unwrap();
-    run_git(&harness.root, &["add", "tracked.txt"]);
-    run_git(&harness.root, &["commit", "-m", "initial"]);
+    harness.initialize_git();
+    harness.observe_dirty_file("observer");
+}
 
-    let root = harness.root.to_string_lossy().to_string();
-    let prompt = harness.call(
-        "nexus_user_prompt",
-        json!({"session_id":"observer","project_root":root,"agent":"codex","prompt":"Edit the tracked file"}),
-    );
-    assert_eq!(prompt["recorded"], true);
-    std::fs::write(harness.root.join("tracked.txt"), "changed outside hooks\n").unwrap();
+#[test]
+fn git_reconciliation_stops_refreshing_an_inactive_session() {
+    let mut harness = Harness::start_with_claim_ttl(1);
+    harness.initialize_git();
+    harness.observe_dirty_file("inactive-observer");
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let mut store = harness.store();
-        let observed = store
-            .list_claims(None, RecordScope::All)
-            .unwrap()
-            .into_iter()
-            .any(|claim| {
-                claim.session_id == "observer"
-                    && claim.tool_use_id.starts_with("git-reconcile:")
-                    && claim.path.ends_with("tracked.txt")
-            });
-        if observed {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "Git reconciliation did not create an advisory claim"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    std::thread::sleep(Duration::from_millis(2_200));
+    let mut store = harness.store();
+    assert_eq!(store.counts().unwrap().active_claims, 0);
+    let event_count = store.counts().unwrap().events;
+    drop(store);
+
+    std::thread::sleep(Duration::from_millis(1_200));
+    assert_eq!(harness.store().counts().unwrap().events, event_count);
+}
+
+#[test]
+fn git_reconciliation_does_not_repeat_unchanged_observations() {
+    let mut harness = Harness::start();
+    harness.initialize_git();
+    harness.observe_dirty_file("steady-observer");
+
+    std::thread::sleep(Duration::from_millis(100));
+    let event_count = harness.store().counts().unwrap().events;
+    std::thread::sleep(Duration::from_millis(1_200));
+    assert_eq!(harness.store().counts().unwrap().events, event_count);
 }
 
 #[test]
 fn configured_analyst_is_called_through_mcp_and_recorded() {
     let analyst_temp = tempfile::tempdir().unwrap();
     let script = analyst_temp.path().join("fake-claude");
-    std::fs::write(
+    write_executable(
         &script,
         "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"result\":\"Use a handoff or accept the overlap.\"}'\n",
-    )
-    .unwrap();
-    let mut permissions = std::fs::metadata(&script).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&script, permissions).unwrap();
+    );
 
-    let mut harness = Harness::start_with_analyst(Some(&script));
+    let mut harness = Harness::start_with_analyst(Some(&script), 120);
     harness.hook(
         "nexus_pre_tool_use",
         "codex-analysis",
@@ -598,17 +429,78 @@ fn configured_analyst_is_called_through_mcp_and_recorded() {
     );
 }
 
-fn run_git(root: &std::path::Path, arguments: &[&str]) {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(arguments)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git {:?} failed: {}",
-        arguments,
-        String::from_utf8_lossy(&output.stderr)
+#[test]
+fn lifecycle_hook_fails_open_within_the_host_budget_when_the_daemon_hangs() {
+    let mut harness = Harness::start();
+    harness.daemon.kill().unwrap();
+    harness.daemon.wait().unwrap();
+    let socket = harness.database.with_file_name("nexus.sock");
+    std::fs::remove_file(&socket).ok();
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        let mut unanswered = Vec::new();
+        for connection in listener.incoming() {
+            unanswered.push(connection);
+        }
+    });
+
+    let arguments = harness.post_tool_arguments("codex-hung-daemon", "t1");
+    let started = Instant::now();
+    let id = harness.send(
+        "tools/call",
+        json!({"name":"nexus_post_tool_use","arguments":arguments}),
     );
+    let (_harness, response) = harness.next_response_within(HOST_HOOK_BUDGET);
+
+    assert_eq!(response["id"], id);
+    assert!(started.elapsed() < HOST_HOOK_BUDGET);
+    assert_eq!(response["result"]["isError"], false);
+    assert_eq!(response["result"]["content"][0]["text"], "{}");
+    let structured = &response["result"]["structuredContent"];
+    assert_eq!(structured["permitted"], true);
+    assert_eq!(structured["recorded"], false);
+    assert!(structured["diagnostic"]
+        .as_str()
+        .unwrap()
+        .contains("did not respond"));
+}
+
+#[test]
+fn slow_explicit_tool_does_not_delay_lifecycle_hooks_on_the_same_connection() {
+    let analyst_temp = tempfile::tempdir().unwrap();
+    let script = analyst_temp.path().join("slow-claude");
+    write_executable(
+        &script,
+        "#!/bin/sh\ncat >/dev/null\nsleep 6\nprintf '%s' '{\"result\":\"late\"}'\n",
+    );
+    let mut harness = Harness::start_with_analyst(Some(&script), 120);
+    for (session, tool_id) in [("codex-slow-a", "slow-1"), ("claude-slow-b", "slow-2")] {
+        harness.hook(
+            "nexus_pre_tool_use",
+            session,
+            tool_id,
+            "Write",
+            json!({"file_path":"src/shared.rs"}),
+        );
+    }
+    let conflict_id = harness
+        .store()
+        .list_conflicts(None, ConflictScope::Open)
+        .unwrap()[0]
+        .id
+        .clone();
+
+    harness.send(
+        "tools/call",
+        json!({"name":"nexus_analyze","arguments":{"conflict_id":conflict_id}}),
+    );
+    let arguments = harness.post_tool_arguments("codex-slow-a", "after-analyze");
+    let hook_id = harness.send(
+        "tools/call",
+        json!({"name":"nexus_post_tool_use","arguments":arguments}),
+    );
+    let (_harness, response) = harness.next_response_within(HOST_HOOK_BUDGET);
+
+    assert_eq!(response["id"], hook_id, "{response}");
+    assert_eq!(response["result"]["structuredContent"]["recorded"], true);
 }

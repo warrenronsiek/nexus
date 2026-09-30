@@ -132,6 +132,20 @@ mod tests {
     }
 
     #[test]
+    fn every_generated_hook_timeout_exceeds_the_lifecycle_response_budget() {
+        let budget = crate::runtime::daemon::LIFECYCLE_RESPONSE_BUDGET.as_secs_f64();
+        for host in [Host::Codex, Host::Claude] {
+            let generated = hook_configuration(host, Path::new("/opt/nexus"));
+            for (event, groups) in generated["hooks"].as_object().unwrap() {
+                for hook in groups[0]["hooks"].as_array().unwrap() {
+                    let timeout = hook["timeout"].as_f64().unwrap();
+                    assert!(timeout > budget, "{event} timeout {timeout}s <= {budget}s");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn all_hosts_use_command_hooks_for_session_end() {
         for host in [Host::Codex, Host::Claude] {
             let generated = hook_configuration(host, Path::new("/opt/nexus"));

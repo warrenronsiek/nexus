@@ -9,50 +9,78 @@ use crate::coordination::domain::HookResponse;
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::Path;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc;
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
+/// Answers each request on its own task. Hosts multiplex hooks from many threads and
+/// parallel tool calls over one connection, so one slow call must not queue the rest past
+/// their host timeouts.
 pub async fn serve_stdio(loaded: LoadedConfig, explicit_config: Option<&Path>) -> Result<()> {
-    let stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
-    let mut lines = BufReader::new(stdin).lines();
+    let loaded = Arc::new(loaded);
+    let explicit_config = explicit_config.map(Path::to_path_buf);
+    let (responses, outgoing) = mpsc::unbounded_channel::<Value>();
+    let writer = tokio::spawn(write_responses(outgoing));
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
     while let Some(line) = lines.next_line().await? {
-        let request: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => continue,
+        let Ok(request) = serde_json::from_str::<Value>(&line) else {
+            continue;
         };
         let Some(id) = request.get("id").cloned() else {
             continue;
         };
-        let method = request.get("method").and_then(Value::as_str).unwrap_or("");
-        let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-        let response = match method {
-            "initialize" => {
-                json!({"jsonrpc":"2.0","id":id,"result":{"protocolVersion":PROTOCOL_VERSION,"capabilities":{"tools":{},"resources":{}},"serverInfo":{"name":"nexus","version":env!("CARGO_PKG_VERSION")}}})
-            }
-            "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
-            "tools/list" => json!({"jsonrpc":"2.0","id":id,"result":{"tools":tool_definitions()}}),
-            "tools/call" => tool_call(&loaded, explicit_config, id, params).await,
-            "resources/list" => json!({"jsonrpc":"2.0","id":id,"result":{"resources":[
-                {"uri":"nexus://status","name":"Nexus status","mimeType":"application/json"},
-                {"uri":"nexus://sessions","name":"Active agent sessions","mimeType":"application/json"},
-                {"uri":"nexus://claims","name":"Active advisory claims","mimeType":"application/json"},
-                {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
-                {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"}
-            ]}}),
-            "resources/read" => resource_read(&loaded, explicit_config, id, params).await,
-            _ => {
-                json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":format!("method not found: {method}")}})
-            }
-        };
-        stdout
-            .write_all(serde_json::to_string(&response)?.as_bytes())
-            .await?;
-        stdout.write_all(b"\n").await?;
+        let (loaded, explicit_config, responses) =
+            (loaded.clone(), explicit_config.clone(), responses.clone());
+        tokio::spawn(async move {
+            let response = respond(&loaded, explicit_config.as_deref(), id, request).await;
+            let _ = responses.send(response);
+        });
+    }
+    drop(responses);
+    writer.await?
+}
+
+/// Owns stdout so concurrently completed responses are written as whole lines.
+async fn write_responses(mut outgoing: mpsc::UnboundedReceiver<Value>) -> Result<()> {
+    let mut stdout = tokio::io::stdout();
+    while let Some(response) = outgoing.recv().await {
+        let mut line = serde_json::to_vec(&response)?;
+        line.push(b'\n');
+        stdout.write_all(&line).await?;
         stdout.flush().await?;
     }
     Ok(())
+}
+
+async fn respond(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+    id: Value,
+    request: Value,
+) -> Value {
+    let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+    let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+    match method {
+        "initialize" => {
+            json!({"jsonrpc":"2.0","id":id,"result":{"protocolVersion":PROTOCOL_VERSION,"capabilities":{"tools":{},"resources":{}},"serverInfo":{"name":"nexus","version":env!("CARGO_PKG_VERSION")}}})
+        }
+        "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
+        "tools/list" => json!({"jsonrpc":"2.0","id":id,"result":{"tools":tool_definitions()}}),
+        "tools/call" => tool_call(loaded, explicit_config, id, params).await,
+        "resources/list" => json!({"jsonrpc":"2.0","id":id,"result":{"resources":[
+            {"uri":"nexus://status","name":"Nexus status","mimeType":"application/json"},
+            {"uri":"nexus://sessions","name":"Active agent sessions","mimeType":"application/json"},
+            {"uri":"nexus://claims","name":"Active advisory claims","mimeType":"application/json"},
+            {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
+            {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"}
+        ]}}),
+        "resources/read" => resource_read(loaded, explicit_config, id, params).await,
+        _ => {
+            json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":format!("method not found: {method}")}})
+        }
+    }
 }
 
 async fn tool_call(
@@ -67,18 +95,15 @@ async fn tool_call(
         .cloned()
         .unwrap_or_else(|| json!({}));
     let method = name.strip_prefix("nexus_").unwrap_or(name);
+    let lifecycle = ServiceRequest::is_lifecycle_method(method);
     let mut result = match ServiceRequest::decode(method, arguments) {
-        Ok(request) => match daemon::ensure_and_request(loaded, explicit_config, &request).await {
-            Ok(result) => result,
-            Err(error) if ServiceRequest::is_lifecycle_method(method) => serde_json::to_value(
-                HookResponse::fail_open(format!("nexus is unavailable: {error}")),
-            )
-            .unwrap(),
-            Err(error) => json!({"ok":false,"error":error.to_string()}),
-        },
-        Err(error) if ServiceRequest::is_lifecycle_method(method) => {
-            serde_json::to_value(HookResponse::fail_open(error)).unwrap()
+        Ok(request) if lifecycle => {
+            daemon::lifecycle_request(loaded, explicit_config, &request).await
         }
+        Ok(request) => daemon::ensure_and_request(loaded, explicit_config, &request)
+            .await
+            .unwrap_or_else(|error| json!({"ok":false,"error":error.to_string()})),
+        Err(error) if lifecycle => serde_json::to_value(HookResponse::fail_open(error)).unwrap(),
         Err(error) => json!({"ok":false,"error":error.to_string()}),
     };
     add_pre_tool_context(method, &mut result);

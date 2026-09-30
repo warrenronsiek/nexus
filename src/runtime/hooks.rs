@@ -32,5 +32,5 @@ pub async fn session_end(loaded: &LoadedConfig, explicit_config: Option<&Path>, 
             agent: agent.to_owned(),
         },
     });
-    let _ = daemon::ensure_and_request(loaded, explicit_config, &request).await;
+    daemon::lifecycle_request(loaded, explicit_config, &request).await;
 }
