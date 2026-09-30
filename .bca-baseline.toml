@@ -283,13 +283,13 @@ metric = "abc"
 value = 50.695167422546305
 
 [[entry]]
-path = "tests/mcp_hooks.rs"
+path = "tests/support/mod.rs"
 qualified = "Harness::start_with_analyst"
 metric = "abc"
 value = 54.85435260760991
 
 [[entry]]
-path = "tests/mcp_hooks.rs"
+path = "tests/support/mod.rs"
 qualified = "Harness::start_with_analyst"
 metric = "halstead.effort"
 value = 54438.69955137801

@@ -34,14 +34,14 @@ flowchart TD
     K -->|Lifecycle MCP| M[Host-valid hook text plus structured result]
     K -->|MCP tool or resource| N[JSON-RPC result]
     K -->|CLI| O[Human-readable JSON]
-    H -->|Lifecycle transport failure| Q[Permissive unavailable response]
+    H -->|Lifecycle failure or budget exceeded| Q[Permissive unavailable response]
 ```
 
 ## Reading the flowchart
 
 1. **Codex, Claude, or CLI** is the external caller. Host hook files invoke MCP tools during a session and a command hook at session end; people invoke commands directly.
 2. **Adapter** selects the protocol-specific edge without changing coordination semantics.
-3. **MCP request parser** handles JSON-RPC initialization, tools, resources, calls, and reads.
+3. **MCP request parser** handles JSON-RPC initialization, tools, resources, calls, and reads. Each request is answered on its own task and responses are written in completion order, because hosts multiplex hooks from many threads and parallel tool calls over one connection; a slow explicit tool must not queue lifecycle hooks behind it.
 4. **Command-hook parser** converts session-end stdin into a typed stop request and emits no hook output.
 5. **Clap command parser** converts explicit CLI flags into typed command and scope values.
 6. **Decode ServiceRequest** is the point where loose wire values stop. Unknown methods and invalid shapes do not enter the core.
@@ -54,11 +54,11 @@ flowchart TD
 13. **Host-valid hook text plus structured result** keeps internal coordination fields in MCP `structuredContent` while returning only the JSON fields accepted by the lifecycle event. A no-op lifecycle result is `{}`.
 14. **JSON-RPC result** serves explicit tools and read-only resources.
 15. **Human-readable JSON** keeps CLI status and query commands inspectable and scriptable.
-16. **Permissive unavailable response** preserves agent autonomy when Nexus cannot be reached or its store is busy with background observation.
+16. **Permissive unavailable response** preserves agent autonomy when Nexus cannot be reached, its store is busy with background observation, or the daemon does not answer within the lifecycle response budget. The budget covers daemon start-up and is shorter than every generated host hook timeout, so a host never reports a failed hook call because Nexus was slow.
 
 ## Implementation details
 
-`src/runtime/mcp.rs` is the MCP entry point and tool catalog. `hooks.rs` decodes the host's session-end stdin and releases the session without writing hook output. `daemon.rs` owns socket lifecycle, one-daemon locking, typed request dispatch, and background Git reconciliation ticks. `src/main.rs` owns command parsing and maps CLI flags such as `--all` to explicit domain scopes before making a request.
+`src/runtime/mcp.rs` is the MCP entry point and tool catalog. `hooks.rs` decodes the host's session-end stdin and releases the session without writing hook output. `daemon.rs` owns socket lifecycle, one-daemon locking, typed request dispatch, background Git reconciliation ticks, and `lifecycle_request`, the single bounded fail-open path used by both MCP lifecycle tools and the session-end command hook. `src/main.rs` owns command parsing and maps CLI flags such as `--all` to explicit domain scopes before making a request.
 
 `src/agents/integration.rs` generates registration commands and host hook fragments. Host-specific differences remain data and small enum dispatches: Claude exposes a distinct tool-failure event. Both hosts use MCP tool hooks while their MCP client exists and an absolute-path command hook for `SessionEnd`, which cannot use MCP. Neither receives a blocking decision from Nexus.
 

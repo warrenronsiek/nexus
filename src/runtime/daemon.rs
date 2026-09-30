@@ -13,6 +13,7 @@ use serde_json::Value;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
@@ -47,7 +48,7 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind {}", socket_path.display()))?;
     let service = Arc::new(NexusService::new(loaded)?);
-    let mut reconcile = tokio::time::interval(std::time::Duration::from_secs(reconcile_seconds));
+    let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds));
     reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
@@ -109,6 +110,31 @@ pub async fn request(socket_path: &Path, request: &ServiceRequest) -> Result<Val
     serde_json::from_str(&line).context("decode daemon response")
 }
 
+/// Lifecycle hooks must answer before every generated host hook timeout, including daemon
+/// start-up, so a slow or wedged daemon degrades to an unrecorded observation.
+pub(crate) const LIFECYCLE_RESPONSE_BUDGET: Duration = Duration::from_millis(2_500);
+
+pub async fn lifecycle_request(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+    request: &ServiceRequest,
+) -> Value {
+    let outcome = tokio::time::timeout(
+        LIFECYCLE_RESPONSE_BUDGET,
+        ensure_and_request(loaded, explicit_config, request),
+    )
+    .await;
+    let diagnostic = match outcome {
+        Ok(Ok(response)) => return response,
+        Ok(Err(error)) => format!("nexus is unavailable: {error}"),
+        Err(_) => format!(
+            "nexus did not respond within {}ms",
+            LIFECYCLE_RESPONSE_BUDGET.as_millis()
+        ),
+    };
+    serde_json::to_value(HookResponse::fail_open(diagnostic)).expect("hook responses serialize")
+}
+
 pub async fn ensure_and_request(
     loaded: &LoadedConfig,
     explicit_config: Option<&Path>,
@@ -130,7 +156,7 @@ pub async fn ensure_and_request(
         .stderr(std::process::Stdio::null());
     command.spawn().context("start Nexus daemon")?;
     for _ in 0..40 {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
         if let Ok(response) = request(&loaded.config.runtime.socket_path, request_value).await {
             return Ok(response);
         }
