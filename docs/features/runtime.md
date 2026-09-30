@@ -54,7 +54,7 @@ flowchart TD
 13. **Host-valid hook text plus structured result** keeps internal coordination fields in MCP `structuredContent` while returning only the JSON fields accepted by the lifecycle event. A no-op lifecycle result is `{}`.
 14. **JSON-RPC result** serves explicit tools and read-only resources.
 15. **Human-readable JSON** keeps CLI status and query commands inspectable and scriptable.
-16. **Permissive unavailable response** preserves agent autonomy when Nexus cannot be reached.
+16. **Permissive unavailable response** preserves agent autonomy when Nexus cannot be reached or its store is busy with background observation.
 
 ## Implementation details
 

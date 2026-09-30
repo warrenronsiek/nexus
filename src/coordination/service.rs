@@ -73,10 +73,7 @@ impl NexusService {
     fn user_prompt(&self, input: UserPromptInput) -> ServiceResponse {
         let result = (|| -> Result<PromptResponse> {
             let project = workspace::identify(input.context.project_root.as_deref())?;
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.touch_session(
                 &project.id,
                 &input.context.session_id,
@@ -125,10 +122,7 @@ impl NexusService {
                 &input.tool_input,
                 project.worktree.as_deref(),
             );
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.touch_session(
                 &project.id,
                 &input.context.session_id,
@@ -177,10 +171,7 @@ impl NexusService {
     fn post_tool_use(&self, input: ToolHookInput, completion: ToolCompletion) -> ServiceResponse {
         let result = (|| -> Result<HookResponse> {
             let project = workspace::identify(input.context.project_root.as_deref())?;
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.touch_session(
                 &project.id,
                 &input.context.session_id,
@@ -214,10 +205,7 @@ impl NexusService {
     fn session_stop(&self, input: SessionStopInput) -> ServiceResponse {
         let result = (|| -> Result<HookResponse> {
             let project = workspace::identify(input.context.project_root.as_deref())?;
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.stop_session(&project.id, &input.context.session_id)?;
             Ok(HookResponse::allow(Vec::new()))
         })();
@@ -351,12 +339,19 @@ impl NexusService {
         }
     }
 
+    fn lifecycle_store(&self) -> Result<std::sync::MutexGuard<'_, Store>> {
+        self.store
+            .try_lock()
+            .map_err(|error| anyhow::anyhow!("lifecycle store unavailable: {error}"))
+    }
+
     pub(crate) fn reconcile_all(&self) -> Result<usize> {
+        let ttl_seconds = self.loaded.config.coordination.claim_ttl_seconds;
         let sessions = self
             .store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
-            .active_sessions()?;
+            .reconcilable_sessions(ttl_seconds)?;
         let mut observed = 0;
         for session in sessions {
             let Some(worktree) = session.worktree.as_deref() else {
@@ -367,11 +362,7 @@ impl NexusService {
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
-                .record_reconciliation(
-                    &session,
-                    &intents,
-                    self.loaded.config.coordination.claim_ttl_seconds,
-                )?;
+                .record_reconciliation(&session, &intents, ttl_seconds)?;
         }
         Ok(observed)
     }
@@ -450,6 +441,29 @@ mod tests {
             response["advisories"][0]["kind"], "hunk_overlap",
             "{response}"
         );
+    }
+
+    #[test]
+    fn lifecycle_hooks_fail_open_without_waiting_for_the_store() {
+        let service = std::sync::Arc::new(service());
+        let store_guard = service.store.lock().unwrap();
+        let request = edit("one", "t1", "a.rs", 1, 5);
+        let worker_service = service.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            sender
+                .send(worker_service.handle(request).to_json())
+                .unwrap();
+        });
+
+        let response = receiver.recv_timeout(std::time::Duration::from_millis(100));
+        drop(store_guard);
+        worker.join().unwrap();
+
+        let response = response.expect("lifecycle hook waited for the busy store");
+        assert_eq!(response["permitted"], true);
+        assert_eq!(response["recorded"], false);
+        assert!(response["diagnostic"].as_str().unwrap().contains("store"));
     }
 
     #[test]

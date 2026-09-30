@@ -152,7 +152,7 @@ value = 6.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::analyze::<anon@L327>"
+qualified = "NexusService::analyze::<anon@L315>"
 metric = "nexits"
 value = 6.0
 
@@ -164,7 +164,7 @@ value = 7.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::pre_tool_use::<anon@L121>"
+qualified = "NexusService::pre_tool_use::<anon@L118>"
 metric = "nexits"
 value = 7.0
 

@@ -58,7 +58,7 @@ flowchart TD
 11. **Release session claims** ends a session's active coordination footprint without deleting history.
 12. **Read or update projections** covers status, event, session, claim, conflict, resolution, release, and explicit analysis commands.
 13. **Persistence** is a separate capability. Coordination asks for domain operations and receives typed records rather than Diesel rows or JSON maps.
-14. **Storage result** preserves normal errors for explicit commands but converts lifecycle failures into a fail-open response.
+14. **Storage result** preserves normal errors for explicit commands but converts lifecycle failures or contention into an immediate fail-open response, so background reconciliation cannot hold up an agent tool call.
 
 ## Implementation details
 
@@ -74,6 +74,6 @@ The main invariants are:
 - project identity is stable across Git worktrees;
 - dynamic tool shapes do not escape the extraction boundary;
 - each other session contributes at most one advisory per inspected path;
-- Git reconciliation can observe edits that bypass hooks.
+- Git reconciliation observes edits that bypass hooks only for sessions seen within the claim TTL, so abandoned sessions cannot keep claims alive.
 
 Unit tests cover extraction, severity, typed request decoding, and service overlap behavior. Process tests in `tests/mcp_hooks.rs` exercise the same flows through a real MCP process, daemon socket, and SQLite database.

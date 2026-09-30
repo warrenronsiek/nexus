@@ -30,10 +30,17 @@ struct Harness {
 
 impl Harness {
     fn start() -> Self {
-        Self::start_with_analyst(None)
+        Self::start_with_analyst(None, 120)
     }
 
-    fn start_with_analyst(analyst_command: Option<&std::path::Path>) -> Self {
+    fn start_with_claim_ttl(claim_ttl_seconds: i64) -> Self {
+        Self::start_with_analyst(None, claim_ttl_seconds)
+    }
+
+    fn start_with_analyst(
+        analyst_command: Option<&std::path::Path>,
+        claim_ttl_seconds: i64,
+    ) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");
         std::fs::create_dir_all(&root).unwrap();
@@ -41,39 +48,15 @@ impl Harness {
         std::fs::create_dir_all(&state).unwrap();
         let database = state.join("nexus.db");
         let socket = state.join("nexus.sock");
-        let lock = state.join("nexus.lock");
         let config = temp.path().join("config.toml");
-        let analyst_command = analyst_command
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "claude".into());
         std::fs::write(
             &config,
-            format!(
-                r#"
-schema_version = 1
-
-[coordination]
-reconcile_seconds = 1
-
-[storage]
-database_path = '{}'
-
-[runtime]
-socket_path = '{}'
-lock_path = '{}'
-
-[analyst]
-enabled = {}
-provider = "claude"
-
-[analyst.claude]
-command = '{}'
-"#,
-                database.display(),
-                socket.display(),
-                lock.display(),
-                analyst_command != "claude",
-                analyst_command
+            test_config(
+                &database,
+                &socket,
+                &state.join("nexus.lock"),
+                analyst_command,
+                claim_ttl_seconds,
             ),
         )
         .unwrap();
@@ -111,6 +94,42 @@ command = '{}'
             output,
             next_id: 1,
         }
+    }
+
+    fn initialize_git(&self) {
+        run_git(&self.root, &["init"]);
+        run_git(&self.root, &["config", "user.email", "nexus@example.test"]);
+        run_git(&self.root, &["config", "user.name", "Nexus Test"]);
+        std::fs::write(self.root.join("tracked.txt"), "initial\n").unwrap();
+        run_git(&self.root, &["add", "tracked.txt"]);
+        run_git(&self.root, &["commit", "-m", "initial"]);
+    }
+
+    fn wait_for_reconciled_claim(&self, session_id: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let observed = self
+                .store()
+                .list_claims(None, RecordScope::All)
+                .unwrap()
+                .into_iter()
+                .any(|claim| claim.session_id == session_id);
+            if observed {
+                return;
+            }
+            assert!(Instant::now() < deadline, "reconciliation did not run");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    fn observe_dirty_file(&mut self, session_id: &str) {
+        let root = self.root.to_string_lossy().to_string();
+        self.call(
+            "nexus_user_prompt",
+            json!({"session_id":session_id,"project_root":root,"agent":"codex","prompt":"Edit the tracked file"}),
+        );
+        std::fs::write(self.root.join("tracked.txt"), "changed outside hooks\n").unwrap();
+        self.wait_for_reconciled_claim(session_id);
     }
 
     fn request(&mut self, method: &str, params: Value) -> Value {
@@ -506,45 +525,70 @@ fn malformed_hook_and_unavailable_daemon_never_deny_execution() {
 #[test]
 fn git_reconciliation_observes_edits_that_bypass_hooks() {
     let mut harness = Harness::start();
-    run_git(&harness.root, &["init"]);
-    run_git(
-        &harness.root,
-        &["config", "user.email", "nexus@example.test"],
-    );
-    run_git(&harness.root, &["config", "user.name", "Nexus Test"]);
-    std::fs::write(harness.root.join("tracked.txt"), "initial\n").unwrap();
-    run_git(&harness.root, &["add", "tracked.txt"]);
-    run_git(&harness.root, &["commit", "-m", "initial"]);
+    harness.initialize_git();
+    harness.observe_dirty_file("observer");
+}
 
-    let root = harness.root.to_string_lossy().to_string();
-    let prompt = harness.call(
-        "nexus_user_prompt",
-        json!({"session_id":"observer","project_root":root,"agent":"codex","prompt":"Edit the tracked file"}),
-    );
-    assert_eq!(prompt["recorded"], true);
-    std::fs::write(harness.root.join("tracked.txt"), "changed outside hooks\n").unwrap();
+fn test_config(
+    database: &std::path::Path,
+    socket: &std::path::Path,
+    lock: &std::path::Path,
+    analyst_command: Option<&std::path::Path>,
+    claim_ttl_seconds: i64,
+) -> String {
+    let analyst_command = analyst_command
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "claude".into());
+    format!(
+        r#"schema_version = 1
+[coordination]
+reconcile_seconds = 1
+claim_ttl_seconds = {claim_ttl_seconds}
+[storage]
+database_path = '{}'
+[runtime]
+socket_path = '{}'
+lock_path = '{}'
+[analyst]
+enabled = {}
+provider = "claude"
+[analyst.claude]
+command = '{}'
+"#,
+        database.display(),
+        socket.display(),
+        lock.display(),
+        analyst_command != "claude",
+        analyst_command
+    )
+}
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let mut store = harness.store();
-        let observed = store
-            .list_claims(None, RecordScope::All)
-            .unwrap()
-            .into_iter()
-            .any(|claim| {
-                claim.session_id == "observer"
-                    && claim.tool_use_id.starts_with("git-reconcile:")
-                    && claim.path.ends_with("tracked.txt")
-            });
-        if observed {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "Git reconciliation did not create an advisory claim"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+#[test]
+fn git_reconciliation_stops_refreshing_an_inactive_session() {
+    let mut harness = Harness::start_with_claim_ttl(1);
+    harness.initialize_git();
+    harness.observe_dirty_file("inactive-observer");
+
+    std::thread::sleep(Duration::from_millis(2_200));
+    let mut store = harness.store();
+    assert_eq!(store.counts().unwrap().active_claims, 0);
+    let event_count = store.counts().unwrap().events;
+    drop(store);
+
+    std::thread::sleep(Duration::from_millis(1_200));
+    assert_eq!(harness.store().counts().unwrap().events, event_count);
+}
+
+#[test]
+fn git_reconciliation_does_not_repeat_unchanged_observations() {
+    let mut harness = Harness::start();
+    harness.initialize_git();
+    harness.observe_dirty_file("steady-observer");
+
+    std::thread::sleep(Duration::from_millis(100));
+    let event_count = harness.store().counts().unwrap().events;
+    std::thread::sleep(Duration::from_millis(1_200));
+    assert_eq!(harness.store().counts().unwrap().events, event_count);
 }
 
 #[test]
@@ -560,7 +604,7 @@ fn configured_analyst_is_called_through_mcp_and_recorded() {
     permissions.set_mode(0o755);
     std::fs::set_permissions(&script, permissions).unwrap();
 
-    let mut harness = Harness::start_with_analyst(Some(&script));
+    let mut harness = Harness::start_with_analyst(Some(&script), 120);
     harness.hook(
         "nexus_pre_tool_use",
         "codex-analysis",
