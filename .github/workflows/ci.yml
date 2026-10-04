@@ -22,5 +22,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: python3 -m pip install big-code-analysis-cli==2.2.0
       - run: ./scripts/check.sh
