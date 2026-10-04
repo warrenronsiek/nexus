@@ -69,13 +69,7 @@ impl Harness {
         .unwrap();
 
         let executable = env!("CARGO_BIN_EXE_nexus");
-        let daemon = Command::new(executable)
-            .args(["--config", config.to_str().unwrap(), "daemon"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let daemon = spawn_daemon(executable, &config, analyst_command.is_some());
         let deadline = Instant::now() + Duration::from_secs(5);
         while !socket.exists() {
             assert!(Instant::now() < deadline, "daemon socket did not appear");
@@ -243,6 +237,21 @@ impl Drop for Harness {
         let _ = self.daemon.kill();
         let _ = self.daemon.wait();
     }
+}
+
+fn spawn_daemon(executable: &str, config: &Path, single_runtime_worker: bool) -> Child {
+    let mut command = Command::new(executable);
+    command.args(["--config", config.to_str().unwrap(), "daemon"]);
+    if single_runtime_worker {
+        // Prove blocking model calls cannot starve the async socket runtime.
+        command.env("TOKIO_WORKER_THREADS", "1");
+    }
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
 }
 
 fn test_config(

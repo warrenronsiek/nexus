@@ -16,7 +16,7 @@ use serde_json::json;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use support::{write_executable, Harness, HOST_HOOK_BUDGET};
+use support::{wait_for_path, write_executable, Harness, HOST_HOOK_BUDGET};
 
 #[test]
 fn post_tool_use_returns_hook_compatible_text_and_structured_coordination_data() {
@@ -626,9 +626,10 @@ fn lifecycle_hook_fails_open_within_the_host_budget_when_the_daemon_hangs() {
 fn slow_explicit_tool_does_not_delay_lifecycle_hooks_on_the_same_connection() {
     let analyst_temp = tempfile::tempdir().unwrap();
     let script = analyst_temp.path().join("slow-claude");
+    let started = std::path::PathBuf::from(format!("{}.started", script.display()));
     write_executable(
         &script,
-        "#!/bin/sh\ncat >/dev/null\nsleep 6\nprintf '%s' '{\"result\":\"late\"}'\n",
+        "#!/bin/sh\ncat >/dev/null\n: > \"${0}.started\"\nsleep 6\nprintf '%s' '{\"result\":\"late\"}'\n",
     );
     let mut harness = Harness::start_with_analyst(Some(&script), 120);
     for (session, tool_id) in [("codex-slow-a", "slow-1"), ("claude-slow-b", "slow-2")] {
@@ -651,6 +652,7 @@ fn slow_explicit_tool_does_not_delay_lifecycle_hooks_on_the_same_connection() {
         "tools/call",
         json!({"name":"nexus_analyze","arguments":{"conflict_id":conflict_id}}),
     );
+    wait_for_path(&started, &mut harness.daemon);
     let arguments = harness.post_tool_arguments("codex-slow-a", "after-analyze");
     let hook_id = harness.send(
         "tools/call",
