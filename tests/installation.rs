@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 #[test]
-fn machine_setup_and_repository_install_are_complete_commands() {
+fn machine_setup_installs_integrations_idempotently() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path().join("home");
     let codex_home = home.join(".codex");
@@ -23,6 +23,7 @@ fn machine_setup_and_repository_install_are_complete_commands() {
     .unwrap();
     fake_host(&command_directory, "codex");
     fake_host(&command_directory, "claude");
+    fake_host(&command_directory, "pi");
 
     for _ in 0..2 {
         let setup = nexus_command(&home, &codex_home, &command_directory, &host_log)
@@ -32,7 +33,19 @@ fn machine_setup_and_repository_install_are_complete_commands() {
         assert_success(&setup);
     }
     assert_machine_setup(&home, &codex_home, &host_log);
+    assert!(home.join(".pi/agent/extensions/nexus/index.ts").is_file());
+    assert!(home
+        .join(".pi/agent/extensions/nexus/component.ts")
+        .is_file());
+}
 
+#[test]
+fn repository_install_preserves_existing_configuration() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path().join("home");
+    let codex_home = home.join(".codex");
+    let command_directory = temporary.path().join("commands");
+    let host_log = temporary.path().join("hosts.log");
     let repository = temporary.path().join("repository");
     run(Command::new("git").args(["init", repository.to_str().unwrap()]));
     let repository_config = repository.join(".git/nexus.toml");

@@ -6,7 +6,7 @@ feature: installation
 
 ## What this feature does
 
-Installation reduces Nexus onboarding to one machine command and one repository command. Machine setup installs the review skills, registers the Nexus MCP server with every supported agent already present, merges lifecycle hooks without deleting unrelated settings, and initializes local storage. Repository installation creates shared Git-common-directory configuration and runs database migrations.
+Installation reduces Nexus onboarding to one machine command and one repository command. Machine setup installs the review skills, registers the Nexus MCP server with every supported coordination host already present, merges lifecycle hooks without deleting unrelated settings, installs the read-only Pi terminal extension when Pi is present, and initializes local storage. Repository installation creates shared Git-common-directory configuration and runs database migrations.
 
 ## Why it exists
 
@@ -22,6 +22,8 @@ flowchart TD
     C --> E[Detect Codex and Claude]
     E --> F[Register Nexus MCP server]
     E --> G[Merge lifecycle hooks]
+    C --> O{Pi installed}
+    O -->|yes| P[Install /nexus terminal extension]
     C --> H[Initialize SQLite and migrations]
     I[nexus install in repository] --> J[Resolve Git common directory]
     J --> K[Create nexus.toml if absent]
@@ -45,10 +47,12 @@ flowchart TD
 11. **Create nexus.toml if absent** preserves existing user decisions and otherwise writes only the supported schema version.
 12. **Load resolved configuration** applies normal user, repository, environment, and CLI precedence.
 13. **Repository ready for agent hooks** means the already-installed host integrations will coordinate sessions in that repository.
+14. **Pi installed** is detected with the same executable probe used for supported hosts; an absent Pi installation does not affect setup.
+15. **Install `/nexus` terminal extension** writes the bundled TypeScript modules to Pi's global extension directory. Re-running setup replaces only changed Nexus extension files.
 
 ## Implementation details
 
-`setup_machine` and `install_repository` in `src/installation.rs` are the two deep entry points. Setup is idempotent: skill contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`.
+`setup_machine` and `install_repository` in `src/installation.rs` are the two deep entry points. Setup is idempotent: skill and Pi-extension contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`.
 
 The source bootstrap entry point is `./scripts/install.sh`. It installs with Cargo's locked dependency graph into `NEXUS_INSTALL_ROOT`, `CARGO_HOME`, or the normal `~/.cargo` prefix in that order, then calls the installed binary's `nexus setup` command. A future hosted installer should delegate to this same boundary rather than duplicate setup policy.
 

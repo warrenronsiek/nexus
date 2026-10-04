@@ -6,7 +6,7 @@ The invariant is structural: every lifecycle-hook response permits the original 
 
 ## Install
 
-From a Nexus source checkout, one command installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, and migrated SQLite store:
+From a Nexus source checkout, one command installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store:
 
 ```sh
 ./scripts/install.sh
@@ -40,6 +40,14 @@ nexus ui
 ```
 
 `nexus ui` opens a local, read-only operations dashboard with machine-wide activity, repository filtering, conflict/session/claim panels, a one-hour activity chart, and progressively disclosed record details. Use `nexus ui --launch print` to start it and print the URL without opening a browser. The dashboard is optional: a UI bind or browser-launch failure never stops Unix-socket coordination.
+
+With Pi installed, the same setup command installs a terminal-native view. Start Pi and run:
+
+```text
+/nexus
+```
+
+The first screen shows project scope and health counts. Enter drills into conflicts, sessions, claims, or events, then into full record detail; `j`/`k` scroll detail, Escape goes back, `r` refreshes, and `q` closes. The view refreshes while open and is read-only.
 
 The MCP stdio server starts the daemon automatically when needed:
 
@@ -132,6 +140,7 @@ The source tree follows capability boundaries rather than a flat layer list:
 - `runtime/web.rs` owns the read-only local HTTP adapter and embedded frontend.
 - `agents/` owns optional analyst processes and host integration generation.
 - `ui/` owns the Elm application and the narrow typed D3 adapter; compiled `ui/dist` assets are tracked and embedded in the Rust binary.
+- `pi-extension/` owns the terminal-native progressive-disclosure view over the same read-only HTTP API.
 
 JSON is decoded at runtime boundaries into the closed `ServiceRequest` enum. Open-ended tool input remains isolated in the named `ToolPayload` boundary type; coordination and persistence APIs use explicit records and enums. Behavioral choices such as record scope, conflict scope, completion state, and release target are enums rather than boolean arguments.
 
@@ -178,7 +187,7 @@ uv tool install big-code-analysis-cli==2.2.0
 ./scripts/check.sh
 ```
 
-UI development also requires Node 24 and uses the locked `ui/package-lock.json`; `scripts/check.sh` installs that tree, runs Elm and TypeScript tests, type-checks, and verifies the committed bundle is reproducible.
+UI development also requires Node 24 and uses the locked `ui/package-lock.json` and `pi-extension/package-lock.json`; `scripts/check.sh` installs both trees, runs Elm and TypeScript tests, type-checks, and verifies the committed browser bundle is reproducible.
 
 If `uv` is unavailable, `python3 -m pip install big-code-analysis-cli==2.2.0` installs the same pinned CLI.
 

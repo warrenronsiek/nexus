@@ -30,6 +30,20 @@ const SKILL_FILES: [(&str, &str); 4] = [
     ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
 ];
+const PI_EXTENSION_FILES: [(&str, &str); 6] = [
+    ("index.ts", include_str!("../pi-extension/src/index.ts")),
+    ("client.ts", include_str!("../pi-extension/src/client.ts")),
+    (
+        "component.ts",
+        include_str!("../pi-extension/src/component.ts"),
+    ),
+    ("domain.ts", include_str!("../pi-extension/src/domain.ts")),
+    (
+        "navigation.ts",
+        include_str!("../pi-extension/src/navigation.ts"),
+    ),
+    ("polling.ts", include_str!("../pi-extension/src/polling.ts")),
+];
 
 #[derive(Debug, Serialize)]
 pub struct MachineSetupReport {
@@ -37,6 +51,7 @@ pub struct MachineSetupReport {
     pub executable: PathBuf,
     pub hosts: Vec<String>,
     pub skills: Vec<&'static str>,
+    pub extensions: Vec<&'static str>,
     pub database: &'static str,
     pub mode: &'static str,
 }
@@ -58,22 +73,8 @@ pub fn setup_machine(executable: &Path) -> Result<MachineSetupReport> {
     let claude_home = std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".claude"));
-
-    for root in [&codex_home, &claude_home] {
-        install_skills(root)?;
-    }
-
-    let mut hosts = Vec::new();
-    for (host, settings) in [
-        (Host::Codex, codex_home.join("hooks.json")),
-        (Host::Claude, claude_home.join("settings.json")),
-    ] {
-        if host_available(host) {
-            register_mcp(host, executable)?;
-            merge_hooks(&settings, hook_configuration(host, executable))?;
-            hosts.push(host.name().to_owned());
-        }
-    }
+    let (hosts, extensions) =
+        install_agent_resources(executable, &home, &codex_home, &claude_home)?;
     if hosts.is_empty() {
         bail!(
             "neither codex nor claude is installed; install an agent host and rerun `nexus setup`"
@@ -87,9 +88,51 @@ pub fn setup_machine(executable: &Path) -> Result<MachineSetupReport> {
         executable: executable.to_path_buf(),
         hosts,
         skills: SKILL_NAMES.to_vec(),
+        extensions,
         database: "ready",
         mode: "advisory_only",
     })
+}
+
+fn install_agent_resources(
+    executable: &Path,
+    home: &Path,
+    codex_home: &Path,
+    claude_home: &Path,
+) -> Result<(Vec<String>, Vec<&'static str>)> {
+    for root in [codex_home, claude_home] {
+        install_embedded_files(&root.join("skills"), &SKILL_FILES)?;
+    }
+    let hosts = install_host_integrations(executable, codex_home, claude_home)?;
+    let extensions = if command_available("pi") {
+        install_embedded_files(
+            &home.join(".pi/agent/extensions/nexus"),
+            &PI_EXTENSION_FILES,
+        )?;
+        vec!["pi:nexus"]
+    } else {
+        Vec::new()
+    };
+    Ok((hosts, extensions))
+}
+
+fn install_host_integrations(
+    executable: &Path,
+    codex_home: &Path,
+    claude_home: &Path,
+) -> Result<Vec<String>> {
+    let mut hosts = Vec::new();
+    for (host, settings) in [
+        (Host::Codex, codex_home.join("hooks.json")),
+        (Host::Claude, claude_home.join("settings.json")),
+    ] {
+        if command_available(host.name()) {
+            register_mcp(host, executable)?;
+            merge_hooks(&settings, hook_configuration(host, executable))?;
+            hosts.push(host.name().to_owned());
+        }
+    }
+    Ok(hosts)
 }
 
 pub fn install_repository(
@@ -116,21 +159,21 @@ pub fn install_repository(
     })
 }
 
-fn install_skills(root: &Path) -> Result<()> {
-    for (relative_path, contents) in SKILL_FILES {
-        let path = root.join("skills").join(relative_path);
-        let directory = path.parent().context("skill file must have a parent")?;
+fn install_embedded_files(root: &Path, files: &[(&str, &str)]) -> Result<()> {
+    for (relative_path, contents) in files {
+        let path = root.join(relative_path);
+        let directory = path.parent().context("embedded file must have a parent")?;
         std::fs::create_dir_all(directory)
             .with_context(|| format!("create {}", directory.display()))?;
-        if std::fs::read_to_string(&path).ok().as_deref() != Some(contents) {
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(*contents) {
             std::fs::write(&path, contents).with_context(|| format!("write {}", path.display()))?;
         }
     }
     Ok(())
 }
 
-fn host_available(host: Host) -> bool {
-    Command::new(host.name())
+fn command_available(command: &str) -> bool {
+    Command::new(command)
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())

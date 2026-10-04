@@ -1,0 +1,19 @@
+{
+  "name": "nexus-pi-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && vitest run",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "0.99.1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@types/node": "26.6.2",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}

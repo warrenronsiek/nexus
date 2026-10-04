@@ -2,13 +2,15 @@
 feature: observability-ui
 ---
 
-# Elm observability UI
+# Browser and Pi observability UI
 
 ## What this feature does
 
-The observability UI is a compact, read-only operations console for people supervising Nexus. It shows recent activity across every repository on the machine, or one explicitly selected repository, without adding a control surface to agent work. The dashboard summarizes active sessions and advisory claims, open conflicts, bounded event history, and a one-hour activity timeline. Selecting a record opens its full details without leaving the current view.
+The observability UI is a compact, read-only operations console for people supervising Nexus. It shows recent activity across every repository on the machine, or one explicitly selected repository, without adding a control surface to agent work. The dashboard summarizes active sessions and advisory claims, open conflicts, and bounded event history. Both interfaces progressively disclose full records only after a person selects a category and record; the browser also shows a one-hour activity timeline.
 
 `nexus ui` is the human entry point. It ensures that the existing daemon is running, waits briefly for the local HTTP listener, prints the dashboard URL, and normally opens the default browser. `nexus ui --launch print` performs the same readiness work without opening a browser, which is useful over SSH and in automated tests.
+
+The bundled Pi extension is the terminal entry point. When Pi is installed, `nexus setup` copies the extension to `~/.pi/agent/extensions/nexus/`. `/nexus` starts or locates the same loopback service and opens a keyboard-driven view inside Pi: the first level shows counts and project scope, the second lists one record class, and the third shows the selected record. `j`/`k` scroll detail, Escape moves back, `r` refreshes, and `q` closes the view. The extension polls while open, retains the last successful snapshot after an error, and never adds Nexus mutation tools to Pi.
 
 ## Why it exists
 
@@ -32,11 +34,15 @@ flowchart TD
     J --> L[Embedded HTML, CSS, Elm, and adapter assets]
     J --> M[Projects request]
     J --> N[Dashboard request with optional project ID]
+    AA[Pi /nexus command] --> B
+    AA --> M
+    AA --> N
     M --> O[NexusService]
     N --> O
     O --> P[Typed Diesel queries]
     P --> Q[Bounded RecordWindow values]
     Q --> R[Elm decoders and explicit state]
+    Q --> AB[Pi TypeScript decoder and navigator]
     R --> S[Repository filter and detail drawer]
     R --> T[Five-minute activity buckets]
     T --> U[Typed Elm port]
@@ -45,6 +51,7 @@ flowchart TD
     X -->|yes| Y[Skip overlapping poll]
     X -->|no| N
     N -->|poll fails| Z[Retain snapshot and mark stale]
+    AB --> AC[Summary to list to record detail]
 ```
 
 ## Reading the flowchart
@@ -72,13 +79,18 @@ flowchart TD
 21. **Two-second tick** uses the configured refresh interval embedded in the snapshot.
 22. **Skip overlapping poll** prevents a slow request from creating an unbounded request queue.
 23. **Retain snapshot and mark stale** keeps useful context visible while the next tick retries naturally.
+24. **Pi `/nexus` command** calls `nexus ui --launch print` with fixed arguments, validates that the returned URL is loopback HTTP, and reuses the same projects and dashboard endpoints.
+25. **Pi decoder and navigator** keep open JSON at the HTTP boundary, convert it into typed records, and expose overview, record-list, and detail pages without duplicating coordination queries.
+26. **Summary to list to record detail** keeps the default terminal footprint small. Project selection changes only the read scope, and automatic polling preserves the selected page and row when possible.
 
 ## Implementation details
 
 `src/runtime/web.rs` owns the Axum adapter, embedded assets, security headers, local readiness check, and non-fatal bind behavior. `src/main.rs` owns the typed launch mode. `src/persistence/dashboard.rs` owns the read model and keeps every database operation in Diesel's typed DSL. `DashboardRecords` is the single deep service interface: it returns exact scoped counts alongside bounded recent record windows. Project summaries remain global so a selected repository can always be changed from the same page.
 
-The frontend lives under `ui/`. `Main.elm` owns the application model, update loop, responsive semantic markup, project choice, and keyboard dismissal. `Nexus.Domain` owns wire decoders, event classification, and five-minute aggregation; `Nexus.Polling` owns the small state machine that prevents overlapping polls and preserves stale data. `activity-chart.ts` is the only D3 surface. It accepts a closed `ActivityBucket` type and updates one SVG root, including an accessible empty state. `bootstrap.ts` contains only port wiring and resize observation.
+The browser frontend lives under `ui/`. `Main.elm` owns the application model, update loop, responsive semantic markup, project choice, and keyboard dismissal. `Nexus.Domain` owns wire decoders, event classification, and five-minute aggregation; `Nexus.Polling` owns the small state machine that prevents overlapping polls and preserves stale data. `activity-chart.ts` is the only D3 surface. It accepts a closed `ActivityBucket` type and updates one SVG root, including an accessible empty state. `bootstrap.ts` contains only port wiring and resize observation.
 
-`ui/build.mjs` compiles optimized Elm, bundles authored TypeScript and D3 with esbuild, and copies static HTML and CSS into `ui/dist`. The dist directory is committed because Rust embeds it with `include_str!`. Repository checks install dependencies from `package-lock.json`, run Elm and jsdom tests, type-check TypeScript, rebuild the assets, and reject an unstaged bundle difference. Feature mapping reads authored Elm and TypeScript symbols while skipping `dist`, `elm-stuff`, and `node_modules`; big-code-analysis examines the authored TypeScript but the Elm compiler and tests are the Elm type gate.
+The Pi frontend lives under `pi-extension/`. `client.ts` owns process startup, loopback URL validation, and HTTP reads; `domain.ts` validates the wire shape; `navigation.ts` owns progressive-disclosure state; `polling.ts` owns the single-flight refresh lifecycle; and `component.ts` adapts those states to Pi's themed selection and scrolling components. `index.ts` only registers `/nexus` and composes those pieces. Runtime imports use Pi's public extension and TUI packages, while repository checks type-check against the pinned API version.
+
+`ui/build.mjs` compiles optimized Elm, bundles authored TypeScript and D3 with esbuild, and copies static HTML and CSS into `ui/dist`. The dist directory is committed because Rust embeds it with `include_str!`. Repository checks install both locked Node trees, run Elm, browser TypeScript, and Pi-extension tests, type-check authored TypeScript, rebuild the browser assets, and reject an unstaged bundle difference. Feature mapping reads authored Elm and TypeScript symbols while skipping `dist`, `elm-stuff`, and `node_modules`; big-code-analysis examines the authored TypeScript but the Elm compiler and tests are the Elm type gate.
 
 The default server is `127.0.0.1:7337`. Configuration requires a loopback `SocketAddr` and positive refresh and record limits. Remote serving, authentication, streaming updates, and mutation controls are deliberately outside this feature.
