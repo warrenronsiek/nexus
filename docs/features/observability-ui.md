@@ -93,7 +93,7 @@ flowchart TD
 
 ## Implementation details
 
-`src/runtime/web.rs` owns the Axum adapter, embedded assets, security headers, local readiness check, and non-fatal bind behavior. `src/main.rs` owns the typed launch mode. `src/persistence/dashboard.rs` owns the read model and keeps every database operation in Diesel's typed DSL. `DashboardRecords` is the single deep service interface: it returns exact scoped counts alongside bounded recent record windows. Project summaries remain global so a selected repository can always be changed from the same page.
+`src/runtime/web.rs` owns the Axum adapter, embedded assets, security headers, local readiness check, and non-fatal bind behavior. Its typed reads use runtime's shared blocking dispatch boundary, so synchronous Diesel work does not occupy Axum's async workers. `src/main.rs` owns the typed launch mode. `src/persistence/dashboard.rs` owns the read model and keeps every database operation in Diesel's typed DSL. `DashboardRecords` is the single deep service interface: it returns exact scoped counts alongside bounded recent record windows. Project summaries remain global so a selected repository can always be changed from the same page.
 
 The browser frontend lives under `ui/`. `Main.elm` owns the application model, update loop, responsive semantic markup, project choice, and keyboard dismissal. `Nexus.Domain` owns wire decoders, event classification, and five-minute aggregation; `Nexus.Polling` owns the small state machine that prevents overlapping polls and preserves stale data. `activity-chart.ts` is the only D3 surface. It accepts a closed `ActivityBucket` type and updates one SVG root, including an accessible empty state. `bootstrap.ts` contains only port wiring and resize observation.
 

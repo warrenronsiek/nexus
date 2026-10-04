@@ -242,26 +242,14 @@ mod tests {
     use super::*;
     use flyway::ChangelogFile;
 
-    struct VersionZeroOnly;
+    struct ThroughVersion(u64);
 
-    impl MigrationStore for VersionZeroOnly {
+    impl MigrationStore for ThroughVersion {
         fn changelogs(&self) -> Vec<ChangelogFile> {
             NexusMigrations {}
                 .changelogs()
                 .into_iter()
-                .filter(|changelog| changelog.version() == 0)
-                .collect()
-        }
-    }
-
-    struct ThroughVersionTwo;
-
-    impl MigrationStore for ThroughVersionTwo {
-        fn changelogs(&self) -> Vec<ChangelogFile> {
-            NexusMigrations {}
-                .changelogs()
-                .into_iter()
-                .filter(|changelog| changelog.version() <= 2)
+                .filter(|changelog| changelog.version() <= self.0)
                 .collect()
         }
     }
@@ -271,7 +259,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("upgrade.db");
 
-        assert_eq!(migrate_with(&path, VersionZeroOnly).unwrap(), Some(0));
+        assert_eq!(migrate_with(&path, ThroughVersion(0)).unwrap(), Some(0));
         assert_eq!(migrate_database(&path).unwrap(), Some(3));
         assert_eq!(migrate_database(&path).unwrap(), Some(3));
     }
@@ -283,7 +271,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("upgrade-v2.db");
-        assert_eq!(migrate_with(&path, ThroughVersionTwo).unwrap(), Some(2));
+        assert_eq!(migrate_with(&path, ThroughVersion(2)).unwrap(), Some(2));
 
         let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
         diesel::insert_into(events::table)

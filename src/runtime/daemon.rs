@@ -6,6 +6,7 @@ use crate::config::LoadedConfig;
 use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::domain::HookResponse;
 use crate::coordination::NexusService;
+use crate::runtime::dispatch;
 use crate::runtime::web;
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -89,12 +90,7 @@ async fn handle_connection(stream: UnixStream, service: Arc<NexusService>) -> Re
     while let Some(line) = lines.next_line().await? {
         let response = match serde_json::from_str::<Request>(&line) {
             Ok(request) => match ServiceRequest::decode(&request.method, request.params) {
-                Ok(request) => {
-                    let service = service.clone();
-                    tokio::task::spawn_blocking(move || service.handle(request))
-                        .await
-                        .context("join service request worker")?
-                }
+                Ok(request) => dispatch::handle(service.clone(), request).await,
                 Err(error) if ServiceRequest::is_lifecycle_method(&request.method) => {
                     ServiceResponse::Hook(HookResponse::fail_open(error))
                 }

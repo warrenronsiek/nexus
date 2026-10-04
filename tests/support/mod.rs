@@ -14,7 +14,6 @@
 // Each integration-test crate uses a different subset of these shared helpers.
 #![allow(dead_code)]
 
-use nexus::coordination::domain::RecordScope;
 use nexus::persistence::Store;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -69,7 +68,7 @@ impl Harness {
         .unwrap();
 
         let executable = env!("CARGO_BIN_EXE_nexus");
-        let daemon = spawn_daemon(executable, &config, analyst_command.is_some());
+        let daemon = spawn_daemon(executable, &config);
         let deadline = Instant::now() + Duration::from_secs(5);
         while !socket.exists() {
             assert!(Instant::now() < deadline, "daemon socket did not appear");
@@ -106,25 +105,19 @@ impl Harness {
         run_git(&self.root, &["commit", "-m", "initial"]);
     }
 
-    pub fn wait_for_reconciled_claim(&self, session_id: &str) {
+    pub fn wait_for_reconciled_claim(&mut self, session_id: &str) {
         let deadline = Instant::now() + Duration::from_secs(5);
-        let mut last_error = None;
         loop {
-            let observed = match self.store().list_claims(None, RecordScope::All) {
-                Ok(claims) => claims
-                    .into_iter()
-                    .any(|claim| claim.session_id == session_id),
-                Err(error) => {
-                    last_error = Some(error.to_string());
-                    false
-                }
-            };
+            let response = self.call("nexus_claims", json!({"scope":"all"}));
+            let observed = response["claims"]
+                .as_array()
+                .is_some_and(|claims| claims.iter().any(|claim| claim["session_id"] == session_id));
             if observed {
                 return;
             }
             assert!(
                 Instant::now() < deadline,
-                "reconciliation did not run; last store error: {last_error:?}"
+                "reconciliation did not expose a claim through the daemon"
             );
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -155,6 +148,10 @@ impl Harness {
             .clone()
     }
 
+    pub fn status(&mut self) -> Value {
+        self.call("nexus_status", json!({}))
+    }
+
     pub fn hook(
         &mut self,
         name: &str,
@@ -182,6 +179,8 @@ impl Harness {
         loop {
             match Store::open(&self.database) {
                 Ok(store) => return store,
+                // A running daemon can briefly hold SQLite's write lock while this
+                // independent test reader repeats migration/schema checks.
                 Err(_error) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(25));
                 }
@@ -239,13 +238,12 @@ impl Drop for Harness {
     }
 }
 
-fn spawn_daemon(executable: &str, config: &Path, single_runtime_worker: bool) -> Child {
+fn spawn_daemon(executable: &str, config: &Path) -> Child {
     let mut command = Command::new(executable);
-    command.args(["--config", config.to_str().unwrap(), "daemon"]);
-    if single_runtime_worker {
-        // Prove blocking model calls cannot starve the async socket runtime.
-        command.env("TOKIO_WORKER_THREADS", "1");
-    }
+    command
+        .args(["--config", config.to_str().unwrap(), "daemon"])
+        // Prove synchronous service work cannot starve the async runtime.
+        .env("TOKIO_WORKER_THREADS", "1");
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())

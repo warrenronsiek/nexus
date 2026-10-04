@@ -518,13 +518,12 @@ fn git_reconciliation_stops_refreshing_an_inactive_session() {
     harness.observe_dirty_file("inactive-observer");
 
     std::thread::sleep(Duration::from_millis(2_200));
-    let mut store = harness.store();
-    assert_eq!(store.counts().unwrap().active_claims, 0);
-    let event_count = store.counts().unwrap().events;
-    drop(store);
+    let status = harness.status();
+    assert_eq!(status["counts"]["active_claims"], 0);
+    let event_count = status["counts"]["events"].clone();
 
     std::thread::sleep(Duration::from_millis(1_200));
-    assert_eq!(harness.store().counts().unwrap().events, event_count);
+    assert_eq!(harness.status()["counts"]["events"], event_count);
 }
 
 #[test]
@@ -534,9 +533,9 @@ fn git_reconciliation_does_not_repeat_unchanged_observations() {
     harness.observe_dirty_file("steady-observer");
 
     std::thread::sleep(Duration::from_millis(100));
-    let event_count = harness.store().counts().unwrap().events;
+    let event_count = harness.status()["counts"]["events"].clone();
     std::thread::sleep(Duration::from_millis(1_200));
-    assert_eq!(harness.store().counts().unwrap().events, event_count);
+    assert_eq!(harness.status()["counts"]["events"], event_count);
 }
 
 #[test]
