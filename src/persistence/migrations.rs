@@ -18,6 +18,15 @@ use std::sync::{Arc, Mutex};
 #[migrations("migrations")]
 struct NexusMigrations {}
 
+fn establish_migration_connection(database_url: &str) -> Result<SqliteConnection> {
+    let mut connection = SqliteConnection::establish(database_url)
+        .context("establish SQLite database connection")?;
+    connection
+        .batch_execute("PRAGMA busy_timeout = 2000;")
+        .context("configure SQLite busy timeout")?;
+    Ok(connection)
+}
+
 pub(super) fn migrate_database(path: &Path) -> Result<Option<u64>> {
     migrate_with(path, NexusMigrations {})
 }
@@ -39,7 +48,7 @@ where
                 .build()
                 .context("build migration runtime")?;
             runtime.block_on(async move {
-                let connection = SqliteConnection::establish(&database_url)
+                let connection = establish_migration_connection(&database_url)
                     .context("initialize flyway-rs SQLite connection")?;
                 let driver = Arc::new(DieselMigrationDriver::new(connection));
                 MigrationRunner::new(migrations, driver.clone(), driver, false)
@@ -233,14 +242,14 @@ mod tests {
     use super::*;
     use flyway::ChangelogFile;
 
-    struct FirstMigrationOnly;
+    struct ThroughVersion(u64);
 
-    impl MigrationStore for FirstMigrationOnly {
+    impl MigrationStore for ThroughVersion {
         fn changelogs(&self) -> Vec<ChangelogFile> {
             NexusMigrations {}
                 .changelogs()
                 .into_iter()
-                .take(1)
+                .filter(|changelog| changelog.version() <= self.0)
                 .collect()
         }
     }
@@ -250,8 +259,48 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("upgrade.db");
 
-        assert_eq!(migrate_with(&path, FirstMigrationOnly).unwrap(), Some(0));
-        assert_eq!(migrate_database(&path).unwrap(), Some(2));
-        assert_eq!(migrate_database(&path).unwrap(), Some(2));
+        assert_eq!(migrate_with(&path, ThroughVersion(0)).unwrap(), Some(0));
+        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+    }
+
+    #[test]
+    fn upgrades_an_existing_v2_database_without_losing_events() {
+        use super::super::models::NewEvent;
+        use super::super::schema::events;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("upgrade-v2.db");
+        assert_eq!(migrate_with(&path, ThroughVersion(2)).unwrap(), Some(2));
+
+        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+        diesel::insert_into(events::table)
+            .values(NewEvent {
+                project_id: "project-before-upgrade",
+                session_id: None,
+                kind: "pre_upgrade_event",
+                payload_json: "{}".to_owned(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .execute(&mut connection)
+            .unwrap();
+        drop(connection);
+
+        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+        let mut store = super::super::Store::open(&path).unwrap();
+        let events = store
+            .list_events(Some("project-before-upgrade"), 10)
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "pre_upgrade_event");
+        assert!(store
+            .usage_summary(
+                None,
+                chrono::Utc::now() - chrono::Duration::days(7),
+                chrono::Utc::now(),
+            )
+            .unwrap()
+            .tools
+            .is_empty());
     }
 }

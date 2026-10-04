@@ -56,7 +56,7 @@ flowchart TD
 9. **Permissive HookResponse with context** always reports `permitted: true`. Advisories are information for the calling agent.
 10. **Record completion state** records success or failure. Successful tool calls move matching claims to `modified`; configured history can note that an advisory was knowingly crossed.
 11. **Release session claims** ends a session's active coordination footprint without deleting history.
-12. **Read or update projections** covers status, event, session, claim, conflict, resolution, release, and explicit analysis commands.
+12. **Read or update projections** covers status, event, session, claim, conflict, usage, resolution, release, and explicit analysis commands. Capability observations share the typed service boundary but remain a separate projection from coordination history.
 13. **Persistence** is a separate capability. Coordination asks for domain operations and receives typed records rather than Diesel rows or JSON maps.
 14. **Storage result** preserves normal errors for explicit commands but converts lifecycle failures or contention into an immediate fail-open response, so background reconciliation cannot hold up an agent tool call.
 
@@ -64,7 +64,7 @@ flowchart TD
 
 The primary entry point is `NexusService::handle` in `src/coordination/service.rs`. `ServiceRequest` and response records live in `api.rs`; domain states such as `RecordScope`, `ConflictScope`, `ToolCompletion`, `ClaimState`, and `Severity` live in `domain.rs`.
 
-`classifier.rs` owns deterministic tool-payload extraction and overlap classification. Open-ended tool input is isolated behind `ToolPayload`; the classifier may inspect that boundary value, but storage and service interfaces do not accept anonymous maps. `workspace.rs` isolates Git process execution and canonical project identity.
+`classifier.rs` owns deterministic tool-payload extraction and overlap classification. `usage_detection.rs` separately identifies conservative script invocations inside observed shell commands; analytics normalization and fail-open recording live in `usage.rs`. Open-ended tool input is isolated behind `ToolPayload`; these extractors may inspect that boundary value, but storage and service interfaces do not accept anonymous maps. `workspace.rs` isolates Git process execution and canonical project identity.
 
 The main invariants are:
 

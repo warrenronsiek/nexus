@@ -44,75 +44,86 @@ pub fn instructions(host: Host, executable: &Path) -> Value {
 
 pub fn hook_configuration(host: Host, executable: &Path) -> Value {
     let agent = host.name();
+    let turn_id = turn_id(host);
     let executable_text = executable.to_string_lossy();
     let executable = shell_words::quote(&executable_text);
-    let common = |tool: &str, fields: Value| {
-        json!({
-            "type":"mcp_tool",
-            "server":"nexus",
-            "tool":tool,
-            "input":fields,
-            "timeout":5,
-            "statusMessage":"Checking coordination context"
-        })
-    };
-    let user_prompt = common(
-        "nexus_user_prompt",
-        json!({
-            "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
-            "prompt":"${prompt}"
-        }),
-    );
-    let pre_tool = common(
-        "nexus_pre_tool_use",
-        json!({
-            "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
-            "tool_use_id":"${tool_use_id}","tool_name":"${tool_name}","tool_input":"${tool_input}"
-        }),
-    );
-    let post_tool = common(
-        "nexus_post_tool_use",
-        json!({
-            "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
-            "tool_use_id":"${tool_use_id}","tool_name":"${tool_name}","tool_input":"${tool_input}",
-            "tool_output":"${tool_response}"
-        }),
-    );
     let mut hooks = serde_json::Map::new();
-    hooks.insert("UserPromptSubmit".into(), json!([{"hooks":[user_prompt]}]));
+    hooks.insert(
+        "UserPromptSubmit".into(),
+        json!([{"hooks":[user_prompt_hook(agent, turn_id)]}]),
+    );
     hooks.insert(
         "PreToolUse".into(),
-        json!([{"matcher":"*","hooks":[pre_tool]}]),
+        json!([{"matcher":"*","hooks":[tool_hook("nexus_pre_tool_use", agent, turn_id, None)]}]),
     );
     hooks.insert(
         "PostToolUse".into(),
-        json!([{"matcher":"*","hooks":[post_tool]}]),
+        json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_use", agent, turn_id, Some(("tool_output", "${tool_response}")))]}]),
     );
     hooks.insert(
         "SessionEnd".into(),
-        json!([{"hooks":[{
-            "type":"command",
-            "command":format!("{executable} hook-session-end --agent {agent}"),
-            "timeout":3,
-            "statusMessage":"Releasing coordination claims"
-        }]}]),
+        json!([{"hooks":[session_end_hook(&executable, agent)]}]),
     );
 
     if host == Host::Claude {
-        let failure = common(
-            "nexus_post_tool_failure",
-            json!({
-                "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
-                "tool_use_id":"${tool_use_id}","tool_name":"${tool_name}","tool_input":"${tool_input}",
-                "error":"${error}"
-            }),
-        );
         hooks.insert(
             "PostToolUseFailure".into(),
-            json!([{"matcher":"*","hooks":[failure]}]),
+            json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_failure", agent, turn_id, Some(("error", "${error}")))]}]),
         );
     }
     json!({"hooks":hooks})
+}
+
+fn turn_id(host: Host) -> &'static str {
+    match host {
+        Host::Codex => "${turn_id}",
+        Host::Claude => "${prompt_id}",
+    }
+}
+
+fn mcp_hook(tool: &str, input: Value) -> Value {
+    json!({
+        "type":"mcp_tool",
+        "server":"nexus",
+        "tool":tool,
+        "input":input,
+        "timeout":5,
+        "statusMessage":"Checking coordination context"
+    })
+}
+
+fn user_prompt_hook(agent: &str, turn_id: &str) -> Value {
+    mcp_hook(
+        "nexus_user_prompt",
+        json!({
+            "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
+            "turn_id":turn_id,"model":"${model}","prompt":"${prompt}"
+        }),
+    )
+}
+
+fn tool_hook(tool: &str, agent: &str, turn_id: &str, completion: Option<(&str, &str)>) -> Value {
+    let mut input = json!({
+        "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
+        "turn_id":turn_id,"model":"${model}","tool_use_id":"${tool_use_id}",
+        "tool_name":"${tool_name}","tool_input":"${tool_input}"
+    });
+    if let Some((field, value)) = completion {
+        input
+            .as_object_mut()
+            .expect("tool hook input is an object")
+            .insert(field.to_owned(), Value::String(value.to_owned()));
+    }
+    mcp_hook(tool, input)
+}
+
+fn session_end_hook(executable: &str, agent: &str) -> Value {
+    json!({
+        "type":"command",
+        "command":format!("{executable} hook-session-end --agent {agent}"),
+        "timeout":3,
+        "statusMessage":"Releasing coordination claims"
+    })
 }
 
 #[cfg(test)]
@@ -161,5 +172,17 @@ mod tests {
                 ["PostToolUseFailure"]
                 .is_array()
         );
+    }
+
+    #[test]
+    fn generated_tool_hooks_forward_usage_correlation_metadata() {
+        for host in [Host::Codex, Host::Claude] {
+            let generated = hook_configuration(host, Path::new("/opt/nexus"));
+            for event in ["PreToolUse", "PostToolUse"] {
+                let input = &generated["hooks"][event][0]["hooks"][0]["input"];
+                assert!(input["turn_id"].is_string(), "{host:?} {event}");
+                assert!(input["model"].is_string(), "{host:?} {event}");
+            }
+        }
     }
 }

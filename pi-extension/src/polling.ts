@@ -1,6 +1,8 @@
 // @feature observability-ui
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
-import type { Snapshot } from "./domain.ts";
+// @spec docs/features/usage-analytics.md
+import type { Snapshot, UsageSummary } from "./domain.ts";
 
 export type RefreshMode = "poll" | "manual" | "scope";
 export type SnapshotLoader = (projectId: string | null, signal: AbortSignal) => Promise<Snapshot>;
@@ -114,6 +116,143 @@ export class SnapshotPoller {
 
   private clearTimer(): void {
     if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+}
+
+export type UsageLoader = (
+  projectId: string | null,
+  signal: AbortSignal,
+) => Promise<UsageSummary>;
+
+export interface UsagePollingUpdate {
+  usage: UsageSummary | undefined;
+  status: string;
+}
+
+interface UsageRefreshRequest {
+  controller: AbortController;
+  signal: AbortSignal;
+  projectId: string | null;
+  timeout: NodeJS.Timeout;
+}
+
+export class UsagePoller {
+  private timer: NodeJS.Timeout | undefined;
+  private controller: AbortController | undefined;
+  private active = false;
+  private disposed = false;
+  private scope: string | null = null;
+  private usage: UsageSummary | undefined;
+
+  constructor(
+    private readonly load: UsageLoader,
+    private readonly update: (update: UsagePollingUpdate) => void,
+    private readonly intervalMs = 30_000,
+  ) {}
+
+  activate(projectId: string | null): void {
+    if (this.disposed) return;
+    this.active = true;
+    this.scope = projectId;
+    void this.refresh("loading…");
+  }
+
+  deactivate(): void {
+    this.active = false;
+    this.clearTimer();
+    this.controller?.abort();
+    this.controller = undefined;
+  }
+
+  setScope(projectId: string | null): void {
+    if (this.scope === projectId) return;
+    this.scope = projectId;
+    this.usage = undefined;
+    if (this.active) void this.refresh("loading…");
+  }
+
+  manualRefresh(): void {
+    if (this.active) void this.refresh("refreshing…");
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.deactivate();
+  }
+
+  private async refresh(pendingStatus?: string): Promise<void> {
+    const request = this.beginRefresh(pendingStatus);
+    if (request === undefined) return;
+    try {
+      const usage = await this.load(request.projectId, request.signal);
+      this.acceptUsage(request, usage);
+    } catch (error) {
+      this.failRefresh(request, error);
+    } finally {
+      this.finishRefresh(request);
+    }
+  }
+
+  private beginRefresh(pendingStatus?: string): UsageRefreshRequest | undefined {
+    if (!this.active || this.disposed) return;
+    if (this.controller !== undefined && pendingStatus === undefined) return;
+    this.controller?.abort();
+    this.clearTimer();
+    const controller = new AbortController();
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => {
+      timeoutController.abort(new Error("Nexus usage refresh timed out after 5000ms"));
+    }, 5000);
+    timeout.unref();
+    this.controller = controller;
+    if (pendingStatus !== undefined) this.emit(pendingStatus);
+    return {
+      controller,
+      projectId: this.scope,
+      signal: AbortSignal.any([controller.signal, timeoutController.signal]),
+      timeout,
+    };
+  }
+
+  private acceptUsage(request: UsageRefreshRequest, usage: UsageSummary): void {
+    if (!this.isCurrent(request)) return;
+    if (usage.project_id !== request.projectId) {
+      throw new Error("Nexus returned the wrong project scope");
+    }
+    this.usage = usage;
+    this.emit("live");
+  }
+
+  private failRefresh(request: UsageRefreshRequest, error: unknown): void {
+    if (!this.isCurrent(request) || request.controller.signal.aborted) return;
+    const message = error instanceof Error ? error.message : String(error);
+    this.emit(`stale · ${message}`);
+  }
+
+  private finishRefresh(request: UsageRefreshRequest): void {
+    clearTimeout(request.timeout);
+    if (!this.isCurrent(request)) return;
+    this.controller = undefined;
+    this.schedule();
+  }
+
+  private isCurrent(request: UsageRefreshRequest): boolean {
+    return this.controller === request.controller;
+  }
+
+  private emit(status: string): void {
+    this.update({ usage: this.usage, status });
+  }
+
+  private schedule(): void {
+    if (!this.active || this.disposed) return;
+    this.timer = setTimeout(() => void this.refresh(), this.intervalMs);
+    this.timer.unref();
+  }
+
+  private clearTimer(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
   }
 }

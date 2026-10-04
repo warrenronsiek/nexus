@@ -1,5 +1,7 @@
 // @feature persistence
+// @feature usage-analytics
 // @spec docs/features/persistence.md
+// @spec docs/features/usage-analytics.md
 diesel::table! {
     advisories (id) {
         id -> Text,
@@ -12,6 +14,27 @@ diesel::table! {
         path -> Text,
         message -> Text,
         created_at -> Text,
+    }
+}
+
+diesel::table! {
+    capability_uses (id) {
+        id -> Text,
+        project_id -> Text,
+        agent -> Text,
+        session_id -> Text,
+        turn_id -> Nullable<Text>,
+        invocation_id -> Text,
+        parent_invocation_id -> Nullable<Text>,
+        kind -> Text,
+        name -> Text,
+        source -> Text,
+        evidence -> Text,
+        outcome -> Text,
+        config_hash -> Text,
+        model_id -> Nullable<Text>,
+        first_observed_at -> Text,
+        completed_at -> Nullable<Text>,
     }
 }
 
@@ -84,6 +107,7 @@ diesel::table! {
 
 diesel::allow_tables_to_appear_in_same_query!(
     advisories,
+    capability_uses,
     claims,
     conflicts,
     events,

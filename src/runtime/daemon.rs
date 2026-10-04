@@ -6,6 +6,7 @@ use crate::config::LoadedConfig;
 use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::domain::HookResponse;
 use crate::coordination::NexusService;
+use crate::runtime::dispatch;
 use crate::runtime::web;
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -51,8 +52,7 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     let ui_config = loaded.config.ui.clone();
     let service = Arc::new(NexusService::new(loaded)?);
     let ui = web::spawn(&ui_config, service.clone()).await;
-    let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds));
-    reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut reconcile = reconciliation_interval(reconcile_seconds);
 
     loop {
         tokio::select! {
@@ -76,13 +76,21 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     Ok(())
 }
 
+fn reconciliation_interval(seconds: u64) -> tokio::time::Interval {
+    let period = Duration::from_secs(seconds);
+    let start = tokio::time::Instant::now() + period;
+    let mut interval = tokio::time::interval_at(start, period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval
+}
+
 async fn handle_connection(stream: UnixStream, service: Arc<NexusService>) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await? {
         let response = match serde_json::from_str::<Request>(&line) {
             Ok(request) => match ServiceRequest::decode(&request.method, request.params) {
-                Ok(request) => service.handle(request),
+                Ok(request) => dispatch::handle(service.clone(), request).await,
                 Err(error) if ServiceRequest::is_lifecycle_method(&request.method) => {
                     ServiceResponse::Hook(HookResponse::fail_open(error))
                 }

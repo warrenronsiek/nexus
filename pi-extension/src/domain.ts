@@ -1,5 +1,7 @@
 // @feature observability-ui
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
+// @spec docs/features/usage-analytics.md
 // @boundary dynamic-json
 
 export interface Counts {
@@ -83,6 +85,29 @@ export interface Dashboard {
 export interface Snapshot {
   dashboard: Dashboard;
   projects: ProjectSummary[];
+}
+
+export type UsageKind = "tool" | "script" | "skill";
+
+export interface UsageItem {
+  kind: UsageKind;
+  name: string;
+  count: number;
+  sessions: number;
+  succeeded?: number;
+  failed?: number;
+  observed?: number;
+  evidence?: string | Record<string, number>;
+}
+
+export interface UsageSummary {
+  ok: true;
+  project_id: string | null;
+  window_started_at: string;
+  window_ended_at: string;
+  tools: UsageItem[];
+  skills: UsageItem[];
+  capture_health: Record<string, unknown>;
 }
 
 type JsonObject = Record<string, unknown>;

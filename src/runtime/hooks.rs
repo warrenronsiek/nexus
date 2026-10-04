@@ -30,6 +30,8 @@ pub async fn session_end(loaded: &LoadedConfig, explicit_config: Option<&Path>, 
             session_id: input.session_id,
             project_root: input.cwd,
             agent: agent.to_owned(),
+            turn_id: None,
+            model: None,
         },
     });
     daemon::lifecycle_request(loaded, explicit_config, &request).await;

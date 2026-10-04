@@ -14,7 +14,6 @@
 // Each integration-test crate uses a different subset of these shared helpers.
 #![allow(dead_code)]
 
-use nexus::coordination::domain::RecordScope;
 use nexus::persistence::Store;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -69,13 +68,7 @@ impl Harness {
         .unwrap();
 
         let executable = env!("CARGO_BIN_EXE_nexus");
-        let daemon = Command::new(executable)
-            .args(["--config", config.to_str().unwrap(), "daemon"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let daemon = spawn_daemon(executable, &config);
         let deadline = Instant::now() + Duration::from_secs(5);
         while !socket.exists() {
             assert!(Instant::now() < deadline, "daemon socket did not appear");
@@ -112,19 +105,20 @@ impl Harness {
         run_git(&self.root, &["commit", "-m", "initial"]);
     }
 
-    pub fn wait_for_reconciled_claim(&self, session_id: &str) {
+    pub fn wait_for_reconciled_claim(&mut self, session_id: &str) {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            let observed = self
-                .store()
-                .list_claims(None, RecordScope::All)
-                .unwrap()
-                .into_iter()
-                .any(|claim| claim.session_id == session_id);
+            let response = self.call("nexus_claims", json!({"scope":"all"}));
+            let observed = response["claims"]
+                .as_array()
+                .is_some_and(|claims| claims.iter().any(|claim| claim["session_id"] == session_id));
             if observed {
                 return;
             }
-            assert!(Instant::now() < deadline, "reconciliation did not run");
+            assert!(
+                Instant::now() < deadline,
+                "reconciliation did not expose a claim through the daemon"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -154,6 +148,10 @@ impl Harness {
             .clone()
     }
 
+    pub fn status(&mut self) -> Value {
+        self.call("nexus_status", json!({}))
+    }
+
     pub fn hook(
         &mut self,
         name: &str,
@@ -177,7 +175,18 @@ impl Harness {
     }
 
     pub fn store(&self) -> Store {
-        Store::open(&self.database).unwrap()
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match Store::open(&self.database) {
+                Ok(store) => return store,
+                // A running daemon can briefly hold SQLite's write lock while this
+                // independent test reader repeats migration/schema checks.
+                Err(_error) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(error) => panic!("open test store: {error:#}"),
+            }
+        }
     }
 
     pub fn send(&mut self, method: &str, params: Value) -> u64 {
@@ -229,6 +238,20 @@ impl Drop for Harness {
     }
 }
 
+fn spawn_daemon(executable: &str, config: &Path) -> Child {
+    let mut command = Command::new(executable);
+    command
+        .args(["--config", config.to_str().unwrap(), "daemon"])
+        // Prove synchronous service work cannot starve the async runtime.
+        .env("TOKIO_WORKER_THREADS", "1");
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
 fn test_config(
     database: &std::path::Path,
     socket: &std::path::Path,
@@ -236,13 +259,14 @@ fn test_config(
     analyst_command: Option<&std::path::Path>,
     claim_ttl_seconds: i64,
 ) -> String {
+    let reconcile_seconds = if analyst_command.is_some() { 30 } else { 1 };
     let analyst_command = analyst_command
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| "claude".into());
     format!(
         r#"schema_version = 1
 [coordination]
-reconcile_seconds = 1
+reconcile_seconds = {reconcile_seconds}
 claim_ttl_seconds = {claim_ttl_seconds}
 [storage]
 database_path = '{}'

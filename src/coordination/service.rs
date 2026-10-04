@@ -1,75 +1,54 @@
 // @feature coordination
+// @feature usage-analytics
 // @spec docs/features/coordination.md
-// @entrypoint NexusService::handle
+// @spec docs/features/usage-analytics.md
+mod dispatch;
+
+#[cfg(test)]
+use super::api::ServiceRequest;
 use super::api::{
-    AnalysisResponse, AnalyzeCommand, ClaimQuery, ClaimsResponse, ConfigResponse, ConflictQuery,
-    ConflictsResponse, DashboardQuery, DashboardResponse, EventQuery, EventsResponse,
-    ProjectsResponse, PromptResponse, ReleaseCommand, ReleasedResponse, ResolveCommand,
-    ResolvedResponse, ServiceRequest, ServiceResponse, SessionQuery, SessionsResponse,
-    StatusResponse, ToolHookPhase,
+    AnalysisResponse, AnalyzeCommand, ClaimQuery, ClaimsResponse, ConflictQuery, ConflictsResponse,
+    DashboardQuery, DashboardResponse, EventQuery, EventsResponse, ProjectsResponse,
+    PromptResponse, ReleaseCommand, ReleasedResponse, ResolveCommand, ResolvedResponse,
+    ServiceResponse, SessionQuery, SessionsResponse, StatusResponse,
 };
 use super::classifier::{advisory, extract_path_intents, strongest_overlaps};
 use super::domain::{
-    HookResponse, IgnoredAdvisoryPolicy, SessionStopInput, ToolCompletion, ToolHookInput,
-    ToolResultEvent, UserPromptInput,
+    Advisory, ConflictRecord, HookResponse, IgnoredAdvisoryPolicy, PathIntent, SessionStopInput,
+    ToolCompletion, ToolHookInput, ToolResultEvent, UserPromptInput,
 };
+use super::usage::UsageCapture;
 use super::workspace;
-use crate::agents::analyst;
+use crate::agents::analyst::{self, AnalysisResult};
 use crate::config::LoadedConfig;
 use crate::persistence::Store;
 use anyhow::{Context, Result};
 use std::sync::Mutex;
 
 pub struct NexusService {
-    loaded: LoadedConfig,
-    store: Mutex<Store>,
+    pub(super) loaded: LoadedConfig,
+    pub(super) store: Mutex<Store>,
+    pub(super) usage: UsageCapture,
 }
 
 impl NexusService {
     pub fn new(loaded: LoadedConfig) -> Result<Self> {
         let store = Store::open(&loaded.config.storage.database_path)?;
+        let usage = UsageCapture::new(loaded.hash.clone());
         Ok(Self {
             loaded,
             store: Mutex::new(store),
+            usage,
         })
     }
 
     #[cfg(test)]
     pub(crate) fn from_store(loaded: LoadedConfig, store: Store) -> Self {
+        let usage = UsageCapture::new(loaded.hash.clone());
         Self {
             loaded,
             store: Mutex::new(store),
-        }
-    }
-
-    pub fn handle(&self, request: ServiceRequest) -> ServiceResponse {
-        match request {
-            ServiceRequest::UserPrompt(input) => self.user_prompt(input),
-            ServiceRequest::ToolHook {
-                phase: ToolHookPhase::Before,
-                input,
-            } => self.pre_tool_use(input),
-            ServiceRequest::ToolHook {
-                phase: ToolHookPhase::After(completion),
-                input,
-            } => self.post_tool_use(input, completion),
-            ServiceRequest::SessionStop(input) => self.session_stop(input),
-            ServiceRequest::Status => self.status(),
-            ServiceRequest::Events(query) => self.events(query),
-            ServiceRequest::Sessions(query) => self.sessions(query),
-            ServiceRequest::Claims(query) => self.claims(query),
-            ServiceRequest::Conflicts(query) => self.conflicts(query),
-            ServiceRequest::Resolve(command) => self.resolve(command),
-            ServiceRequest::Release(command) => self.release(command),
-            ServiceRequest::Analyze(command) => self.analyze(command),
-            ServiceRequest::Projects => self.projects(),
-            ServiceRequest::Dashboard(query) => self.dashboard(query),
-            ServiceRequest::Config => ServiceResponse::Config(Box::new(ConfigResponse {
-                ok: true,
-                config: self.loaded.config.clone(),
-                sources: self.loaded.sources.clone(),
-                hash: self.loaded.hash.clone(),
-            })),
+            usage,
         }
     }
 
@@ -118,57 +97,9 @@ impl NexusService {
     }
 
     fn pre_tool_use(&self, input: ToolHookInput) -> ServiceResponse {
-        let result = (|| -> Result<HookResponse> {
-            let project = workspace::identify(input.context.project_root.as_deref())?;
-            let intents = extract_path_intents(
-                &input.tool_name,
-                &input.tool_input,
-                project.worktree.as_deref(),
-            );
-            let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
-            store.touch_session(
-                &project.id,
-                &input.context.session_id,
-                &input.context.agent,
-                project.worktree.as_deref(),
-                &self.loaded.hash,
-            )?;
-            store.record_tool_inspection(
-                &project.id,
-                &input.context.session_id,
-                &input.tool_use_id,
-                &input.tool_name,
-                &intents,
-            )?;
-
-            let mut advisories = Vec::new();
-            for intent in intents {
-                let active = store.active_claims_for_path(
-                    &project.id,
-                    &intent.path,
-                    &input.context.session_id,
-                )?;
-                let claim = store.insert_claim(
-                    &project.id,
-                    &input.context.session_id,
-                    &input.tool_use_id,
-                    &intent,
-                    self.loaded.config.coordination.claim_ttl_seconds,
-                )?;
-                for (existing, classification) in strongest_overlaps(&intent, active) {
-                    let item = advisory(classification, &intent.path, &existing.session_id);
-                    advisories.push(store.record_conflict(
-                        &project.id,
-                        &claim,
-                        &existing,
-                        item,
-                        &input.tool_use_id,
-                    )?);
-                }
-            }
-            Ok(HookResponse::allow(advisories))
-        })();
-        ServiceResponse::Hook(result.unwrap_or_else(HookResponse::fail_open))
+        ServiceResponse::Hook(
+            pre_tool_use_result(self, input).unwrap_or_else(HookResponse::fail_open),
+        )
     }
 
     fn post_tool_use(&self, input: ToolHookInput, completion: ToolCompletion) -> ServiceResponse {
@@ -188,6 +119,8 @@ impl NexusService {
                 } else {
                     IgnoredAdvisoryPolicy::Omit
                 };
+            self.usage
+                .observe_tool_completion(&mut store, &project, &input, completion);
             store.record_hook_result(
                 &project.id,
                 &input.context.session_id,
@@ -315,28 +248,7 @@ impl NexusService {
     }
 
     fn analyze(&self, command: AnalyzeCommand) -> ServiceResponse {
-        let result = (|| -> Result<AnalysisResponse> {
-            let conflict = self
-                .store
-                .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
-                .conflict_by_id(&command.conflict_id)?
-                .context("conflict not found")?;
-            let working_directory = std::path::Path::new(&conflict.path).parent();
-            let analysis =
-                analyst::analyze(&self.loaded.config.analyst, &conflict, working_directory)?;
-            self.store
-                .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
-                .record_analysis(
-                    &conflict.project_id,
-                    &command.conflict_id,
-                    &analysis,
-                    &self.loaded.hash,
-                )?;
-            Ok(AnalysisResponse { ok: true, analysis })
-        })();
-        match result {
+        match analyze_result(self, &command) {
             Ok(response) => ServiceResponse::Analysis(response),
             Err(error) => ServiceResponse::error(error),
         }
@@ -377,7 +289,7 @@ impl NexusService {
         }
     }
 
-    fn lifecycle_store(&self) -> Result<std::sync::MutexGuard<'_, Store>> {
+    pub(super) fn lifecycle_store(&self) -> Result<std::sync::MutexGuard<'_, Store>> {
         self.store
             .try_lock()
             .map_err(|error| anyhow::anyhow!("lifecycle store unavailable: {error}"))
@@ -404,6 +316,107 @@ impl NexusService {
         }
         Ok(observed)
     }
+}
+
+fn pre_tool_use_result(service: &NexusService, input: ToolHookInput) -> Result<HookResponse> {
+    let project = workspace::identify(input.context.project_root.as_deref())?;
+    let intents = extract_path_intents(
+        &input.tool_name,
+        &input.tool_input,
+        project.worktree.as_deref(),
+    );
+    let mut store = service
+        .lifecycle_store()
+        .context("acquire lifecycle store")?;
+    store.touch_session(
+        &project.id,
+        &input.context.session_id,
+        &input.context.agent,
+        project.worktree.as_deref(),
+        &service.loaded.hash,
+    )?;
+    service
+        .usage
+        .observe_tool_start(&mut store, &project.id, &input);
+    store.record_tool_inspection(
+        &project.id,
+        &input.context.session_id,
+        &input.tool_use_id,
+        &input.tool_name,
+        &intents,
+    )?;
+
+    let mut advisories = Vec::new();
+    for intent in intents {
+        advisories.extend(record_intent_advisories(
+            service,
+            &mut store,
+            &project.id,
+            &input,
+            intent,
+        )?);
+    }
+    Ok(HookResponse::allow(advisories))
+}
+
+fn record_intent_advisories(
+    service: &NexusService,
+    store: &mut Store,
+    project_id: &str,
+    input: &ToolHookInput,
+    intent: PathIntent,
+) -> Result<Vec<Advisory>> {
+    let active =
+        store.active_claims_for_path(project_id, &intent.path, &input.context.session_id)?;
+    let claim = store.insert_claim(
+        project_id,
+        &input.context.session_id,
+        &input.tool_use_id,
+        &intent,
+        service.loaded.config.coordination.claim_ttl_seconds,
+    )?;
+    strongest_overlaps(&intent, active)
+        .into_iter()
+        .map(|(existing, classification)| {
+            let item = advisory(classification, &intent.path, &existing.session_id);
+            store.record_conflict(project_id, &claim, &existing, item, &input.tool_use_id)
+        })
+        .collect()
+}
+
+fn analyze_result(service: &NexusService, command: &AnalyzeCommand) -> Result<AnalysisResponse> {
+    let conflict = conflict(service, &command.conflict_id)?;
+    let working_directory = std::path::Path::new(&conflict.path).parent();
+    let analysis = analyst::analyze(&service.loaded.config.analyst, &conflict, working_directory)?;
+    record_analysis(service, &conflict, &command.conflict_id, &analysis)?;
+    Ok(AnalysisResponse { ok: true, analysis })
+}
+
+fn conflict(service: &NexusService, conflict_id: &str) -> Result<ConflictRecord> {
+    service
+        .store
+        .lock()
+        .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+        .conflict_by_id(conflict_id)?
+        .context("conflict not found")
+}
+
+fn record_analysis(
+    service: &NexusService,
+    conflict: &ConflictRecord,
+    conflict_id: &str,
+    analysis: &AnalysisResult,
+) -> Result<()> {
+    service
+        .store
+        .lock()
+        .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+        .record_analysis(
+            &conflict.project_id,
+            conflict_id,
+            analysis,
+            &service.loaded.hash,
+        )
 }
 
 fn synopsis(prompt: &str, max_chars: usize) -> String {

@@ -1,11 +1,15 @@
 // @feature observability-ui
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint pi-extension
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { fetchSnapshot, startNexus } from "./client.ts";
+import { registerAnalyticsCapture } from "./capture.ts";
+import { fetchSnapshot, fetchUsage, startNexus } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 
 export default function nexusExtension(pi: ExtensionAPI): void {
+  registerAnalyticsCapture(pi);
   pi.registerCommand("nexus", {
     description: "Open the live Nexus coordination dashboard",
     handler: async (_args, ctx) => {
@@ -22,8 +26,11 @@ export default function nexusExtension(pi: ExtensionAPI): void {
             tui,
             theme,
             snapshot,
-            (projectId, signal) => fetchSnapshot(baseUrl, projectId, signal),
-            () => done(),
+            {
+              loadSnapshot: (projectId, signal) => fetchSnapshot(baseUrl, projectId, signal),
+              loadUsage: (projectId, signal) => fetchUsage(baseUrl, projectId, signal),
+              done: () => done(),
+            },
           );
         });
       } catch (error) {

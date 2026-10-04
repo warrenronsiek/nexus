@@ -48,7 +48,7 @@ flowchart TD
 12. **Load resolved configuration** applies normal user, repository, environment, and CLI precedence.
 13. **Repository ready for agent hooks** means the already-installed host integrations will coordinate sessions in that repository.
 14. **Pi installed** is detected with the same executable probe used for supported hosts; an absent Pi installation does not affect setup.
-15. **Install `/nexus` terminal extension** writes the bundled TypeScript modules to Pi's global extension directory. Re-running setup replaces only changed Nexus extension files.
+15. **Install `/nexus` terminal extension** writes the bundled TypeScript modules to Pi's global extension directory, including the always-on fail-open analytics transport. Re-running setup replaces only changed Nexus extension files.
 
 ## Implementation details
 

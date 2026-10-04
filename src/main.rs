@@ -1,7 +1,9 @@
 // @feature runtime
 // @feature commit-review
+// @feature usage-analytics
 // @spec docs/features/runtime.md
 // @spec docs/features/commit-review.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint main
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -13,8 +15,9 @@ use nexus::coordination::api::{
 };
 use nexus::coordination::domain::{ConflictScope, RecordScope};
 use nexus::installation;
-use nexus::runtime::{daemon, hooks, mcp, web};
+use nexus::runtime::{daemon, hooks, mcp, script_exec, web};
 use nexus::{Config, LoadedConfig};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
@@ -51,6 +54,11 @@ enum Command {
     Ui {
         #[arg(long, value_enum, default_value_t = UiLaunch::Open)]
         launch: UiLaunch,
+    },
+    /// Execute a script while recording one privacy-limited usage observation.
+    Exec {
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<OsString>,
     },
     /// Show daemon status and projection counts.
     Status,
@@ -174,6 +182,11 @@ async fn main() -> Result<()> {
                 }
             }
             Ok(())
+        }
+        Command::Exec { command } => {
+            let code =
+                script_exec::run(&loaded, explicit_config.as_deref(), &root, command).await?;
+            std::process::exit(code);
         }
         query @ (Command::Status
         | Command::Events { .. }

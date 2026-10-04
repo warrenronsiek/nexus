@@ -1,6 +1,8 @@
 // @feature persistence
+// @feature usage-analytics
 // @spec docs/features/persistence.md
-use super::schema::{advisories, claims, conflicts, events, sessions};
+// @spec docs/features/usage-analytics.md
+use super::schema::{advisories, capability_uses, claims, conflicts, events, sessions};
 use crate::coordination::domain::{
     Claim, ClaimState, ConflictRecord, ConflictStatus, Operation, SessionRecord, SessionStatus,
     Severity,
@@ -143,6 +145,27 @@ pub(super) struct NewAdvisory<'a> {
     pub(super) path: &'a str,
     pub(super) message: &'a str,
     pub(super) created_at: &'a str,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = capability_uses)]
+pub(super) struct NewCapabilityUse<'a> {
+    pub(super) id: &'a str,
+    pub(super) project_id: &'a str,
+    pub(super) agent: &'a str,
+    pub(super) session_id: &'a str,
+    pub(super) turn_id: Option<&'a str>,
+    pub(super) invocation_id: &'a str,
+    pub(super) parent_invocation_id: Option<&'a str>,
+    pub(super) kind: &'a str,
+    pub(super) name: &'a str,
+    pub(super) source: &'a str,
+    pub(super) evidence: &'a str,
+    pub(super) outcome: &'a str,
+    pub(super) config_hash: &'a str,
+    pub(super) model_id: Option<&'a str>,
+    pub(super) first_observed_at: &'a str,
+    pub(super) completed_at: Option<&'a str>,
 }
 
 pub(super) fn claim_from_row(row: ClaimRow) -> Result<Claim> {
