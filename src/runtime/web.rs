@@ -1,11 +1,13 @@
 // @feature observability-ui
 // @feature runtime
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
 // @spec docs/features/runtime.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint spawn
 // @boundary dynamic-http
 use crate::config::UiConfig;
-use crate::coordination::api::{DashboardQuery, ServiceRequest, ServiceResponse};
+use crate::coordination::api::{DashboardQuery, ServiceRequest, ServiceResponse, UsageQuery};
 use crate::coordination::NexusService;
 use anyhow::{bail, Context, Result};
 use axum::extract::{Query, State};
@@ -90,6 +92,7 @@ fn router(service: Arc<NexusService>, address: SocketAddr) -> Router {
         .route("/api/v1/health", get(health))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/dashboard", get(dashboard))
+        .route("/api/v1/usage", get(usage))
         .layer(middleware::from_fn_with_state(
             address,
             secure_local_request,
@@ -170,6 +173,10 @@ async fn projects(State(state): State<WebState>) -> Response {
 
 async fn dashboard(State(state): State<WebState>, Query(query): Query<DashboardQuery>) -> Response {
     api_response(state.service.handle(ServiceRequest::Dashboard(query)))
+}
+
+async fn usage(State(state): State<WebState>, Query(query): Query<UsageQuery>) -> Response {
+    api_response(state.service.handle(ServiceRequest::Usage(query)))
 }
 
 fn api_response(response: ServiceResponse) -> Response {

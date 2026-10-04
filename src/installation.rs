@@ -1,5 +1,7 @@
 // @feature installation
+// @feature usage-analytics
 // @spec docs/features/installation.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint setup_machine
 // @entrypoint install_repository
 // @boundary dynamic-json
@@ -30,8 +32,9 @@ const SKILL_FILES: [(&str, &str); 4] = [
     ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 6] = [
+const PI_EXTENSION_FILES: [(&str, &str); 9] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
+    ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
     ("client.ts", include_str!("../pi-extension/src/client.ts")),
     (
         "component.ts",
@@ -43,6 +46,11 @@ const PI_EXTENSION_FILES: [(&str, &str); 6] = [
         include_str!("../pi-extension/src/navigation.ts"),
     ),
     ("polling.ts", include_str!("../pi-extension/src/polling.ts")),
+    (
+        "usage-pane.ts",
+        include_str!("../pi-extension/src/usage-pane.ts"),
+    ),
+    ("usage.ts", include_str!("../pi-extension/src/usage.ts")),
 ];
 
 #[derive(Debug, Serialize)]

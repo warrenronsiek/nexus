@@ -1,8 +1,10 @@
 // @feature observability-ui
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
+// @spec docs/features/usage-analytics.md
 import { afterEach, expect, it, vi } from "vitest";
-import type { Snapshot } from "../src/domain.ts";
-import { SnapshotPoller } from "../src/polling.ts";
+import type { Snapshot, UsageSummary } from "../src/domain.ts";
+import { SnapshotPoller, UsagePoller } from "../src/polling.ts";
 
 const snapshot = {
   dashboard: {
@@ -96,5 +98,37 @@ afterEach(() => {
     await scopeRefresh;
     await vi.advanceTimersByTimeAsync(2000);
     expect(load).toHaveBeenLastCalledWith("project-1", expect.any(AbortSignal));
+    poller.dispose();
+  });
+
+  it("polls usage only while an analytics tab is active and at a slower interval", async () => {
+    vi.useFakeTimers();
+    const usage = {
+      ok: true,
+      project_id: null,
+      window_started_at: "2026-09-27T12:00:00Z",
+      window_ended_at: "2026-10-04T12:00:00Z",
+      tools: [],
+      skills: [],
+      capture_health: {},
+    } satisfies UsageSummary;
+    const load = vi.fn(async () => usage);
+    const updates = vi.fn();
+    const poller = new UsagePoller(load, updates, 30_000);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(load).not.toHaveBeenCalled();
+
+    poller.activate(null);
+    await vi.runAllTicks();
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(2);
+
+    poller.deactivate();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(load).toHaveBeenCalledTimes(2);
     poller.dispose();
   });

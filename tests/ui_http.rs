@@ -1,5 +1,7 @@
 // @feature observability-ui
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint daemon_serves_read_only_observability_ui
 // @boundary child-process-http
 mod support;
@@ -29,6 +31,16 @@ fn daemon_serves_read_only_observability_ui() {
         .unwrap();
     wait_for_http(address, &mut daemon);
 
+    assert_ui_assets(address);
+    assert_read_only_apis(address);
+    assert_http_rejections(address);
+    assert_ui_command(&config, address);
+
+    daemon.kill().unwrap();
+    daemon.wait().unwrap();
+}
+
+fn assert_ui_assets(address: SocketAddr) {
     let index = request(
         address,
         "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
@@ -50,7 +62,9 @@ fn daemon_serves_read_only_observability_ui() {
         assert!(lower(&response).starts_with("http/1.1 200"), "{response}");
         assert!(response_body(&response).len() > 100, "{asset} was empty");
     }
+}
 
+fn assert_read_only_apis(address: SocketAddr) {
     let health = request(
         address,
         "GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
@@ -67,6 +81,18 @@ fn daemon_serves_read_only_observability_ui() {
     assert_eq!(dashboard_json["ok"], true);
     assert!(dashboard_json["events"]["items"].is_array());
 
+    let usage = request(
+        address,
+        "GET /api/v1/usage HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
+    let usage_json = response_json(&usage);
+    assert_eq!(usage_json["ok"], true, "{usage}");
+    assert!(usage_json["tools"].is_array());
+    assert!(usage_json["skills"].is_array());
+    assert_eq!(usage_json["capture_health"]["label"], "observed_by_nexus");
+}
+
+fn assert_http_rejections(address: SocketAddr) {
     let rejected = request(
         address,
         "POST /api/v1/dashboard HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
@@ -83,9 +109,11 @@ fn daemon_serves_read_only_observability_ui() {
     );
     assert!(lower(&foreign_host).contains("content-security-policy:"));
     assert!(lower(&foreign_host).contains("cache-control: no-store"));
+}
 
+fn assert_ui_command(config: &Path, address: SocketAddr) {
     let printed = Command::new(env!("CARGO_BIN_EXE_nexus"))
-        .args(["--config", path(&config), "ui", "--launch", "print"])
+        .args(["--config", path(config), "ui", "--launch", "print"])
         .output()
         .unwrap();
     assert_success("nexus ui", &printed);
@@ -93,9 +121,6 @@ fn daemon_serves_read_only_observability_ui() {
         String::from_utf8(printed.stdout).unwrap().trim(),
         format!("http://{address}")
     );
-
-    daemon.kill().unwrap();
-    daemon.wait().unwrap();
 }
 
 #[test]

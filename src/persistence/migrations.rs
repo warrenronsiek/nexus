@@ -245,13 +245,65 @@ mod tests {
         }
     }
 
+    struct ThroughVersionTwo;
+
+    impl MigrationStore for ThroughVersionTwo {
+        fn changelogs(&self) -> Vec<ChangelogFile> {
+            NexusMigrations {}
+                .changelogs()
+                .into_iter()
+                .filter(|changelog| changelog.version() <= 2)
+                .collect()
+        }
+    }
+
     #[test]
     fn applies_only_unseen_versions_and_is_idempotent() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("upgrade.db");
 
         assert_eq!(migrate_with(&path, FirstMigrationOnly).unwrap(), Some(0));
-        assert_eq!(migrate_database(&path).unwrap(), Some(2));
-        assert_eq!(migrate_database(&path).unwrap(), Some(2));
+        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+    }
+
+    #[test]
+    fn upgrades_an_existing_v2_database_without_losing_events() {
+        use super::super::models::NewEvent;
+        use super::super::schema::events;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("upgrade-v2.db");
+        assert_eq!(migrate_with(&path, ThroughVersionTwo).unwrap(), Some(2));
+
+        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+        diesel::insert_into(events::table)
+            .values(NewEvent {
+                project_id: "project-before-upgrade",
+                session_id: None,
+                kind: "pre_upgrade_event",
+                payload_json: "{}".to_owned(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .execute(&mut connection)
+            .unwrap();
+        drop(connection);
+
+        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+        let mut store = super::super::Store::open(&path).unwrap();
+        let events = store
+            .list_events(Some("project-before-upgrade"), 10)
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "pre_upgrade_event");
+        assert!(store
+            .usage_summary(
+                None,
+                chrono::Utc::now() - chrono::Duration::days(7),
+                chrono::Utc::now(),
+            )
+            .unwrap()
+            .tools
+            .is_empty());
     }
 }

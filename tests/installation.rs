@@ -1,5 +1,7 @@
 // @feature installation
+// @feature usage-analytics
 // @spec docs/features/installation.md
+// @spec docs/features/usage-analytics.md
 // @boundary child-process-json
 use serde_json::Value;
 use std::fs;
@@ -36,6 +38,11 @@ fn machine_setup_installs_integrations_idempotently() {
     assert!(home.join(".pi/agent/extensions/nexus/index.ts").is_file());
     assert!(home
         .join(".pi/agent/extensions/nexus/component.ts")
+        .is_file());
+    assert!(home.join(".pi/agent/extensions/nexus/capture.ts").is_file());
+    assert!(home.join(".pi/agent/extensions/nexus/usage.ts").is_file());
+    assert!(home
+        .join(".pi/agent/extensions/nexus/usage-pane.ts")
         .is_file());
 }
 

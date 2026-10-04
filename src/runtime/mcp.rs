@@ -1,5 +1,7 @@
 // @feature runtime
+// @feature usage-analytics
 // @spec docs/features/runtime.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint serve_stdio
 // @boundary dynamic-json
 use super::daemon;
@@ -187,21 +189,34 @@ async fn resource_read(
 }
 
 fn tool_definitions() -> Value {
+    let mut definitions = lifecycle_tool_definitions();
+    definitions.extend(coordination_tool_definitions());
+    Value::Array(definitions)
+}
+
+fn lifecycle_tool_definitions() -> Vec<Value> {
     let tool_hook_schema = json!({
         "type":"object",
         "required":["session_id","tool_use_id","tool_name"],
         "properties":{
             "session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},
-            "tool_use_id":{"type":"string"},"tool_name":{"type":"string"},"tool_input":{},"tool_output":{},"error":{"type":"string"}
+            "turn_id":{"type":"string"},"model":{"type":"string"},
+            "tool_use_id":{"type":"string"},"parent_tool_use_id":{"type":"string"},"tool_name":{"type":"string"},"tool_input":{},"tool_output":{},"error":{"type":"string"}
         },
         "additionalProperties":true
     });
-    json!([
+    json_array(json!([
         {"name":"nexus_user_prompt","description":"Record a privacy-limited task synopsis for agent coordination.","inputSchema":{"type":"object","required":["session_id","prompt"],"properties":{"session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},"prompt":{"type":"string"}}}},
         {"name":"nexus_pre_tool_use","description":"Inspect an upcoming tool call and return non-blocking coordination advisories. Always permits execution.","inputSchema":tool_hook_schema},
         {"name":"nexus_post_tool_use","description":"Record successful tool completion. Never controls execution.","inputSchema":tool_hook_schema},
         {"name":"nexus_post_tool_failure","description":"Record failed tool completion. Never controls execution.","inputSchema":tool_hook_schema},
+        {"name":"nexus_skill_use","description":"Record an observed skill activation with typed evidence. Never controls execution.","inputSchema":{"type":"object","required":["session_id","invocation_id","skill_name","evidence"],"properties":{"session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},"turn_id":{"type":"string"},"model":{"type":"string"},"invocation_id":{"type":"string"},"skill_name":{"type":"string"},"evidence":{"type":"string","enum":["native_hook","explicit_invocation","instruction_read","asset_execution"]},"actor":{"type":"string"}}}},
         {"name":"nexus_session_stop","description":"Mark a session stopped and release its advisory claims.","inputSchema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"}}}},
+    ]))
+}
+
+fn coordination_tool_definitions() -> Vec<Value> {
+    json_array(json!([
         {"name":"nexus_status","description":"Return daemon and projection counts.","inputSchema":{"type":"object"}},
         {"name":"nexus_sessions","description":"List agent sessions.","inputSchema":{"type":"object","properties":{"scope":{"type":"string","enum":["active","all"],"default":"active"}}}},
         {"name":"nexus_claims","description":"List advisory path claims.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"scope":{"type":"string","enum":["active","all"],"default":"active"}}}},
@@ -210,6 +225,14 @@ fn tool_definitions() -> Value {
         {"name":"nexus_release","description":"Release a session's advisory claims.","inputSchema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"},"path":{"type":"string"}}}},
         {"name":"nexus_analyze","description":"Explicitly ask the configured read-only Codex or Claude analyst to summarize one conflict and suggest optional resolutions.","inputSchema":{"type":"object","required":["conflict_id"],"properties":{"conflict_id":{"type":"string"}}}},
         {"name":"nexus_events","description":"Return recent coordination events.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10000}}}},
+        {"name":"nexus_usage","description":"Return observed tool, script, and skill usage for the rolling seven-day window.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"}}}},
         {"name":"nexus_config","description":"Return resolved non-secret Nexus configuration and its hash.","inputSchema":{"type":"object"}}
-    ])
+    ]))
+}
+
+fn json_array(value: Value) -> Vec<Value> {
+    match value {
+        Value::Array(items) => items,
+        _ => unreachable!("static tool definitions are always JSON arrays"),
+    }
 }

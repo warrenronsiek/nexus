@@ -10,7 +10,9 @@ The observability UI is a compact, read-only operations console for people super
 
 `nexus ui` is the human entry point. It ensures that the existing daemon is running, waits briefly for the local HTTP listener, prints the dashboard URL, and normally opens the default browser. `nexus ui --launch print` performs the same readiness work without opening a browser, which is useful over SSH and in automated tests.
 
-The bundled Pi extension is the terminal entry point. When Pi is installed, `nexus setup` copies the extension to `~/.pi/agent/extensions/nexus/`. `/nexus` starts or locates the same loopback service and opens a keyboard-driven view inside Pi: the first level shows counts and project scope, the second lists one record class, and the third shows the selected record. `j`/`k` scroll detail, Escape moves back, `r` refreshes, and `q` closes the view. The extension polls while open, retains the last successful snapshot after an error, and never adds Nexus mutation tools to Pi.
+The bundled Pi extension is the terminal entry point. When Pi is installed, `nexus setup` copies the extension to `~/.pi/agent/extensions/nexus/`. `/nexus` starts or locates the same loopback service and opens a keyboard-driven view inside Pi. Its top-level tabs are Coordination, Tools, and Skills; Tab and Shift-Tab move between them. Coordination keeps the existing progressive record navigation, while Tools and Skills show rolling seven-day horizontal bar charts for the selected project or all projects. `j`/`k` scroll detail, Escape moves back, `r` refreshes, and `q` closes the view. Dashboard polling runs while Coordination is active; the slower analytics poll runs only while Tools or Skills is visible, retains the last successful summary after an error, and never adds Nexus mutation tools to Pi.
+
+The extension also observes Pi tool calls whenever it is loaded, whether or not `/nexus` is open. One persistent `nexus mcp` child receives best-effort pre/post tool events and explicit `/skill:name` invocations through a bounded queue. Capture failures and backpressure cannot alter Pi tool execution.
 
 ## Why it exists
 
@@ -34,15 +36,21 @@ flowchart TD
     J --> L[Embedded HTML, CSS, Elm, and adapter assets]
     J --> M[Projects request]
     J --> N[Dashboard request with optional project ID]
+    J --> AF[Usage request with optional project ID]
     AA[Pi /nexus command] --> B
+    AD[Pi tool and skill events] --> AE[Bounded MCP capture queue]
+    AE --> O
     AA --> M
     AA --> N
+    AA --> AF
     M --> O[NexusService]
     N --> O
+    AF --> O
     O --> P[Typed Diesel queries]
     P --> Q[Bounded RecordWindow values]
     Q --> R[Elm decoders and explicit state]
     Q --> AB[Pi TypeScript decoder and navigator]
+    Q --> AG[Pi seven-day usage bars]
     R --> S[Repository filter and detail drawer]
     R --> T[Five-minute activity buckets]
     T --> U[Typed Elm port]
@@ -79,7 +87,7 @@ flowchart TD
 21. **Two-second tick** uses the configured refresh interval embedded in the snapshot.
 22. **Skip overlapping poll** prevents a slow request from creating an unbounded request queue.
 23. **Retain snapshot and mark stale** keeps useful context visible while the next tick retries naturally.
-24. **Pi `/nexus` command** calls `nexus ui --launch print` with fixed arguments, validates that the returned URL is loopback HTTP, and reuses the same projects and dashboard endpoints.
+24. **Pi `/nexus` command** calls `nexus ui --launch print` with fixed arguments, validates that the returned URL is loopback HTTP, and reuses the projects, dashboard, and usage endpoints.
 25. **Pi decoder and navigator** keep open JSON at the HTTP boundary, convert it into typed records, and expose overview, record-list, and detail pages without duplicating coordination queries.
 26. **Summary to list to record detail** keeps the default terminal footprint small. Project selection changes only the read scope, and automatic polling preserves the selected page and row when possible.
 
@@ -89,7 +97,7 @@ flowchart TD
 
 The browser frontend lives under `ui/`. `Main.elm` owns the application model, update loop, responsive semantic markup, project choice, and keyboard dismissal. `Nexus.Domain` owns wire decoders, event classification, and five-minute aggregation; `Nexus.Polling` owns the small state machine that prevents overlapping polls and preserves stale data. `activity-chart.ts` is the only D3 surface. It accepts a closed `ActivityBucket` type and updates one SVG root, including an accessible empty state. `bootstrap.ts` contains only port wiring and resize observation.
 
-The Pi frontend lives under `pi-extension/`. `client.ts` owns process startup, loopback URL validation, and HTTP reads; `domain.ts` validates the wire shape; `navigation.ts` owns progressive-disclosure state; `polling.ts` owns the single-flight refresh lifecycle; and `component.ts` adapts those states to Pi's themed selection and scrolling components. `index.ts` only registers `/nexus` and composes those pieces. Runtime imports use Pi's public extension and TUI packages, while repository checks type-check against the pinned API version.
+The Pi frontend lives under `pi-extension/`. `client.ts` owns process startup, loopback URL validation, and HTTP reads; `domain.ts` validates the wire shape; `navigation.ts` owns coordination's progressive-disclosure state; `polling.ts` owns independent single-flight dashboard and analytics refresh lifecycles; `usage.ts` and `usage-pane.ts` own the seven-day bar presentation and tab state; and `component.ts` composes them. `capture.ts` owns the persistent fail-open MCP transport and Pi event listeners. `index.ts` only registers capture and `/nexus`. Runtime imports use Pi's public extension and TUI packages, while repository checks type-check against the pinned API version.
 
 `ui/build.mjs` compiles optimized Elm, bundles authored TypeScript and D3 with esbuild, and copies static HTML and CSS into `ui/dist`. The dist directory is committed because Rust embeds it with `include_str!`. Repository checks install both locked Node trees, run Elm, browser TypeScript, and Pi-extension tests, type-check authored TypeScript, rebuild the browser assets, and reject an unstaged bundle difference. Feature mapping reads authored Elm and TypeScript symbols while skipping `dist`, `elm-stuff`, and `node_modules`; big-code-analysis examines the authored TypeScript but the Elm compiler and tests are the Elm type gate.
 

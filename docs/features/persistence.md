@@ -6,7 +6,7 @@ feature: persistence
 
 ## What this feature does
 
-Persistence gives Nexus a durable event history and fast, typed views of current coordination state. It stores sessions, claims, conflicts, and advisories in SQLite while exposing domain records to the rest of the application.
+Persistence gives Nexus a durable event history and fast, typed views of current coordination state. It stores sessions, claims, conflicts, advisories, and normalized capability-use facts in SQLite while exposing domain records to the rest of the application.
 
 ## Why it exists
 
@@ -49,10 +49,12 @@ flowchart TD
 
 ## Implementation details
 
-`src/persistence/store.rs` owns application transactions and Diesel queries. `migrations.rs` adapts the public `flyway-rs` state and executor traits to the same Diesel SQLite connection model. `models.rs` owns row and insert models plus conversion into domain records. `schema.rs` contains Diesel's generated table declarations, including the migration history table. SQL appears only under `migrations/`, where it defines schema objects.
+`src/persistence/store.rs` owns coordination transactions and Diesel queries. `usage.rs` owns idempotent capability-use upserts and typed, time-bounded usage aggregates. `migrations.rs` adapts the public `flyway-rs` state and executor traits to the same Diesel SQLite connection model. `models.rs` owns row and insert models plus conversion into domain records. `schema.rs` contains Diesel's generated table declarations, including the migration history table. SQL appears only under `migrations/`, where it defines schema objects.
 
-`Store::open` runs the compile-time embedded `flyway-rs` migration store before opening the application connection. Migration files are immutable, monotonically versioned `V<version>_<description>.sql` scripts. Existing scripts are never rewritten or deleted after release; schema changes add a later file. Migration zero bootstraps Flyway's own typed history table. The runner uses one transaction per changelog and stops on the first failure. The migration test first applies only version zero, upgrades through version two, and reopens the database to prove already-deployed versions do not run twice.
+`Store::open` runs the compile-time embedded `flyway-rs` migration store before opening the application connection. Migration files are immutable, monotonically versioned `V<version>_<description>.sql` scripts. Existing scripts are never rewritten or deleted after release; schema changes add a later file. Migration zero bootstraps Flyway's own typed history table. The runner uses one transaction per changelog and stops on the first failure. Migration tests cover both a version-zero installation and an existing version-two database upgrading through version three, preserving prior events and proving already-deployed versions do not run twice.
 
 The event and advisory tables preserve individual observations. Sessions, claims, and conflicts are current projections. A conflict has a stable identity derived from its project, path, and unordered session pair, so detecting the same overlap again updates one conflict instead of creating competing open records. Projection severity only escalates; equal or weaker observations preserve both its strongest evidence and an explicit resolution. A stronger observation reopens a resolved projection and records that transition. Claim expiration is evaluated in queries, and reconciliation only refreshes claims for recently seen sessions. Repeated observation of the same still-active Git change refreshes its projection without duplicating event history. States are converted into `ClaimState`, `SessionStatus`, and `ConflictStatus` before leaving persistence.
+
+Capability uses form a separate normalized projection rather than being reconstructed from event payload JSON. Tool and script invocations are idempotent by project, agent, session, kind, and invocation ID. Skills additionally deduplicate by project, agent, session, turn, and name when a turn ID is available, allowing stronger evidence to promote one observation without increasing its count. The projection stores typed identity, evidence, outcome, and timestamps but has no field for arguments, environment values, output, or error text. Usage queries aggregate a caller-supplied half-open time window and optionally constrain it to one project.
 
 Important transactional groupings include session observation plus its event, claim insertion plus its event, conflict plus advisory creation, successful completion plus claim state change, and session stop plus claim release. Tests open both in-memory and filesystem-backed databases and inspect typed projections after real hook traffic.

@@ -1,10 +1,18 @@
 // @feature observability-ui
+// @feature usage-analytics
 // @spec docs/features/observability-ui.md
+// @spec docs/features/usage-analytics.md
 // @entrypoint startNexus
 // @boundary dynamic-json
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { decodeDashboard, decodeProjects, type Snapshot } from "./domain.ts";
+import {
+  decodeDashboard,
+  decodeProjects,
+  type Snapshot,
+  type UsageSummary,
+} from "./domain.ts";
+import { decodeUsage } from "./usage.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -63,4 +71,15 @@ export async function fetchSnapshot(
     dashboard: decodeDashboard(dashboardJson),
     projects: decodeProjects(projectsJson),
   };
+}
+
+export async function fetchUsage(
+  baseUrl: URL,
+  projectId: string | null,
+  signal?: AbortSignal,
+): Promise<UsageSummary> {
+  const usageUrl = new URL("/api/v1/usage", baseUrl);
+  if (projectId !== null) usageUrl.searchParams.set("project_id", projectId);
+  const response = await fetch(usageUrl, { signal });
+  return decodeUsage(await responseJson(response, "Nexus usage analytics"));
 }

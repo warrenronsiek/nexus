@@ -51,8 +51,7 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     let ui_config = loaded.config.ui.clone();
     let service = Arc::new(NexusService::new(loaded)?);
     let ui = web::spawn(&ui_config, service.clone()).await;
-    let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds));
-    reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut reconcile = reconciliation_interval(reconcile_seconds);
 
     loop {
         tokio::select! {
@@ -74,6 +73,14 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     }
     drop(lock);
     Ok(())
+}
+
+fn reconciliation_interval(seconds: u64) -> tokio::time::Interval {
+    let period = Duration::from_secs(seconds);
+    let start = tokio::time::Instant::now() + period;
+    let mut interval = tokio::time::interval_at(start, period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval
 }
 
 async fn handle_connection(stream: UnixStream, service: Arc<NexusService>) -> Result<()> {

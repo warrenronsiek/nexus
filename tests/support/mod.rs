@@ -114,17 +114,24 @@ impl Harness {
 
     pub fn wait_for_reconciled_claim(&self, session_id: &str) {
         let deadline = Instant::now() + Duration::from_secs(5);
+        let mut last_error = None;
         loop {
-            let observed = self
-                .store()
-                .list_claims(None, RecordScope::All)
-                .unwrap()
-                .into_iter()
-                .any(|claim| claim.session_id == session_id);
+            let observed = match self.store().list_claims(None, RecordScope::All) {
+                Ok(claims) => claims
+                    .into_iter()
+                    .any(|claim| claim.session_id == session_id),
+                Err(error) => {
+                    last_error = Some(error.to_string());
+                    false
+                }
+            };
             if observed {
                 return;
             }
-            assert!(Instant::now() < deadline, "reconciliation did not run");
+            assert!(
+                Instant::now() < deadline,
+                "reconciliation did not run; last store error: {last_error:?}"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -177,7 +184,16 @@ impl Harness {
     }
 
     pub fn store(&self) -> Store {
-        Store::open(&self.database).unwrap()
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match Store::open(&self.database) {
+                Ok(store) => return store,
+                Err(_error) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(error) => panic!("open test store: {error:#}"),
+            }
+        }
     }
 
     pub fn send(&mut self, method: &str, params: Value) -> u64 {
@@ -236,13 +252,14 @@ fn test_config(
     analyst_command: Option<&std::path::Path>,
     claim_ttl_seconds: i64,
 ) -> String {
+    let reconcile_seconds = if analyst_command.is_some() { 30 } else { 1 };
     let analyst_command = analyst_command
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| "claude".into());
     format!(
         r#"schema_version = 1
 [coordination]
-reconcile_seconds = 1
+reconcile_seconds = {reconcile_seconds}
 claim_ttl_seconds = {claim_ttl_seconds}
 [storage]
 database_path = '{}'

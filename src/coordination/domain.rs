@@ -1,5 +1,7 @@
 // @feature coordination
+// @feature usage-analytics
 // @spec docs/features/coordination.md
+// @spec docs/features/usage-analytics.md
 // @boundary dynamic-json
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -39,6 +41,11 @@ impl ToolPayload {
     pub fn as_json(&self) -> &Value {
         &self.0
     }
+
+    pub fn first_string<'a>(&'a self, keys: &[&str]) -> Option<&'a str> {
+        keys.iter()
+            .find_map(|key| self.0.get(*key).and_then(Value::as_str))
+    }
 }
 
 impl From<Value> for ToolPayload {
@@ -54,6 +61,10 @@ pub struct HookContext {
     pub project_root: Option<String>,
     #[serde(default = "default_agent")]
     pub agent: String,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 fn default_agent() -> String {
@@ -74,11 +85,50 @@ pub struct ToolHookInput {
     pub tool_use_id: String,
     pub tool_name: String,
     #[serde(default)]
+    pub parent_tool_use_id: Option<String>,
+    #[serde(default)]
     pub tool_input: ToolPayload,
     #[serde(default)]
     pub tool_output: Option<ToolPayload>,
     #[serde(default)]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillEvidence {
+    NativeHook,
+    ExplicitInvocation,
+    InstructionRead,
+    AssetExecution,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillUseInput {
+    #[serde(flatten)]
+    pub context: HookContext,
+    pub invocation_id: String,
+    pub skill_name: String,
+    pub evidence: SkillEvidence,
+    #[serde(default)]
+    pub actor: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptOutcome {
+    Succeeded,
+    Failed,
+    Interrupted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScriptUseInput {
+    #[serde(flatten)]
+    pub context: HookContext,
+    pub invocation_id: String,
+    pub script_name: String,
+    pub outcome: ScriptOutcome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

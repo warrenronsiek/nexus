@@ -2,10 +2,12 @@
 // @feature persistence
 // @feature runtime
 // @feature analyst
+// @feature usage-analytics
 // @spec docs/features/coordination.md
 // @spec docs/features/persistence.md
 // @spec docs/features/runtime.md
 // @spec docs/features/analyst.md
+// @spec docs/features/usage-analytics.md
 // @boundary dynamic-json
 mod support;
 
@@ -39,6 +41,161 @@ fn post_tool_use_returns_hook_compatible_text_and_structured_coordination_data()
     assert_eq!(result["content"][0]["text"], "{}");
     assert_eq!(result["structuredContent"]["permitted"], true);
     assert_eq!(result["structuredContent"]["recorded"], true);
+}
+
+#[test]
+fn lifecycle_usage_is_deduplicated_and_includes_derived_scripts_and_skills() {
+    let mut harness = Harness::start();
+    let script = harness.root.join("tools/report.py");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    std::fs::write(&script, "print('report')\n").unwrap();
+    let root = harness.root.to_string_lossy().to_string();
+    let tool = json!({
+        "session_id":"pi-usage",
+        "project_root":root,
+        "agent":"pi",
+        "turn_id":"turn-7",
+        "model":"test-model",
+        "tool_use_id":"tool-usage-1",
+        "tool_name":"exec_command",
+        "tool_input":{"cmd":"python3 ./tools/report.py --token secret"}
+    });
+
+    harness.call("nexus_pre_tool_use", tool.clone());
+    harness.call("nexus_post_tool_use", tool.clone());
+    harness.call("nexus_post_tool_use", tool);
+    let skill = json!({
+        "session_id":"pi-usage",
+        "project_root":root,
+        "agent":"pi",
+        "turn_id":"turn-7",
+        "model":"test-model",
+        "invocation_id":"skill-usage-1",
+        "skill_name":"tdd",
+        "evidence":"explicit_invocation",
+        "actor":"user"
+    });
+    harness.call("nexus_skill_use", skill.clone());
+    harness.call("nexus_skill_use", skill);
+
+    let usage = harness.call("nexus_usage", json!({}));
+    assert_eq!(usage["ok"], true, "{usage}");
+    assert!(usage["window_started_at"].is_string());
+    assert!(usage["window_ended_at"].is_string());
+    assert_usage_count(&usage, "tools", "tool", "shell", 1);
+    assert_usage_count(&usage, "tools", "script", "tools/report.py", 1);
+    let skills = usage["skills"].as_array().unwrap();
+    assert_eq!(skills.len(), 1, "{usage}");
+    assert_eq!(skills[0]["name"], "tdd");
+    assert_eq!(skills[0]["count"], 1);
+    assert_eq!(skills[0]["sessions"], 1);
+    assert_eq!(skills[0]["evidence"]["explicit_invocation"], 1);
+
+    let database = std::fs::read(&harness.database).unwrap();
+    assert_bytes_absent(&database, b"--token secret");
+}
+
+fn assert_usage_count(usage: &serde_json::Value, list: &str, kind: &str, name: &str, count: u64) {
+    let found = usage[list].as_array().unwrap().iter().any(|item| {
+        item["kind"] == kind && item["name"] == name && item["count"].as_u64() == Some(count)
+    });
+    assert!(found, "missing {kind} {name} count {count}: {usage}");
+}
+
+fn assert_bytes_absent(haystack: &[u8], needle: &[u8]) {
+    assert!(
+        !haystack
+            .windows(needle.len())
+            .any(|window| window == needle),
+        "private tool arguments leaked into the analytics database"
+    );
+}
+
+#[test]
+fn successful_skill_manifest_reads_are_inferred_once_per_turn() {
+    let mut harness = Harness::start();
+    let manifest = harness.root.join(".codex/skills/code-architect/SKILL.md");
+    std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+    std::fs::write(
+        &manifest,
+        "---\nname: code-architect\ndescription: Review architecture.\n---\n",
+    )
+    .unwrap();
+    let root = harness.root.to_string_lossy().to_string();
+    harness.call(
+        "nexus_post_tool_use",
+        json!({
+            "session_id":"codex-skill-read",
+            "project_root":root,
+            "agent":"codex",
+            "turn_id":"turn-skill",
+            "tool_use_id":"read-skill-1",
+            "tool_name":"read_file",
+            "tool_input":{"path":manifest},
+            "tool_output":{"content":"skill loaded"}
+        }),
+    );
+    harness.call(
+        "nexus_post_tool_use",
+        json!({
+            "session_id":"codex-skill-read",
+            "project_root":root,
+            "agent":"codex",
+            "turn_id":"turn-skill",
+            "tool_use_id":"read-skill-2",
+            "tool_name":"exec_command",
+            "tool_input":{"cmd":format!("sed -n '1,200p' {}", manifest.display())},
+            "tool_output":{"content":"skill loaded"}
+        }),
+    );
+
+    let usage = harness.call("nexus_usage", json!({}));
+    let skill = usage["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "code-architect")
+        .expect("skill manifest read was not observed");
+    assert_eq!(skill["count"], 1, "{usage}");
+    assert_eq!(skill["evidence"]["instruction_read"], 1, "{usage}");
+}
+
+#[test]
+fn nexus_exec_preserves_child_exit_and_records_the_script_once() {
+    let mut harness = Harness::start();
+    let script = harness.root.join("tools/failing-check");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    write_executable(
+        &script,
+        "#!/bin/sh\nprintf 'wrapped-output'\nprintf 'wrapped-error' >&2\nexit 7\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nexus"))
+        .args([
+            "--config",
+            harness._temp.path().join("config.toml").to_str().unwrap(),
+            "exec",
+            "--",
+            script.to_str().unwrap(),
+            "--token",
+            "secret",
+        ])
+        .current_dir(&harness.root)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "wrapped-output");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "wrapped-error");
+
+    let usage = harness.call("nexus_usage", json!({}));
+    let scripts = usage["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == "script" && item["name"] == "tools/failing-check")
+        .collect::<Vec<_>>();
+    assert_eq!(scripts.len(), 1, "{usage}");
+    assert_eq!(scripts[0]["failed"], 1, "{usage}");
 }
 
 #[test]
