@@ -61,8 +61,7 @@ impl Store {
         resolved_config_hash: &str,
     ) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
+        self.transaction(|connection| {
                 let new_session = NewSession {
                     session_id: session_key,
                     project_id: project_key,
@@ -107,23 +106,22 @@ impl Store {
         hash: &str,
         full_prompt: Option<&str>,
     ) -> Result<()> {
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                diesel::update(sessions::table.filter(sessions::session_id.eq(session_key)))
-                    .set((
-                        sessions::task_summary.eq(synopsis_value),
-                        sessions::prompt_hash.eq(hash),
-                    ))
-                    .execute(connection)?;
-                append_event(
-                    connection,
-                    project_key,
-                    Some(session_key),
-                    "user_prompt",
-                    json!({"synopsis":synopsis_value,"prompt_hash":hash,"full_prompt":full_prompt}),
-                )?;
-                Ok(())
-            })
+        self.transaction(|connection| {
+            diesel::update(sessions::table.filter(sessions::session_id.eq(session_key)))
+                .set((
+                    sessions::task_summary.eq(synopsis_value),
+                    sessions::prompt_hash.eq(hash),
+                ))
+                .execute(connection)?;
+            append_event(
+                connection,
+                project_key,
+                Some(session_key),
+                "user_prompt",
+                json!({"synopsis":synopsis_value,"prompt_hash":hash,"full_prompt":full_prompt}),
+            )?;
+            Ok(())
+        })
     }
 
     pub(crate) fn active_claims_for_path(
@@ -159,9 +157,7 @@ impl Store {
         let operation_text = intent.operation.to_string();
         let start = encode_line(intent.line_start);
         let end = encode_line(intent.line_end);
-        let id = self
-            .connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
+        let id = self.transaction(|connection| {
                 let new_claim = NewClaim {
                     id: &new_id,
                     project_id: project_key,
@@ -257,73 +253,69 @@ impl Store {
             ToolCompletion::Succeeded => "tool_succeeded",
             ToolCompletion::Failed => "tool_failed",
         };
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                append_event(
-                    connection,
-                    project_key,
-                    Some(session_key),
-                    event_kind,
-                    payload,
-                )?;
-                if completion == ToolCompletion::Succeeded {
-                    diesel::update(
-                        claims::table
-                            .filter(claims::session_id.eq(session_key))
-                            .filter(claims::tool_use_id.eq(tool_key)),
-                    )
-                    .set((
-                        claims::state.eq("modified"),
-                        claims::updated_at.eq(Utc::now().to_rfc3339()),
-                    ))
-                    .execute(connection)?;
-                    let advisory_count = advisories::table
-                        .filter(advisories::session_id.eq(session_key))
-                        .filter(advisories::tool_use_id.eq(tool_key))
-                        .select(count_star())
-                        .first::<i64>(connection)?;
-                    if ignored_advisory_policy == IgnoredAdvisoryPolicy::Record
-                        && advisory_count > 0
-                    {
-                        append_event(
-                            connection,
-                            project_key,
-                            Some(session_key),
-                            "advisory_ignored",
-                            json!({"tool_use_id":tool_key,"advisory_count":advisory_count}),
-                        )?;
-                    }
-                }
-                Ok(())
-            })
-    }
-
-    pub(crate) fn stop_session(&mut self, project_key: &str, session_key: &str) -> Result<()> {
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                let now = Utc::now().to_rfc3339();
-                diesel::update(sessions::table.filter(sessions::session_id.eq(session_key)))
-                    .set((
-                        sessions::status.eq("stopped"),
-                        sessions::last_seen_at.eq(&now),
-                    ))
-                    .execute(connection)?;
+        self.transaction(|connection| {
+            append_event(
+                connection,
+                project_key,
+                Some(session_key),
+                event_kind,
+                payload,
+            )?;
+            if completion == ToolCompletion::Succeeded {
                 diesel::update(
                     claims::table
                         .filter(claims::session_id.eq(session_key))
-                        .filter(claims::state.eq_any(["claimed", "modified"])),
+                        .filter(claims::tool_use_id.eq(tool_key)),
                 )
-                .set((claims::state.eq("released"), claims::updated_at.eq(&now)))
+                .set((
+                    claims::state.eq("modified"),
+                    claims::updated_at.eq(Utc::now().to_rfc3339()),
+                ))
                 .execute(connection)?;
-                append_event(
-                    connection,
-                    project_key,
-                    Some(session_key),
-                    "session_stopped",
-                    json!({}),
-                )?;
-                Ok(())
-            })
+                let advisory_count = advisories::table
+                    .filter(advisories::session_id.eq(session_key))
+                    .filter(advisories::tool_use_id.eq(tool_key))
+                    .select(count_star())
+                    .first::<i64>(connection)?;
+                if ignored_advisory_policy == IgnoredAdvisoryPolicy::Record && advisory_count > 0 {
+                    append_event(
+                        connection,
+                        project_key,
+                        Some(session_key),
+                        "advisory_ignored",
+                        json!({"tool_use_id":tool_key,"advisory_count":advisory_count}),
+                    )?;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn stop_session(&mut self, project_key: &str, session_key: &str) -> Result<()> {
+        self.transaction(|connection| {
+            let now = Utc::now().to_rfc3339();
+            diesel::update(sessions::table.filter(sessions::session_id.eq(session_key)))
+                .set((
+                    sessions::status.eq("stopped"),
+                    sessions::last_seen_at.eq(&now),
+                ))
+                .execute(connection)?;
+            diesel::update(
+                claims::table
+                    .filter(claims::session_id.eq(session_key))
+                    .filter(claims::state.eq_any(["claimed", "modified"])),
+            )
+            .set((claims::state.eq("released"), claims::updated_at.eq(&now)))
+            .execute(connection)?;
+            append_event(
+                connection,
+                project_key,
+                Some(session_key),
+                "session_stopped",
+                json!({}),
+            )?;
+            Ok(())
+        })
     }
 
     pub fn list_events(
@@ -434,49 +426,48 @@ impl Store {
         session_key: &str,
         release: &ClaimRelease,
     ) -> Result<usize> {
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                let project_key = sessions::table
-                    .filter(sessions::session_id.eq(session_key))
-                    .select(sessions::project_id)
-                    .first::<String>(connection)
-                    .optional()?;
-                let now = Utc::now().to_rfc3339();
-                let count = if let ClaimRelease::Path(path_filter) = release {
-                    diesel::update(
-                        claims::table
-                            .filter(claims::session_id.eq(session_key))
-                            .filter(claims::path.eq(path_filter))
-                            .filter(claims::state.eq_any(["claimed", "modified"])),
-                    )
-                    .set((claims::state.eq("released"), claims::updated_at.eq(&now)))
-                    .execute(connection)?
-                } else {
-                    diesel::update(
-                        claims::table
-                            .filter(claims::session_id.eq(session_key))
-                            .filter(claims::state.eq_any(["claimed", "modified"])),
-                    )
-                    .set((claims::state.eq("released"), claims::updated_at.eq(&now)))
-                    .execute(connection)?
-                };
-                if let Some(project_key) = project_key {
-                    append_event(
-                        connection,
-                        &project_key,
-                        Some(session_key),
-                        "claims_released",
-                        json!({
-                            "path":match release {
-                                ClaimRelease::Session => None,
-                                ClaimRelease::Path(path) => Some(path),
-                            },
-                            "count":count
-                        }),
-                    )?;
-                }
-                Ok(count)
-            })
+        self.transaction(|connection| {
+            let project_key = sessions::table
+                .filter(sessions::session_id.eq(session_key))
+                .select(sessions::project_id)
+                .first::<String>(connection)
+                .optional()?;
+            let now = Utc::now().to_rfc3339();
+            let count = if let ClaimRelease::Path(path_filter) = release {
+                diesel::update(
+                    claims::table
+                        .filter(claims::session_id.eq(session_key))
+                        .filter(claims::path.eq(path_filter))
+                        .filter(claims::state.eq_any(["claimed", "modified"])),
+                )
+                .set((claims::state.eq("released"), claims::updated_at.eq(&now)))
+                .execute(connection)?
+            } else {
+                diesel::update(
+                    claims::table
+                        .filter(claims::session_id.eq(session_key))
+                        .filter(claims::state.eq_any(["claimed", "modified"])),
+                )
+                .set((claims::state.eq("released"), claims::updated_at.eq(&now)))
+                .execute(connection)?
+            };
+            if let Some(project_key) = project_key {
+                append_event(
+                    connection,
+                    &project_key,
+                    Some(session_key),
+                    "claims_released",
+                    json!({
+                        "path":match release {
+                            ClaimRelease::Session => None,
+                            ClaimRelease::Path(path) => Some(path),
+                        },
+                        "count":count
+                    }),
+                )?;
+            }
+            Ok(count)
+        })
     }
 
     pub(crate) fn record_reconciliation(

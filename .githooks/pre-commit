@@ -6,7 +6,13 @@
 set -euo pipefail
 
 repository_root="$(git rev-parse --show-toplevel)"
-"${repository_root}/scripts/check.sh"
+(
+  # Fixture repositories must resolve from their own cwd, not Git's hook context.
+  while IFS= read -r git_variable; do
+    unset "${git_variable}"
+  done < <(git rev-parse --local-env-vars)
+  "${repository_root}/scripts/check.sh"
+)
 
 if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" -- review-commit; then
   printf '%s\n' "warning: cross-model commit review failed; deterministic checks passed" >&2

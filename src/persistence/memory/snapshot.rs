@@ -3,6 +3,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/persistence.md
 use super::*;
+use crate::persistence::transaction::{transaction, TransactionMode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -178,7 +179,7 @@ fn publish_snapshot(
     frontier: &crate::memory::tree::MemoryFrontier,
 ) -> Result<bool> {
     let built_at = Utc::now().to_rfc3339();
-    connection.immediate_transaction::<_, anyhow::Error, _>(|connection| {
+    transaction(connection, TransactionMode::Immediate, |connection| {
         let revision = memory_spaces::table
             .find(&space.id)
             .select(memory_spaces::revision)

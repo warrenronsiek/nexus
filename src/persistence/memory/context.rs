@@ -3,6 +3,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/persistence.md
 use super::*;
+use crate::persistence::transaction::{transaction, TransactionMode};
 
 impl Store {
     pub fn memory_context(
@@ -297,7 +298,7 @@ fn insert_activation(
     let activation_id = Uuid::new_v4().to_string();
     let (scope_text, project_id) = read_scope_parts(scope);
     let activated_at = Utc::now().to_rfc3339();
-    connection.immediate_transaction::<_, anyhow::Error, _>(|connection| {
+    transaction(connection, TransactionMode::Immediate, |connection| {
         if !snapshot::versions_are_current(connection, &prepared.versions)? {
             return Ok(0);
         }

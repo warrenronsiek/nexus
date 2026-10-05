@@ -7,6 +7,7 @@ use super::schema::{
     memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
     memory_frontier_snapshots, memory_spaces, memory_summaries,
 };
+use super::transaction::{transaction, TransactionMode};
 use super::Store;
 use crate::memory::{
     MemoryCompactionAttempt, MemoryCompactionJob, MemoryCompactionOutcome, MemoryContextLimits,
@@ -68,7 +69,7 @@ impl Store {
             now: Utc::now().to_rfc3339(),
         };
         let commit = retry_memory_write(&mut self.connection, |connection| {
-            connection.immediate_transaction::<_, anyhow::Error, _>(|connection| {
+            transaction(connection, TransactionMode::Immediate, |connection| {
                 write_memory_transaction(connection, &pending)
             })
         })?;
