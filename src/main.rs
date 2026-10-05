@@ -18,7 +18,7 @@ use nexus::coordination::api::{
 };
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
-use nexus::runtime::{daemon, hooks, mcp, script_exec, web};
+use nexus::runtime::{daemon, hooks, mcp, script_exec, terminal, web};
 use nexus::{Config, LoadedConfig};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -62,6 +62,8 @@ enum Command {
         #[arg(long, value_enum, default_value_t = UiLaunch::Open)]
         launch: UiLaunch,
     },
+    /// Open the bundled interactive terminal dashboard.
+    Tui,
     /// Execute a script while recording one privacy-limited usage observation.
     Exec {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
@@ -216,21 +218,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Ui { launch } => {
-            if !loaded.config.ui.enabled {
-                anyhow::bail!("Nexus UI is disabled by configuration");
-            }
-            daemon::ensure_and_request(
-                &loaded,
-                explicit_config.as_deref(),
-                &ServiceRequest::Status,
-            )
-            .await?;
-            web::wait_until_ready(
-                loaded.config.ui.bind_address,
-                std::time::Duration::from_secs(2),
-            )
-            .await?;
-            let url = web::url(&loaded.config.ui);
+            let url = web::ensure_dashboard(&loaded, explicit_config.as_deref()).await?;
             println!("{url}");
             if matches!(launch, UiLaunch::Open) {
                 if let Err(error) = webbrowser::open(&url) {
@@ -239,6 +227,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Tui => terminal::open(&loaded, explicit_config.as_deref(), &root).await,
         Command::Exec { command } => {
             let code =
                 script_exec::run(&loaded, explicit_config.as_deref(), &root, command).await?;

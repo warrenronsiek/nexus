@@ -32,7 +32,7 @@ const SKILL_FILES: [(&str, &str); 4] = [
     ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 15] = [
+const PI_EXTENSION_FILES: [(&str, &str); 16] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
     ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
     ("client.ts", include_str!("../pi-extension/src/client.ts")),
@@ -67,6 +67,7 @@ const PI_EXTENSION_FILES: [(&str, &str); 15] = [
         include_str!("../pi-extension/src/navigation.ts"),
     ),
     ("polling.ts", include_str!("../pi-extension/src/polling.ts")),
+    ("theme.ts", include_str!("../pi-extension/src/theme.ts")),
     (
         "usage-pane.ts",
         include_str!("../pi-extension/src/usage-pane.ts"),

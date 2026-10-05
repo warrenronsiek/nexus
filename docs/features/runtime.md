@@ -6,7 +6,7 @@ feature: runtime
 
 ## What this feature does
 
-Runtime connects agent hosts and people to the coordination core. It provides the command-line interface, a local Unix-socket daemon, an MCP stdio server, a loopback read-only HTTP adapter, MCP resources, generated hook configuration for Codex and Claude, the agent-memory background scheduler, and the `nexus exec -- PROGRAM [ARG ...]` analytics fallback.
+Runtime connects agent hosts and people to the coordination core. It provides the command-line interface, a local Unix-socket daemon, an MCP stdio server, a loopback read-only HTTP adapter, the bundled `nexus tui` terminal dashboard, MCP resources, generated hook configuration for Codex and Claude, the agent-memory background scheduler, and the `nexus exec -- PROGRAM [ARG ...]` analytics fallback.
 
 ## Why it exists
 
@@ -68,6 +68,6 @@ flowchart TD
 
 `src/agents/integration.rs` generates registration commands and host hook fragments. Host-specific differences remain data and small enum dispatches: Claude exposes a distinct tool-failure event. Both hosts use MCP tool hooks while their MCP client exists and an absolute-path command hook for `SessionEnd`, which cannot use MCP. Neither receives a blocking decision from Nexus.
 
-`src/runtime/web.rs` is the optional observability adapter described in the observability-ui specification. It shares `NexusService` and the blocking dispatch boundary with the Unix listener, serves only embedded assets and typed read requests, including `/api/v1/usage`, and treats bind failure as a warning. `nexus ui` ensures the daemon exists and performs a bounded HTTP readiness check; browser launch remains a best-effort convenience.
+`src/runtime/web.rs` is the optional observability adapter described in the observability-ui specification. It shares `NexusService` and the blocking dispatch boundary with the Unix listener, serves only embedded assets and typed read requests, including `/api/v1/usage`, and treats bind failure as a warning. `ensure_dashboard` is the shared daemon-start and bounded HTTP-readiness boundary used by `nexus ui` and `nexus tui`; browser launch remains a best-effort convenience. `terminal.rs` opens the embedded terminal dashboard and delegates runtime preparation to installation's `terminal_runtime.rs`. It requires interactive stdin/stdout, forwards the invoking repository and explicit configuration, and executes the selected runtime with the exact installed Nexus path for its MCP child. The standalone host restores the terminal and closes its polling and MCP lifecycle on quit or interruption.
 
 The runtime boundary intentionally handles `serde_json::Value`, because JSON-RPC and MCP are open wire protocols. That dynamic data is annotated as a boundary and decoded into typed requests before service execution. Process-level tests launch the real daemon and MCP binaries, verify auto-start and fail-open behavior, prove first-prompt memory activation is once per session, and inspect the resulting database state.

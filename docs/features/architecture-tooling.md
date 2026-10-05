@@ -74,4 +74,6 @@ flowchart TD
 
 The annotation model is deliberately file-first. A file's feature set applies to every discovered block in it, which avoids repetitive comments while ensuring every block resolves to documented ownership. Mixed files may declare multiple features; persistent ambiguity is a signal that the file may need a better boundary.
 
+Terminal validation also builds the locked standalone Pi-renderer bundle and rejects differences in tracked `pi-extension/dist` assets before Rust compiles them into the binary. The Rust suite includes real pseudo-terminal workflows, so passing frontend unit tests alone does not validate the native command or terminal cleanup.
+
 Feature specifications follow one stable structure: plain-language purpose, motivation, one end-to-end flowchart, an explanation of every node and edge, and implementation details with entry points and invariants. The intended reader is technically strong, unfamiliar with the code, and tired enough that unexplained jumps are expensive.

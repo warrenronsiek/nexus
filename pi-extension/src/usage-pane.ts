@@ -4,7 +4,7 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { DashboardTheme as Theme } from "./theme.ts";
 import type { Component } from "@earendil-works/pi-tui";
 import type { UsageItem, UsageSummary } from "./domain.ts";
 import { UsagePoller, type UsageLoader } from "./polling.ts";
