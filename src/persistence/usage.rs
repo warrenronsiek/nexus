@@ -267,13 +267,12 @@ impl Store {
     ) -> Result<()> {
         validate_observation(observation)?;
         let write = CapabilityWrite::new(observation, outcome, observed_at);
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                insert_capability(connection, &write)?;
-                promote_skill_evidence(connection, &write)?;
-                update_capability_completion(connection, &write)?;
-                Ok(())
-            })
+        self.transaction(|connection| {
+            insert_capability(connection, &write)?;
+            promote_skill_evidence(connection, &write)?;
+            update_capability_completion(connection, &write)?;
+            Ok(())
+        })
     }
 
     pub fn usage_summary(

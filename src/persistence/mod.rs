@@ -11,6 +11,7 @@ mod migrations;
 mod models;
 mod schema;
 mod store;
+mod transaction;
 mod usage;
 
 pub use store::Store;

@@ -17,7 +17,7 @@ Long-running agent work benefits from selected historical facts without replayin
 ## Data flow
 
 1. An agent explicitly adds a normalized global or project note of at most 512 UTF-8 bytes. Codex and Claude lifecycle observation records that deliberate tool call with its exact session/model provenance before the simple MCP call executes; the call then collapses onto the same note. Explicitly correlated clients such as Pi provide their provenance directly. No shared last-caller state is used.
-2. SQLite transactionally assigns its stream ordinal and collapses an exact normalized duplicate in the same stream.
+2. SQLite transactionally assigns its stream ordinal and collapses an exact normalized duplicate in the same stream. If another reader blocks the commit, Nexus rolls back the attempt before retrying the complete write within its two-second lock retry budget. Failed commits cannot leave the shared connection inside an unfinished transaction.
 3. Every 15 seconds, Nexus selects at most eight ready missing summary nodes from one tree level and snapshots their source hashes. Periodic and user-requested consolidation share one service lease, so overlapping requests do not launch duplicate provider batches.
 4. Nexus releases the database lock and requests strict JSON summaries from the configured analyst provider. Failure, timeout, or invalid output causes one attempt with the other configured provider.
 5. Nexus transactionally rechecks source hashes before accepting summaries. Attempts record provider and sanitized outcome metadata, never memory text.

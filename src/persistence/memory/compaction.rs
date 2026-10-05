@@ -3,6 +3,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/persistence.md
 use super::*;
+use crate::persistence::transaction::{transaction, TransactionMode};
 
 impl Store {
     pub fn ready_memory_compactions(
@@ -40,10 +41,11 @@ impl Store {
             model_id,
             now: Utc::now().to_rfc3339(),
         };
-        self.connection
-            .immediate_transaction::<_, anyhow::Error, _>(|connection| {
-                insert_summary_transaction(connection, job, &pending)
-            })
+        transaction(
+            &mut self.connection,
+            TransactionMode::Immediate,
+            |connection| insert_summary_transaction(connection, job, &pending),
+        )
     }
 
     pub fn expand_memory_summary(&mut self, summary_id: &str) -> Result<Vec<MemoryNode>> {
@@ -58,11 +60,11 @@ impl Store {
 
     pub fn invalidate_memory_summary(&mut self, summary_id: &str) -> Result<usize> {
         let now = Utc::now().to_rfc3339();
-        let (deleted, scope) = self
-            .connection
-            .immediate_transaction::<_, anyhow::Error, _>(|connection| {
-                invalidate_summary_transaction(connection, summary_id, &now)
-            })?;
+        let (deleted, scope) = transaction(
+            &mut self.connection,
+            TransactionMode::Immediate,
+            |connection| invalidate_summary_transaction(connection, summary_id, &now),
+        )?;
         if deleted > 0 {
             self.repair_memory_frontier(&scope)?;
         }
