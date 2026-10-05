@@ -108,7 +108,13 @@ def close_dashboard(process: subprocess.Popen[bytes], master: int, exit_mode: st
         os.kill(process.pid, signal.SIGTERM)
     else:
         raise ValueError(f"Unknown terminal exit fixture: {exit_mode}")
-    assert process.wait(timeout=8) == 0
+    # Terminal restoration writes output; keep consuming it until the process exits.
+    deadline = time.monotonic() + 8
+    while process.poll() is None and time.monotonic() < deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            os.read(master, 65536)
+    assert process.wait(timeout=1) == 0
 
 
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str) -> None:
