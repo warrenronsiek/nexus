@@ -1,5 +1,7 @@
 // @feature runtime
+// @feature agent-memory
 // @spec docs/features/runtime.md
+// @spec docs/features/agent-memory.md
 // @entrypoint instructions
 // @boundary dynamic-json
 use serde_json::{json, Value};
@@ -24,9 +26,15 @@ pub fn instructions(host: Host, executable: &Path) -> Value {
     let executable_text = executable.to_string_lossy();
     let quoted = shell_words::quote(&executable_text);
     let registration_command = match host {
-        Host::Codex => format!("codex mcp add nexus -- {quoted} mcp"),
+        Host::Codex => format!(
+            "codex mcp add nexus -- {quoted} mcp --agent {}",
+            host.name()
+        ),
         Host::Claude => {
-            format!("claude mcp add --transport stdio --scope user nexus -- {quoted} mcp")
+            format!(
+                "claude mcp add --transport stdio --scope user nexus -- {quoted} mcp --agent {}",
+                host.name()
+            )
         }
     };
     let settings_path = match host {
@@ -183,6 +191,18 @@ mod tests {
                 assert!(input["turn_id"].is_string(), "{host:?} {event}");
                 assert!(input["model"].is_string(), "{host:?} {event}");
             }
+        }
+    }
+
+    #[test]
+    fn host_registration_attributes_simple_memory_writes_without_session_correlation() {
+        for host in [Host::Codex, Host::Claude] {
+            let generated = instructions(host, Path::new("/opt/nexus"));
+            let command = generated["registration_command"].as_str().unwrap();
+            assert!(
+                command.contains(&format!("mcp --agent {}", host.name())),
+                "{command}"
+            );
         }
     }
 }

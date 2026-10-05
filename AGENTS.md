@@ -20,6 +20,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `installation`: one-command machine setup and repository onboarding.
 - `observability-ui`: read-only Axum, Elm, and D3 operational visibility.
 - `usage-analytics`: observed tool, skill, and script usage capture and seven-day reporting.
+- `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
 
 Every code file must declare at least one `@feature` and matching `@spec` in its leading comment block. Symbols inherit those file annotations. Declare the small number of useful starting points with `@entrypoint`. Files that intentionally decode open-ended external values must also declare an explanatory `@boundary`.
 

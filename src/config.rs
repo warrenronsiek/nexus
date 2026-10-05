@@ -1,5 +1,7 @@
 // @feature configuration
+// @feature agent-memory
 // @spec docs/features/configuration.md
+// @spec docs/features/agent-memory.md
 // @entrypoint Config::load
 // @boundary dynamic-config
 use anyhow::{bail, Context, Result};
@@ -14,6 +16,7 @@ pub struct Config {
     pub coordination: CoordinationConfig,
     pub privacy: PrivacyConfig,
     pub analyst: AnalystConfig,
+    pub memory: MemoryConfig,
     pub review: ReviewConfig,
     pub storage: StorageConfig,
     pub runtime: RuntimeConfig,
@@ -44,6 +47,16 @@ pub struct AnalystConfig {
     pub timeout_seconds: u64,
     pub codex: ModelConfig,
     pub claude: ModelConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MemoryConfig {
+    pub enabled: bool,
+    pub consolidation_interval_seconds: u64,
+    pub consolidation_batch_size: usize,
+    pub context_max_items: usize,
+    pub context_max_bytes: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -103,6 +116,7 @@ impl Default for Config {
             coordination: CoordinationConfig::default(),
             privacy: PrivacyConfig::default(),
             analyst: AnalystConfig::default(),
+            memory: MemoryConfig::default(),
             review: ReviewConfig::default(),
             storage: StorageConfig::default(),
             runtime: RuntimeConfig::default(),
@@ -139,6 +153,18 @@ impl Default for AnalystConfig {
             timeout_seconds: 60,
             codex: ModelConfig::codex(),
             claude: ModelConfig::claude(),
+        }
+    }
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            consolidation_interval_seconds: 15,
+            consolidation_batch_size: 8,
+            context_max_items: 64,
+            context_max_bytes: 16 * 1024,
         }
     }
 }
@@ -274,6 +300,8 @@ impl Config {
         if self.review.timeout_seconds == 0 {
             bail!("review.timeout_seconds must be positive");
         }
+        self.analyst.validate()?;
+        self.memory.validate()?;
         if self.review.implementation_provider == self.review.provider {
             bail!("review.provider must differ from review.implementation_provider");
         }
@@ -291,6 +319,46 @@ impl Config {
         }
         Ok(())
     }
+}
+
+impl AnalystConfig {
+    fn validate(&self) -> Result<()> {
+        if self.timeout_seconds == 0 {
+            bail!("analyst.timeout_seconds must be positive");
+        }
+        Ok(())
+    }
+}
+
+impl MemoryConfig {
+    fn validate(&self) -> Result<()> {
+        if self.consolidation_interval_seconds == 0 {
+            bail!("memory.consolidation_interval_seconds must be positive");
+        }
+        if self.consolidation_batch_size == 0 {
+            bail!("memory.consolidation_batch_size must be positive");
+        }
+        validate_bounded_memory_limit(
+            "memory.context_max_items",
+            self.context_max_items,
+            crate::memory::DEFAULT_MEMORY_MAX_ITEMS,
+        )?;
+        validate_bounded_memory_limit(
+            "memory.context_max_bytes",
+            self.context_max_bytes,
+            crate::memory::DEFAULT_MEMORY_MAX_BYTES,
+        )
+    }
+}
+
+fn validate_bounded_memory_limit(name: &str, value: usize, maximum: usize) -> Result<()> {
+    if value == 0 {
+        bail!("{name} must be positive");
+    }
+    if value > maximum {
+        bail!("{name} must be at most {maximum}");
+    }
+    Ok(())
 }
 
 fn default_state_dir() -> PathBuf {

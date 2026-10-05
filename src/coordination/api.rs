@@ -1,8 +1,14 @@
 // @feature coordination
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 // @boundary dynamic-json
+mod memory;
+
+pub use memory::*;
+
 use super::domain::{
     Claim, ClaimRelease, ConflictRecord, ConflictScope, DashboardRecords, EventRecord,
     HookResponse, ProjectSummary, RecordScope, ScriptUseInput, SessionRecord, SessionStopInput,
@@ -10,6 +16,7 @@ use super::domain::{
 };
 use crate::agents::analyst::AnalysisResult;
 use crate::config::Config;
+use crate::memory::MemoryContextStatus;
 use crate::persistence::UsageSummary;
 use anyhow::{bail, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -37,6 +44,13 @@ pub enum ServiceRequest {
     Projects,
     Dashboard(DashboardQuery),
     Usage(UsageQuery),
+    MemoryStatus(MemoryStatusQuery),
+    MemoryContext(MemoryContextQuery),
+    MemoryAdd(MemoryAddCommand),
+    MemorySearch(MemorySearchQuery),
+    MemoryExpand(MemorySummaryQuery),
+    MemoryInvalidate(MemorySummaryQuery),
+    MemoryConsolidate,
     Config,
 }
 
@@ -98,6 +112,10 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
         "sessions" => decode(params).map(ServiceRequest::Sessions),
         "claims" => decode(params).map(ServiceRequest::Claims),
         "conflicts" => decode(params).map(ServiceRequest::Conflicts),
+        "memory_status" => decode(params).map(ServiceRequest::MemoryStatus),
+        "memory_context" => decode(params).map(ServiceRequest::MemoryContext),
+        "memory_search" => decode(params).map(ServiceRequest::MemorySearch),
+        "memory_expand" => decode(params).map(ServiceRequest::MemoryExpand),
         _ => unreachable!("method family was classified before decoding"),
     }
 }
@@ -107,6 +125,9 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
         "resolve" => decode(params).map(ServiceRequest::Resolve),
         "release" => decode(params).map(ServiceRequest::Release),
         "analyze" => decode(params).map(ServiceRequest::Analyze),
+        "memory_add" => decode(params).map(ServiceRequest::MemoryAdd),
+        "memory_invalidate" => decode(params).map(ServiceRequest::MemoryInvalidate),
+        "memory_consolidate" => Ok(ServiceRequest::MemoryConsolidate),
         _ => unreachable!("method family was classified before decoding"),
     }
 }
@@ -132,10 +153,17 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Events(_)
         | ServiceRequest::Sessions(_)
         | ServiceRequest::Claims(_)
-        | ServiceRequest::Conflicts(_) => RequestFamily::Read,
-        ServiceRequest::Resolve(_) | ServiceRequest::Release(_) | ServiceRequest::Analyze(_) => {
-            RequestFamily::Command
-        }
+        | ServiceRequest::Conflicts(_)
+        | ServiceRequest::MemoryStatus(_)
+        | ServiceRequest::MemoryContext(_)
+        | ServiceRequest::MemorySearch(_)
+        | ServiceRequest::MemoryExpand(_) => RequestFamily::Read,
+        ServiceRequest::Resolve(_)
+        | ServiceRequest::Release(_)
+        | ServiceRequest::Analyze(_)
+        | ServiceRequest::MemoryAdd(_)
+        | ServiceRequest::MemoryInvalidate(_)
+        | ServiceRequest::MemoryConsolidate => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
         | ServiceRequest::Usage(_)
@@ -161,6 +189,10 @@ fn read_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)> {
         ServiceRequest::Sessions(query) => encode("sessions", query),
         ServiceRequest::Claims(query) => encode("claims", query),
         ServiceRequest::Conflicts(query) => encode("conflicts", query),
+        ServiceRequest::MemoryStatus(query) => encode("memory_status", query),
+        ServiceRequest::MemoryContext(query) => encode("memory_context", query),
+        ServiceRequest::MemorySearch(query) => encode("memory_search", query),
+        ServiceRequest::MemoryExpand(query) => encode("memory_expand", query),
         _ => unreachable!("request family was selected before encoding"),
     }
 }
@@ -170,6 +202,9 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::Resolve(command) => encode("resolve", command),
         ServiceRequest::Release(command) => encode("release", command),
         ServiceRequest::Analyze(command) => encode("analyze", command),
+        ServiceRequest::MemoryAdd(command) => encode("memory_add", command),
+        ServiceRequest::MemoryInvalidate(command) => encode("memory_invalidate", command),
+        ServiceRequest::MemoryConsolidate => Ok(empty("memory_consolidate")),
         _ => unreachable!("request family was selected before encoding"),
     }
 }
@@ -193,8 +228,25 @@ const LIFECYCLE_METHODS: &[&str] = &[
     "script_use",
     "session_stop",
 ];
-const READ_METHODS: &[&str] = &["status", "events", "sessions", "claims", "conflicts"];
-const COMMAND_METHODS: &[&str] = &["resolve", "release", "analyze"];
+const READ_METHODS: &[&str] = &[
+    "status",
+    "events",
+    "sessions",
+    "claims",
+    "conflicts",
+    "memory_status",
+    "memory_context",
+    "memory_search",
+    "memory_expand",
+];
+const COMMAND_METHODS: &[&str] = &[
+    "resolve",
+    "release",
+    "analyze",
+    "memory_add",
+    "memory_invalidate",
+    "memory_consolidate",
+];
 const REPORT_METHODS: &[&str] = &["projects", "dashboard", "usage", "config"];
 
 #[derive(Clone, Copy)]
@@ -373,6 +425,13 @@ pub enum ServiceResponse {
     Projects(ProjectsResponse),
     Dashboard(DashboardResponse),
     Usage(UsageResponse),
+    MemoryWrite(MemoryWriteResponse),
+    MemoryEntries(MemoryEntriesResponse),
+    MemoryContext(MemoryContextResponse),
+    MemoryNodes(MemoryNodesResponse),
+    MemoryInvalidation(MemoryInvalidationResponse),
+    MemoryStatus(MemoryStatusResponse),
+    MemoryConsolidation(MemoryConsolidationReport),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),
 }
@@ -396,6 +455,8 @@ pub struct PromptResponse {
     pub recorded: bool,
     pub project_id: String,
     pub prompt_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_context: Option<MemoryContextStatus>,
 }
 
 #[derive(Debug, Serialize)]
@@ -497,39 +558,4 @@ pub struct ErrorResponse {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn query_scope_is_an_enum_not_a_boolean_switch() {
-        let request =
-            ServiceRequest::decode("claims", json!({"project_id":"project-1","scope":"all"}))
-                .unwrap();
-        let ServiceRequest::Claims(query) = request else {
-            panic!("expected claims query");
-        };
-        assert_eq!(query.scope(), RecordScope::All);
-
-        let error = ServiceRequest::decode("claims", json!({"active_only":false})).unwrap_err();
-        assert!(error.to_string().contains("unknown field"));
-    }
-
-    #[test]
-    fn open_ended_tool_json_is_confined_to_the_tool_payload() {
-        let request = ServiceRequest::decode(
-            "pre_tool_use",
-            json!({
-                "session_id":"session-1",
-                "tool_use_id":"tool-1",
-                "tool_name":"future_tool",
-                "tool_input":{"future":{"shape":[1,2,3]}}
-            }),
-        )
-        .unwrap();
-        let ServiceRequest::ToolHook { input, .. } = request else {
-            panic!("expected tool hook");
-        };
-        assert_eq!(input.tool_input.as_json()["future"]["shape"][2], 3);
-    }
-}
+mod tests;

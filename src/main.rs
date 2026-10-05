@@ -1,19 +1,22 @@
 // @feature runtime
 // @feature commit-review
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/runtime.md
 // @spec docs/features/commit-review.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 // @entrypoint main
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use nexus::agents::integration::{self, Host};
 use nexus::agents::reviewer;
 use nexus::coordination::api::{
-    AnalyzeCommand, ClaimQuery, ConflictQuery, EventQuery, ReleaseCommand, ResolveCommand,
-    ServiceRequest, SessionQuery,
+    AnalyzeCommand, ClaimQuery, ConflictQuery, EventQuery, MemoryAddCommand, MemoryContextQuery,
+    MemoryReadScopeArg, MemoryScopeArg, MemorySearchQuery, MemoryStatusQuery, MemorySummaryQuery,
+    ReleaseCommand, ResolveCommand, ServiceRequest, SessionQuery,
 };
-use nexus::coordination::domain::{ConflictScope, RecordScope};
+use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
 use nexus::runtime::{daemon, hooks, mcp, script_exec, web};
 use nexus::{Config, LoadedConfig};
@@ -43,7 +46,11 @@ enum Command {
     /// Run the local coordination daemon in the foreground.
     Daemon,
     /// Run the MCP server over stdio, starting the daemon when necessary.
-    Mcp,
+    Mcp {
+        /// Attribute simple caller-authored memories to this host process.
+        #[arg(long, default_value = "mcp")]
+        agent: String,
+    },
     /// Receive a host SessionEnd hook over stdin and release its claims.
     #[command(hide = true)]
     HookSessionEnd {
@@ -102,6 +109,11 @@ enum Command {
     },
     /// Ask the explicitly configured read-only analyst to assess a conflict.
     Analyze { conflict_id: String },
+    /// Record, inspect, and maintain durable agent memories.
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommand,
+    },
     /// Run parallel cross-model architecture and deletion review on the staged diff.
     ReviewCommit,
     /// Inspect or validate the resolved configuration.
@@ -122,6 +134,48 @@ enum Command {
 enum ConfigCommand {
     Show,
     Check,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryCommand {
+    /// Show memory counts, pending consolidation, and provider health.
+    Status,
+    /// Print bounded context as Nexus would inject it into a new session.
+    Context {
+        #[arg(long, value_enum, default_value_t = MemoryReadScopeCli::Layered)]
+        scope: MemoryReadScopeCli,
+    },
+    /// Record one explicit durable memory.
+    Add {
+        #[arg(long, value_enum)]
+        scope: MemoryScopeCli,
+        content: String,
+    },
+    /// Search authoritative raw memories with a case-insensitive Rust regex.
+    Search {
+        #[arg(long, value_enum, default_value_t = MemoryReadScopeCli::Layered)]
+        scope: MemoryReadScopeCli,
+        regex: String,
+    },
+    /// Expand a derived summary into its two source children.
+    Expand { summary_id: String },
+    /// Invalidate a derived summary and its stored ancestors.
+    Invalidate { summary_id: String },
+    /// Request one immediate background-consolidation batch.
+    Consolidate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum MemoryScopeCli {
+    Global,
+    Project,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum MemoryReadScopeCli {
+    Layered,
+    Global,
+    Project,
 }
 
 #[derive(Debug, Subcommand)]
@@ -154,7 +208,9 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Daemon => daemon::serve(loaded).await,
-        Command::Mcp => mcp::serve_stdio(loaded, explicit_config.as_deref()).await,
+        Command::Mcp { agent } => {
+            mcp::serve_stdio(loaded, explicit_config.as_deref(), &agent).await
+        }
         Command::HookSessionEnd { agent } => {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
             Ok(())
@@ -188,6 +244,7 @@ async fn main() -> Result<()> {
                 script_exec::run(&loaded, explicit_config.as_deref(), &root, command).await?;
             std::process::exit(code);
         }
+        Command::Memory { command } => run_memory_command(command, &root, &loaded).await,
         query @ (Command::Status
         | Command::Events { .. }
         | Command::Sessions { .. }
@@ -330,10 +387,106 @@ async fn run_admin_command(command: Command, root: &Path, loaded: &LoadedConfig)
     }
 }
 
+async fn run_memory_command(
+    command: MemoryCommand,
+    root: &Path,
+    loaded: &LoadedConfig,
+) -> Result<()> {
+    let project_root = Some(root.to_string_lossy().into_owned());
+    let request = match command {
+        MemoryCommand::Status => ServiceRequest::MemoryStatus(MemoryStatusQuery { project_root }),
+        MemoryCommand::Context { scope } => ServiceRequest::MemoryContext(MemoryContextQuery {
+            scope: scope.into(),
+            project_root,
+        }),
+        MemoryCommand::Add { scope, content } => ServiceRequest::MemoryAdd(MemoryAddCommand {
+            context: HookContext {
+                session_id: "cli".into(),
+                project_root,
+                agent: "user".into(),
+                turn_id: None,
+                model: None,
+            },
+            scope: scope.into(),
+            content,
+        }),
+        MemoryCommand::Search { scope, regex } => ServiceRequest::MemorySearch(MemorySearchQuery {
+            scope: scope.into(),
+            project_root,
+            regex,
+            limit: 50,
+        }),
+        MemoryCommand::Expand { summary_id } => {
+            ServiceRequest::MemoryExpand(MemorySummaryQuery { summary_id })
+        }
+        MemoryCommand::Invalidate { summary_id } => {
+            ServiceRequest::MemoryInvalidate(MemorySummaryQuery { summary_id })
+        }
+        MemoryCommand::Consolidate => ServiceRequest::MemoryConsolidate,
+    };
+    request_and_print(loaded, request).await
+}
+
+impl From<MemoryScopeCli> for MemoryScopeArg {
+    fn from(scope: MemoryScopeCli) -> Self {
+        match scope {
+            MemoryScopeCli::Global => Self::Global,
+            MemoryScopeCli::Project => Self::Project,
+        }
+    }
+}
+
+impl From<MemoryReadScopeCli> for MemoryReadScopeArg {
+    fn from(scope: MemoryReadScopeCli) -> Self {
+        match scope {
+            MemoryReadScopeCli::Layered => Self::Layered,
+            MemoryReadScopeCli::Global => Self::Global,
+            MemoryReadScopeCli::Project => Self::Project,
+        }
+    }
+}
+
 async fn request_and_print(loaded: &nexus::LoadedConfig, request: ServiceRequest) -> Result<()> {
     let result = daemon::request(&loaded.config.runtime.socket_path, &request)
         .await
         .context("Nexus daemon is not running")?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_cli_requires_write_scope_and_defaults_reads_to_layered() {
+        let add = Cli::try_parse_from([
+            "nexus",
+            "memory",
+            "add",
+            "--scope",
+            "project",
+            "Prefer typed APIs",
+        ])
+        .unwrap();
+        let Command::Memory {
+            command: MemoryCommand::Add { scope, content },
+        } = add.command
+        else {
+            panic!("expected memory add command");
+        };
+        assert_eq!(scope, MemoryScopeCli::Project);
+        assert_eq!(content, "Prefer typed APIs");
+
+        let context = Cli::try_parse_from(["nexus", "memory", "context"]).unwrap();
+        let Command::Memory {
+            command: MemoryCommand::Context { scope },
+        } = context.command
+        else {
+            panic!("expected memory context command");
+        };
+        assert_eq!(scope, MemoryReadScopeCli::Layered);
+
+        assert!(Cli::try_parse_from(["nexus", "memory", "add", "No scope"]).is_err());
+    }
 }

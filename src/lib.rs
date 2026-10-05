@@ -1,9 +1,12 @@
 // @feature runtime
+// @feature agent-memory
 // @spec docs/features/runtime.md
+// @spec docs/features/agent-memory.md
 pub mod agents;
 pub mod config;
 pub mod coordination;
 pub mod installation;
+pub mod memory;
 pub mod persistence;
 pub mod runtime;
 

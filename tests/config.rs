@@ -1,5 +1,7 @@
 // @feature configuration
+// @feature agent-memory
 // @spec docs/features/configuration.md
+// @spec docs/features/agent-memory.md
 use nexus::config::{Config, ModelProvider};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Mutex;
@@ -113,4 +115,48 @@ fn ui_configuration_defaults_to_a_valid_local_dashboard() {
         .unwrap_err()
         .to_string()
         .contains("refresh_interval_ms must be positive"));
+}
+
+#[test]
+fn memory_configuration_defaults_to_bounded_background_consolidation() {
+    let config = Config::default();
+
+    assert!(config.memory.enabled);
+    assert_eq!(config.memory.consolidation_interval_seconds, 15);
+    assert_eq!(config.memory.consolidation_batch_size, 8);
+    assert_eq!(config.memory.context_max_items, 64);
+    assert_eq!(config.memory.context_max_bytes, 16 * 1024);
+    config.validate().unwrap();
+
+    let mut invalid = config;
+    invalid.memory.consolidation_interval_seconds = 0;
+    assert!(invalid
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("memory.consolidation_interval_seconds must be positive"));
+
+    let mut excessive_items = Config::default();
+    excessive_items.memory.context_max_items = 65;
+    assert!(excessive_items
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("memory.context_max_items must be at most 64"));
+
+    let mut excessive_bytes = Config::default();
+    excessive_bytes.memory.context_max_bytes = 16 * 1024 + 1;
+    assert!(excessive_bytes
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("memory.context_max_bytes must be at most 16384"));
+
+    let mut zero_analyst_timeout = Config::default();
+    zero_analyst_timeout.analyst.timeout_seconds = 0;
+    assert!(zero_analyst_timeout
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("analyst.timeout_seconds must be positive"));
 }

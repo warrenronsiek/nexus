@@ -1,7 +1,9 @@
 // @feature installation
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/installation.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 // @boundary child-process-json
 use serde_json::Value;
 use std::fs;
@@ -44,6 +46,21 @@ fn machine_setup_installs_integrations_idempotently() {
     assert!(home
         .join(".pi/agent/extensions/nexus/usage-pane.ts")
         .is_file());
+    for memory_module in [
+        "host-context.ts",
+        "mcp-client.ts",
+        "memory-context.ts",
+        "memory-pane.ts",
+        "memory-prompts.ts",
+        "memory.ts",
+    ] {
+        assert!(
+            home.join(".pi/agent/extensions/nexus")
+                .join(memory_module)
+                .is_file(),
+            "machine setup did not install {memory_module}"
+        );
+    }
 }
 
 #[test]

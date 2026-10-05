@@ -1,7 +1,9 @@
 // @feature coordination
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 // @entrypoint NexusService::handle
 use super::NexusService;
 use crate::coordination::api::{ConfigResponse, ServiceRequest, ServiceResponse, ToolHookPhase};
@@ -22,10 +24,17 @@ impl NexusService {
             | ServiceRequest::Projects
             | ServiceRequest::Dashboard(_)
             | ServiceRequest::Usage(_)
+            | ServiceRequest::MemoryStatus(_)
+            | ServiceRequest::MemoryContext(_)
+            | ServiceRequest::MemorySearch(_)
+            | ServiceRequest::MemoryExpand(_)
             | ServiceRequest::Config) => self.handle_read(request),
             request @ (ServiceRequest::Resolve(_)
             | ServiceRequest::Release(_)
-            | ServiceRequest::Analyze(_)) => self.handle_command(request),
+            | ServiceRequest::Analyze(_)
+            | ServiceRequest::MemoryAdd(_)
+            | ServiceRequest::MemoryInvalidate(_)
+            | ServiceRequest::MemoryConsolidate) => self.handle_command(request),
         }
     }
 
@@ -57,6 +66,10 @@ impl NexusService {
             ServiceRequest::Projects => self.projects(),
             ServiceRequest::Dashboard(query) => self.dashboard(query),
             ServiceRequest::Usage(query) => self.usage(query),
+            ServiceRequest::MemoryStatus(query) => self.memory_status(query),
+            ServiceRequest::MemoryContext(query) => self.memory_context(query),
+            ServiceRequest::MemorySearch(query) => self.memory_search(query),
+            ServiceRequest::MemoryExpand(query) => self.memory_expand(query),
             ServiceRequest::Config => ServiceResponse::Config(Box::new(ConfigResponse {
                 ok: true,
                 config: self.loaded.config.clone(),
@@ -72,6 +85,9 @@ impl NexusService {
             ServiceRequest::Resolve(command) => self.resolve(command),
             ServiceRequest::Release(command) => self.release(command),
             ServiceRequest::Analyze(command) => self.analyze(command),
+            ServiceRequest::MemoryAdd(command) => self.memory_add(command),
+            ServiceRequest::MemoryInvalidate(command) => self.memory_invalidate(command),
+            ServiceRequest::MemoryConsolidate => self.memory_consolidate(),
             _ => unreachable!("non-command request routed as command"),
         }
     }

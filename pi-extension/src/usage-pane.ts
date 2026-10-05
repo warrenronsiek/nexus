@@ -1,17 +1,24 @@
 // @feature observability-ui
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import type { UsageItem, UsageSummary } from "./domain.ts";
 import { UsagePoller, type UsageLoader } from "./polling.ts";
 import { renderUsageBars } from "./usage.ts";
 
-export type DashboardTab = "coordination" | "tools" | "skills";
-export type UsageTab = Exclude<DashboardTab, "coordination">;
+export type DashboardTab = "coordination" | "tools" | "skills" | "memory";
+export type UsageTab = Extract<DashboardTab, "tools" | "skills">;
 
-const DASHBOARD_TABS: readonly DashboardTab[] = ["coordination", "tools", "skills"];
+const DASHBOARD_TABS: readonly DashboardTab[] = [
+  "coordination",
+  "tools",
+  "skills",
+  "memory",
+];
 
 export function nextDashboardTab(
   current: DashboardTab,
