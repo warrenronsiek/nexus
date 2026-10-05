@@ -2,7 +2,7 @@
 // @spec docs/features/agent-memory.md
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { PiMemoryPrompts } from "../src/memory-prompts.ts";
+import { MemoryPrompts } from "../src/memory-prompts.ts";
 
 function ui(overrides: Partial<ExtensionUIContext> = {}): ExtensionUIContext {
   return {
@@ -18,11 +18,11 @@ describe("Pi memory dialogs", () => {
     const projectUi = ui();
     const globalUi = ui({ select: vi.fn(async () => "Global") });
 
-    await expect(new PiMemoryPrompts(projectUi).newMemory()).resolves.toEqual({
+    await expect(new MemoryPrompts(projectUi).newMemory()).resolves.toEqual({
       scope: "project",
       content: "Keep raw notes immutable.",
     });
-    await expect(new PiMemoryPrompts(globalUi).newMemory()).resolves.toEqual({
+    await expect(new MemoryPrompts(globalUi).newMemory()).resolves.toEqual({
       scope: "global",
       content: "Keep raw notes immutable.",
     });
@@ -32,13 +32,13 @@ describe("Pi memory dialogs", () => {
   it("cancels add without opening text input when no scope is selected", async () => {
     const context = ui({ select: vi.fn(async () => undefined) });
 
-    await expect(new PiMemoryPrompts(context).newMemory()).resolves.toBeUndefined();
+    await expect(new MemoryPrompts(context).newMemory()).resolves.toBeUndefined();
     expect(context.input).not.toHaveBeenCalled();
   });
 
   it("collects regex search and explains that forgetting preserves raw notes", async () => {
     const context = ui({ input: vi.fn(async () => "typed.*boundary") });
-    const prompts = new PiMemoryPrompts(context);
+    const prompts = new MemoryPrompts(context);
     const summary = {
       kind: "summary" as const,
       id: "summary-1",

@@ -2,7 +2,7 @@
 // @feature observability-ui
 // @spec docs/features/agent-memory.md
 // @spec docs/features/observability-ui.md
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { DashboardTheme as Theme } from "./theme.ts";
 import {
   Key,
   matchesKey,

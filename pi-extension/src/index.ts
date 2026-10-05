@@ -12,7 +12,7 @@ import { NexusDashboardComponent } from "./component.ts";
 import { lifecycleArguments } from "./host-context.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
-import { PiMemoryPrompts } from "./memory-prompts.ts";
+import { MemoryPrompts } from "./memory-prompts.ts";
 import { NexusMemoryApi } from "./memory.ts";
 
 export default function nexusExtension(pi: ExtensionAPI): void {
@@ -44,7 +44,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
               loadSnapshot: (projectId, signal) => fetchSnapshot(baseUrl, projectId, signal),
               loadUsage: (projectId, signal) => fetchUsage(baseUrl, projectId, signal),
               memoryApi,
-              memoryPrompts: new PiMemoryPrompts(ctx.ui),
+              memoryPrompts: new MemoryPrompts(ctx.ui),
               done: () => done(),
             },
           );

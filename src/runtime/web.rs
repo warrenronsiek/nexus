@@ -6,7 +6,7 @@
 // @spec docs/features/usage-analytics.md
 // @entrypoint spawn
 // @boundary dynamic-http
-use crate::config::UiConfig;
+use crate::config::{LoadedConfig, UiConfig};
 use crate::coordination::api::{DashboardQuery, ServiceRequest, ServiceResponse, UsageQuery};
 use crate::coordination::NexusService;
 use crate::runtime::dispatch;
@@ -19,6 +19,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -63,11 +64,23 @@ pub async fn spawn(config: &UiConfig, service: Arc<NexusService>) -> Option<Join
     }))
 }
 
-pub fn url(config: &UiConfig) -> String {
+fn url(config: &UiConfig) -> String {
     format!("http://{}", config.bind_address)
 }
 
-pub async fn wait_until_ready(address: SocketAddr, timeout: Duration) -> Result<()> {
+pub async fn ensure_dashboard(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+) -> Result<String> {
+    if !loaded.config.ui.enabled {
+        bail!("Nexus UI is disabled by configuration");
+    }
+    super::daemon::ensure_and_request(loaded, explicit_config, &ServiceRequest::Status).await?;
+    wait_until_ready(loaded.config.ui.bind_address, Duration::from_secs(2)).await?;
+    Ok(url(&loaded.config.ui))
+}
+
+async fn wait_until_ready(address: SocketAddr, timeout: Duration) -> Result<()> {
     let deadline = tokio::time::Instant::now() + timeout;
     while tokio::time::Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

@@ -52,17 +52,22 @@ nexus sessions
 nexus claims
 nexus conflicts
 nexus ui
+nexus tui
 ```
 
 `nexus ui` opens a local, read-only operations dashboard with machine-wide activity, repository filtering, conflict/session/claim panels, a one-hour activity chart, and progressively disclosed record details. Use `nexus ui --launch print` to start it and print the URL without opening a browser. The dashboard is optional: a UI bind or browser-launch failure never stops Unix-socket coordination.
 
-With Pi installed, the same setup command installs a terminal-native view. Start Pi and run:
+Open the terminal dashboard directly:
 
-```text
-/nexus
+```sh
+nexus tui
 ```
 
+Nexus bundles the Pi terminal renderer and opens the dashboard without installing or starting Pi. It uses an existing Node 22.19+ runtime when available; otherwise it downloads and verifies its own pinned runtime on the first launch, then caches it for offline use. The command starts the daemon when needed and honors the current repository and `--config` settings. Press `q` or Ctrl-C to return to your shell.
+
 The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, Tools, Skills, and Memory. Coordination and analytics remain read-only. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
+
+For people who already use Pi, `nexus setup` also installs the `/nexus` extension inside Pi. Both entry points use the same dashboard components.
 
 The MCP stdio server starts the daemon automatically when needed:
 
