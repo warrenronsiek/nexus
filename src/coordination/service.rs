@@ -1,8 +1,11 @@
 // @feature coordination
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 mod dispatch;
+mod memory;
 
 #[cfg(test)]
 use super::api::ServiceRequest;
@@ -21,14 +24,17 @@ use super::usage::UsageCapture;
 use super::workspace;
 use crate::agents::analyst::{self, AnalysisResult};
 use crate::config::LoadedConfig;
+use crate::memory::MemoryReadScope;
 use crate::persistence::Store;
 use anyhow::{Context, Result};
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 pub struct NexusService {
     pub(super) loaded: LoadedConfig,
     pub(super) store: Mutex<Store>,
     pub(super) usage: UsageCapture,
+    pub(super) memory_consolidation_in_flight: AtomicBool,
 }
 
 impl NexusService {
@@ -39,6 +45,7 @@ impl NexusService {
             loaded,
             store: Mutex::new(store),
             usage,
+            memory_consolidation_in_flight: AtomicBool::new(false),
         })
     }
 
@@ -49,6 +56,7 @@ impl NexusService {
             loaded,
             store: Mutex::new(store),
             usage,
+            memory_consolidation_in_flight: AtomicBool::new(false),
         }
     }
 
@@ -83,11 +91,22 @@ impl NexusService {
                 &hash,
                 full,
             )?;
+            let memory_context = if self.loaded.config.memory.enabled {
+                store.activate_memory_context(
+                    &MemoryReadScope::layered(project.id.clone()),
+                    &input.context.agent,
+                    &input.context.session_id,
+                    self.memory_context_limits(),
+                )?
+            } else {
+                None
+            };
             Ok(PromptResponse {
                 permitted: true,
                 recorded: true,
                 project_id: project.id,
                 prompt_hash: hash,
+                memory_context,
             })
         })();
         match result {
@@ -328,23 +347,7 @@ fn pre_tool_use_result(service: &NexusService, input: ToolHookInput) -> Result<H
     let mut store = service
         .lifecycle_store()
         .context("acquire lifecycle store")?;
-    store.touch_session(
-        &project.id,
-        &input.context.session_id,
-        &input.context.agent,
-        project.worktree.as_deref(),
-        &service.loaded.hash,
-    )?;
-    service
-        .usage
-        .observe_tool_start(&mut store, &project.id, &input);
-    store.record_tool_inspection(
-        &project.id,
-        &input.context.session_id,
-        &input.tool_use_id,
-        &input.tool_name,
-        &intents,
-    )?;
+    record_tool_start(service, &mut store, &project, &input, &intents)?;
 
     let mut advisories = Vec::new();
     for intent in intents {
@@ -357,6 +360,32 @@ fn pre_tool_use_result(service: &NexusService, input: ToolHookInput) -> Result<H
         )?);
     }
     Ok(HookResponse::allow(advisories))
+}
+
+fn record_tool_start(
+    service: &NexusService,
+    store: &mut Store,
+    project: &workspace::ProjectIdentity,
+    input: &ToolHookInput,
+    intents: &[PathIntent],
+) -> Result<()> {
+    store.touch_session(
+        &project.id,
+        &input.context.session_id,
+        &input.context.agent,
+        project.worktree.as_deref(),
+        &service.loaded.hash,
+    )?;
+    service.capture_explicit_memory_tool(store, &project.id, input)?;
+    service.usage.observe_tool_start(store, &project.id, input);
+    store.record_tool_inspection(
+        &project.id,
+        &input.context.session_id,
+        &input.tool_use_id,
+        &input.tool_name,
+        intents,
+    )?;
+    Ok(())
 }
 
 fn record_intent_advisories(
@@ -429,203 +458,4 @@ fn synopsis(prompt: &str, max_chars: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Config;
-    use serde_json::json;
-
-    fn service() -> NexusService {
-        service_with(Config::default())
-    }
-
-    fn service_with(config: Config) -> NexusService {
-        let encoded = toml::to_string(&config).unwrap();
-        NexusService::from_store(
-            LoadedConfig {
-                config,
-                sources: vec![],
-                hash: blake3::hash(encoded.as_bytes()).to_hex().to_string(),
-            },
-            Store::open_memory().unwrap(),
-        )
-    }
-
-    fn edit(
-        session_id: &str,
-        tool_use_id: &str,
-        path: &str,
-        line_start: u32,
-        line_end: u32,
-    ) -> ServiceRequest {
-        ServiceRequest::decode(
-            "pre_tool_use",
-            json!({
-                "session_id": session_id,
-                "agent": "test",
-                "project_root": "/tmp",
-                "tool_use_id": tool_use_id,
-                "tool_name": "Edit",
-                "tool_input": {
-                    "file_path": path,
-                    "line_start": line_start,
-                    "line_end": line_end
-                }
-            }),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn second_session_gets_overlap_advisory() {
-        let service = service();
-        let one = json!({"session_id":"one","agent":"codex","project_root":"/tmp","tool_use_id":"t1","tool_name":"Edit","tool_input":{"file_path":"a.rs","line_start":10,"line_end":20}});
-        let two = json!({"session_id":"two","agent":"claude","project_root":"/tmp","tool_use_id":"t2","tool_name":"Edit","tool_input":{"file_path":"a.rs","line_start":15,"line_end":18}});
-        let one = ServiceRequest::decode("pre_tool_use", one).unwrap();
-        let two = ServiceRequest::decode("pre_tool_use", two).unwrap();
-        assert_eq!(
-            service.handle(one).to_json()["advisories"]
-                .as_array()
-                .unwrap()
-                .len(),
-            0
-        );
-        let response = service.handle(two).to_json();
-        assert_eq!(response["permitted"], true, "{response}");
-        assert_eq!(
-            response["advisories"][0]["kind"], "hunk_overlap",
-            "{response}"
-        );
-    }
-
-    #[test]
-    fn lifecycle_hooks_fail_open_without_waiting_for_the_store() {
-        let service = std::sync::Arc::new(service());
-        let store_guard = service.store.lock().unwrap();
-        let request = edit("one", "t1", "a.rs", 1, 5);
-        let worker_service = service.clone();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let worker = std::thread::spawn(move || {
-            sender
-                .send(worker_service.handle(request).to_json())
-                .unwrap();
-        });
-
-        let response = receiver.recv_timeout(std::time::Duration::from_millis(100));
-        drop(store_guard);
-        worker.join().unwrap();
-
-        let response = response.expect("lifecycle hook waited for the busy store");
-        assert_eq!(response["permitted"], true);
-        assert_eq!(response["recorded"], false);
-        assert!(response["diagnostic"].as_str().unwrap().contains("store"));
-    }
-
-    #[test]
-    fn weaker_observations_do_not_downgrade_or_reopen_a_conflict() {
-        let service = service();
-        for (tool_use_id, line_start, line_end) in [("t1", 1, 5), ("t2", 10, 20), ("t3", 15, 25)] {
-            service.handle(edit("one", tool_use_id, "a.rs", line_start, line_end));
-        }
-
-        let critical = service.handle(edit("two", "t4", "a.rs", 16, 18)).to_json();
-        assert_eq!(critical["advisories"].as_array().unwrap().len(), 1);
-        assert_eq!(critical["advisories"][0]["kind"], "hunk_overlap");
-        let weaker = service
-            .handle(edit("two", "t5", "a.rs", 100, 110))
-            .to_json();
-        assert_eq!(weaker["advisories"].as_array().unwrap().len(), 1);
-        assert_eq!(weaker["advisories"][0]["severity"], "info");
-
-        let current = service
-            .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
-            .to_json();
-        assert_eq!(current["conflicts"].as_array().unwrap().len(), 1);
-        assert_eq!(current["conflicts"][0]["severity"], "critical");
-        assert_eq!(current["conflicts"][0]["kind"], "hunk_overlap");
-        let conflict_id = current["conflicts"][0]["id"].as_str().unwrap().to_owned();
-        service.handle(ServiceRequest::Resolve(ResolveCommand {
-            conflict_id,
-            resolution: "coordinated".into(),
-        }));
-        service.handle(edit("two", "t6", "a.rs", 120, 130));
-        let open = service
-            .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
-            .to_json();
-        assert!(open["conflicts"].as_array().unwrap().is_empty());
-    }
-
-    #[test]
-    fn stronger_observation_reopens_a_resolved_conflict() {
-        let service = service();
-        service.handle(edit("one", "t7", "b.rs", 1, 5));
-        service.handle(edit("two", "t8", "b.rs", 100, 110));
-        let all = service
-            .handle(ServiceRequest::Conflicts(ConflictQuery {
-                project_id: None,
-                scope: crate::coordination::domain::ConflictScope::All,
-            }))
-            .to_json();
-        let minor_id = all["conflicts"][0]["id"].as_str().unwrap().to_owned();
-        service.handle(ServiceRequest::Resolve(ResolveCommand {
-            conflict_id: minor_id,
-            resolution: "separate hunks".into(),
-        }));
-        service.handle(edit("two", "t9", "b.rs", 2, 4));
-        let reopened = service
-            .handle(ServiceRequest::Conflicts(ConflictQuery::default()))
-            .to_json();
-        assert_eq!(reopened["conflicts"].as_array().unwrap().len(), 1);
-        assert_eq!(reopened["conflicts"][0]["severity"], "critical");
-    }
-
-    #[test]
-    fn dashboard_is_scoped_and_bounded_while_projects_remain_global() {
-        let temporary = tempfile::tempdir().unwrap();
-        let first_root = temporary.path().join("first");
-        let second_root = temporary.path().join("second");
-        std::fs::create_dir_all(&first_root).unwrap();
-        std::fs::create_dir_all(&second_root).unwrap();
-        let mut config = Config::default();
-        config.ui.recent_event_limit = 2;
-        config.ui.recent_record_limit = 1;
-        let service = service_with(config);
-
-        let prompt = |session_id: &str, root: &std::path::Path| {
-            ServiceRequest::decode(
-                "user_prompt",
-                json!({
-                    "session_id":session_id,
-                    "agent":"test",
-                    "project_root":root,
-                    "prompt":"work on the dashboard"
-                }),
-            )
-            .unwrap()
-        };
-        let first_project = service.handle(prompt("one", &first_root)).to_json()["project_id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        service.handle(prompt("two", &first_root));
-        service.handle(prompt("three", &second_root));
-
-        let projects = service.handle(ServiceRequest::Projects).to_json();
-        assert_eq!(projects["projects"].as_array().unwrap().len(), 2);
-        assert_eq!(projects["projects"][0]["agents"][0], "test");
-
-        let dashboard = service
-            .handle(ServiceRequest::Dashboard(DashboardQuery {
-                project_id: Some(first_project.clone()),
-            }))
-            .to_json();
-        assert_eq!(dashboard["project_id"], first_project);
-        assert_eq!(dashboard["counts"]["active_sessions"], 2);
-        assert_eq!(dashboard["events"]["items"].as_array().unwrap().len(), 2);
-        assert_eq!(dashboard["events"]["truncated"], true);
-        assert_eq!(dashboard["sessions"]["items"].as_array().unwrap().len(), 1);
-        assert_eq!(dashboard["sessions"]["truncated"], true);
-        assert_eq!(dashboard["claims"]["truncated"], false);
-        assert_eq!(dashboard["conflicts"]["truncated"], false);
-        assert_eq!(dashboard["refresh_interval_ms"], 2_000);
-    }
-}
+mod tests;

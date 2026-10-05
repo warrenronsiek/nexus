@@ -4,12 +4,14 @@
 // @feature analyst
 // @feature installation
 // @feature observability-ui
+// @feature agent-memory
 // @spec docs/features/coordination.md
 // @spec docs/features/persistence.md
 // @spec docs/features/runtime.md
 // @spec docs/features/analyst.md
 // @spec docs/features/installation.md
 // @spec docs/features/observability-ui.md
+// @spec docs/features/agent-memory.md
 // @boundary dynamic-json
 // Each integration-test crate uses a different subset of these shared helpers.
 #![allow(dead_code)]
@@ -34,19 +36,69 @@ pub struct Harness {
     pub next_id: u64,
 }
 
+struct HarnessOptions<'a> {
+    analyst_command: Option<&'a Path>,
+    codex_command: Option<&'a Path>,
+    analyst_enabled: bool,
+    claim_ttl_seconds: i64,
+    consolidation_interval_seconds: u64,
+    timeout_seconds: u64,
+}
+
 impl Harness {
     pub fn start() -> Self {
-        Self::start_with_analyst(None, 120)
+        Self::start_with_options(HarnessOptions {
+            analyst_command: None,
+            codex_command: None,
+            analyst_enabled: false,
+            claim_ttl_seconds: 120,
+            consolidation_interval_seconds: 15,
+            timeout_seconds: 60,
+        })
     }
 
     pub fn start_with_claim_ttl(claim_ttl_seconds: i64) -> Self {
-        Self::start_with_analyst(None, claim_ttl_seconds)
+        Self::start_with_options(HarnessOptions {
+            analyst_command: None,
+            codex_command: None,
+            analyst_enabled: false,
+            claim_ttl_seconds,
+            consolidation_interval_seconds: 15,
+            timeout_seconds: 60,
+        })
     }
 
     pub fn start_with_analyst(
         analyst_command: Option<&std::path::Path>,
         claim_ttl_seconds: i64,
     ) -> Self {
+        Self::start_with_options(HarnessOptions {
+            analyst_command,
+            codex_command: None,
+            analyst_enabled: analyst_command.is_some(),
+            claim_ttl_seconds,
+            consolidation_interval_seconds: 15,
+            timeout_seconds: 60,
+        })
+    }
+
+    pub fn start_with_memory_analysts(
+        claude_command: &std::path::Path,
+        codex_command: &std::path::Path,
+        consolidation_interval_seconds: u64,
+        timeout_seconds: u64,
+    ) -> Self {
+        Self::start_with_options(HarnessOptions {
+            analyst_command: Some(claude_command),
+            codex_command: Some(codex_command),
+            analyst_enabled: false,
+            claim_ttl_seconds: 120,
+            consolidation_interval_seconds,
+            timeout_seconds,
+        })
+    }
+
+    fn start_with_options(options: HarnessOptions<'_>) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");
         std::fs::create_dir_all(&root).unwrap();
@@ -57,33 +109,14 @@ impl Harness {
         let config = temp.path().join("config.toml");
         std::fs::write(
             &config,
-            test_config(
-                &database,
-                &socket,
-                &state.join("nexus.lock"),
-                analyst_command,
-                claim_ttl_seconds,
-            ),
+            test_config(&database, &socket, &state.join("nexus.lock"), &options),
         )
         .unwrap();
 
         let executable = env!("CARGO_BIN_EXE_nexus");
         let daemon = spawn_daemon(executable, &config);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !socket.exists() {
-            assert!(Instant::now() < deadline, "daemon socket did not appear");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        let mut mcp = Command::new(executable)
-            .args(["--config", config.to_str().unwrap(), "mcp"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let input = mcp.stdin.take().unwrap();
-        let output = BufReader::new(mcp.stdout.take().unwrap());
+        wait_for_socket(&socket);
+        let (mcp, input, output) = spawn_mcp(executable, &config, &root);
         Self {
             _temp: temp,
             root,
@@ -226,6 +259,32 @@ impl Harness {
     }
 }
 
+fn wait_for_socket(socket: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(Instant::now() < deadline, "daemon socket did not appear");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn spawn_mcp(
+    executable: &str,
+    config: &Path,
+    root: &Path,
+) -> (Child, ChildStdin, BufReader<ChildStdout>) {
+    let mut child = Command::new(executable)
+        .args(["--config", config.to_str().unwrap(), "mcp"])
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let input = child.stdin.take().unwrap();
+    let output = BufReader::new(child.stdout.take().unwrap());
+    (child, input, output)
+}
+
 /// Stays shorter than the five-second timeout generated for host lifecycle hooks.
 pub const HOST_HOOK_BUDGET: Duration = Duration::from_millis(4_500);
 
@@ -240,6 +299,7 @@ impl Drop for Harness {
 
 fn spawn_daemon(executable: &str, config: &Path) -> Child {
     let mut command = Command::new(executable);
+    clear_git_environment(&mut command);
     command
         .args(["--config", config.to_str().unwrap(), "daemon"])
         // Prove synchronous service work cannot starve the async runtime.
@@ -256,13 +316,28 @@ fn test_config(
     database: &std::path::Path,
     socket: &std::path::Path,
     lock: &std::path::Path,
-    analyst_command: Option<&std::path::Path>,
-    claim_ttl_seconds: i64,
+    options: &HarnessOptions<'_>,
 ) -> String {
-    let reconcile_seconds = if analyst_command.is_some() { 30 } else { 1 };
-    let analyst_command = analyst_command
+    let reconcile_seconds = if options.analyst_command.is_some() {
+        30
+    } else {
+        1
+    };
+    let analyst_command = options
+        .analyst_command
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| "claude".into());
+    let codex_command = options
+        .codex_command
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "codex".into());
+    let HarnessOptions {
+        analyst_enabled,
+        claim_ttl_seconds,
+        consolidation_interval_seconds,
+        timeout_seconds,
+        ..
+    } = options;
     format!(
         r#"schema_version = 1
 [coordination]
@@ -274,21 +349,26 @@ database_path = '{}'
 socket_path = '{}'
 lock_path = '{}'
 [analyst]
-enabled = {}
+enabled = {analyst_enabled}
 provider = "claude"
+timeout_seconds = {timeout_seconds}
+[analyst.codex]
+command = '{}'
 [analyst.claude]
 command = '{}'
+[memory]
+consolidation_interval_seconds = {consolidation_interval_seconds}
 "#,
         database.display(),
         socket.display(),
         lock.display(),
-        analyst_command != "claude",
+        codex_command,
         analyst_command
     )
 }
 
 pub fn run_git(root: &std::path::Path, arguments: &[&str]) {
-    let output = Command::new("git")
+    let output = git_command()
         .arg("-C")
         .arg(root)
         .args(arguments)
@@ -332,6 +412,11 @@ pub fn write_executable(path: &Path, contents: &str) {
 
 pub fn git_command() -> Command {
     let mut command = Command::new("git");
+    clear_git_environment(&mut command);
+    command
+}
+
+fn clear_git_environment(command: &mut Command) {
     for variable in [
         "GIT_DIR",
         "GIT_WORK_TREE",
@@ -342,5 +427,4 @@ pub fn git_command() -> Command {
     ] {
         command.env_remove(variable);
     }
-    command
 }

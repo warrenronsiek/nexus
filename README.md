@@ -4,6 +4,21 @@ Nexus is a local coordination service for coding agents. It observes tool activi
 
 The invariant is structural: every lifecycle-hook response permits the original tool call. Nexus emits no deny, block, approval, or input-rewrite decision.
 
+## Agent memory
+
+Nexus keeps deliberately authored memories in its local SQLite store and supplies bounded, clearly delimited historical context once per agent session. Agents only decide which durable notes to add; Nexus builds disposable hierarchical summaries in the background with the configured Codex or Claude analyst provider. Raw notes remain immutable and searchable, while summaries can be expanded or invalidated without changing their source notes.
+
+```sh
+nexus memory add --scope project "The deployment requires the warren AWS profile."
+nexus memory context --scope layered
+nexus memory search "deployment|AWS"
+nexus memory status
+```
+
+Project memories are shared by worktrees through their Git common directory. Global memories apply across projects. Memory is never inferred automatically from prompts, transcripts, tool output, or assistant responses.
+
+Nexus agent memory is inspired by Victor Taelin’s [OptMem](https://github.com/VictorTaelin/OptMem). Nexus uses an independent Rust/SQLite implementation and includes no OptMem source.
+
 ## Install
 
 From a Nexus source checkout, one command installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store:
@@ -47,7 +62,7 @@ With Pi installed, the same setup command installs a terminal-native view. Start
 /nexus
 ```
 
-The first screen shows project scope and health counts. Enter drills into conflicts, sessions, claims, or events, then into full record detail; `j`/`k` scroll detail, Escape goes back, `r` refreshes, and `q` closes. The view refreshes while open and is read-only.
+The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, Tools, Skills, and Memory. Coordination and analytics remain read-only. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
 
 The MCP stdio server starts the daemon automatically when needed:
 
@@ -117,7 +132,7 @@ Request analysis explicitly; it never runs in the pre-tool path:
 nexus analyze <conflict-id>
 ```
 
-Codex runs with a read-only sandbox and Claude runs in plan permission mode. Results are advisory and are stored with provider, model, timestamp, and resolved configuration hash provenance. Nexus does not silently fall back to a different provider.
+Codex runs with a read-only sandbox and Claude runs in plan permission mode. Results are advisory and are stored with provider, model, timestamp, and resolved configuration hash provenance. Explicit conflict analysis does not silently fall back to a different provider; background memory consolidation has its separately documented one-provider fallback.
 
 ## Coordination model
 
@@ -140,7 +155,7 @@ The source tree follows capability boundaries rather than a flat layer list:
 - `runtime/web.rs` owns the read-only local HTTP adapter and embedded frontend.
 - `agents/` owns optional analyst processes and host integration generation.
 - `ui/` owns the Elm application and the narrow typed D3 adapter; compiled `ui/dist` assets are tracked and embedded in the Rust binary.
-- `pi-extension/` owns the terminal-native progressive-disclosure view over the same read-only HTTP API.
+- `pi-extension/` owns the terminal-native progressive-disclosure view. Coordination and usage stay on the read-only HTTP API; memory content uses the correlated local MCP transport and never enters a browser endpoint.
 
 JSON is decoded at runtime boundaries into the closed `ServiceRequest` enum. Open-ended tool input remains isolated in the named `ToolPayload` boundary type; coordination and persistence APIs use explicit records and enums. Behavioral choices such as record scope, conflict scope, completion state, and release target are enums rather than boolean arguments.
 

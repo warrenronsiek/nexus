@@ -1,7 +1,9 @@
 // @feature observability-ui
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
 import {
   Container,
@@ -15,6 +17,8 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import type { Snapshot } from "./domain.ts";
+import { MemoryPane, type MemoryInteractionPrompts } from "./memory-pane.ts";
+import type { MemoryApi } from "./memory.ts";
 import {
   backPage,
   detailText,
@@ -44,6 +48,8 @@ export { nextDashboardTab } from "./usage-pane.ts";
 interface DashboardOptions {
   loadSnapshot: SnapshotLoader;
   loadUsage: UsageLoader;
+  memoryApi: MemoryApi;
+  memoryPrompts: MemoryInteractionPrompts;
   done: () => void;
 }
 
@@ -56,14 +62,17 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
   else if (matchesKey(data, Key.shift("tab"))) command = "previous-tab";
   else if (matchesKey(data, "r")) command = "refresh";
   else if (
-    tab !== "coordination" &&
+    (tab === "tools" || tab === "skills") &&
     (matchesKey(data, Key.escape) || matchesKey(data, Key.backspace))
   ) command = "coordination";
   return command;
 }
 
 function footerHint(tab: DashboardTab, page: Page): string {
-  if (tab !== "coordination") {
+  if (tab === "memory") {
+    return "tab switch · ↑↓ navigate · enter expand/detail · / search · a add · f invalidate summary · c retry consolidation · r refresh · q close";
+  }
+  if (tab === "tools" || tab === "skills") {
     return "tab/shift-tab switch · esc coordination · r refresh · q close";
   }
   return page.kind === "detail"
@@ -84,6 +93,7 @@ interface DashboardBodyOptions {
   tab: DashboardTab;
   theme: Theme;
   usagePane: UsagePane;
+  memoryPane: MemoryPane;
   back: () => void;
   open: (value: string) => void;
 }
@@ -121,8 +131,12 @@ function addOverviewCounts(container: Container, snapshot: Snapshot, theme: Them
 }
 
 function addDashboardBody(options: DashboardBodyOptions): BodyState {
-  if (options.tab !== "coordination") {
+  if (options.tab === "tools" || options.tab === "skills") {
     options.container.addChild(options.usagePane);
+    return {};
+  }
+  if (options.tab === "memory") {
+    options.container.addChild(options.memoryPane);
     return {};
   }
   if (options.page.kind === "overview") {
@@ -195,6 +209,7 @@ export class NexusDashboardComponent implements Component {
   private status = "live";
   private readonly poller: SnapshotPoller;
   private readonly usagePane: UsagePane;
+  private readonly memoryPane: MemoryPane;
 
   constructor(
     private readonly tui: TUI,
@@ -211,6 +226,13 @@ export class NexusDashboardComponent implements Component {
       this.rebuild();
       this.tui.requestRender();
     });
+    this.memoryPane = new MemoryPane(
+      tui,
+      theme,
+      options.memoryApi,
+      options.memoryPrompts,
+      () => this.rebuild(),
+    );
     this.rebuild();
     this.poller.start();
   }
@@ -243,6 +265,8 @@ export class NexusDashboardComponent implements Component {
               back: () => this.goBack(),
             },
           );
+        } else if (this.tab === "memory") {
+          this.memoryPane.handleInput(data);
         }
       }
     }
@@ -251,6 +275,7 @@ export class NexusDashboardComponent implements Component {
   dispose(): void {
     this.poller.dispose();
     this.usagePane.dispose();
+    this.memoryPane.dispose();
   }
 
   private applyPollingUpdate(update: PollingUpdate): void {
@@ -266,16 +291,19 @@ export class NexusDashboardComponent implements Component {
 
   private switchTab(tab: DashboardTab): void {
     if (tab === this.tab) return;
-    const wasAnalytics = this.tab !== "coordination";
-    const isAnalytics = tab !== "coordination";
+    const wasUsage = this.tab === "tools" || this.tab === "skills";
+    const isUsage = tab === "tools" || tab === "skills";
+    const wasMemory = this.tab === "memory";
+    const isMemory = tab === "memory";
     this.tab = tab;
-    if (!wasAnalytics && isAnalytics) {
+    if (wasUsage && !isUsage) this.usagePane.deactivate();
+    if (wasMemory && !isMemory) this.memoryPane.deactivate();
+    if (!wasUsage && isUsage) {
       this.usagePane.activate(tab as UsageTab, this.snapshot.dashboard.project_id);
-    } else if (wasAnalytics && !isAnalytics) {
-      this.usagePane.deactivate();
-    } else if (isAnalytics) {
+    } else if (wasUsage && isUsage) {
       this.usagePane.show(tab as UsageTab);
     }
+    if (!wasMemory && isMemory) this.memoryPane.activate();
     this.rebuild();
     this.tui.requestRender();
   }
@@ -283,8 +311,10 @@ export class NexusDashboardComponent implements Component {
   private refresh(): void {
     if (this.tab === "coordination") {
       void this.poller.refresh(this.snapshot.dashboard.project_id, "manual");
-    } else {
+    } else if (this.tab === "tools" || this.tab === "skills") {
       this.usagePane.refresh();
+    } else {
+      this.memoryPane.refresh();
     }
   }
 
@@ -311,6 +341,7 @@ export class NexusDashboardComponent implements Component {
       tab: this.tab,
       theme: this.theme,
       usagePane: this.usagePane,
+      memoryPane: this.memoryPane,
       back: () => this.goBack(),
       open: (value) => this.open(value),
     });
@@ -323,12 +354,20 @@ export class NexusDashboardComponent implements Component {
   private addHeader(container: Container): void {
     container.addChild(new DynamicBorder((text) => this.theme.fg("accent", text)));
     container.addChild(new Text(renderTabHeader(this.theme, this.tab), 1, 0));
-    const title = this.tab === "coordination" ? pageTitle(this.page) : this.tab === "tools" ? "Tool usage" : "Skill usage";
+    const title = this.tab === "coordination"
+      ? pageTitle(this.page)
+      : this.tab === "tools"
+      ? "Tool usage"
+      : this.tab === "skills"
+      ? "Skill usage"
+      : "Memory";
     container.addChild(new Text(this.theme.fg("accent", this.theme.bold(title)), 1, 0));
     const scope = scopeLabel(this.snapshot);
     const status = this.tab === "coordination"
       ? `${scope} · ${this.status} · ${new Date(this.snapshot.dashboard.generated_at).toLocaleTimeString()}`
-      : this.usagePane.statusLine(scope);
+      : this.tab === "tools" || this.tab === "skills"
+      ? this.usagePane.statusLine(scope)
+      : this.memoryPane.statusLine();
     container.addChild(
       new Text(
         this.theme.fg("muted", status),

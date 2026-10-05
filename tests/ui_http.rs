@@ -1,7 +1,9 @@
 // @feature observability-ui
 // @feature usage-analytics
+// @feature agent-memory
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/agent-memory.md
 // @entrypoint daemon_serves_read_only_observability_ui
 // @boundary child-process-http
 mod support;
@@ -15,6 +17,8 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use support::{assert_success, git_command, wait_for_path};
+
+const PRIVATE_MEMORY_MARKER: &str = "browser-private-memory-marker";
 
 #[test]
 fn daemon_serves_read_only_observability_ui() {
@@ -30,6 +34,20 @@ fn daemon_serves_read_only_observability_ui() {
         .spawn()
         .unwrap();
     wait_for_http(address, &mut daemon);
+
+    let added = Command::new(env!("CARGO_BIN_EXE_nexus"))
+        .args([
+            "--config",
+            path(&config),
+            "memory",
+            "add",
+            "--scope",
+            "global",
+            PRIVATE_MEMORY_MARKER,
+        ])
+        .output()
+        .unwrap();
+    assert_success("add private memory", &added);
 
     assert_ui_assets(address);
     assert_read_only_apis(address);
@@ -80,6 +98,7 @@ fn assert_read_only_apis(address: SocketAddr) {
     let dashboard_json = response_json(&dashboard);
     assert_eq!(dashboard_json["ok"], true);
     assert!(dashboard_json["events"]["items"].is_array());
+    assert!(!dashboard.contains(PRIVATE_MEMORY_MARKER));
 
     let usage = request(
         address,
@@ -90,6 +109,7 @@ fn assert_read_only_apis(address: SocketAddr) {
     assert!(usage_json["tools"].is_array());
     assert!(usage_json["skills"].is_array());
     assert_eq!(usage_json["capture_health"]["label"], "observed_by_nexus");
+    assert!(!usage.contains(PRIVATE_MEMORY_MARKER));
 }
 
 fn assert_http_rejections(address: SocketAddr) {
@@ -98,6 +118,13 @@ fn assert_http_rejections(address: SocketAddr) {
         "POST /api/v1/dashboard HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
     );
     assert!(lower(&rejected).starts_with("http/1.1 405"), "{rejected}");
+
+    let memory = request(
+        address,
+        "GET /api/v1/memory HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
+    assert!(lower(&memory).starts_with("http/1.1 404"), "{memory}");
+    assert!(!memory.contains(PRIVATE_MEMORY_MARKER));
 
     let foreign_host = request(
         address,

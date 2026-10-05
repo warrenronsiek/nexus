@@ -260,8 +260,8 @@ mod tests {
         let path = temp.path().join("upgrade.db");
 
         assert_eq!(migrate_with(&path, ThroughVersion(0)).unwrap(), Some(0));
-        assert_eq!(migrate_database(&path).unwrap(), Some(3));
-        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+        assert_eq!(migrate_database(&path).unwrap(), Some(4));
+        assert_eq!(migrate_database(&path).unwrap(), Some(4));
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        assert_eq!(migrate_database(&path).unwrap(), Some(3));
+        assert_eq!(migrate_database(&path).unwrap(), Some(4));
         let mut store = super::super::Store::open(&path).unwrap();
         let events = store
             .list_events(Some("project-before-upgrade"), 10)
@@ -302,5 +302,24 @@ mod tests {
             .unwrap()
             .tools
             .is_empty());
+    }
+
+    #[test]
+    fn upgrades_an_existing_v3_database_with_agent_memory_tables() {
+        use super::super::schema::memory_spaces;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("upgrade-v3.db");
+        assert_eq!(migrate_with(&path, ThroughVersion(3)).unwrap(), Some(3));
+        assert_eq!(migrate_database(&path).unwrap(), Some(4));
+
+        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+        assert_eq!(
+            memory_spaces::table
+                .count()
+                .get_result::<i64>(&mut connection)
+                .unwrap(),
+            0
+        );
     }
 }

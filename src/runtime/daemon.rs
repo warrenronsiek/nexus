@@ -1,5 +1,7 @@
 // @feature runtime
+// @feature agent-memory
 // @spec docs/features/runtime.md
+// @spec docs/features/agent-memory.md
 // @entrypoint serve
 // @boundary dynamic-json
 use crate::config::LoadedConfig;
@@ -27,23 +29,45 @@ struct Request {
 }
 
 pub async fn serve(loaded: LoadedConfig) -> Result<()> {
+    let runtime = start_runtime(loaded).await?;
+    run_event_loop(
+        &runtime.listener,
+        runtime.service.clone(),
+        runtime.reconcile_seconds,
+        runtime.memory_enabled,
+        runtime.memory_consolidation_seconds,
+    )
+    .await
+}
+
+struct DaemonRuntime {
+    socket_path: std::path::PathBuf,
+    _lock: std::fs::File,
+    listener: UnixListener,
+    service: Arc<NexusService>,
+    ui: Option<tokio::task::JoinHandle<()>>,
+    reconcile_seconds: u64,
+    memory_enabled: bool,
+    memory_consolidation_seconds: u64,
+}
+
+impl Drop for DaemonRuntime {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket_path);
+        if let Some(ui) = &self.ui {
+            ui.abort();
+        }
+    }
+}
+
+async fn start_runtime(loaded: LoadedConfig) -> Result<DaemonRuntime> {
     let socket_path = loaded.config.runtime.socket_path.clone();
     let lock_path = loaded.config.runtime.lock_path.clone();
     let reconcile_seconds = loaded.config.coordination.reconcile_seconds;
-    if let Some(parent) = socket_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    if let Some(parent) = lock_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    let lock = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(&lock_path)?;
-    lock.try_lock_exclusive()
-        .with_context(|| format!("another Nexus daemon owns {}", lock_path.display()))?;
-
+    let memory_enabled = loaded.config.memory.enabled;
+    let memory_consolidation_seconds = loaded.config.memory.consolidation_interval_seconds;
+    prepare_runtime_paths(&socket_path, &lock_path).await?;
+    let lock = acquire_daemon_lock(&lock_path)?;
     if socket_path.exists() {
         let _ = std::fs::remove_file(&socket_path);
     }
@@ -52,7 +76,48 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     let ui_config = loaded.config.ui.clone();
     let service = Arc::new(NexusService::new(loaded)?);
     let ui = web::spawn(&ui_config, service.clone()).await;
+    Ok(DaemonRuntime {
+        socket_path,
+        _lock: lock,
+        listener,
+        service,
+        ui,
+        reconcile_seconds,
+        memory_enabled,
+        memory_consolidation_seconds,
+    })
+}
+
+async fn prepare_runtime_paths(socket_path: &Path, lock_path: &Path) -> Result<()> {
+    if let Some(parent) = socket_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    if let Some(parent) = lock_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    Ok(())
+}
+
+fn acquire_daemon_lock(lock_path: &Path) -> Result<std::fs::File> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_path)?;
+    lock.try_lock_exclusive()
+        .with_context(|| format!("another Nexus daemon owns {}", lock_path.display()))?;
+    Ok(lock)
+}
+
+async fn run_event_loop(
+    listener: &UnixListener,
+    service: Arc<NexusService>,
+    reconcile_seconds: u64,
+    memory_enabled: bool,
+    memory_consolidation_seconds: u64,
+) -> Result<()> {
     let mut reconcile = reconciliation_interval(reconcile_seconds);
+    let mut memory_consolidation = reconciliation_interval(memory_consolidation_seconds);
 
     loop {
         tokio::select! {
@@ -65,15 +130,19 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
                 let service = service.clone();
                 let _ = tokio::task::spawn_blocking(move || service.reconcile_all()).await;
             }
+            _ = memory_consolidation.tick(), if memory_enabled => {
+                spawn_memory_consolidation(service.clone());
+            }
             _ = tokio::signal::ctrl_c() => break,
         }
     }
-    let _ = std::fs::remove_file(&socket_path);
-    if let Some(ui) = ui {
-        ui.abort();
-    }
-    drop(lock);
     Ok(())
+}
+
+fn spawn_memory_consolidation(service: Arc<NexusService>) {
+    drop(tokio::task::spawn_blocking(move || {
+        let _ = service.consolidate_memories();
+    }));
 }
 
 fn reconciliation_interval(seconds: u64) -> tokio::time::Interval {

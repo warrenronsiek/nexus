@@ -1,5 +1,7 @@
 # @feature configuration
+# @feature agent-memory
 # @spec docs/features/configuration.md
+# @spec docs/features/agent-memory.md
 schema_version = 1
 
 [coordination]
@@ -32,6 +34,15 @@ reasoning_effort = "medium"
 [analyst.claude]
 command = "claude"
 # model = "your-claude-model"
+
+# Agents explicitly record durable notes. Nexus consolidates them in the
+# background with the analyst provider and falls back to the other provider.
+[memory]
+enabled = true
+consolidation_interval_seconds = 15
+consolidation_batch_size = 8
+context_max_items = 64
+context_max_bytes = 16384
 
 # Every local commit runs both review skills in parallel through a model other
 # than the implementation model. Findings are advisory and never deny a commit.

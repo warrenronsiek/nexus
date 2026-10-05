@@ -5,10 +5,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";
 import {
-  McpAnalyticsClient,
   registerAnalyticsCapture,
   type AnalyticsTransport,
-  type McpProcess,
 } from "../src/capture.ts";
 
 interface HandlerContext {
@@ -20,31 +18,6 @@ interface HandlerContext {
   };
 }
 
-it("reuses one MCP child for multiple observations", () => {
-    const stdin = {
-      write: vi.fn((_value: string) => true),
-      once: vi.fn(),
-      end: vi.fn(),
-    };
-    const child = {
-      stdin,
-      stdout: { on: vi.fn() },
-      once: vi.fn(),
-    } as unknown as McpProcess;
-    const spawnMcp = vi.fn(() => child);
-    const client = new McpAnalyticsClient(spawnMcp);
-
-    client.send("nexus_pre_tool_use", { tool_use_id: "one" }, "/repo");
-    client.send("nexus_post_tool_use", { tool_use_id: "one" }, "/repo");
-
-    expect(spawnMcp).toHaveBeenCalledOnce();
-    expect(stdin.write).toHaveBeenCalledTimes(2);
-    expect(String(stdin.write.mock.calls[0][0])).toContain('"name":"nexus_pre_tool_use"');
-    expect(String(stdin.write.mock.calls[1][0])).toContain('"name":"nexus_post_tool_use"');
-    client.close();
-    expect(stdin.end).toHaveBeenCalledOnce();
-});
-
 it("records tool start and completion through the existing Nexus lifecycle calls", () => {
     const handlers = new Map<string, (event: never, context: HandlerContext) => void>();
     const pi = {
@@ -53,7 +26,7 @@ it("records tool start and completion through the existing Nexus lifecycle calls
         return () => undefined;
       },
     } as unknown as ExtensionAPI;
-    const transport: AnalyticsTransport = { send: vi.fn(), close: vi.fn() };
+    const transport: AnalyticsTransport = { call: vi.fn(), close: vi.fn() };
     registerAnalyticsCapture(pi, transport);
     const context = {
       cwd: "/repo",
@@ -86,7 +59,7 @@ it("records tool start and completion through the existing Nexus lifecycle calls
       context,
     );
 
-    expect(transport.send).toHaveBeenNthCalledWith(
+    expect(transport.call).toHaveBeenNthCalledWith(
       1,
       "nexus_pre_tool_use",
       expect.objectContaining({
@@ -102,7 +75,7 @@ it("records tool start and completion through the existing Nexus lifecycle calls
       }),
       "/repo",
     );
-    expect(transport.send).toHaveBeenNthCalledWith(
+    expect(transport.call).toHaveBeenNthCalledWith(
       2,
       "nexus_post_tool_use",
       expect.objectContaining({ tool_use_id: "tool-1" }),
@@ -118,7 +91,7 @@ it("records explicit skills, failed tools, and closes at session shutdown", () =
         return () => undefined;
       },
     } as unknown as ExtensionAPI;
-    const transport: AnalyticsTransport = { send: vi.fn(), close: vi.fn() };
+    const transport: AnalyticsTransport = { call: vi.fn(), close: vi.fn() };
     registerAnalyticsCapture(pi, transport);
     const context = {
       cwd: "/repo",
@@ -148,7 +121,7 @@ it("records explicit skills, failed tools, and closes at session shutdown", () =
       context,
     );
 
-    expect(transport.send).toHaveBeenNthCalledWith(
+    expect(transport.call).toHaveBeenNthCalledWith(
       1,
       "nexus_skill_use",
       expect.objectContaining({
@@ -159,7 +132,7 @@ it("records explicit skills, failed tools, and closes at session shutdown", () =
       }),
       "/repo",
     );
-    expect(transport.send).toHaveBeenNthCalledWith(
+    expect(transport.call).toHaveBeenNthCalledWith(
       2,
       "nexus_post_tool_failure",
       expect.objectContaining({ tool_use_id: "tool-2" }),
