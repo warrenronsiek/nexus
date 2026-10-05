@@ -92,51 +92,30 @@ print(json.dumps({"result": json.dumps(summary)}))
     assert_eq!(requested["ok"], true, "{requested}");
     assert_eq!(requested["in_progress"], true, "{requested}");
 
-    wait_for_summary(&harness.database, &mut harness.daemon);
+    wait_for_consolidation(&config, &harness.root, &mut harness.daemon);
+    harness.daemon.kill().unwrap();
+    harness.daemon.wait().unwrap();
     assert_raw_memory_state(&harness.database);
     assert_consolidation_state(&harness.database);
 }
 
-fn wait_for_summary(database: &Path, daemon: &mut std::process::Child) {
+fn wait_for_consolidation(config: &Path, root: &Path, daemon: &mut std::process::Child) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         assert!(daemon.try_wait().unwrap().is_none(), "daemon exited early");
-        if summary_count(database) == 1 {
+        let status = memory_cli(config, root, &["status"]);
+        let health = &status["health"];
+        let provider_succeeded = health["providers"].as_array().is_some_and(|providers| {
+            providers.iter().any(|provider| {
+                provider["provider"] == "claude" && provider["last_outcome"] == "succeeded"
+            })
+        });
+        if health["pending_summaries"] == 0 && provider_succeeded {
             return;
         }
-        assert!(
-            Instant::now() < deadline,
-            "mock summary was not persisted: {}",
-            database_diagnostic(database)
-        );
+        assert!(Instant::now() < deadline, "mock summary was not persisted");
         std::thread::sleep(Duration::from_millis(25));
     }
-}
-
-fn summary_count(database: &Path) -> i64 {
-    use schema::memory_summaries::dsl::*;
-    let mut connection = connection(database);
-    memory_summaries
-        .select(count_star())
-        .first(&mut connection)
-        .unwrap()
-}
-
-fn database_diagnostic(database: &Path) -> String {
-    let mut connection = connection(database);
-    let attempts = schema::memory_compaction_attempts::table
-        .select((
-            schema::memory_compaction_attempts::provider,
-            schema::memory_compaction_attempts::outcome,
-            schema::memory_compaction_attempts::was_fallback,
-        ))
-        .load::<(String, String, bool)>(&mut connection)
-        .unwrap();
-    let queued = schema::memory_compaction_queue::table
-        .select(count_star())
-        .first::<i64>(&mut connection)
-        .unwrap();
-    format!("attempts={attempts:?}, queued={queued}")
 }
 
 fn assert_raw_memory_state(database: &Path) {
