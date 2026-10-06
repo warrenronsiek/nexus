@@ -9,7 +9,6 @@ use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::domain::HookResponse;
 use crate::coordination::NexusService;
 use crate::runtime::dispatch;
-use crate::runtime::web;
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -45,7 +44,6 @@ struct DaemonRuntime {
     _lock: std::fs::File,
     listener: UnixListener,
     service: Arc<NexusService>,
-    ui: Option<tokio::task::JoinHandle<()>>,
     reconcile_seconds: u64,
     memory_enabled: bool,
     memory_consolidation_seconds: u64,
@@ -54,9 +52,6 @@ struct DaemonRuntime {
 impl Drop for DaemonRuntime {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.socket_path);
-        if let Some(ui) = &self.ui {
-            ui.abort();
-        }
     }
 }
 
@@ -73,15 +68,12 @@ async fn start_runtime(loaded: LoadedConfig) -> Result<DaemonRuntime> {
     }
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind {}", socket_path.display()))?;
-    let ui_config = loaded.config.ui.clone();
     let service = Arc::new(NexusService::new(loaded)?);
-    let ui = web::spawn(&ui_config, service.clone()).await;
     Ok(DaemonRuntime {
         socket_path,
         _lock: lock,
         listener,
         service,
-        ui,
         reconcile_seconds,
         memory_enabled,
         memory_consolidation_seconds,

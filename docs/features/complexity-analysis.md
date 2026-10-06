@@ -57,6 +57,6 @@ flowchart TD
 
 The architectural-load formula is `LLOC + 3 × arguments + 8 × declarations + 5 × max(cyclomatic - 1, 0) + 2 × cognitive`. It is deliberately configurable and used only for ranking. BCA's individual threshold rules remain the metric gate.
 
-The wrapper analyzes authored Rust, Python, TypeScript, and JavaScript selected through the feature map. Generated frontend bundles are excluded. Elm is deliberately type-gated by the Elm compiler and behavior tests because BCA does not provide an Elm parser.
+The wrapper analyzes authored Rust, Python, TypeScript, and JavaScript selected through the feature map. Generated dependency and build trees are excluded.
 
 Normalized token similarity is a vibes check. Before abstraction, a reviewer must verify shared ownership, invariants, and reasons to change. Similar implementations with different invariants should remain separate and have that distinction recorded in review findings.

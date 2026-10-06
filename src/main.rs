@@ -18,7 +18,7 @@ use nexus::coordination::api::{
 };
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
-use nexus::runtime::{daemon, hooks, mcp, script_exec, web};
+use nexus::runtime::{daemon, hooks, mcp, script_exec};
 use nexus::{Config, LoadedConfig};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -56,11 +56,6 @@ enum Command {
     HookSessionEnd {
         #[arg(long)]
         agent: String,
-    },
-    /// Open the local read-only observability dashboard.
-    Ui {
-        #[arg(long, value_enum, default_value_t = UiLaunch::Open)]
-        launch: UiLaunch,
     },
     /// Execute a script while recording one privacy-limited usage observation.
     Exec {
@@ -184,12 +179,6 @@ enum IntegrationHost {
     Claude,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum UiLaunch {
-    Open,
-    Print,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -213,30 +202,6 @@ async fn main() -> Result<()> {
         }
         Command::HookSessionEnd { agent } => {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
-            Ok(())
-        }
-        Command::Ui { launch } => {
-            if !loaded.config.ui.enabled {
-                anyhow::bail!("Nexus UI is disabled by configuration");
-            }
-            daemon::ensure_and_request(
-                &loaded,
-                explicit_config.as_deref(),
-                &ServiceRequest::Status,
-            )
-            .await?;
-            web::wait_until_ready(
-                loaded.config.ui.bind_address,
-                std::time::Duration::from_secs(2),
-            )
-            .await?;
-            let url = web::url(&loaded.config.ui);
-            println!("{url}");
-            if matches!(launch, UiLaunch::Open) {
-                if let Err(error) = webbrowser::open(&url) {
-                    eprintln!("warning: could not open a browser: {error}");
-                }
-            }
             Ok(())
         }
         Command::Exec { command } => {

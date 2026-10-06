@@ -9,14 +9,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { lifecycleArguments } from "./host-context.ts";
-
-export interface MemoryContextClient {
-  call(
-    toolName: string,
-    argumentsValue: Record<string, unknown>,
-    cwd: string,
-  ): Promise<unknown>;
-}
+import type { NexusMcpClient } from "./mcp-client.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -33,7 +26,7 @@ function additionalContext(value: unknown): string | undefined {
 async function activateMemory(
   event: BeforeAgentStartEvent,
   context: ExtensionContext,
-  client: MemoryContextClient,
+  client: Pick<NexusMcpClient, "call">,
 ): Promise<BeforeAgentStartEventResult | undefined> {
   try {
     const response = await client.call(
@@ -60,6 +53,9 @@ async function activateMemory(
   }
 }
 
-export function registerMemoryContext(pi: ExtensionAPI, client: MemoryContextClient): void {
+export function registerMemoryContext(
+  pi: ExtensionAPI,
+  client: Pick<NexusMcpClient, "call">,
+): void {
   pi.on("before_agent_start", (event, context) => activateMemory(event, context, client));
 }

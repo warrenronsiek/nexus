@@ -16,10 +16,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 SUPPORTED_SUFFIXES = {
-    ".css",
-    ".elm",
     ".go",
-    ".html",
     ".java",
     ".js",
     ".jsx",
@@ -43,7 +40,6 @@ SKIPPED_DIRECTORIES = {
     "__pycache__",
     "dist",
     "docs",
-    "elm-stuff",
     "node_modules",
     "target",
     "vendor",
@@ -152,26 +148,6 @@ def discover_python_symbols(text: str) -> list[Symbol]:
     return sorted(symbols, key=lambda symbol: (symbol.line, symbol.name))
 
 
-def discover_elm_symbols(text: str) -> list[Symbol]:
-    definitions = re.compile(
-        r"^(?:(type\s+alias|type)\s+([A-Z][A-Za-z0-9_]*)|"
-        r"(port)\s+([a-z][A-Za-z0-9_]*)\s*:|"
-        r"([a-z][A-Za-z0-9_]*)\s*:)(?:\s|$)"
-    )
-    symbols: list[Symbol] = []
-    for line_number, line in enumerate(text.splitlines(), 1):
-        match = definitions.match(line)
-        if match is None:
-            continue
-        if match.group(1) is not None:
-            symbols.append(Symbol(match.group(1), match.group(2), line_number))
-        elif match.group(3) is not None:
-            symbols.append(Symbol("port", match.group(4), line_number))
-        else:
-            symbols.append(Symbol("value", match.group(5), line_number))
-    return symbols
-
-
 def discover_typescript_symbols(text: str) -> list[Symbol]:
     definitions = re.compile(
         r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?"
@@ -189,8 +165,6 @@ def discover_symbols(path: Path, text: str) -> tuple[Symbol, ...]:
         return tuple(discover_rust_symbols(text))
     if path.suffix == ".py":
         return tuple(discover_python_symbols(text))
-    if path.suffix == ".elm":
-        return tuple(discover_elm_symbols(text))
     if path.suffix in {".js", ".jsx", ".mjs", ".ts", ".tsx"}:
         return tuple(discover_typescript_symbols(text))
     if path.suffix == ".sql":

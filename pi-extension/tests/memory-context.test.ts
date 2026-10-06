@@ -2,10 +2,8 @@
 // @spec docs/features/agent-memory.md
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import {
-  registerMemoryContext,
-  type MemoryContextClient,
-} from "../src/memory-context.ts";
+import { registerMemoryContext } from "../src/memory-context.ts";
+import type { NexusMcpClient } from "../src/mcp-client.ts";
 
 interface HandlerContext {
   cwd: string;
@@ -16,7 +14,7 @@ interface HandlerContext {
   };
 }
 
-function beforeStartHarness(client: MemoryContextClient): {
+function beforeStartHarness(client: Pick<NexusMcpClient, "call">): {
   handler: (event: never, context: HandlerContext) => Promise<unknown>;
   context: HandlerContext;
 } {
@@ -44,7 +42,7 @@ function beforeStartHarness(client: MemoryContextClient): {
 
 describe("Pi memory activation", () => {
   it("injects returned startup memory as hidden untrusted context", async () => {
-    const client: MemoryContextClient = {
+    const client: Pick<NexusMcpClient, "call"> = {
       call: vi.fn(async () => ({
         hookSpecificOutput: {
           additionalContext: "#0 project uses release trains",

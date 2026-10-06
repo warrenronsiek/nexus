@@ -16,8 +16,6 @@ export interface PollingUpdate {
 interface RefreshRequest {
   controller: AbortController;
   projectId: string | null;
-  signal: AbortSignal;
-  timeout: NodeJS.Timeout;
 }
 
 export class SnapshotPoller {
@@ -43,7 +41,7 @@ export class SnapshotPoller {
     if (request === undefined) return;
     if (mode !== "poll") this.emit("refreshing…", mode);
     try {
-      const snapshot = await this.load(request.projectId, request.signal);
+      const snapshot = await this.load(request.projectId, request.controller.signal);
       if (!this.isCurrent(request)) return;
       this.acceptSnapshot(snapshot, request.projectId, mode);
     } catch (error) {
@@ -61,17 +59,10 @@ export class SnapshotPoller {
     this.controller?.abort();
     this.clearTimer();
     const controller = new AbortController();
-    const timeoutController = new AbortController();
-    const timeout = setTimeout(() => {
-      timeoutController.abort(new Error("Nexus refresh timed out after 5000ms"));
-    }, 5000);
-    timeout.unref();
     this.controller = controller;
     return {
       controller,
       projectId: this.scope,
-      signal: AbortSignal.any([controller.signal, timeoutController.signal]),
-      timeout,
     };
   }
 
@@ -88,7 +79,6 @@ export class SnapshotPoller {
   }
 
   private finishRefresh(request: RefreshRequest): void {
-    clearTimeout(request.timeout);
     if (this.isCurrent(request)) {
       this.controller = undefined;
       if (!this.disposed) this.schedule();
@@ -132,9 +122,7 @@ export interface UsagePollingUpdate {
 
 interface UsageRefreshRequest {
   controller: AbortController;
-  signal: AbortSignal;
   projectId: string | null;
-  timeout: NodeJS.Timeout;
 }
 
 export class UsagePoller {
@@ -185,7 +173,7 @@ export class UsagePoller {
     const request = this.beginRefresh(pendingStatus);
     if (request === undefined) return;
     try {
-      const usage = await this.load(request.projectId, request.signal);
+      const usage = await this.load(request.projectId, request.controller.signal);
       this.acceptUsage(request, usage);
     } catch (error) {
       this.failRefresh(request, error);
@@ -200,18 +188,11 @@ export class UsagePoller {
     this.controller?.abort();
     this.clearTimer();
     const controller = new AbortController();
-    const timeoutController = new AbortController();
-    const timeout = setTimeout(() => {
-      timeoutController.abort(new Error("Nexus usage refresh timed out after 5000ms"));
-    }, 5000);
-    timeout.unref();
     this.controller = controller;
     if (pendingStatus !== undefined) this.emit(pendingStatus);
     return {
       controller,
       projectId: this.scope,
-      signal: AbortSignal.any([controller.signal, timeoutController.signal]),
-      timeout,
     };
   }
 
@@ -231,7 +212,6 @@ export class UsagePoller {
   }
 
   private finishRefresh(request: UsageRefreshRequest): void {
-    clearTimeout(request.timeout);
     if (!this.isCurrent(request)) return;
     this.controller = undefined;
     this.schedule();

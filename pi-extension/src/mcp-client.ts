@@ -27,9 +27,9 @@ export interface McpProcess {
 export type McpSpawner = (cwd: string) => McpProcess;
 
 interface PendingCall {
+  cleanup(): void;
   reject(error: Error): void;
   resolve(value: unknown): void;
-  timeout: NodeJS.Timeout;
 }
 
 interface QueuedWrite {
@@ -41,6 +41,19 @@ type JsonObject = Record<string, unknown>;
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error("Nexus MCP request aborted");
+}
+
+function subscribeAbort(
+  signal: AbortSignal | undefined,
+  listener: (() => void) | undefined,
+): () => void {
+  if (signal === undefined || listener === undefined) return () => undefined;
+  signal.addEventListener("abort", listener, { once: true });
+  return () => signal.removeEventListener("abort", listener);
 }
 
 function spawnMcp(cwd: string): McpProcess {
@@ -66,14 +79,16 @@ export class NexusMcpClient {
   constructor(
     private readonly start: McpSpawner = spawnMcp,
     private readonly maximumPending = 256,
+    private readonly requestTimeoutMs = 5_000,
   ) {}
 
   call(
     toolName: string,
     argumentsValue: Record<string, unknown>,
     cwd: string,
-    timeoutMs = 5_000,
+    signal?: AbortSignal,
   ): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(abortReason(signal));
     const child = this.ensureChild(cwd);
     if (child === undefined) return Promise.reject(new Error("Nexus MCP is unavailable"));
     const id = ++this.requestId;
@@ -85,10 +100,24 @@ export class NexusMcpClient {
     })}\n`;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.reject(id, new Error(`Nexus MCP request timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+        this.reject(
+          id,
+          new Error(`Nexus MCP request timed out after ${this.requestTimeoutMs}ms`),
+        );
+      }, this.requestTimeoutMs);
       timeout.unref();
-      this.calls.set(id, { resolve, reject, timeout });
+      const abort = signal === undefined
+        ? undefined
+        : () => this.reject(id, abortReason(signal));
+      const unsubscribeAbort = subscribeAbort(signal, abort);
+      this.calls.set(id, {
+        cleanup: () => {
+          clearTimeout(timeout);
+          unsubscribeAbort();
+        },
+        resolve,
+        reject,
+      });
       this.enqueue(child, { id, line });
     });
   }
@@ -179,10 +208,8 @@ export class NexusMcpClient {
       return;
     }
     if (!isObject(response) || typeof response.id !== "number") return;
-    const call = this.calls.get(response.id);
+    const call = this.takeCall(response.id);
     if (call === undefined) return;
-    this.calls.delete(response.id);
-    clearTimeout(call.timeout);
     if (isObject(response.error)) {
       const message = typeof response.error.message === "string"
         ? response.error.message
@@ -197,12 +224,18 @@ export class NexusMcpClient {
   }
 
   private reject(id: number, error: Error): void {
-    const call = this.calls.get(id);
+    const call = this.takeCall(id);
     if (call === undefined) return;
-    this.calls.delete(id);
     this.queued = this.queued.filter((write) => write.id !== id);
-    clearTimeout(call.timeout);
     call.reject(error);
+  }
+
+  private takeCall(id: number): PendingCall | undefined {
+    const call = this.calls.get(id);
+    if (call === undefined) return undefined;
+    this.calls.delete(id);
+    call.cleanup();
+    return call;
   }
 
   private release(child: McpProcess, error: Error): void {

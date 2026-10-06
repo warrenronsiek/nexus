@@ -5,7 +5,7 @@
 use super::*;
 
 #[test]
-fn exposes_only_the_simple_agent_memory_tools() {
+fn advertises_observability_and_only_the_simple_agent_memory_tools() {
     let definitions = tool_definitions();
     let names = definitions
         .as_array()
@@ -15,6 +15,9 @@ fn exposes_only_the_simple_agent_memory_tools() {
         .collect::<Vec<_>>();
 
     for expected in [
+        "nexus_projects",
+        "nexus_dashboard",
+        "nexus_usage",
         "nexus_memory_add",
         "nexus_memory_search",
         "nexus_memory_expand",

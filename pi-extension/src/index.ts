@@ -7,7 +7,7 @@
 // @entrypoint pi-extension
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAnalyticsCapture } from "./capture.ts";
-import { fetchSnapshot, fetchUsage, startNexus } from "./client.ts";
+import { fetchSnapshot, fetchUsage } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { lifecycleArguments } from "./host-context.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
@@ -28,8 +28,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
       }
       try {
         ctx.ui.notify("Connecting to Nexus…", "info");
-        const baseUrl = await startNexus(ctx.cwd);
-        const snapshot = await fetchSnapshot(baseUrl, null, AbortSignal.timeout(5000));
+        const snapshot = await fetchSnapshot(client, ctx.cwd, null);
         const memoryApi = new NexusMemoryApi(
           client,
           ctx.cwd,
@@ -41,8 +40,10 @@ export default function nexusExtension(pi: ExtensionAPI): void {
             theme,
             snapshot,
             {
-              loadSnapshot: (projectId, signal) => fetchSnapshot(baseUrl, projectId, signal),
-              loadUsage: (projectId, signal) => fetchUsage(baseUrl, projectId, signal),
+              loadSnapshot: (projectId, signal) =>
+                fetchSnapshot(client, ctx.cwd, projectId, signal),
+              loadUsage: (projectId, signal) =>
+                fetchUsage(client, ctx.cwd, projectId, signal),
               memoryApi,
               memoryPrompts: new PiMemoryPrompts(ctx.ui),
               done: () => done(),

@@ -40,6 +40,6 @@ flowchart LR
 
 ## Implementation details
 
-Persistence owns the normalized capability projection and typed Diesel aggregates. Coordination converts host lifecycle input into observations and performs deterministic script and skill evidence extraction. Runtime exposes lifecycle ingestion through MCP and a read-only `/api/v1/usage` route. The Pi extension owns automatic host-event forwarding, independent analytics polling, tab state, and terminal bar rendering.
+Persistence owns the normalized capability projection and typed Diesel aggregates. Coordination converts host lifecycle input into observations and performs deterministic script and skill evidence extraction. Runtime exposes lifecycle ingestion and typed usage reads through MCP. The Pi extension owns automatic host-event forwarding, independent analytics polling, tab state, and terminal bar rendering.
 
 Existing dashboard event windows are not an analytics source. Usage aggregation runs separately and less frequently so the high-frequency coordination dashboard does not increase lifecycle-store contention.

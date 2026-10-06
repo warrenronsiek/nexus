@@ -25,24 +25,14 @@ def load_feature_map() -> ModuleType:
 
 
 class FeatureMapTests(unittest.TestCase):
-    def test_discovers_elm_and_typescript_symbols_but_skips_generated_ui(self) -> None:
+    def test_discovers_typescript_symbols_but_skips_generated_output(self) -> None:
         feature_map = load_feature_map()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            elm = root / "ui" / "src" / "Main.elm"
-            typescript = root / "ui" / "src" / "chart.ts"
-            generated = root / "ui" / "dist" / "app.js"
-            for path in (elm, typescript, generated):
+            typescript = root / "pi-extension" / "src" / "component.ts"
+            generated = root / "pi-extension" / "dist" / "app.js"
+            for path in (typescript, generated):
                 path.parent.mkdir(parents=True, exist_ok=True)
-            elm.write_text(
-                "port module Main exposing (main)\n"
-                "type alias Model = { ready : Bool }\n"
-                "type Msg = Loaded\n"
-                "port render : String -> Cmd msg\n"
-                "main : Program () Model Msg\n"
-                "main = Debug.todo \"fixture\"\n",
-                encoding="utf-8",
-            )
             typescript.write_text(
                 "export interface Bucket { count: number }\n"
                 "export type Renderer = (buckets: Bucket[]) => void;\n"
@@ -54,19 +44,10 @@ class FeatureMapTests(unittest.TestCase):
             sources = feature_map.read_sources(root)
             self.assertEqual(
                 [str(source.path) for source in sources],
-                ["ui/src/Main.elm", "ui/src/chart.ts"],
+                ["pi-extension/src/component.ts"],
             )
             self.assertEqual(
                 [(symbol.kind, symbol.name) for symbol in sources[0].symbols],
-                [
-                    ("type alias", "Model"),
-                    ("type", "Msg"),
-                    ("port", "render"),
-                    ("value", "main"),
-                ],
-            )
-            self.assertEqual(
-                [(symbol.kind, symbol.name) for symbol in sources[1].symbols],
                 [
                     ("interface", "Bucket"),
                     ("type", "Renderer"),

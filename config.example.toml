@@ -15,8 +15,6 @@ prompt_synopsis_max_chars = 240
 store_full_prompts = false
 
 [ui]
-enabled = true
-bind_address = "127.0.0.1:7337"
 refresh_interval_ms = 2000
 recent_event_limit = 500
 recent_record_limit = 100

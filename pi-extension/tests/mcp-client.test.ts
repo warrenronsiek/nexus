@@ -125,14 +125,13 @@ it("does not send a queued mutation after that request has timed out", async () 
   try {
     const harness = processHarness();
     harness.stdin.write.mockReturnValueOnce(false);
-    const client = new NexusMcpClient(() => harness.child);
-    const blocking = client.call("nexus_memory_status", {}, "/repo", 1_000);
+    const client = new NexusMcpClient(() => harness.child, 256, 10);
+    const blocking = client.call("nexus_memory_status", {}, "/repo");
     const blockingResult = blocking.catch((error: unknown) => error);
     const mutation = client.call(
       "nexus_memory_invalidate",
       { summary_id: "summary-1" },
       "/repo",
-      10,
     );
     const mutationResult = expect(mutation).rejects.toThrow("timed out after 10ms");
 
@@ -146,6 +145,30 @@ it("does not send a queued mutation after that request has timed out", async () 
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("does not send a queued read after its polling signal is aborted", async () => {
+  const harness = processHarness();
+  harness.stdin.write.mockReturnValueOnce(false);
+  const client = new NexusMcpClient(() => harness.child);
+  const blocking = client.call("nexus_memory_status", {}, "/repo");
+  const blockingResult = blocking.catch((error: unknown) => error);
+  const controller = new AbortController();
+  const dashboard = client.call(
+    "nexus_dashboard",
+    {},
+    "/repo",
+    controller.signal,
+  );
+  const dashboardResult = expect(dashboard).rejects.toThrow("scope changed");
+
+  controller.abort(new Error("scope changed"));
+  await dashboardResult;
+  harness.emitDrain();
+
+  expect(harness.stdin.write).toHaveBeenCalledTimes(1);
+  client.close();
+  expect(await blockingResult).toBeInstanceOf(Error);
 });
 
 it("rejects excess queued calls when the backpressure queue is full", async () => {

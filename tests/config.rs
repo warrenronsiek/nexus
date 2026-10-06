@@ -3,7 +3,6 @@
 // @spec docs/features/configuration.md
 // @spec docs/features/agent-memory.md
 use nexus::config::{Config, ModelProvider};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Mutex;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -87,26 +86,13 @@ fn unknown_and_invalid_properties_are_rejected() {
 }
 
 #[test]
-fn ui_configuration_defaults_to_a_valid_local_dashboard() {
+fn ui_configuration_defaults_to_bounded_terminal_polling() {
     let config = Config::default();
 
-    assert!(config.ui.enabled);
-    assert_eq!(
-        config.ui.bind_address,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7337)
-    );
     assert_eq!(config.ui.refresh_interval_ms, 2_000);
     assert_eq!(config.ui.recent_event_limit, 500);
     assert_eq!(config.ui.recent_record_limit, 100);
     config.validate().unwrap();
-
-    let mut remote = config.clone();
-    remote.ui.bind_address = "0.0.0.0:7337".parse().unwrap();
-    assert!(remote
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("loopback"));
 
     let mut no_refresh = config;
     no_refresh.ui.refresh_interval_ms = 0;
