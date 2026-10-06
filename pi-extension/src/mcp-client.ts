@@ -22,6 +22,7 @@ export interface McpProcess {
   stdin: McpStdin;
   stdout: McpStdout;
   once(event: "exit" | "error", listener: (error?: unknown) => void): unknown;
+  kill(signal?: NodeJS.Signals): boolean;
 }
 
 export type McpSpawner = (cwd: string) => McpProcess;
@@ -38,6 +39,8 @@ interface QueuedWrite {
 }
 
 type JsonObject = Record<string, unknown>;
+
+const MCP_CLOSE_GRACE_MS = 250;
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,6 +68,31 @@ function spawnMcp(cwd: string): McpProcess {
     throw new Error("could not open Nexus MCP streams");
   }
   return child as unknown as McpProcess;
+}
+
+function terminateMcp(child: McpProcess): void {
+  try {
+    child.stdin.end();
+  } catch {
+    // Nexus is advisory and must never disrupt host shutdown.
+  }
+  let forceKill: NodeJS.Timeout | undefined;
+  child.once("exit", () => {
+    if (forceKill !== undefined) clearTimeout(forceKill);
+  });
+  forceKill = setTimeout(() => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Nexus is advisory and must never disrupt host shutdown.
+    }
+  }, MCP_CLOSE_GRACE_MS);
+  forceKill.unref();
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    // Nexus is advisory and must never disrupt host shutdown.
+  }
 }
 
 export class NexusMcpClient {
@@ -125,13 +153,7 @@ export class NexusMcpClient {
   close(): void {
     const child = this.child;
     this.reset(new Error("Nexus MCP client closed"));
-    if (child !== undefined) {
-      try {
-        child.stdin.end();
-      } catch {
-        // Nexus is advisory and must never disrupt Pi shutdown.
-      }
-    }
+    if (child !== undefined) terminateMcp(child);
   }
 
   private ensureChild(cwd: string): McpProcess | undefined {

@@ -59,7 +59,7 @@ flowchart TD
 11. **`scripts/check.sh`** is the single local validation entry point and runs each required check from the repository root. On macOS it selects installed Command Line Tools so unrelated full-Xcode license state cannot break the Rust linker.
 12. **Run both Python tooling test modules** verifies the feature-map and complexity-wrapper behavior together.
 13. **Run Rust format, Clippy, and tests** keeps compiler-backed validation and the complete application suite in the same path.
-14. **Tracked pre-commit hook** invokes the shared check after `scripts/install-hooks.sh` configures this checkout's `core.hooksPath`.
+14. **Tracked pre-commit hook** invokes the shared check after `scripts/install-hooks.sh` configures this checkout's `core.hooksPath`. It clears Git's repository-local environment variables for validation children so temporary test repositories resolve from their own working directories; the subsequent staged-diff review retains the hook's Git context.
 15. **Parallel advisory cross-model review** runs code-architect and code-deletion perspectives after deterministic checks and prints their findings without converting them into a commit decision.
 16. **CI with pinned analyzer** provisions Python 3.12, installs `big-code-analysis-cli==2.2.0` into that managed runtime, and invokes the same deterministic check on Linux and macOS.
 17. **All checks pass** joins the independent deterministic results into one success or non-zero failure for hooks and CI.
@@ -73,5 +73,7 @@ flowchart TD
 `AGENTS.md` contains the feature catalog and shared validation command. `tests/test_feature_map.py` verifies both a valid fixture and failures for missing Python types and an unmarked dynamic boundary; `tests/test_complexity_analysis.py` verifies the wrapper's scope translation, output, and threshold behavior. CI provisions Python 3.12 with `actions/setup-python` instead of modifying the runner's system-managed Python environment, keeping analyzer installation portable across Linux and macOS runners.
 
 The annotation model is deliberately file-first. A file's feature set applies to every discovered block in it, which avoids repetitive comments while ensuring every block resolves to documented ownership. Mixed files may declare multiple features; persistent ambiguity is a signal that the file may need a better boundary.
+
+Terminal validation also builds the locked standalone Pi-renderer bundle and rejects differences in tracked `pi-extension/dist` assets before Rust compiles them into the binary. The Rust suite includes real pseudo-terminal workflows, so passing frontend unit tests alone does not validate the native command or terminal cleanup.
 
 Feature specifications follow one stable structure: plain-language purpose, motivation, one end-to-end flowchart, an explanation of every node and edge, and implementation details with entry points and invariants. The intended reader is technically strong, unfamiliar with the code, and tired enough that unexplained jumps are expensive.

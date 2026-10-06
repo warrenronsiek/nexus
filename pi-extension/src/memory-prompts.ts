@@ -1,11 +1,16 @@
 // @feature agent-memory
 // @spec docs/features/agent-memory.md
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { MemoryInteractionPrompts } from "./memory-pane.ts";
 import type { MemorySummary } from "./memory.ts";
 
-export class PiMemoryPrompts implements MemoryInteractionPrompts {
-  constructor(private readonly ui: ExtensionUIContext) {}
+export interface MemoryPromptUI {
+  input(title: string, placeholder: string): Promise<string | undefined>;
+  select(title: string, choices: string[]): Promise<string | undefined>;
+  confirm(title: string, message: string): Promise<boolean>;
+}
+
+export class MemoryPrompts implements MemoryInteractionPrompts {
+  constructor(private readonly ui: MemoryPromptUI) {}
 
   searchRegex(): Promise<string | undefined> {
     return this.ui.input("Search memory (Rust regex)", "typed.*boundary");

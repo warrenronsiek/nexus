@@ -18,7 +18,7 @@ use nexus::coordination::api::{
 };
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
-use nexus::runtime::{daemon, hooks, mcp, script_exec};
+use nexus::runtime::{daemon, hooks, mcp, script_exec, terminal};
 use nexus::{Config, LoadedConfig};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -57,6 +57,8 @@ enum Command {
         #[arg(long)]
         agent: String,
     },
+    /// Open the bundled interactive terminal dashboard.
+    Tui,
     /// Execute a script while recording one privacy-limited usage observation.
     Exec {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
@@ -204,6 +206,7 @@ async fn main() -> Result<()> {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
             Ok(())
         }
+        Command::Tui => terminal::open(&loaded, explicit_config.as_deref(), &root).await,
         Command::Exec { command } => {
             let code =
                 script_exec::run(&loaded, explicit_config.as_deref(), &root, command).await?;

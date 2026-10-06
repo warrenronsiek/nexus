@@ -46,11 +46,10 @@ impl Store {
                 severity: &severity,
                 now: &now,
             };
-            self.connection
-                .transaction::<_, anyhow::Error, _>(|connection| {
-                    merge_projection(connection, &observation)?;
-                    record_occurrence(connection, &observation)
-                })
+            self.transaction(|connection| {
+                merge_projection(connection, &observation)?;
+                record_occurrence(connection, &observation)
+            })
         };
         result.map(|()| advisory)
     }
@@ -99,33 +98,32 @@ impl Store {
         conflict_key: &str,
         resolution: &str,
     ) -> Result<bool> {
-        self.connection
-            .transaction::<_, anyhow::Error, _>(|connection| {
-                let row = conflicts::table
-                    .filter(conflicts::id.eq(conflict_key))
-                    .select((conflicts::project_id, conflicts::status))
-                    .first::<(String, String)>(connection)
-                    .optional()?;
-                let Some((project_key, current_status)) = row else {
-                    return Ok(false);
-                };
-                if current_status == "open" {
-                    diesel::update(conflicts::table.filter(conflicts::id.eq(conflict_key)))
-                        .set((
-                            conflicts::status.eq("resolved"),
-                            conflicts::updated_at.eq(Utc::now().to_rfc3339()),
-                        ))
-                        .execute(connection)?;
-                    append_event(
-                        connection,
-                        &project_key,
-                        None,
-                        "conflict_resolved",
-                        json!({"conflict_id":conflict_key,"resolution":resolution}),
-                    )?;
-                }
-                Ok(true)
-            })
+        self.transaction(|connection| {
+            let row = conflicts::table
+                .filter(conflicts::id.eq(conflict_key))
+                .select((conflicts::project_id, conflicts::status))
+                .first::<(String, String)>(connection)
+                .optional()?;
+            let Some((project_key, current_status)) = row else {
+                return Ok(false);
+            };
+            if current_status == "open" {
+                diesel::update(conflicts::table.filter(conflicts::id.eq(conflict_key)))
+                    .set((
+                        conflicts::status.eq("resolved"),
+                        conflicts::updated_at.eq(Utc::now().to_rfc3339()),
+                    ))
+                    .execute(connection)?;
+                append_event(
+                    connection,
+                    &project_key,
+                    None,
+                    "conflict_resolved",
+                    json!({"conflict_id":conflict_key,"resolution":resolution}),
+                )?;
+            }
+            Ok(true)
+        })
     }
 }
 

@@ -7,3 +7,5 @@ mod dispatch;
 pub mod hooks;
 pub mod mcp;
 pub mod script_exec;
+pub mod terminal;
+mod terminal_runtime;

@@ -4,7 +4,7 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
-import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
+import { DashboardBorder, selectListTheme, type DashboardTheme as Theme } from "./theme.ts";
 import {
   Container,
   Key,
@@ -105,13 +105,7 @@ function createList(
   open: (value: string) => void,
   back: () => void,
 ): SelectList {
-  const list = new SelectList(entries satisfies SelectItem[], Math.min(entries.length, 12), {
-    selectedPrefix: (text) => theme.fg("accent", text),
-    selectedText: (text) => theme.fg("accent", text),
-    description: (text) => theme.fg("muted", text),
-    scrollInfo: (text) => theme.fg("dim", text),
-    noMatch: (text) => theme.fg("warning", text),
-  });
+  const list = new SelectList(entries satisfies SelectItem[], Math.min(entries.length, 12), selectListTheme(theme));
   const selectedIndex = entries.findIndex((entry) => entry.value === selectedValue);
   if (selectedIndex >= 0) list.setSelectedIndex(selectedIndex);
   list.onSelect = (item) => open(item.value);
@@ -352,7 +346,7 @@ export class NexusDashboardComponent implements Component {
   }
 
   private addHeader(container: Container): void {
-    container.addChild(new DynamicBorder((text) => this.theme.fg("accent", text)));
+    container.addChild(new DashboardBorder((text) => this.theme.fg("accent", text)));
     container.addChild(new Text(renderTabHeader(this.theme, this.tab), 1, 0));
     const title = this.tab === "coordination"
       ? pageTitle(this.page)
@@ -392,6 +386,6 @@ export class NexusDashboardComponent implements Component {
     container.addChild(
       new Text(this.theme.fg("dim", footerHint(this.tab, this.page)), 1, 1),
     );
-    container.addChild(new DynamicBorder((text) => this.theme.fg("accent", text)));
+    container.addChild(new DashboardBorder((text) => this.theme.fg("accent", text)));
   }
 }

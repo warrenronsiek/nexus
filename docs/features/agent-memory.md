@@ -17,7 +17,7 @@ Long-running agent work benefits from selected historical facts without replayin
 ## Data flow
 
 1. An agent explicitly adds a normalized global or project note of at most 512 UTF-8 bytes. Codex and Claude lifecycle observation records that deliberate tool call with its exact session/model provenance before the simple MCP call executes; the call then collapses onto the same note. Explicitly correlated clients such as Pi provide their provenance directly. No shared last-caller state is used.
-2. SQLite transactionally assigns its stream ordinal and collapses an exact normalized duplicate in the same stream.
+2. SQLite transactionally assigns its stream ordinal and collapses an exact normalized duplicate in the same stream. If another reader blocks the commit, Nexus rolls back the attempt before retrying the complete write within its two-second lock retry budget. Failed commits cannot leave the shared connection inside an unfinished transaction.
 3. Every 15 seconds, Nexus selects at most eight ready missing summary nodes from one tree level and snapshots their source hashes. Periodic and user-requested consolidation share one service lease, so overlapping requests do not launch duplicate provider batches.
 4. Nexus releases the database lock and requests strict JSON summaries from the configured analyst provider. Failure, timeout, or invalid output causes one attempt with the other configured provider.
 5. Nexus transactionally rechecks source hashes before accepting summaries. Attempts record provider and sanitized outcome metadata, never memory text.
@@ -41,7 +41,7 @@ Raw notes cannot be edited, deleted, corrected, retracted, or purged. Invalidati
 
 The CLI exposes status, context, add, search, expand, invalidate, and immediate consolidation operations. MCP exposes only `nexus_memory_add`, `nexus_memory_search`, and `nexus_memory_expand` to caller agents. Codex and Claude receive first-prompt context through bounded lifecycle `additionalContext`; Pi receives it through `before_agent_start` using the correlated local Nexus client.
 
-Pi's Memory tab shows raw and summary nodes, pending work, provider health, fallback use, activation time, and scope counts. It supports raw search, scoped note creation, summary expansion, confirmed summary invalidation, an immediate consolidation retry, and refresh. Memory content travels only through the local Nexus protocol.
+The Memory tab in `nexus tui` and Pi's `/nexus` shows raw and summary nodes, pending work, provider health, fallback use, activation time, and scope counts. Both hosts share raw search, scoped note creation, summary expansion, confirmed summary invalidation, an immediate consolidation retry, and refresh through the same typed memory API and prompt policy. Native terminal notes carry `nexus-tui` provenance and the invoking repository, and require no model credentials. Memory content travels only through the local Nexus protocol.
 
 ## Attribution
 

@@ -4,6 +4,7 @@
 // @spec docs/features/persistence.md
 use super::compaction::validate_compaction_job;
 use super::*;
+use crate::persistence::transaction::{transaction, TransactionMode};
 
 impl Store {
     pub fn record_memory_compaction_attempt(
@@ -15,8 +16,10 @@ impl Store {
         if attempt.provider.trim().is_empty() {
             bail!("memory compaction attempt requires a provider");
         }
-        self.connection
-            .immediate_transaction::<_, anyhow::Error, _>(|connection| {
+        transaction(
+            &mut self.connection,
+            TransactionMode::Immediate,
+            |connection| {
                 let prior = latest_attempt(connection, job, &attempt.provider)?;
                 let prepared = prepare_attempt(attempt, prior.as_ref());
                 persist_attempt(connection, job, attempt, &prepared)?;
@@ -26,7 +29,8 @@ impl Store {
                     &attempt.provider,
                     prepared.next_retry_at.as_deref(),
                 )
-            })
+            },
+        )
     }
 
     pub fn memory_health(

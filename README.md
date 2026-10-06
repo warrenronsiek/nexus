@@ -51,15 +51,14 @@ nexus status
 nexus sessions
 nexus claims
 nexus conflicts
+nexus tui
 ```
 
-With Pi installed, the same setup command installs Nexus's only interactive UI. Start Pi and run:
-
-```text
-/nexus
-```
+Nexus bundles the Pi terminal renderer and opens the dashboard without installing or starting Pi. It uses an existing Node 22.19+ runtime when available; otherwise it downloads and verifies its own pinned runtime on the first launch, then caches it for offline use. The command starts the daemon when needed and honors the current repository and `--config` settings. Press `q` or Ctrl-C to return to your shell.
 
 The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, Tools, Skills, and Memory. Coordination and analytics remain read-only. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
+
+For people who already use Pi, `nexus setup` also installs the `/nexus` extension inside Pi. Both entry points use the same dashboard components.
 
 The MCP stdio server starts the daemon automatically when needed:
 
@@ -107,7 +106,7 @@ nexus config show
 
 Agent autonomy is not a configurable property. There is intentionally no enforcement or blocking mode.
 
-The `[ui]` properties select the Pi terminal dashboard's polling interval and bounded event/record windows. Nexus rejects zero limits.
+The `[ui]` properties select the terminal dashboards' polling interval and bounded event/record windows. Nexus rejects zero limits.
 
 ## Optional conflict analyst
 

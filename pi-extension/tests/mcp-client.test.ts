@@ -16,6 +16,7 @@ interface HarnessListeners {
   stdoutData?: (chunk: unknown) => void;
   drain?: () => void;
   childError?: (error?: unknown) => void;
+  childExit: Array<() => void>;
 }
 
 function stdinHarness(listeners: HarnessListeners): HarnessStdin {
@@ -28,7 +29,11 @@ function stdinHarness(listeners: HarnessListeners): HarnessStdin {
   };
 }
 
-function childHarness(listeners: HarnessListeners, stdin: HarnessStdin): McpProcess {
+function childHarness(
+  listeners: HarnessListeners,
+  stdin: HarnessStdin,
+  kill: ReturnType<typeof vi.fn>,
+): McpProcess {
   return {
     stdin,
     stdout: {
@@ -38,7 +43,9 @@ function childHarness(listeners: HarnessListeners, stdin: HarnessStdin): McpProc
     },
     once: vi.fn((event: string, listener: (error?: unknown) => void) => {
       if (event === "error") listeners.childError = listener;
+      if (event === "exit") listeners.childExit.push(listener);
     }),
+    kill,
   } as unknown as McpProcess;
 }
 
@@ -46,13 +53,17 @@ function processHarness(): {
   child: McpProcess;
   emitDrain(): void;
   emitError(error: Error): void;
+  emitExit(): void;
   emitStdout(value: string): void;
   stdin: HarnessStdin;
+  kill: ReturnType<typeof vi.fn>;
 } {
-  const listeners: HarnessListeners = {};
+  const listeners: HarnessListeners = { childExit: [] };
   const stdin = stdinHarness(listeners);
+  const kill = vi.fn(() => true);
+  const child = childHarness(listeners, stdin, kill);
   return {
-    child: childHarness(listeners, stdin),
+    child,
     emitDrain() {
       const listener = listeners.drain;
       listeners.drain = undefined;
@@ -61,12 +72,56 @@ function processHarness(): {
     emitError(error: Error) {
       listeners.childError?.(error);
     },
+    emitExit() {
+      for (const listener of listeners.childExit.splice(0)) listener();
+    },
     emitStdout(value: string) {
       listeners.stdoutData?.(Buffer.from(value));
     },
     stdin,
+    kill,
   };
 }
+
+it("terminates a stalled MCP child when the client closes", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const pending = client.call("nexus_dashboard", {}, "/repo");
+    const rejected = expect(pending).rejects.toThrow("client closed");
+
+    client.close();
+    await rejected;
+
+    expect(harness.stdin.end).toHaveBeenCalledOnce();
+    expect(harness.kill).toHaveBeenCalledWith("SIGTERM");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(harness.kill).toHaveBeenLastCalledWith("SIGKILL");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not force-kill an MCP child that exits during the grace period", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const pending = client.call("nexus_dashboard", {}, "/repo");
+    const rejected = expect(pending).rejects.toThrow("client closed");
+
+    client.close();
+    harness.emitExit();
+    await rejected;
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(harness.kill).toHaveBeenCalledTimes(1);
+    expect(harness.kill).toHaveBeenCalledWith("SIGTERM");
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("correlates out-of-order MCP responses while reusing one child", async () => {
   const harness = processHarness();
