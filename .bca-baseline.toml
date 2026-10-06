@@ -307,12 +307,6 @@ metric = "halstead.effort"
 value = 57843.253985364376
 
 [[entry]]
-path = "src/runtime/web.rs"
-qualified = "health_check"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
 path = "tests/install_e2e.rs"
 qualified = "fresh_install_coordinates_real_agents_across_worktrees"
 metric = "abc"
@@ -347,27 +341,3 @@ path = "tests/mcp_hooks.rs"
 qualified = "mcp_lifecycle_classifies_conflicts_and_persists_projections"
 metric = "halstead.effort"
 value = 94444.75898694253
-
-[[entry]]
-path = "tests/ui_http.rs"
-qualified = "daemon_serves_read_only_observability_ui"
-metric = "halstead.effort"
-value = 51443.174889024565
-
-[[entry]]
-path = "tests/ui_http.rs"
-qualified = "dashboard_reports_conflicts_seeded_from_separate_worktrees"
-metric = "abc"
-value = 46.57252408878007
-
-[[entry]]
-path = "ui/src/activity-chart.ts"
-qualified = "renderActivityChart"
-metric = "abc"
-value = 60.03332407921454
-
-[[entry]]
-path = "ui/src/activity-chart.ts"
-qualified = "renderActivityChart"
-metric = "halstead.effort"
-value = 87273.78662677897

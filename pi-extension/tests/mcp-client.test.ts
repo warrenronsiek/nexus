@@ -16,6 +16,7 @@ interface HarnessListeners {
   stdoutData?: (chunk: unknown) => void;
   drain?: () => void;
   childError?: (error?: unknown) => void;
+  childExit: Array<() => void>;
 }
 
 function stdinHarness(listeners: HarnessListeners): HarnessStdin {
@@ -28,7 +29,11 @@ function stdinHarness(listeners: HarnessListeners): HarnessStdin {
   };
 }
 
-function childHarness(listeners: HarnessListeners, stdin: HarnessStdin): McpProcess {
+function childHarness(
+  listeners: HarnessListeners,
+  stdin: HarnessStdin,
+  kill: ReturnType<typeof vi.fn>,
+): McpProcess {
   return {
     stdin,
     stdout: {
@@ -38,7 +43,9 @@ function childHarness(listeners: HarnessListeners, stdin: HarnessStdin): McpProc
     },
     once: vi.fn((event: string, listener: (error?: unknown) => void) => {
       if (event === "error") listeners.childError = listener;
+      if (event === "exit") listeners.childExit.push(listener);
     }),
+    kill,
   } as unknown as McpProcess;
 }
 
@@ -46,13 +53,17 @@ function processHarness(): {
   child: McpProcess;
   emitDrain(): void;
   emitError(error: Error): void;
+  emitExit(): void;
   emitStdout(value: string): void;
   stdin: HarnessStdin;
+  kill: ReturnType<typeof vi.fn>;
 } {
-  const listeners: HarnessListeners = {};
+  const listeners: HarnessListeners = { childExit: [] };
   const stdin = stdinHarness(listeners);
+  const kill = vi.fn(() => true);
+  const child = childHarness(listeners, stdin, kill);
   return {
-    child: childHarness(listeners, stdin),
+    child,
     emitDrain() {
       const listener = listeners.drain;
       listeners.drain = undefined;
@@ -61,12 +72,56 @@ function processHarness(): {
     emitError(error: Error) {
       listeners.childError?.(error);
     },
+    emitExit() {
+      for (const listener of listeners.childExit.splice(0)) listener();
+    },
     emitStdout(value: string) {
       listeners.stdoutData?.(Buffer.from(value));
     },
     stdin,
+    kill,
   };
 }
+
+it("terminates a stalled MCP child when the client closes", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const pending = client.call("nexus_dashboard", {}, "/repo");
+    const rejected = expect(pending).rejects.toThrow("client closed");
+
+    client.close();
+    await rejected;
+
+    expect(harness.stdin.end).toHaveBeenCalledOnce();
+    expect(harness.kill).toHaveBeenCalledWith("SIGTERM");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(harness.kill).toHaveBeenLastCalledWith("SIGKILL");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not force-kill an MCP child that exits during the grace period", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const pending = client.call("nexus_dashboard", {}, "/repo");
+    const rejected = expect(pending).rejects.toThrow("client closed");
+
+    client.close();
+    harness.emitExit();
+    await rejected;
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(harness.kill).toHaveBeenCalledTimes(1);
+    expect(harness.kill).toHaveBeenCalledWith("SIGTERM");
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("correlates out-of-order MCP responses while reusing one child", async () => {
   const harness = processHarness();
@@ -125,14 +180,13 @@ it("does not send a queued mutation after that request has timed out", async () 
   try {
     const harness = processHarness();
     harness.stdin.write.mockReturnValueOnce(false);
-    const client = new NexusMcpClient(() => harness.child);
-    const blocking = client.call("nexus_memory_status", {}, "/repo", 1_000);
+    const client = new NexusMcpClient(() => harness.child, 256, 10);
+    const blocking = client.call("nexus_memory_status", {}, "/repo");
     const blockingResult = blocking.catch((error: unknown) => error);
     const mutation = client.call(
       "nexus_memory_invalidate",
       { summary_id: "summary-1" },
       "/repo",
-      10,
     );
     const mutationResult = expect(mutation).rejects.toThrow("timed out after 10ms");
 
@@ -146,6 +200,30 @@ it("does not send a queued mutation after that request has timed out", async () 
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("does not send a queued read after its polling signal is aborted", async () => {
+  const harness = processHarness();
+  harness.stdin.write.mockReturnValueOnce(false);
+  const client = new NexusMcpClient(() => harness.child);
+  const blocking = client.call("nexus_memory_status", {}, "/repo");
+  const blockingResult = blocking.catch((error: unknown) => error);
+  const controller = new AbortController();
+  const dashboard = client.call(
+    "nexus_dashboard",
+    {},
+    "/repo",
+    controller.signal,
+  );
+  const dashboardResult = expect(dashboard).rejects.toThrow("scope changed");
+
+  controller.abort(new Error("scope changed"));
+  await dashboardResult;
+  harness.emitDrain();
+
+  expect(harness.stdin.write).toHaveBeenCalledTimes(1);
+  client.close();
+  expect(await blockingResult).toBeInstanceOf(Error);
 });
 
 it("rejects excess queued calls when the backpressure queue is full", async () => {

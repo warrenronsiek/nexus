@@ -6,7 +6,7 @@ feature: usage-analytics
 
 ## What this feature does
 
-Usage analytics records the tools, skills, and repository scripts that Nexus observes agent hosts using. It presents a rolling seven-day summary in the Pi `/nexus` interface so a person can assess whether installed tools and skills are changing agent behavior.
+Usage analytics records the tools, skills, and repository scripts that Nexus observes agent hosts using. It presents a rolling seven-day summary in the Pi `/nexus` and native `nexus tui` interfaces so a person can assess whether installed tools and skills are changing agent behavior.
 
 The metrics are explicitly observational. Nexus captures local lifecycle events exposed by Codex, Claude, and Pi, but does not claim visibility into hosted tools or processes launched beneath an opaque command.
 
@@ -24,7 +24,7 @@ flowchart LR
     D --> E[Idempotent capability projection]
     E --> F[Rolling seven-day query]
     F --> G[Read-only usage API]
-    G --> H[Pi Tools and Skills tabs]
+    G --> H[Terminal Tools and Skills tabs]
 ```
 
 ## Required behavior
@@ -40,6 +40,6 @@ flowchart LR
 
 ## Implementation details
 
-Persistence owns the normalized capability projection and typed Diesel aggregates. Coordination converts host lifecycle input into observations and performs deterministic script and skill evidence extraction. Runtime exposes lifecycle ingestion through MCP and a read-only `/api/v1/usage` route. The Pi extension owns automatic host-event forwarding, independent analytics polling, tab state, and terminal bar rendering.
+Persistence owns the normalized capability projection and typed Diesel aggregates. Coordination converts host lifecycle input into observations and performs deterministic script and skill evidence extraction. Runtime exposes lifecycle ingestion and typed usage reads through MCP. The Pi extension modules own automatic host-event forwarding, independent analytics polling, shared tab state, and terminal bar rendering for Pi and the bundled native host.
 
 Existing dashboard event windows are not an analytics source. Usage aggregation runs separately and less frequently so the high-frequency coordination dashboard does not increase lifecycle-store contention.

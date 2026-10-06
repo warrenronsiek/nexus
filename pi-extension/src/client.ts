@@ -2,70 +2,30 @@
 // @feature usage-analytics
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
-// @entrypoint startNexus
+// @entrypoint fetchSnapshot
 // @boundary dynamic-json
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import {
   decodeDashboard,
   decodeProjects,
   type Snapshot,
   type UsageSummary,
 } from "./domain.ts";
+import type { NexusMcpClient } from "./mcp-client.ts";
 import { decodeUsage } from "./usage.ts";
 
-const execFileAsync = promisify(execFile);
-
-export function localNexusUrl(output: string): URL {
-  const candidate = output
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .at(-1);
-  if (!candidate) throw new Error("nexus ui did not print a URL");
-
-  let url: URL;
-  try {
-    url = new URL(candidate);
-  } catch {
-    throw new Error(`nexus ui printed an invalid URL: ${candidate}`);
-  }
-  const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
-  if (url.protocol !== "http:" || !loopbackHosts.has(url.hostname) || url.username || url.password) {
-    throw new Error(`refusing non-loopback Nexus URL: ${candidate}`);
-  }
-  return url;
-}
-
-export async function startNexus(cwd: string): Promise<URL> {
-  const { stdout } = await execFileAsync("nexus", ["ui", "--launch", "print"], {
-    cwd,
-    timeout: 5000,
-    maxBuffer: 64 * 1024,
-  });
-  return localNexusUrl(stdout);
-}
-
-async function responseJson(response: Response, endpoint: string): Promise<unknown> {
-  if (!response.ok) throw new Error(`${endpoint} returned HTTP ${response.status}`);
-  return response.json() as Promise<unknown>;
+function scopeArguments(projectId: string | null): Record<string, unknown> {
+  return projectId === null ? {} : { project_id: projectId };
 }
 
 export async function fetchSnapshot(
-  baseUrl: URL,
+  client: Pick<NexusMcpClient, "call">,
+  cwd: string,
   projectId: string | null,
   signal?: AbortSignal,
 ): Promise<Snapshot> {
-  const dashboardUrl = new URL("/api/v1/dashboard", baseUrl);
-  if (projectId !== null) dashboardUrl.searchParams.set("project_id", projectId);
-  const projectsUrl = new URL("/api/v1/projects", baseUrl);
-  const [dashboardResponse, projectsResponse] = await Promise.all([
-    fetch(dashboardUrl, { signal }),
-    fetch(projectsUrl, { signal }),
-  ]);
   const [dashboardJson, projectsJson] = await Promise.all([
-    responseJson(dashboardResponse, "Nexus dashboard"),
-    responseJson(projectsResponse, "Nexus projects"),
+    client.call("nexus_dashboard", scopeArguments(projectId), cwd, signal),
+    client.call("nexus_projects", {}, cwd, signal),
   ]);
   return {
     dashboard: decodeDashboard(dashboardJson),
@@ -74,12 +34,12 @@ export async function fetchSnapshot(
 }
 
 export async function fetchUsage(
-  baseUrl: URL,
+  client: Pick<NexusMcpClient, "call">,
+  cwd: string,
   projectId: string | null,
   signal?: AbortSignal,
 ): Promise<UsageSummary> {
-  const usageUrl = new URL("/api/v1/usage", baseUrl);
-  if (projectId !== null) usageUrl.searchParams.set("project_id", projectId);
-  const response = await fetch(usageUrl, { signal });
-  return decodeUsage(await responseJson(response, "Nexus usage analytics"));
+  return decodeUsage(
+    await client.call("nexus_usage", scopeArguments(projectId), cwd, signal),
+  );
 }

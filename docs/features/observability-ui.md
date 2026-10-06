@@ -2,119 +2,78 @@
 feature: observability-ui
 ---
 
-# Browser and terminal observability UI
+# Terminal observability UI
 
 ## What this feature does
 
-The observability UI is a compact operations console for people supervising Nexus. Its browser surface is strictly read-only and content-free with respect to agent memory. Pi keeps coordination and analytics read-only while adding the local memory-management surface defined by the agent-memory feature. The dashboard summarizes active sessions and advisory claims, open conflicts, and bounded event history. Both interfaces progressively disclose full records only after a person selects a category and record; the browser also shows a one-hour activity timeline.
+Nexus has two entry points for one terminal interface: the bundled `nexus tui` command and `/nexus` inside Pi. Both render the same Coordination, Tools, Skills, and Memory tabs. Coordination progressively discloses sessions, claims, conflicts, and events. Tools and Skills show rolling seven-day horizontal bar charts. Memory browses and searches notes, adds an explicitly scoped raw note, expands or invalidates a derived summary, and requests consolidation.
 
-`nexus ui` is the human entry point. It ensures that the existing daemon is running, waits briefly for the local HTTP listener, prints the dashboard URL, and normally opens the default browser. `nexus ui --launch print` performs the same readiness work without opening a browser, which is useful over SSH and in automated tests.
+All data travels through one persistent local `nexus mcp` child per interface. Coordination, project, usage, and memory reads use the same typed service boundary as the CLI. Memory requests carry correlated host context. Nexus does not serve a web application or an HTTP API, and the repository contains no HTML, CSS, Elm, or other browser assets.
 
-`nexus tui` opens the terminal dashboard directly. Nexus embeds the Pi TUI renderer and dashboard bundle, starts or locates the same loopback service, and manages the runtime as described by installation. People need no Pi installation, agent login, or model credentials to open the dashboard. The optional `/nexus` extension inside an existing Pi installation uses the same dashboard components; `nexus setup` copies it to `~/.pi/agent/extensions/nexus/` when Pi is present.
-
-The terminal view's top-level tabs are Coordination, Tools, Skills, and Memory; Tab and Shift-Tab move between them. Coordination keeps the existing progressive record navigation, while Tools and Skills show rolling seven-day horizontal bar charts for the selected project or all projects. Memory uses the local MCP transport—not HTTP—to browse/search notes, add an explicitly scoped raw note, expand or invalidate a derived summary, and request consolidation. Dashboard polling runs while Coordination is active; the slower analytics poll runs only while Tools or Skills is visible, and memory is loaded only while its tab is active. Native prompts keep scope selection and summary-invalidation confirmation explicit. `q`, Ctrl-C, and process termination dispose polling, close MCP input, and restore terminal settings.
-
-The extension also observes Pi tool calls whenever it is loaded, whether or not `/nexus` is open. One persistent `nexus mcp` child receives best-effort pre/post tool events and explicit `/skill:name` invocations through a bounded queue. Capture failures and backpressure cannot alter Pi tool execution.
+`nexus tui` embeds the terminal renderer and dashboard bundle. It uses a compatible Node runtime already on `PATH` or installs a pinned, verified runtime into the local Nexus cache. It requires no Pi installation, agent login, or model credentials. The Pi extension uses its host's renderer and also observes tool calls and explicit skill invocations through a bounded, fail-open capture queue.
 
 ## Why it exists
 
-Agent-facing advisories solve the immediate collision problem, but a person still needs to understand whether coordination is healthy and where activity is concentrating. Terminal queries expose individual projections but make it difficult to see relationships among repositories, sessions, claims, conflicts, and time. This feature composes those existing records into one snapshot while keeping observation isolated from coordination. If the browser, frontend bundle, or HTTP port fails, the Unix-socket service continues coordinating agents.
+Agent-facing advisories solve immediate collisions, but a person still needs a compact operational view of repositories, sessions, claims, conflicts, tool activity, skill activity, and memory health. Keeping the interface in the terminal avoids a second network listener, browser frontend toolchain, and browser security surface while remaining available both inside Pi and directly from the CLI.
 
-The interface uses progressive disclosure because recent operational state matters first. The initial page answers “is Nexus healthy, where is work happening, and are there conflicts?” Full event payloads and record metadata appear only after a person selects a row. The UI never resolves a conflict, releases a claim, starts conflict analysis, or blocks an agent. Its only mutations are the explicit memory operations in the Pi tab; immutable raw notes cannot be edited or deleted.
+Progressive disclosure keeps recent operational state first. The initial Coordination page answers whether Nexus is healthy, where work is happening, and whether conflicts are open. Full payloads and metadata appear only after a person selects a category and record. Coordination and analytics are read-only; only explicit Memory-tab operations mutate state, and immutable raw notes cannot be edited or deleted.
 
 ## Data flow
 
 ```mermaid
 flowchart TD
-    A[nexus ui] --> B[Ensure Unix-socket daemon]
-    B --> C[Bounded HTTP readiness probe]
-    C --> D[Print URL]
-    D --> E{Launch mode}
-    E -->|open| F[Default browser]
-    E -->|print| G[Headless caller]
-    H[Daemon startup] --> I{Bind configured loopback address}
-    I -->|bind succeeds| J[Axum read-only routes]
-    I -->|bind fails| K[Warn and keep coordination running]
-    J --> L[Embedded HTML, CSS, Elm, and adapter assets]
-    J --> M[Projects request]
-    J --> N[Dashboard request with optional project ID]
-    J --> AF[Usage request with optional project ID]
-    AA[Pi /nexus command] --> B
-    AJ[nexus tui] --> B
-    AJ --> AK[Embedded terminal bundle and managed runtime]
-    AK --> AB
-    AK --> AI
-    AJ --> M
-    AJ --> N
-    AJ --> AF
-    AD[Pi tool and skill events] --> AE[Bounded MCP capture queue]
-    AE --> O
-    AH[Pi Memory tab] --> AI[Correlated local MCP client]
-    AI --> O
-    AA --> M
-    AA --> N
-    AA --> AF
-    M --> O[NexusService]
-    N --> O
-    AF --> O
-    O --> P[Typed Diesel queries]
-    P --> Q[Bounded RecordWindow values]
-    Q --> R[Elm decoders and explicit state]
-    Q --> AB[Pi TypeScript decoder and navigator]
-    Q --> AG[Pi seven-day usage bars]
-    R --> S[Repository filter and detail drawer]
-    R --> T[Five-minute activity buckets]
-    T --> U[Typed Elm port]
-    U --> V[TypeScript D3 SVG renderer]
-    W[Two-second tick] --> X{Request already active?}
-    X -->|yes| Y[Skip overlapping poll]
-    X -->|no| N
-    N -->|poll fails| Z[Retain snapshot and mark stale]
-    AB --> AC[Summary to list to record detail]
+    A[Pi /nexus] --> B[Persistent Nexus MCP client]
+    C[nexus tui] --> D[Embedded terminal bundle]
+    D --> E[System or managed Node runtime]
+    E --> B
+    F[Pi tool and skill events] --> G[Bounded capture queue]
+    G --> B
+    B --> H[Start or reach Unix-socket daemon]
+    H --> I[NexusService]
+    I --> J[Typed Diesel queries]
+    J --> K[Bounded coordination records]
+    J --> L[Seven-day usage summary]
+    J --> M[Memory context and health]
+    K --> N[Typed terminal decoders]
+    L --> N
+    M --> N
+    N --> O[Coordination, Tools, Skills, Memory tabs]
+    P[Polling tick] --> Q{Request already active?}
+    Q -->|yes| R[Skip overlapping poll]
+    Q -->|no| B
+    S[Scope change or close] --> T[Abort queued MCP read]
 ```
 
 ## Reading the flowchart
 
-1. **nexus ui** opens the browser workflow. Both human commands reuse daemon startup rather than creating another service process.
-2. **Ensure Unix-socket daemon** establishes that coordination is available before looking for the optional dashboard listener.
-3. **Bounded HTTP readiness probe** prevents an indefinite wait when UI startup fails.
-4. **Print URL** always gives the person a copyable address before browser launch is attempted.
-5. **Launch mode** is an enum, not a boolean. `open` is interactive and `print` is headless.
-6. **Default browser** is convenience only. Launch failure emits a warning after readiness succeeds.
-7. **Daemon startup** owns both local listeners so they share configuration and the typed service.
-8. **Bind configured loopback address** rejects non-loopback configuration before startup. A runtime port collision is deliberately non-fatal.
-9. **Axum read-only routes** accept only `GET`, validate the `Host` header, omit CORS, and attach a restrictive content-security policy plus no-store and no-sniff headers.
-10. **Embedded assets** are compiled and tracked at development time. Installed users need neither Node nor Elm.
-11. **Projects request** derives machine-wide project summaries from existing sessions; no project table or migration is required.
-12. **Dashboard request** asks for one deep snapshot and carries an optional project ID for explicit filtering.
-13. **NexusService** keeps HTTP concerns outside coordination and exposes the same typed request boundary used by other adapters.
-14. **Typed Diesel queries** read the existing events, sessions, claims, and conflicts tables without raw SQL.
-15. **RecordWindow values** carry both items and a `truncated` fact, so bounded history is visible rather than silently incomplete.
-16. **Elm state** distinguishes loading, refreshing, ready, stale, and failed data. The last successful snapshot survives a failed poll.
-17. **Repository filter and detail drawer** are entirely local presentation state. Filtering does not change stored records.
-18. **Five-minute activity buckets** are classified and aggregated in Elm over the last hour.
-19. **Typed Elm port** sends only chart-ready buckets across the JavaScript boundary.
-20. **TypeScript D3 renderer** owns SVG construction, keyed updates, axes, and resize handling. It does not interpret Nexus records.
-21. **Two-second tick** uses the configured refresh interval embedded in the snapshot.
-22. **Skip overlapping poll** prevents a slow request from creating an unbounded request queue.
-23. **Retain snapshot and mark stale** keeps useful context visible while the next tick retries naturally.
-24. **Pi `/nexus` command** calls `nexus ui --launch print` with fixed arguments, validates that the returned URL is loopback HTTP, and reuses the projects, dashboard, and usage endpoints for non-memory tabs.
-25. **Pi decoder and navigator** keep open JSON at the HTTP and MCP boundaries, convert it into typed records, and expose overview, record-list, and detail pages without duplicating persistence queries.
-26. **Summary to list to record detail** keeps the default terminal footprint small. Project selection changes only the read scope, and automatic polling preserves the selected page and row when possible.
-27. **Correlated local MCP client** multiplexes analytics capture, first-prompt activation, and Memory-tab requests over one persistent child. Memory content is never added to an HTTP route.
-28. **nexus tui** shares the browser command's daemon and HTTP readiness boundary, then opens the packaged terminal view with inherited terminal streams. Its MCP child uses the exact Nexus executable and explicit configuration that launched it, with memory attributed to `nexus-tui` in the invoking repository.
-29. **Embedded terminal bundle and managed runtime** reuse the same four-tab dashboard, typed decoders, polling, and memory API used inside Pi. The standalone adapter supplies its own narrow theme and prompt interface; no Pi coding-agent runtime or credential setup is required.
+1. **Pi `/nexus`** opens the interface inside an interactive Pi session.
+2. **`nexus tui`** opens the same interface directly from the command line with inherited terminal streams.
+3. **Embedded terminal bundle** packages the shared dashboard and narrow standalone host in the Rust binary.
+4. **System or managed Node runtime** runs the bundle without installing Pi; first use can provision a verified runtime that later works offline.
+5. **Persistent Nexus MCP client** is shared by dashboard reads, memory operations, and—inside Pi—analytics capture and first-prompt memory activation.
+6. **Bounded capture queue** preserves Pi responsiveness when Nexus is slow or unavailable.
+7. **Start or reach Unix-socket daemon** keeps daemon launch and retry behavior behind the MCP adapter.
+8. **NexusService** exposes typed projects, dashboard, usage, and memory requests without presentation concerns.
+9. **Typed Diesel queries** read existing projections; terminal hosts do not duplicate persistence logic.
+10. **Bounded coordination records** include exact counts and explicit truncation flags.
+11. **Seven-day usage summary** contains tool, script, and skill counts plus capture health.
+12. **Memory context and health** remain on the local protocol and are delimited as untrusted data when injected into a model session.
+13. **Typed terminal decoders** reject malformed dynamic responses before they enter component state.
+14. **Coordination, Tools, Skills, Memory tabs** present the shared keyboard-driven component in either host.
+15. **Polling tick** refreshes only the active surface and never overlaps a prior polling request.
+16. **Skip overlapping poll** bounds work while a previous request is active.
+17. **Abort queued MCP read** removes stale scope requests before backpressure can send them.
 
 ## Implementation details
 
-`src/runtime/web.rs` owns the Axum adapter, embedded assets, security headers, local readiness check, and non-fatal bind behavior. Its typed reads use runtime's shared blocking dispatch boundary, so synchronous Diesel work does not occupy Axum's async workers. `src/main.rs` owns the typed launch mode. `src/persistence/dashboard.rs` owns the read model and keeps every database operation in Diesel's typed DSL. `DashboardRecords` is the single deep service interface: it returns exact scoped counts alongside bounded recent record windows. Project summaries remain global so a selected repository can always be changed from the same page.
+`src/persistence/dashboard.rs` owns the read model and keeps database access in Diesel's typed DSL. `DashboardRecords` returns exact scoped counts alongside bounded record windows. Project summaries remain global so a selected repository can always be changed from the same view. The `[ui]` configuration section controls terminal polling and record-window bounds.
 
-The browser frontend lives under `ui/`. `Main.elm` owns the application model, update loop, responsive semantic markup, project choice, and keyboard dismissal. `Nexus.Domain` owns wire decoders, event classification, and five-minute aggregation; `Nexus.Polling` owns the small state machine that prevents overlapping polls and preserves stale data. `activity-chart.ts` is the only D3 surface. It accepts a closed `ActivityBucket` type and updates one SVG root, including an accessible empty state. `bootstrap.ts` contains only port wiring and resize observation.
+The shared terminal UI lives under `pi-extension/`. `client.ts` maps typed dashboard, project, and usage reads onto the MCP client. `domain.ts` validates their wire shapes. `navigation.ts` owns Coordination's progressive-disclosure state. `polling.ts` owns independent single-flight dashboard and analytics refresh lifecycles. `usage.ts` and `usage-pane.ts` render seven-day bar summaries. `component.ts` composes the four tabs.
 
-The terminal frontend lives under `pi-extension/`. `client.ts` owns process startup, loopback URL validation, and HTTP reads; `domain.ts` validates the observability wire shape; `navigation.ts` owns coordination's progressive-disclosure state; `polling.ts` owns independent single-flight dashboard and analytics refresh lifecycles; `usage.ts` and `usage-pane.ts` own the seven-day bar presentation; and `component.ts` composes the four tabs. `mcp-client.ts` owns persistent correlated local requests, `capture.ts` owns fail-open Pi event listeners, and the `memory` modules own strict response decoding, activation, prompts, and pane interactions. `index.ts` wires those deep components into Pi. `terminal.ts` provides the standalone host using Pi's TUI package alone; `terminal-dialogs.ts` supplies focused input and selection overlays through the shared `MemoryPrompts` interface, and `theme.ts` defines the small dashboard theme contract compatible with either host. Repository checks type-check against the pinned Pi API version.
+`mcp-client.ts` owns the persistent correlated child, out-of-order response matching, bounded backpressure, request timeouts, and queued-request cancellation. `capture.ts` owns fail-open Pi tool and skill listeners. The memory modules own strict response decoding, activation, prompts, and pane interactions. `index.ts` wires these components into Pi.
 
-`pi-extension/build.mjs` bundles the native host, shared dashboard, and pinned renderer into tracked `pi-extension/dist/nexus-tui.mjs`, including third-party license notices. `src/runtime/terminal.rs` embeds it into Nexus, materializes a content-addressed copy outside the checkout, and replaces the launcher process with the renderer. Real pseudo-terminal integration tests run with Pi absent, exercise navigation, search, adding and independently reading a note, verify explicit configuration and repository paths containing spaces, and check terminal restoration. A second scenario opens the same dashboard offline using a managed runtime with Node also absent from `PATH`.
+`terminal.ts` provides the standalone host using the Pi TUI package alone. `terminal-dialogs.ts` supplies focused input and selection overlays through the shared memory prompt interface, and `theme.ts` defines the small theme contract supported by either host. `pi-extension/build.mjs` bundles that host and its pinned renderer into tracked `pi-extension/dist/nexus-tui.mjs`, including third-party license notices.
 
-`ui/build.mjs` compiles optimized Elm, bundles authored TypeScript and D3 with esbuild, and copies static HTML and CSS into `ui/dist`. The dist directory is committed because Rust embeds it with `include_str!`. Repository checks install both locked Node trees, run Elm, browser TypeScript, and Pi-extension tests, type-check authored TypeScript, rebuild the browser and terminal assets, and reject an unstaged bundle difference. Feature mapping reads authored Elm and TypeScript symbols while skipping `dist`, `elm-stuff`, and `node_modules`; big-code-analysis examines the authored TypeScript but the Elm compiler and tests are the Elm type gate.
+`src/runtime/terminal.rs` embeds the bundle, materializes a content-addressed copy outside the checkout, and replaces the launcher process with the selected runtime. `terminal_runtime.rs` owns compatible-runtime detection and verified installation. Real pseudo-terminal tests run with Pi absent, exercise navigation and memory operations, verify explicit configuration and repository paths containing spaces, and check terminal restoration. Another scenario proves cached offline startup without Node on `PATH`.
 
-The default server is `127.0.0.1:7337`. Configuration requires a loopback `SocketAddr` and positive refresh and record limits. Remote serving, authentication, streaming updates, and mutation controls are deliberately outside this feature.
+Repository validation installs the single locked Pi-extension Node tree, runs its typecheck and tests, rebuilds the tracked terminal bundle, and then runs the Rust and architecture gates. Installed users need no frontend build tools.

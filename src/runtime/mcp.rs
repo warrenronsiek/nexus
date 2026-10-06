@@ -382,6 +382,8 @@ fn lifecycle_tool_definitions() -> Vec<Value> {
 }
 
 fn coordination_tool_definitions() -> Vec<Value> {
+    // Agent discovery includes read-only coordination and observability plus the simple
+    // caller memory tools. Memory administration stays reserved for local user surfaces.
     json_array(json!([
         {"name":"nexus_status","description":"Return daemon and projection counts.","inputSchema":{"type":"object"}},
         {"name":"nexus_sessions","description":"List agent sessions.","inputSchema":{"type":"object","properties":{"scope":{"type":"string","enum":["active","all"],"default":"active"}}}},
@@ -391,6 +393,8 @@ fn coordination_tool_definitions() -> Vec<Value> {
         {"name":"nexus_release","description":"Release a session's advisory claims.","inputSchema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"},"path":{"type":"string"}}}},
         {"name":"nexus_analyze","description":"Explicitly ask the configured read-only Codex or Claude analyst to summarize one conflict and suggest optional resolutions.","inputSchema":{"type":"object","required":["conflict_id"],"properties":{"conflict_id":{"type":"string"}}}},
         {"name":"nexus_events","description":"Return recent coordination events.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10000}}}},
+        {"name":"nexus_projects","description":"List repositories with observed Nexus activity.","inputSchema":{"type":"object","additionalProperties":false}},
+        {"name":"nexus_dashboard","description":"Return bounded coordination state for the terminal interfaces.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"}},"additionalProperties":false}},
         {"name":"nexus_usage","description":"Return observed tool, script, and skill usage for the rolling seven-day window.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"}}}},
         {"name":"nexus_memory_add","description":"Record one explicit durable memory. Nexus handles background consolidation.","inputSchema":{"type":"object","required":["scope","content"],"properties":{"scope":{"type":"string","enum":["global","project"]},"content":{"type":"string","maxLength":512}},"additionalProperties":false}},
         {"name":"nexus_memory_search","description":"Search authoritative raw memories with a case-insensitive Rust regular expression.","inputSchema":{"type":"object","required":["regex"],"properties":{"scope":{"type":"string","enum":["layered","global","project"],"default":"layered"},"regex":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":crate::memory::MAX_MEMORY_SEARCH_RESULTS,"default":50}},"additionalProperties":false}},

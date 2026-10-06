@@ -9,4 +9,3 @@ pub mod mcp;
 pub mod script_exec;
 pub mod terminal;
 mod terminal_runtime;
-pub mod web;

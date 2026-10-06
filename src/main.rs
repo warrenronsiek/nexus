@@ -18,7 +18,7 @@ use nexus::coordination::api::{
 };
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
-use nexus::runtime::{daemon, hooks, mcp, script_exec, terminal, web};
+use nexus::runtime::{daemon, hooks, mcp, script_exec, terminal};
 use nexus::{Config, LoadedConfig};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -56,11 +56,6 @@ enum Command {
     HookSessionEnd {
         #[arg(long)]
         agent: String,
-    },
-    /// Open the local read-only observability dashboard.
-    Ui {
-        #[arg(long, value_enum, default_value_t = UiLaunch::Open)]
-        launch: UiLaunch,
     },
     /// Open the bundled interactive terminal dashboard.
     Tui,
@@ -186,12 +181,6 @@ enum IntegrationHost {
     Claude,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum UiLaunch {
-    Open,
-    Print,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -215,16 +204,6 @@ async fn main() -> Result<()> {
         }
         Command::HookSessionEnd { agent } => {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
-            Ok(())
-        }
-        Command::Ui { launch } => {
-            let url = web::ensure_dashboard(&loaded, explicit_config.as_deref()).await?;
-            println!("{url}");
-            if matches!(launch, UiLaunch::Open) {
-                if let Err(error) = webbrowser::open(&url) {
-                    eprintln!("warning: could not open a browser: {error}");
-                }
-            }
             Ok(())
         }
         Command::Tui => terminal::open(&loaded, explicit_config.as_deref(), &root).await,

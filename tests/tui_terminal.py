@@ -17,7 +17,6 @@ import platform
 import select
 import shutil
 import signal
-import socket
 import struct
 import subprocess
 import sys
@@ -54,14 +53,10 @@ def isolated_project(temporary: Path) -> tuple[Path, Path, dict[str, str]]:
     environment = {key: value for key, value in os.environ.items() if not key.startswith("NEXUS_")}
     environment.update(PATH=str(executables), HOME=str(temporary), NEXUS_STATE_DIR=str(state))
     assert shutil.which("pi", path=environment["PATH"]) is None
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
     config = temporary / "terminal config.toml"
     config.write_text(
         f'schema_version = 1\n[storage]\ndatabase_path = "{state}/configured.db"\n'
         f'[runtime]\nsocket_path = "{state}/configured.sock"\nlock_path = "{state}/configured.lock"\n'
-        f'[ui]\nbind_address = "127.0.0.1:{port}"\n'
         '[memory]\nconsolidation_interval_seconds = 3600\n'
     )
     return root, config, environment

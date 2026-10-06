@@ -41,7 +41,7 @@ Raw notes cannot be edited, deleted, corrected, retracted, or purged. Invalidati
 
 The CLI exposes status, context, add, search, expand, invalidate, and immediate consolidation operations. MCP exposes only `nexus_memory_add`, `nexus_memory_search`, and `nexus_memory_expand` to caller agents. Codex and Claude receive first-prompt context through bounded lifecycle `additionalContext`; Pi receives it through `before_agent_start` using the correlated local Nexus client.
 
-The Memory tab in `nexus tui` and Pi's `/nexus` shows raw and summary nodes, pending work, provider health, fallback use, activation time, and scope counts. Both hosts share raw search, scoped note creation, summary expansion, confirmed summary invalidation, an immediate consolidation retry, and refresh through the same typed memory API and prompt policy. Native terminal notes carry `nexus-tui` provenance and the invoking repository, and require no model credentials. Memory content travels only through the local Nexus protocol; the browser dashboard remains content-free and read-only.
+The Memory tab in `nexus tui` and Pi's `/nexus` shows raw and summary nodes, pending work, provider health, fallback use, activation time, and scope counts. Both hosts share raw search, scoped note creation, summary expansion, confirmed summary invalidation, an immediate consolidation retry, and refresh through the same typed memory API and prompt policy. Native terminal notes carry `nexus-tui` provenance and the invoking repository, and require no model credentials. Memory content travels only through the local Nexus protocol.
 
 ## Attribution
 

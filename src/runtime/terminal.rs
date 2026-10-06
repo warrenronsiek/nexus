@@ -22,7 +22,6 @@ pub async fn open(
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("Run `nexus tui` from an interactive terminal");
     }
-    let url = super::web::ensure_dashboard(loaded, explicit_config).await?;
     let cache = loaded
         .config
         .storage
@@ -31,7 +30,6 @@ pub async fn open(
         .context("Nexus database must have a parent directory")?
         .join("tui");
     let mut command = terminal_command(&cache, working_directory, explicit_config)?;
-    command.arg("--url").arg(url);
     Err(command.exec()).context("open Nexus terminal dashboard")
 }
 

@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: pi-extension/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

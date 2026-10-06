@@ -1,6 +1,4 @@
 /target/
-/ui/elm-stuff/
-/ui/node_modules/
 /pi-extension/node_modules/
 __pycache__/
 *.pyc

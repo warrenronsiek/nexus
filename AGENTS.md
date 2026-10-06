@@ -18,7 +18,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `complexity-analysis`: feature-scoped structural metrics, repetition analysis, and regression gates.
 - `commit-review`: parallel cross-model architecture and deletion review for staged commits.
 - `installation`: one-command machine setup and repository onboarding.
-- `observability-ui`: read-only Axum, Elm, and D3 operational visibility.
+- `observability-ui`: native and Pi terminal coordination, analytics, and memory visibility over local MCP.
 - `usage-analytics`: observed tool, skill, and script usage capture and seven-day reporting.
 - `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
 

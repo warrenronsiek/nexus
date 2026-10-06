@@ -45,31 +45,6 @@ afterEach(() => {
     poller.dispose();
   });
 
-  it("times out a stalled request and schedules the next poll", async () => {
-    vi.useFakeTimers();
-    const load = vi.fn(
-      (_projectId: string | null, signal: AbortSignal) =>
-        new Promise<Snapshot>((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-        }),
-    );
-    const updates = vi.fn();
-    const poller = new SnapshotPoller(snapshot, load, updates);
-    poller.start();
-
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(load).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(updates.mock.calls.at(-1)?.[0]).toMatchObject({
-      snapshot,
-      mode: "poll",
-    });
-    expect(updates.mock.calls.at(-1)?.[0].status).toMatch(/^stale ·/u);
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(load).toHaveBeenCalledTimes(2);
-    poller.dispose();
-  });
-
   it("lets a scope change preempt a background poll and keeps the requested scope", async () => {
     vi.useFakeTimers();
     const requests: Array<{

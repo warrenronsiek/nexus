@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { matchesKey, ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
-import { fetchSnapshot, fetchUsage, localNexusUrl } from "./client.ts";
+import { fetchSnapshot, fetchUsage } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
@@ -19,21 +19,24 @@ import { terminalTheme } from "./theme.ts";
 
 async function runTerminalDashboard(): Promise<void> {
   const { values } = parseArgs({ options: {
-    url: { type: "string" }, nexus: { type: "string" }, config: { type: "string" },
+    nexus: { type: "string" }, config: { type: "string" },
   } });
-  if (!values.url || !values.nexus) throw new Error("Missing Nexus terminal launch context");
-  const baseUrl = localNexusUrl(values.url);
+  if (!values.nexus) throw new Error("Missing Nexus terminal launch context");
   const cwd = process.cwd();
   const executable = values.nexus;
   const argumentsValue = values.config === undefined ? [] : ["--config", values.config];
-  const snapshot = await fetchSnapshot(baseUrl, null, AbortSignal.timeout(5000));
   const client = new NexusMcpClient((directory) => spawn(executable, [...argumentsValue, "mcp"], {
     cwd: directory, stdio: ["pipe", "pipe", "ignore"],
   }));
-  await showTerminalDashboard(snapshot, baseUrl, client, cwd);
+  try {
+    const snapshot = await fetchSnapshot(client, cwd, null);
+    await showTerminalDashboard(snapshot, client, cwd);
+  } finally {
+    client.close();
+  }
 }
 
-async function showTerminalDashboard(snapshot: Snapshot, baseUrl: URL, client: NexusMcpClient, cwd: string): Promise<void> {
+async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient, cwd: string): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const dialogs = new TerminalDialogs(tui, terminalTheme);
@@ -43,8 +46,8 @@ async function showTerminalDashboard(snapshot: Snapshot, baseUrl: URL, client: N
   let done!: () => void;
   const closed = new Promise<void>((resolve) => { done = resolve; });
   const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, {
-    loadSnapshot: (projectId, signal) => fetchSnapshot(baseUrl, projectId, signal),
-    loadUsage: (projectId, signal) => fetchUsage(baseUrl, projectId, signal),
+    loadSnapshot: (projectId, signal) => fetchSnapshot(client, cwd, projectId, signal),
+    loadUsage: (projectId, signal) => fetchUsage(client, cwd, projectId, signal),
     memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,
   });
   tui.addChild(dashboard);
@@ -58,7 +61,6 @@ async function showTerminalDashboard(snapshot: Snapshot, baseUrl: URL, client: N
   } finally {
     dashboard.dispose();
     dialogs.dispose();
-    client.close();
     await terminal.drainInput(100, 20);
     tui.stop();
     process.removeListener("SIGINT", done);

@@ -51,15 +51,6 @@ nexus status
 nexus sessions
 nexus claims
 nexus conflicts
-nexus ui
-nexus tui
-```
-
-`nexus ui` opens a local, read-only operations dashboard with machine-wide activity, repository filtering, conflict/session/claim panels, a one-hour activity chart, and progressively disclosed record details. Use `nexus ui --launch print` to start it and print the URL without opening a browser. The dashboard is optional: a UI bind or browser-launch failure never stops Unix-socket coordination.
-
-Open the terminal dashboard directly:
-
-```sh
 nexus tui
 ```
 
@@ -115,7 +106,7 @@ nexus config show
 
 Agent autonomy is not a configurable property. There is intentionally no enforcement or blocking mode.
 
-The `[ui]` properties select dashboard enablement, the loopback bind address, polling interval, and bounded event/record windows. Nexus rejects non-loopback addresses and zero limits; remote access and authentication are intentionally out of scope.
+The `[ui]` properties select the terminal dashboards' polling interval and bounded event/record windows. Nexus rejects zero limits.
 
 ## Optional conflict analyst
 
@@ -157,10 +148,8 @@ The source tree follows capability boundaries rather than a flat layer list:
 - `coordination/` owns the typed service API, domain states, classification, and workspace observation.
 - `persistence/` owns Diesel models, schema, migrations, and projection queries.
 - `runtime/` owns the Unix-socket daemon and MCP protocol adapters.
-- `runtime/web.rs` owns the read-only local HTTP adapter and embedded frontend.
 - `agents/` owns optional analyst processes and host integration generation.
-- `ui/` owns the Elm application and the narrow typed D3 adapter; compiled `ui/dist` assets are tracked and embedded in the Rust binary.
-- `pi-extension/` owns the terminal-native progressive-disclosure view. Coordination and usage stay on the read-only HTTP API; memory content uses the correlated local MCP transport and never enters a browser endpoint.
+- `pi-extension/` owns the terminal-native progressive-disclosure view. Coordination, usage, and memory all use one correlated local MCP transport.
 
 JSON is decoded at runtime boundaries into the closed `ServiceRequest` enum. Open-ended tool input remains isolated in the named `ToolPayload` boundary type; coordination and persistence APIs use explicit records and enums. Behavioral choices such as record scope, conflict scope, completion state, and release target are enums rather than boolean arguments.
 
@@ -207,7 +196,7 @@ uv tool install big-code-analysis-cli==2.2.0
 ./scripts/check.sh
 ```
 
-UI development also requires Node 24 and uses the locked `ui/package-lock.json` and `pi-extension/package-lock.json`; `scripts/check.sh` installs both trees, runs Elm and TypeScript tests, type-checks, and verifies the committed browser bundle is reproducible.
+Pi extension development also requires Node 24 and uses the locked `pi-extension/package-lock.json`; `scripts/check.sh` installs that tree, type-checks the TypeScript sources, and runs the terminal UI tests.
 
 If `uv` is unavailable, `python3 -m pip install big-code-analysis-cli==2.2.0` installs the same pinned CLI.
 
