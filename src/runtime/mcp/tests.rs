@@ -1,7 +1,9 @@
 // @feature agent-memory
 // @feature runtime
+// @feature papercuts
 // @spec docs/features/agent-memory.md
 // @spec docs/features/runtime.md
+// @spec docs/features/papercuts.md
 use super::*;
 
 #[test]
@@ -215,4 +217,78 @@ fn explicitly_correlated_memory_add_preserves_pi_provenance() {
     assert_eq!(add["agent"], "pi");
     assert_eq!(add["model"], "pi-model");
     assert_eq!(add["turn_id"], "pi-turn");
+}
+
+#[test]
+fn advertises_one_typed_papercuts_tool() {
+    let definitions = tool_definitions();
+    let papercuts = definitions
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|definition| definition["name"] == "nexus_papercuts")
+        .collect::<Vec<_>>();
+    assert_eq!(papercuts.len(), 1);
+
+    let schema = &papercuts[0]["inputSchema"];
+    assert_eq!(schema["required"], json!(["action"]));
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["properties"]["action"]["enum"],
+        json!(["list", "dump", "report", "upvote", "remove", "respond"])
+    );
+    assert!(schema["properties"].get("limit").is_none());
+    assert_eq!(schema["properties"]["reporter_token"]["type"], "string");
+    assert_eq!(schema["properties"]["project_root"]["type"], "string");
+    assert_eq!(schema["properties"]["session_id"]["type"], "string");
+    assert!(papercuts[0]["description"]
+        .as_str()
+        .unwrap()
+        .contains("best-effort"));
+}
+
+#[test]
+fn papercuts_arguments_receive_process_context_without_overwriting_provenance() {
+    let context = McpInvocationContext {
+        session_id: "mcp-session-test".into(),
+        project_root: "/tmp/project".into(),
+        agent: "codex".into(),
+    };
+    let mut report = json!({"action":"report","title":"Flaky test"});
+    enrich_papercut_arguments(&mut report, &context);
+    assert_eq!(report["session_id"], "mcp-session-test");
+    assert_eq!(report["project_root"], "/tmp/project");
+    assert_eq!(report["agent"], "codex");
+
+    let mut correlated = json!({
+        "action":"upvote",
+        "papercut_id":"cut-1",
+        "project_root":"/tmp/pi-project",
+        "session_id":"pi-session",
+        "agent":"pi",
+        "model":"pi-model",
+        "turn_id":"pi-turn"
+    });
+    enrich_papercut_arguments(&mut correlated, &context);
+    assert_eq!(correlated["project_root"], "/tmp/pi-project");
+    assert_eq!(correlated["session_id"], "pi-session");
+    assert_eq!(correlated["agent"], "pi");
+    assert_eq!(correlated["model"], "pi-model");
+    assert_eq!(correlated["turn_id"], "pi-turn");
+}
+
+#[test]
+fn papercuts_resource_maps_to_an_unbounded_current_project_dump() {
+    let context = McpInvocationContext {
+        session_id: "mcp-session-test".into(),
+        project_root: "/tmp/project".into(),
+        agent: "codex".into(),
+    };
+    let (method, arguments) = resource_request("nexus://papercuts", &context).unwrap();
+    assert_eq!(method, "papercuts");
+    assert_eq!(arguments["action"], "dump");
+    assert_eq!(arguments["scope"], "project");
+    assert_eq!(arguments["project_root"], "/tmp/project");
+    assert_eq!(arguments["session_id"], "mcp-session-test");
+    assert!(arguments.get("limit").is_none());
 }

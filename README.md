@@ -19,6 +19,21 @@ Project memories are shared by worktrees through their Git common directory. Glo
 
 Nexus agent memory is inspired by Victor Taelin’s [OptMem](https://github.com/VictorTaelin/OptMem). Nexus uses an independent Rust/SQLite implementation and includes no OptMem source.
 
+## Papercuts
+
+Papercuts is the shared development-environment friction log. Agents can record flaky tests, slow checks, confusing setup, and similar recurring impediments; search the compact open list; upvote an existing match; resolve a fixed issue; or dump the complete timestamped registry for deeper inspection.
+
+```sh
+nexus papercuts list
+nexus papercuts report "Flaky daemon startup test" --description "Times out under parallel load"
+nexus papercuts upvote <papercut-id> --note "Reproduced in the MCP suite"
+nexus papercuts remove <papercut-id> --resolution "Bounded the startup retry"
+nexus papercuts dump | rg 'flaky|timeout'
+nexus papercuts respond <review-id> --reporter-token <token> --decision approve --response "Same underlying failure"
+```
+
+Every report is a timestamped upvote. Exact normalized repeats collapse deterministically, resolved issues reopen when encountered again, and `dump` includes open, resolved, and consolidated records plus every timestamped upvote, resolution/reopen/consolidation transition, duplicate proposal, and reviewer outcome. Lifecycle transitions retain their actor provenance even when the current issue returns to the open state. A new report returns an opaque reporter token; Nexus stores only its hash and requires the token before accepting a later duplicate decision, so the reporter can answer even if its MCP process reconnects. With the optional analyst enabled, runtime requests an asynchronous review against the complete project registry. A possible semantic duplicate becomes a persisted question rather than a silent merge. The MCP surface exposes the same workflow as the single `nexus_papercuts` tool and the complete current-project dump as `nexus://papercuts`.
+
 ## Install
 
 From a Nexus source checkout, one command installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store:
@@ -110,7 +125,7 @@ The `[ui]` properties select the terminal dashboards' polling interval and bound
 
 ## Optional conflict analyst
 
-The deterministic classifier is always the source of conflict severity. An optional analyst can add a summary and suggested resolutions using an existing local Codex or Claude installation:
+The deterministic classifier is always the source of conflict severity. An optional analyst can add a conflict summary and suggested resolutions, and can review newly reported papercuts for possible semantic duplicates, using an existing local Codex or Claude installation:
 
 ```toml
 [analyst]
@@ -122,13 +137,13 @@ command = "claude"
 model = "your-selected-model"
 ```
 
-Request analysis explicitly; it never runs in the pre-tool path:
+Request conflict analysis explicitly; it never runs in the pre-tool path:
 
 ```sh
 nexus analyze <conflict-id>
 ```
 
-Codex runs with a read-only sandbox and Claude runs in plan permission mode. Results are advisory and are stored with provider, model, timestamp, and resolved configuration hash provenance. Explicit conflict analysis does not silently fall back to a different provider; background memory consolidation has its separately documented one-provider fallback.
+Codex runs with a read-only sandbox and Claude runs in plan permission mode. Results are advisory and are stored with provider, model, timestamp, and resolved configuration hash provenance. Papercut duplicate review runs only after the report is durable and cannot silently merge issues: a proposed match waits for a response carrying the opaque token returned with the original report. Explicit conflict analysis and papercut review do not silently fall back to a different provider; background memory consolidation has its separately documented one-provider fallback.
 
 ## Coordination model
 
@@ -145,10 +160,11 @@ Codex runs with a read-only sandbox and Claude runs in plan permission mode. Res
 
 The source tree follows capability boundaries rather than a flat layer list:
 
-- `coordination/` owns the typed service API, domain states, classification, and workspace observation.
+- `coordination/` owns the typed service API, domain states, classification, workspace observation, and papercut workflow orchestration.
 - `persistence/` owns Diesel models, schema, migrations, and projection queries.
 - `runtime/` owns the Unix-socket daemon and MCP protocol adapters.
-- `agents/` owns optional analyst processes and host integration generation.
+- `agents/` owns optional conflict and papercut reviewer processes plus host integration generation.
+- `papercuts/` owns the durable registry's domain states and timestamped observation types.
 - `pi-extension/` owns the terminal-native progressive-disclosure view. Coordination, usage, and memory all use one correlated local MCP transport.
 
 JSON is decoded at runtime boundaries into the closed `ServiceRequest` enum. Open-ended tool input remains isolated in the named `ToolPayload` boundary type; coordination and persistence APIs use explicit records and enums. Behavioral choices such as record scope, conflict scope, completion state, and release target are enums rather than boolean arguments.
@@ -214,7 +230,7 @@ The hook invokes `scripts/check.sh`, which runs feature-map and complexity lint,
 cargo test --all-targets
 ```
 
-The suite includes unit tests for extraction and classification plus process-level tests that launch a real daemon and MCP stdio server. Those tests call user-prompt, pre-tool, post-tool, failure, resolution, analyst, and session-stop surfaces; inspect the Diesel-backed SQLite projections; exercise Edit, Write, apply-patch, shell, unknown-tool, malformed-input, and unavailable-daemon cases; and verify background Git reconciliation.
+The suite includes unit tests for extraction and classification plus process-level tests that launch a real daemon and MCP stdio server. Those tests call user-prompt, pre-tool, post-tool, failure, resolution, analyst, papercut, and session-stop surfaces; inspect the Diesel-backed SQLite projections; exercise Edit, Write, apply-patch, shell, unknown-tool, malformed-input, and unavailable-daemon cases; and verify background Git reconciliation and reviewer dispatch.
 
 The fresh-install worktree test is intentionally ignored because it consumes real Codex and Claude Opus 5 resources and requires both CLIs to be authenticated. Run it explicitly with:
 

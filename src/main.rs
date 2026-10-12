@@ -2,10 +2,12 @@
 // @feature commit-review
 // @feature usage-analytics
 // @feature agent-memory
+// @feature papercuts
 // @spec docs/features/runtime.md
 // @spec docs/features/commit-review.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/papercuts.md
 // @entrypoint main
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -14,10 +16,12 @@ use nexus::agents::reviewer;
 use nexus::coordination::api::{
     AnalyzeCommand, ClaimQuery, ConflictQuery, EventQuery, MemoryAddCommand, MemoryContextQuery,
     MemoryReadScopeArg, MemoryScopeArg, MemorySearchQuery, MemoryStatusQuery, MemorySummaryQuery,
-    ReleaseCommand, ResolveCommand, ServiceRequest, SessionQuery,
+    PapercutCommand, PapercutDumpScope, ReleaseCommand, ResolveCommand, ServiceRequest,
+    SessionQuery,
 };
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
+use nexus::papercuts::PapercutReviewDecision;
 use nexus::runtime::{daemon, hooks, mcp, script_exec, terminal};
 use nexus::{Config, LoadedConfig};
 use std::ffi::OsString;
@@ -111,6 +115,11 @@ enum Command {
         #[command(subcommand)]
         command: MemoryCommand,
     },
+    /// Record, inspect, and maintain development-environment papercuts.
+    Papercuts {
+        #[command(subcommand)]
+        command: PapercutsCommand,
+    },
     /// Run parallel cross-model architecture and deletion review on the staged diff.
     ReviewCommit,
     /// Inspect or validate the resolved configuration.
@@ -162,6 +171,46 @@ enum MemoryCommand {
     Consolidate,
 }
 
+#[derive(Debug, Subcommand)]
+enum PapercutsCommand {
+    /// List the open canonical papercuts for the current project.
+    List,
+    /// Dump the complete, unbounded papercut registry.
+    Dump {
+        /// Include every observed project instead of only the current project.
+        #[arg(long)]
+        all_projects: bool,
+    },
+    /// Report a development-environment papercut.
+    Report {
+        title: String,
+        #[arg(long, default_value = "")]
+        description: String,
+    },
+    /// Record another encounter with an existing papercut.
+    Upvote {
+        papercut_id: String,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Mark a solved papercut resolved while retaining its history.
+    Remove {
+        papercut_id: String,
+        #[arg(long)]
+        resolution: String,
+    },
+    /// Respond to a proposed duplicate review.
+    Respond {
+        review_id: String,
+        #[arg(long)]
+        reporter_token: String,
+        #[arg(long, value_enum)]
+        decision: PapercutReviewDecisionCli,
+        #[arg(long)]
+        response: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum MemoryScopeCli {
     Global,
@@ -173,6 +222,12 @@ enum MemoryReadScopeCli {
     Layered,
     Global,
     Project,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum PapercutReviewDecisionCli {
+    Approve,
+    Reject,
 }
 
 #[derive(Debug, Subcommand)]
@@ -213,6 +268,7 @@ async fn main() -> Result<()> {
             std::process::exit(code);
         }
         Command::Memory { command } => run_memory_command(command, &root, &loaded).await,
+        Command::Papercuts { command } => run_papercuts_command(command, &root, &loaded).await,
         query @ (Command::Status
         | Command::Events { .. }
         | Command::Sessions { .. }
@@ -220,6 +276,62 @@ async fn main() -> Result<()> {
         | Command::Conflicts { .. }) => run_query_command(query, &loaded).await,
         command => run_admin_command(command, &root, &loaded).await,
     }
+}
+
+async fn run_papercuts_command(
+    command: PapercutsCommand,
+    root: &Path,
+    loaded: &LoadedConfig,
+) -> Result<()> {
+    let context = HookContext {
+        session_id: "cli".into(),
+        project_root: Some(root.to_string_lossy().into_owned()),
+        agent: "user".into(),
+        turn_id: None,
+        model: None,
+    };
+    let command = match command {
+        PapercutsCommand::List => PapercutCommand::List { context },
+        PapercutsCommand::Dump { all_projects } => PapercutCommand::Dump {
+            context,
+            scope: if all_projects {
+                PapercutDumpScope::All
+            } else {
+                PapercutDumpScope::Project
+            },
+        },
+        PapercutsCommand::Report { title, description } => PapercutCommand::Report {
+            context,
+            title,
+            description,
+        },
+        PapercutsCommand::Upvote { papercut_id, note } => PapercutCommand::Upvote {
+            context,
+            papercut_id,
+            note,
+        },
+        PapercutsCommand::Remove {
+            papercut_id,
+            resolution,
+        } => PapercutCommand::Remove {
+            context,
+            papercut_id,
+            resolution,
+        },
+        PapercutsCommand::Respond {
+            review_id,
+            reporter_token,
+            decision,
+            response,
+        } => PapercutCommand::Respond {
+            context,
+            review_id,
+            reporter_token,
+            decision: decision.into(),
+            response,
+        },
+    };
+    request_and_print(loaded, ServiceRequest::Papercuts(command)).await
 }
 
 async fn run_query_command(command: Command, loaded: &LoadedConfig) -> Result<()> {
@@ -414,6 +526,15 @@ impl From<MemoryReadScopeCli> for MemoryReadScopeArg {
     }
 }
 
+impl From<PapercutReviewDecisionCli> for PapercutReviewDecision {
+    fn from(decision: PapercutReviewDecisionCli) -> Self {
+        match decision {
+            PapercutReviewDecisionCli::Approve => Self::Approve,
+            PapercutReviewDecisionCli::Reject => Self::Reject,
+        }
+    }
+}
+
 async fn request_and_print(loaded: &nexus::LoadedConfig, request: ServiceRequest) -> Result<()> {
     let result = daemon::request(&loaded.config.runtime.socket_path, &request)
         .await
@@ -456,5 +577,67 @@ mod tests {
         assert_eq!(scope, MemoryReadScopeCli::Layered);
 
         assert!(Cli::try_parse_from(["nexus", "memory", "add", "No scope"]).is_err());
+    }
+
+    #[test]
+    fn papercuts_cli_exposes_typed_actions_and_unbounded_dump_scope() {
+        let report = Cli::try_parse_from([
+            "nexus",
+            "papercuts",
+            "report",
+            "Flaky socket test",
+            "--description",
+            "Intermittently times out",
+        ])
+        .unwrap();
+        let Command::Papercuts {
+            command: PapercutsCommand::Report { title, description },
+        } = report.command
+        else {
+            panic!("expected papercuts report command");
+        };
+        assert_eq!(title, "Flaky socket test");
+        assert_eq!(description, "Intermittently times out");
+
+        let dump = Cli::try_parse_from(["nexus", "papercuts", "dump", "--all-projects"]).unwrap();
+        let Command::Papercuts {
+            command: PapercutsCommand::Dump { all_projects },
+        } = dump.command
+        else {
+            panic!("expected papercuts dump command");
+        };
+        assert!(all_projects);
+
+        let response = Cli::try_parse_from([
+            "nexus",
+            "papercuts",
+            "respond",
+            "review-1",
+            "--reporter-token",
+            "secret-token",
+            "--decision",
+            "approve",
+            "--response",
+            "Same underlying failure",
+        ])
+        .unwrap();
+        let Command::Papercuts {
+            command: PapercutsCommand::Respond { reporter_token, .. },
+        } = response.command
+        else {
+            panic!("expected papercut response command");
+        };
+        assert_eq!(reporter_token, "secret-token");
+        assert!(Cli::try_parse_from([
+            "nexus",
+            "papercuts",
+            "respond",
+            "review-1",
+            "--decision",
+            "approve",
+            "--response",
+            "Same underlying failure",
+        ])
+        .is_err());
     }
 }

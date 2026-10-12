@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 #[migrations("migrations")]
 struct NexusMigrations {}
 
-fn establish_migration_connection(database_url: &str) -> Result<SqliteConnection> {
+pub(super) fn establish_connection(database_url: &str) -> Result<SqliteConnection> {
     let mut connection = SqliteConnection::establish(database_url)
         .context("establish SQLite database connection")?;
     connection
@@ -48,7 +48,7 @@ where
                 .build()
                 .context("build migration runtime")?;
             runtime.block_on(async move {
-                let connection = establish_migration_connection(&database_url)
+                let connection = establish_connection(&database_url)
                     .context("initialize flyway-rs SQLite connection")?;
                 let driver = Arc::new(DieselMigrationDriver::new(connection));
                 MigrationRunner::new(migrations, driver.clone(), driver, false)
@@ -260,8 +260,8 @@ mod tests {
         let path = temp.path().join("upgrade.db");
 
         assert_eq!(migrate_with(&path, ThroughVersion(0)).unwrap(), Some(0));
-        assert_eq!(migrate_database(&path).unwrap(), Some(4));
-        assert_eq!(migrate_database(&path).unwrap(), Some(4));
+        assert_eq!(migrate_database(&path).unwrap(), Some(5));
+        assert_eq!(migrate_database(&path).unwrap(), Some(5));
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        assert_eq!(migrate_database(&path).unwrap(), Some(4));
+        assert_eq!(migrate_database(&path).unwrap(), Some(5));
         let mut store = super::super::Store::open(&path).unwrap();
         let events = store
             .list_events(Some("project-before-upgrade"), 10)
@@ -311,11 +311,53 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("upgrade-v3.db");
         assert_eq!(migrate_with(&path, ThroughVersion(3)).unwrap(), Some(3));
-        assert_eq!(migrate_database(&path).unwrap(), Some(4));
+        assert_eq!(migrate_database(&path).unwrap(), Some(5));
 
         let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
         assert_eq!(
             memory_spaces::table
+                .count()
+                .get_result::<i64>(&mut connection)
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn upgrades_an_existing_v4_database_with_empty_papercut_registry() {
+        use super::super::schema::{
+            papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("upgrade-v4.db");
+        assert_eq!(migrate_with(&path, ThroughVersion(4)).unwrap(), Some(4));
+        assert_eq!(migrate_database(&path).unwrap(), Some(5));
+
+        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+        assert_eq!(
+            papercuts::table
+                .count()
+                .get_result::<i64>(&mut connection)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            papercut_upvotes::table
+                .count()
+                .get_result::<i64>(&mut connection)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            papercut_duplicate_reviews::table
+                .count()
+                .get_result::<i64>(&mut connection)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            papercut_review_attempts::table
                 .count()
                 .get_result::<i64>(&mut connection)
                 .unwrap(),

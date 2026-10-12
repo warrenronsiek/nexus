@@ -35,7 +35,7 @@ impl Store {
         }
         super::migrations::migrate_database(path)?;
         let url = path.to_string_lossy();
-        let connection = SqliteConnection::establish(&url)
+        let connection = super::migrations::establish_connection(&url)
             .with_context(|| format!("open {}", path.display()))?;
         Ok(Self {
             connection,
@@ -569,41 +569,4 @@ pub(super) fn append_event(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn flyway_migrations_create_a_queryable_store() {
-        let mut store = Store::open_memory().unwrap();
-        assert_eq!(store.counts().unwrap().events, 0);
-        assert!(store
-            .list_claims(None, RecordScope::All)
-            .unwrap()
-            .is_empty());
-    }
-
-    #[test]
-    fn opening_store_waits_for_a_temporary_sqlite_write_lock() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("locked.db");
-        drop(Store::open(&path).unwrap());
-
-        let mut blocker = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
-        let opener = blocker
-            .exclusive_transaction::<_, anyhow::Error, _>(|_| {
-                let (started, receiver) = std::sync::mpsc::channel();
-                let open_path = path.clone();
-                let opener = std::thread::spawn(move || {
-                    started.send(()).unwrap();
-                    Store::open(&open_path)
-                });
-                receiver.recv().unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                Ok(opener)
-            })
-            .unwrap();
-
-        let mut reopened = opener.join().unwrap().unwrap();
-        assert_eq!(reopened.counts().unwrap().events, 0);
-    }
-}
+mod tests;

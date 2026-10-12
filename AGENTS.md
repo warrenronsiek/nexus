@@ -21,6 +21,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `observability-ui`: native and Pi terminal coordination, analytics, and memory visibility over local MCP.
 - `usage-analytics`: observed tool, skill, and script usage capture and seven-day reporting.
 - `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
+- `papercuts`: timestamped development-friction reports, upvotes, duplicate review, consolidation, resolution, and complete registry export.
 
 Every code file must declare at least one `@feature` and matching `@spec` in its leading comment block. Symbols inherit those file annotations. Declare the small number of useful starting points with `@entrypoint`. Files that intentionally decode open-ended external values must also declare an explanatory `@boundary`.
 

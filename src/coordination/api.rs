@@ -1,13 +1,17 @@
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
+// @feature papercuts
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/papercuts.md
 // @boundary dynamic-json
 mod memory;
+mod papercuts;
 
 pub use memory::*;
+pub use papercuts::*;
 
 use super::domain::{
     Claim, ClaimRelease, ConflictRecord, ConflictScope, DashboardRecords, EventRecord,
@@ -51,6 +55,7 @@ pub enum ServiceRequest {
     MemoryExpand(MemorySummaryQuery),
     MemoryInvalidate(MemorySummaryQuery),
     MemoryConsolidate,
+    Papercuts(PapercutCommand),
     Config,
 }
 
@@ -128,6 +133,7 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
         "memory_add" => decode(params).map(ServiceRequest::MemoryAdd),
         "memory_invalidate" => decode(params).map(ServiceRequest::MemoryInvalidate),
         "memory_consolidate" => Ok(ServiceRequest::MemoryConsolidate),
+        "papercuts" => decode(params).map(ServiceRequest::Papercuts),
         _ => unreachable!("method family was classified before decoding"),
     }
 }
@@ -163,7 +169,8 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Analyze(_)
         | ServiceRequest::MemoryAdd(_)
         | ServiceRequest::MemoryInvalidate(_)
-        | ServiceRequest::MemoryConsolidate => RequestFamily::Command,
+        | ServiceRequest::MemoryConsolidate
+        | ServiceRequest::Papercuts(_) => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
         | ServiceRequest::Usage(_)
@@ -205,6 +212,7 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::MemoryAdd(command) => encode("memory_add", command),
         ServiceRequest::MemoryInvalidate(command) => encode("memory_invalidate", command),
         ServiceRequest::MemoryConsolidate => Ok(empty("memory_consolidate")),
+        ServiceRequest::Papercuts(command) => encode("papercuts", command),
         _ => unreachable!("request family was selected before encoding"),
     }
 }
@@ -246,6 +254,7 @@ const COMMAND_METHODS: &[&str] = &[
     "memory_add",
     "memory_invalidate",
     "memory_consolidate",
+    "papercuts",
 ];
 const REPORT_METHODS: &[&str] = &["projects", "dashboard", "usage", "config"];
 
@@ -432,6 +441,7 @@ pub enum ServiceResponse {
     MemoryInvalidation(MemoryInvalidationResponse),
     MemoryStatus(MemoryStatusResponse),
     MemoryConsolidation(MemoryConsolidationReport),
+    Papercuts(Box<PapercutResponse>),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),
 }

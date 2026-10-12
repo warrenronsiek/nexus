@@ -1,11 +1,16 @@
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
+// @feature papercuts
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/papercuts.md
 mod dispatch;
 mod memory;
+mod papercuts;
+
+pub(crate) use papercuts::PapercutDispatch;
 
 #[cfg(test)]
 use super::api::ServiceRequest;

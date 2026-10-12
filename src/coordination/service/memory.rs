@@ -345,7 +345,8 @@ impl MemoryConsolidator<'_> {
             MemoryConsolidationFailureKind::Timeout => MemoryCompactionOutcome::TimedOut,
             MemoryConsolidationFailureKind::InvalidOutput => MemoryCompactionOutcome::InvalidOutput,
         };
-        let model_id = selected_model_id(&self.service.loaded.config.analyst, provider);
+        let analyst = &self.service.loaded.config.analyst;
+        let model_id = analyst.model(provider).model.clone();
         let provider_name = model::provider_name(provider);
         let mut store = self
             .service
@@ -438,16 +439,6 @@ fn other_provider(provider: ModelProvider) -> ModelProvider {
     match provider {
         ModelProvider::Codex => ModelProvider::Claude,
         ModelProvider::Claude => ModelProvider::Codex,
-    }
-}
-
-fn selected_model_id(
-    config: &crate::config::AnalystConfig,
-    provider: ModelProvider,
-) -> Option<String> {
-    match provider {
-        ModelProvider::Codex => config.codex.model.clone(),
-        ModelProvider::Claude => config.claude.model.clone(),
     }
 }
 

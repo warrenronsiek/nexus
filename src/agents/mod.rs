@@ -5,4 +5,5 @@
 pub mod analyst;
 pub mod integration;
 pub(crate) mod model;
+pub mod papercuts;
 pub mod reviewer;

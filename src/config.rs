@@ -314,6 +314,13 @@ impl Config {
 }
 
 impl AnalystConfig {
+    pub fn model(&self, provider: ModelProvider) -> &ModelConfig {
+        match provider {
+            ModelProvider::Codex => &self.codex,
+            ModelProvider::Claude => &self.claude,
+        }
+    }
+
     fn validate(&self) -> Result<()> {
         if self.timeout_seconds == 0 {
             bail!("analyst.timeout_seconds must be positive");

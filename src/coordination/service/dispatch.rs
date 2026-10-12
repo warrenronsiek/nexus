@@ -1,9 +1,11 @@
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
+// @feature papercuts
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/papercuts.md
 // @entrypoint NexusService::handle
 use super::NexusService;
 use crate::coordination::api::{ConfigResponse, ServiceRequest, ServiceResponse, ToolHookPhase};
@@ -34,7 +36,8 @@ impl NexusService {
             | ServiceRequest::Analyze(_)
             | ServiceRequest::MemoryAdd(_)
             | ServiceRequest::MemoryInvalidate(_)
-            | ServiceRequest::MemoryConsolidate) => self.handle_command(request),
+            | ServiceRequest::MemoryConsolidate
+            | ServiceRequest::Papercuts(_)) => self.handle_command(request),
         }
     }
 
@@ -88,6 +91,7 @@ impl NexusService {
             ServiceRequest::MemoryAdd(command) => self.memory_add(command),
             ServiceRequest::MemoryInvalidate(command) => self.memory_invalidate(command),
             ServiceRequest::MemoryConsolidate => self.memory_consolidate(),
+            ServiceRequest::Papercuts(command) => self.dispatch_papercuts(command).response,
             _ => unreachable!("non-command request routed as command"),
         }
     }
