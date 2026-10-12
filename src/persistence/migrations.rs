@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 #[migrations("migrations")]
 struct NexusMigrations {}
 
-fn establish_migration_connection(database_url: &str) -> Result<SqliteConnection> {
+pub(super) fn establish_connection(database_url: &str) -> Result<SqliteConnection> {
     let mut connection = SqliteConnection::establish(database_url)
         .context("establish SQLite database connection")?;
     connection
@@ -48,7 +48,7 @@ where
                 .build()
                 .context("build migration runtime")?;
             runtime.block_on(async move {
-                let connection = establish_migration_connection(&database_url)
+                let connection = establish_connection(&database_url)
                     .context("initialize flyway-rs SQLite connection")?;
                 let driver = Arc::new(DieselMigrationDriver::new(connection));
                 MigrationRunner::new(migrations, driver.clone(), driver, false)

@@ -395,11 +395,16 @@ fn retry_memory_write<T>(
     connection: &mut SqliteConnection,
     mut operation: impl FnMut(&mut SqliteConnection) -> Result<T>,
 ) -> Result<T> {
-    let deadline = Instant::now() + StdDuration::from_secs(2);
+    let mut retry_deadline = None;
     let mut delay = StdDuration::from_millis(5);
     loop {
         match operation(connection) {
-            Err(error) if sqlite_is_locked(&error) && Instant::now() < deadline => {
+            Err(error) if sqlite_is_locked(&error) => {
+                let deadline = retry_deadline
+                    .get_or_insert_with(|| Instant::now() + StdDuration::from_secs(2));
+                if Instant::now() >= *deadline {
+                    return Err(error);
+                }
                 std::thread::sleep(delay);
                 delay = (delay * 2).min(StdDuration::from_millis(100));
             }
