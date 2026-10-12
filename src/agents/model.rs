@@ -36,6 +36,12 @@ impl std::fmt::Display for ModelTimeout {
 
 impl std::error::Error for ModelTimeout {}
 
+pub(crate) fn is_timeout(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<ModelTimeout>().is_some())
+}
+
 pub(crate) fn invoke(
     provider: ModelProvider,
     model: &ModelConfig,
@@ -348,10 +354,7 @@ pub(crate) fn invoke_memory_consolidation(
     jobs: &[MemoryCompactionJob],
     working_directory: Option<&Path>,
 ) -> std::result::Result<MemoryConsolidationResult, MemoryConsolidationFailure> {
-    let model = match provider {
-        ModelProvider::Codex => &config.codex,
-        ModelProvider::Claude => &config.claude,
-    };
+    let model = config.model(provider);
     let jobs_json = jobs
         .iter()
         .map(|job| {
@@ -373,10 +376,7 @@ pub(crate) fn invoke_memory_consolidation(
         Duration::from_secs(config.timeout_seconds),
     )
     .map_err(|error| MemoryConsolidationFailure {
-        kind: if error
-            .chain()
-            .any(|cause| cause.downcast_ref::<ModelTimeout>().is_some())
-        {
+        kind: if is_timeout(&error) {
             MemoryConsolidationFailureKind::Timeout
         } else {
             MemoryConsolidationFailureKind::Invocation
@@ -407,6 +407,18 @@ mod memory_tests {
     };
     use chrono::Utc;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn timeout_classification_requires_the_typed_model_error() {
+        let timeout = anyhow::Error::new(ModelTimeout {
+            provider: ModelProvider::Claude,
+            seconds: 30,
+        });
+        assert!(is_timeout(&timeout));
+        assert!(!is_timeout(&anyhow::anyhow!(
+            "provider invocation timed out after 30 seconds"
+        )));
+    }
 
     fn memory_job(first: &str, second: &str) -> MemoryCompactionJob {
         let scope = MemoryScope::project("project-a");

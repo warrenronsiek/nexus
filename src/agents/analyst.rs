@@ -29,10 +29,8 @@ pub fn analyze(
     if !config.enabled {
         bail!("analyst is disabled; set analyst.enabled = true")
     }
-    let (provider, model) = match config.provider {
-        ModelProvider::Codex => (ModelProvider::Codex, &config.codex),
-        ModelProvider::Claude => (ModelProvider::Claude, &config.claude),
-    };
+    let provider = config.provider;
+    let model = config.model(provider);
     let prompt = analyst_prompt(conflict);
     let raw_output = model::invoke(
         provider,

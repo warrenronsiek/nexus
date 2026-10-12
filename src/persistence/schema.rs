@@ -1,9 +1,11 @@
 // @feature persistence
 // @feature usage-analytics
 // @feature agent-memory
+// @feature papercuts
 // @spec docs/features/persistence.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/papercuts.md
 diesel::table! {
     advisories (id) {
         id -> Text,
@@ -194,6 +196,76 @@ diesel::table! {
 }
 
 diesel::table! {
+    papercut_duplicate_reviews (id) {
+        id -> Text,
+        project_id -> Text,
+        papercut_id -> Text,
+        canonical_id -> Text,
+        reporter_session_id -> Text,
+        rationale -> Text,
+        question -> Text,
+        response -> Nullable<Text>,
+        status -> Text,
+        reviewer_agent -> Text,
+        reviewer_session_id -> Text,
+        provider -> Nullable<Text>,
+        model_id -> Nullable<Text>,
+        created_at -> Text,
+        responded_at -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    papercut_review_attempts (id) {
+        id -> Text,
+        project_id -> Text,
+        papercut_id -> Text,
+        outcome -> Text,
+        provider -> Text,
+        model_id -> Nullable<Text>,
+        detail -> Text,
+        config_hash -> Text,
+        created_at -> Text,
+    }
+}
+
+diesel::table! {
+    papercut_upvotes (id) {
+        id -> Text,
+        project_id -> Text,
+        papercut_id -> Text,
+        reported_papercut_id -> Text,
+        reporter_agent -> Text,
+        reporter_session_id -> Text,
+        reporter_model_id -> Nullable<Text>,
+        reporter_config_hash -> Text,
+        note -> Nullable<Text>,
+        created_at -> Text,
+    }
+}
+
+diesel::table! {
+    papercuts (id) {
+        id -> Text,
+        project_id -> Text,
+        title -> Text,
+        description -> Text,
+        fingerprint -> Text,
+        reporter_token_hash -> Text,
+        status -> Text,
+        consolidated_into -> Nullable<Text>,
+        resolution -> Nullable<Text>,
+        creator_agent -> Text,
+        creator_session_id -> Text,
+        creator_model_id -> Nullable<Text>,
+        creator_config_hash -> Text,
+        created_at -> Text,
+        updated_at -> Text,
+        resolved_at -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     sessions (session_id) {
         session_id -> Text,
         project_id -> Text,
@@ -222,5 +294,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     memory_frontier_snapshots,
     memory_spaces,
     memory_summaries,
+    papercut_duplicate_reviews,
+    papercut_review_attempts,
+    papercut_upvotes,
+    papercuts,
     sessions
 );

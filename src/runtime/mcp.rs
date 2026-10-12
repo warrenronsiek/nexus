@@ -1,9 +1,11 @@
 // @feature runtime
 // @feature usage-analytics
 // @feature agent-memory
+// @feature papercuts
 // @spec docs/features/runtime.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/papercuts.md
 // @entrypoint serve_stdio
 // @boundary dynamic-json
 use super::daemon;
@@ -116,9 +118,12 @@ async fn respond(
             {"uri":"nexus://sessions","name":"Active agent sessions","mimeType":"application/json"},
             {"uri":"nexus://claims","name":"Active advisory claims","mimeType":"application/json"},
             {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
-            {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"}
+            {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"},
+            {"uri":"nexus://papercuts","name":"Complete current-project papercut registry","mimeType":"application/json"}
         ]}}),
-        "resources/read" => resource_read(loaded, explicit_config, id, params).await,
+        "resources/read" => {
+            resource_read(loaded, invocation_context, explicit_config, id, params).await
+        }
         _ => {
             json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":format!("method not found: {method}")}})
         }
@@ -139,6 +144,9 @@ async fn tool_call(
         .unwrap_or_else(|| json!({}));
     let method = name.strip_prefix("nexus_").unwrap_or(name);
     enrich_memory_arguments(method, &mut arguments, invocation_context);
+    if method == "papercuts" {
+        enrich_papercut_arguments(&mut arguments, invocation_context);
+    }
     let lifecycle = ServiceRequest::is_lifecycle_method(method);
     let mut result = match ServiceRequest::decode(method, arguments) {
         Ok(request) if lifecycle => {
@@ -153,6 +161,21 @@ async fn tool_call(
     add_hook_context(method, &mut result);
     let text = hook_text(method, &result);
     json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&text).unwrap()}],"structuredContent":result,"isError":false}})
+}
+
+fn enrich_papercut_arguments(arguments: &mut Value, context: &McpInvocationContext) {
+    let Some(arguments) = arguments.as_object_mut() else {
+        return;
+    };
+    arguments
+        .entry("project_root")
+        .or_insert_with(|| Value::String(context.project_root.clone()));
+    arguments
+        .entry("session_id")
+        .or_insert_with(|| Value::String(context.session_id.clone()));
+    arguments
+        .entry("agent")
+        .or_insert_with(|| Value::String(context.agent.clone()));
 }
 
 fn enrich_memory_arguments(method: &str, arguments: &mut Value, context: &McpInvocationContext) {
@@ -328,20 +351,14 @@ fn model_visible_memory_read(method: &str, result: &Value) -> Option<Value> {
 
 async fn resource_read(
     loaded: &LoadedConfig,
+    invocation_context: &McpInvocationContext,
     explicit_config: Option<&Path>,
     id: Value,
     params: Value,
 ) -> Value {
     let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
-    let (method, arguments) = match uri {
-        "nexus://status" => ("status", json!({})),
-        "nexus://sessions" => ("sessions", json!({"scope":"active"})),
-        "nexus://claims" => ("claims", json!({"scope":"active"})),
-        "nexus://conflicts" => ("conflicts", json!({"scope":"open"})),
-        "nexus://events" => ("events", json!({"limit":100})),
-        _ => {
-            return json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"unknown resource"}})
-        }
+    let Some((method, arguments)) = resource_request(uri, invocation_context) else {
+        return json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"unknown resource"}});
     };
     let request = ServiceRequest::decode(method, arguments).expect("resource requests are valid");
     match daemon::ensure_and_request(loaded, explicit_config, &request).await {
@@ -351,6 +368,30 @@ async fn resource_read(
         Err(error) => {
             json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":error.to_string()}})
         }
+    }
+}
+
+fn resource_request(
+    uri: &str,
+    invocation_context: &McpInvocationContext,
+) -> Option<(&'static str, Value)> {
+    match uri {
+        "nexus://status" => Some(("status", json!({}))),
+        "nexus://sessions" => Some(("sessions", json!({"scope":"active"}))),
+        "nexus://claims" => Some(("claims", json!({"scope":"active"}))),
+        "nexus://conflicts" => Some(("conflicts", json!({"scope":"open"}))),
+        "nexus://events" => Some(("events", json!({"limit":100}))),
+        "nexus://papercuts" => Some((
+            "papercuts",
+            json!({
+                "action":"dump",
+                "scope":"project",
+                "project_root":invocation_context.project_root,
+                "session_id":invocation_context.session_id,
+                "agent":invocation_context.agent
+            }),
+        )),
+        _ => None,
     }
 }
 
@@ -399,8 +440,29 @@ fn coordination_tool_definitions() -> Vec<Value> {
         {"name":"nexus_memory_add","description":"Record one explicit durable memory. Nexus handles background consolidation.","inputSchema":{"type":"object","required":["scope","content"],"properties":{"scope":{"type":"string","enum":["global","project"]},"content":{"type":"string","maxLength":512}},"additionalProperties":false}},
         {"name":"nexus_memory_search","description":"Search authoritative raw memories with a case-insensitive Rust regular expression.","inputSchema":{"type":"object","required":["regex"],"properties":{"scope":{"type":"string","enum":["layered","global","project"],"default":"layered"},"regex":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":crate::memory::MAX_MEMORY_SEARCH_RESULTS,"default":50}},"additionalProperties":false}},
         {"name":"nexus_memory_expand","description":"Expand one derived memory summary into its two source children.","inputSchema":{"type":"object","required":["summary_id"],"properties":{"summary_id":{"type":"string"}},"additionalProperties":false}},
+        papercut_tool_definition(),
         {"name":"nexus_config","description":"Return resolved non-secret Nexus configuration and its hash.","inputSchema":{"type":"object"}}
     ]))
+}
+
+fn papercut_tool_definition() -> Value {
+    json!({
+        "name":"nexus_papercuts",
+        "description":"List, dump, report, upvote, remove, or respond to project development-environment papercuts. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
+        "inputSchema":{
+            "type":"object",
+            "required":["action"],
+            "properties":{
+                "action":{"type":"string","enum":["list","dump","report","upvote","remove","respond"]},
+                "project_root":{"type":"string"},"session_id":{"type":"string"},"agent":{"type":"string"},"turn_id":{"type":"string"},"model":{"type":"string"},
+                "scope":{"type":"string","enum":["project","all"],"default":"project"},
+                "title":{"type":"string"},"description":{"type":"string","default":""},
+                "papercut_id":{"type":"string"},"note":{"type":"string"},"resolution":{"type":"string"},
+                "review_id":{"type":"string"},"reporter_token":{"type":"string"},"decision":{"type":"string","enum":["approve","reject"]},"response":{"type":"string"}
+            },
+            "additionalProperties":false
+        }
+    })
 }
 
 fn json_array(value: Value) -> Vec<Value> {

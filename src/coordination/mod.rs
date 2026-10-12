@@ -9,3 +9,4 @@ mod usage_detection;
 mod workspace;
 
 pub use service::NexusService;
+pub(crate) use service::PapercutDispatch;
