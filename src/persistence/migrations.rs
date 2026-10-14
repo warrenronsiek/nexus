@@ -2,12 +2,12 @@
 // @spec docs/features/persistence.md
 // @entrypoint migrate_database
 use super::schema::flyway_migrations;
+use crate::persistence::backend::DbConnection;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use diesel::connection::{SimpleConnection, TransactionManager};
 use diesel::dsl::{max, min};
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
 use flyway::{
     migrations, ChangelogFile, MigrationExecutor, MigrationRunner, MigrationState,
     MigrationStateManager, MigrationStatus, MigrationStore, MigrationsError,
@@ -15,22 +15,44 @@ use flyway::{
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "sqlite")]
 #[migrations("migrations")]
 struct NexusMigrations {}
 
-pub(super) fn establish_connection(database_url: &str) -> Result<SqliteConnection> {
-    let mut connection = SqliteConnection::establish(database_url)
-        .context("establish SQLite database connection")?;
-    connection
-        .batch_execute("PRAGMA busy_timeout = 2000;")
-        .context("configure SQLite busy timeout")?;
-    Ok(connection)
+#[cfg(feature = "postgres")]
+#[migrations("postgres_migrations")]
+struct NexusMigrations {}
+
+pub(super) fn establish_connection(database_url: &str) -> Result<DbConnection> {
+    let connection =
+        DbConnection::establish(database_url).context("establish database connection")?;
+    #[cfg(feature = "sqlite")]
+    {
+        let mut connection = connection;
+        connection
+            .batch_execute("PRAGMA busy_timeout = 2000;")
+            .context("configure SQLite busy timeout")?;
+        Ok(connection)
+    }
+    #[cfg(feature = "postgres")]
+    {
+        Ok(connection)
+    }
 }
 
 pub(super) fn migrate_database(path: &Path) -> Result<Option<u64>> {
-    migrate_with(path, NexusMigrations {})
+    #[cfg(feature = "sqlite")]
+    {
+        migrate_with(path, NexusMigrations {})
+    }
+    #[cfg(feature = "postgres")]
+    {
+        let _ = path;
+        anyhow::bail!("filesystem database paths require the sqlite build");
+    }
 }
 
+#[cfg(feature = "sqlite")]
 fn migrate_with<S>(path: &Path, migrations: S) -> Result<Option<u64>>
 where
     S: MigrationStore + Send + 'static,
@@ -38,8 +60,59 @@ where
     let path = path
         .to_str()
         .with_context(|| format!("database path is not valid UTF-8: {}", path.display()))?;
-    let database_url = path.to_owned();
+    migrate_url_with(path.to_owned(), migrations)
+}
 
+pub(super) fn migrate_database_url(database_url: &str) -> Result<Option<u64>> {
+    migrate_url_with(database_url.to_owned(), NexusMigrations {})
+}
+
+#[cfg(feature = "sqlite")]
+pub(super) fn validate_portable_source_migrations(connection: &mut DbConnection) -> Result<()> {
+    let stored = flyway_migrations::table
+        .order(flyway_migrations::version.asc())
+        .select((
+            flyway_migrations::version,
+            flyway_migrations::name,
+            flyway_migrations::checksum,
+            flyway_migrations::status,
+        ))
+        .load::<(i64, String, String, String)>(connection)
+        .context("read SQLite migration history before portable export")?;
+    let mut expected = NexusMigrations {}.changelogs();
+    expected.sort_by_key(ChangelogFile::version);
+
+    for (version, name, checksum, status) in &stored {
+        let unsigned_version = u64::try_from(*version)
+            .with_context(|| format!("unsupported SQLite migration version {version}"))?;
+        let Some(changelog) = expected
+            .iter()
+            .find(|changelog| changelog.version() == unsigned_version)
+        else {
+            anyhow::bail!("unsupported SQLite migration version {version}");
+        };
+        if name != &changelog.name
+            || checksum != &changelog.checksum.to_string()
+            || status != "deployed"
+        {
+            anyhow::bail!("SQLite migration version {version} does not match this Nexus binary");
+        }
+    }
+
+    for changelog in &expected {
+        let version = migration_version(changelog.version())
+            .map_err(|error| anyhow!("validate embedded SQLite migration version: {error}"))?;
+        if !stored.iter().any(|stored| stored.0 == version) {
+            anyhow::bail!("SQLite migration history is missing supported version {version}");
+        }
+    }
+    Ok(())
+}
+
+fn migrate_url_with<S>(database_url: String, migrations: S) -> Result<Option<u64>>
+where
+    S: MigrationStore + Send + 'static,
+{
     std::thread::Builder::new()
         .name("nexus-database-migrations".to_owned())
         .spawn(move || {
@@ -49,7 +122,7 @@ where
                 .context("build migration runtime")?;
             runtime.block_on(async move {
                 let connection = establish_connection(&database_url)
-                    .context("initialize flyway-rs SQLite connection")?;
+                    .context("initialize migration connection")?;
                 let driver = Arc::new(DieselMigrationDriver::new(connection));
                 MigrationRunner::new(migrations, driver.clone(), driver, false)
                     .migrate()
@@ -63,7 +136,7 @@ where
 }
 
 struct DieselMigrationDriver {
-    connection: Mutex<SqliteConnection>,
+    connection: Mutex<DbConnection>,
 }
 
 enum VersionBound {
@@ -81,13 +154,13 @@ struct NewMigration<'a> {
 }
 
 impl DieselMigrationDriver {
-    fn new(connection: SqliteConnection) -> Self {
+    fn new(connection: DbConnection) -> Self {
         Self {
             connection: Mutex::new(connection),
         }
     }
 
-    fn connection(&self) -> flyway::Result<std::sync::MutexGuard<'_, SqliteConnection>> {
+    fn connection(&self) -> flyway::Result<std::sync::MutexGuard<'_, DbConnection>> {
         self.connection.lock().map_err(|_| {
             MigrationsError::migration_database_failed(
                 None,
@@ -116,7 +189,7 @@ impl DieselMigrationDriver {
 impl MigrationStateManager for DieselMigrationDriver {
     async fn prepare(&self) -> flyway::Result<()> {
         self.connection()?
-            .batch_execute(include_str!("../../migrations/V0_flyway_migrations.sql"))
+            .batch_execute(migration_bootstrap_sql())
             .map_err(|error| MigrationsError::migration_setup_failed(Some(error.into())))
     }
 
@@ -140,81 +213,81 @@ impl MigrationStateManager for DieselMigrationDriver {
             .collect()
     }
 
-    async fn begin_version(&self, changelog: &ChangelogFile) -> flyway::Result<()> {
-        diesel::insert_into(flyway_migrations::table)
-            .values(NewMigration {
-                version: migration_version(changelog.version())?,
-                name: &changelog.name,
-                checksum: changelog.checksum.to_string(),
-                status: "in_progress",
-            })
-            .execute(&mut *self.connection()?)
-            .map(|_| ())
-            .map_err(versioning_error)
+    // flyway 0.7 invokes these outside the changelog transaction. The executor records the
+    // deployed version beside the schema change so both commit or roll back together.
+    async fn begin_version(&self, _changelog: &ChangelogFile) -> flyway::Result<()> {
+        Ok(())
     }
 
-    async fn finish_version(&self, changelog: &ChangelogFile) -> flyway::Result<()> {
-        set_status(self, changelog, "deployed")
+    async fn finish_version(&self, _changelog: &ChangelogFile) -> flyway::Result<()> {
+        Ok(())
     }
 
-    async fn skip_version(&self, changelog: &ChangelogFile) -> flyway::Result<()> {
-        set_status(self, changelog, "skipped")
+    // Nexus always configures the runner to stop on failure, so this callback is unreachable.
+    async fn skip_version(&self, _changelog: &ChangelogFile) -> flyway::Result<()> {
+        Ok(())
     }
 }
 
 #[async_trait]
 impl MigrationExecutor for DieselMigrationDriver {
     async fn begin_transaction(&self) -> flyway::Result<()> {
-        <SqliteConnection as Connection>::TransactionManager::begin_transaction(
+        <DbConnection as Connection>::TransactionManager::begin_transaction(
             &mut *self.connection()?,
         )
         .map_err(database_error)
     }
 
     async fn execute_changelog_file(&self, changelog: &ChangelogFile) -> flyway::Result<()> {
-        self.connection()?
+        let mut connection = self.connection()?;
+        connection
             .batch_execute(changelog.content())
-            .map_err(database_step_error)
+            .map_err(database_step_error)?;
+        diesel::insert_into(flyway_migrations::table)
+            .values(NewMigration {
+                version: migration_version(changelog.version())?,
+                name: &changelog.name,
+                checksum: changelog.checksum.to_string(),
+                status: "deployed",
+            })
+            .execute(&mut *connection)
+            .map(|_| ())
+            .map_err(versioning_error)
     }
 
     async fn commit_transaction(&self) -> flyway::Result<()> {
-        <SqliteConnection as Connection>::TransactionManager::commit_transaction(
+        <DbConnection as Connection>::TransactionManager::commit_transaction(
             &mut *self.connection()?,
         )
         .map_err(database_error)
     }
 
     async fn rollback_transaction(&self) -> flyway::Result<()> {
-        <SqliteConnection as Connection>::TransactionManager::rollback_transaction(
+        <DbConnection as Connection>::TransactionManager::rollback_transaction(
             &mut *self.connection()?,
         )
         .map_err(database_error)
     }
 }
 
-fn set_status(
-    driver: &DieselMigrationDriver,
-    changelog: &ChangelogFile,
-    status: &str,
-) -> flyway::Result<()> {
-    diesel::update(
-        flyway_migrations::table
-            .filter(flyway_migrations::version.eq(migration_version(changelog.version())?)),
-    )
-    .set(flyway_migrations::status.eq(status))
-    .execute(&mut *driver.connection()?)
-    .map(|_| ())
-    .map_err(versioning_error)
-}
-
 fn migration_version(version: u64) -> flyway::Result<i64> {
     i64::try_from(version).map_err(|error| {
         MigrationsError::custom_message(
-            "migration version exceeds SQLite integer range",
+            "migration version exceeds database integer range",
             None,
             Some(error.into()),
         )
     })
+}
+
+#[cfg(feature = "sqlite")]
+fn migration_bootstrap_sql() -> &'static str {
+    include_str!("../../migrations/V0_flyway_migrations.sql")
+}
+
+#[cfg(feature = "postgres")]
+fn migration_bootstrap_sql() -> &'static str {
+    include_str!("../../postgres_migrations/V0_flyway_migrations.sql")
 }
 
 fn deployed_state(version: i64) -> flyway::Result<MigrationState> {
@@ -237,131 +310,5 @@ fn versioning_error(error: diesel::result::Error) -> MigrationsError {
     MigrationsError::migration_versioning_failed(Some(error.into()))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use flyway::ChangelogFile;
-
-    struct ThroughVersion(u64);
-
-    impl MigrationStore for ThroughVersion {
-        fn changelogs(&self) -> Vec<ChangelogFile> {
-            NexusMigrations {}
-                .changelogs()
-                .into_iter()
-                .filter(|changelog| changelog.version() <= self.0)
-                .collect()
-        }
-    }
-
-    #[test]
-    fn applies_only_unseen_versions_and_is_idempotent() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("upgrade.db");
-
-        assert_eq!(migrate_with(&path, ThroughVersion(0)).unwrap(), Some(0));
-        assert_eq!(migrate_database(&path).unwrap(), Some(5));
-        assert_eq!(migrate_database(&path).unwrap(), Some(5));
-    }
-
-    #[test]
-    fn upgrades_an_existing_v2_database_without_losing_events() {
-        use super::super::models::NewEvent;
-        use super::super::schema::events;
-
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("upgrade-v2.db");
-        assert_eq!(migrate_with(&path, ThroughVersion(2)).unwrap(), Some(2));
-
-        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
-        diesel::insert_into(events::table)
-            .values(NewEvent {
-                project_id: "project-before-upgrade",
-                session_id: None,
-                kind: "pre_upgrade_event",
-                payload_json: "{}".to_owned(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .execute(&mut connection)
-            .unwrap();
-        drop(connection);
-
-        assert_eq!(migrate_database(&path).unwrap(), Some(5));
-        let mut store = super::super::Store::open(&path).unwrap();
-        let events = store
-            .list_events(Some("project-before-upgrade"), 10)
-            .unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, "pre_upgrade_event");
-        assert!(store
-            .usage_summary(
-                None,
-                chrono::Utc::now() - chrono::Duration::days(7),
-                chrono::Utc::now(),
-            )
-            .unwrap()
-            .tools
-            .is_empty());
-    }
-
-    #[test]
-    fn upgrades_an_existing_v3_database_with_agent_memory_tables() {
-        use super::super::schema::memory_spaces;
-
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("upgrade-v3.db");
-        assert_eq!(migrate_with(&path, ThroughVersion(3)).unwrap(), Some(3));
-        assert_eq!(migrate_database(&path).unwrap(), Some(5));
-
-        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
-        assert_eq!(
-            memory_spaces::table
-                .count()
-                .get_result::<i64>(&mut connection)
-                .unwrap(),
-            0
-        );
-    }
-
-    #[test]
-    fn upgrades_an_existing_v4_database_with_empty_papercut_registry() {
-        use super::super::schema::{
-            papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts,
-        };
-
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("upgrade-v4.db");
-        assert_eq!(migrate_with(&path, ThroughVersion(4)).unwrap(), Some(4));
-        assert_eq!(migrate_database(&path).unwrap(), Some(5));
-
-        let mut connection = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
-        assert_eq!(
-            papercuts::table
-                .count()
-                .get_result::<i64>(&mut connection)
-                .unwrap(),
-            0
-        );
-        assert_eq!(
-            papercut_upvotes::table
-                .count()
-                .get_result::<i64>(&mut connection)
-                .unwrap(),
-            0
-        );
-        assert_eq!(
-            papercut_duplicate_reviews::table
-                .count()
-                .get_result::<i64>(&mut connection)
-                .unwrap(),
-            0
-        );
-        assert_eq!(
-            papercut_review_attempts::table
-                .count()
-                .get_result::<i64>(&mut connection)
-                .unwrap(),
-            0
-        );
-    }
-}
+#[cfg(all(test, feature = "sqlite"))]
+mod tests;

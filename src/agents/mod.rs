@@ -7,3 +7,4 @@ pub mod integration;
 pub(crate) mod model;
 pub mod papercuts;
 pub mod reviewer;
+pub(crate) mod sos;

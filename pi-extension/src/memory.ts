@@ -109,14 +109,6 @@ export interface MemoryApi {
   consolidate(): Promise<void>;
 }
 
-export interface MemoryLifecycle {
-  session_id: string;
-  project_root: string;
-  agent?: string;
-  turn_id?: string;
-  model?: string;
-}
-
 type JsonObject = Record<string, unknown>;
 
 function isObject(value: unknown): value is JsonObject {
@@ -320,7 +312,6 @@ export class NexusMemoryApi implements MemoryApi {
   constructor(
     private readonly client: Pick<NexusMcpClient, "call">,
     private readonly cwd: string,
-    private readonly lifecycle: () => MemoryLifecycle,
   ) {}
 
   async load(): Promise<MemoryView> {
@@ -361,7 +352,7 @@ export class NexusMemoryApi implements MemoryApi {
   async add(scopeValue: "global" | "project", content: string): Promise<void> {
     const result = response(await this.client.call(
       "nexus_memory_add",
-      { ...this.lifecycle(), scope: scopeValue, content },
+      { scope: scopeValue, content },
       this.cwd,
     ));
     boolean(result.inserted, "inserted");

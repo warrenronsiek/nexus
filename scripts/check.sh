@@ -33,6 +33,8 @@ fi
 "${python_command}" scripts/complexity_analysis.py --check
 "${python_command}" -m unittest tests/test_feature_map.py tests/test_complexity_analysis.py
 scripts/check-pi-extension.sh
+scripts/test-docker-healthcheck.sh
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
+cargo clippy --no-default-features --features postgres --bin nexus-server -- -D warnings
 cargo test --all-targets

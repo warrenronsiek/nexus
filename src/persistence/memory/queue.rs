@@ -20,12 +20,12 @@ struct QueueRange {
 }
 
 pub(super) fn enqueue_raw_parent(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     entry: &MemoryEntry,
     now: &str,
 ) -> Result<()> {
-    if entry.ordinal % 2 == 0 {
+    if entry.ordinal.is_multiple_of(2) {
         return Ok(());
     }
     let range = QueueRange {
@@ -38,7 +38,7 @@ pub(super) fn enqueue_raw_parent(
 }
 
 pub(super) fn complete_summary_insert(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     now: &str,
 ) -> Result<()> {
@@ -70,7 +70,7 @@ fn parent_range(job: &MemoryCompactionJob) -> Option<QueueRange> {
 }
 
 pub(super) fn prepare_summary_invalidation(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     target: &MemorySummaryRow,
 ) -> Result<()> {
     diesel::delete(
@@ -84,7 +84,7 @@ pub(super) fn prepare_summary_invalidation(
 }
 
 pub(super) fn enqueue_invalidated_summary(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     target: &MemorySummaryRow,
     now: &str,
 ) -> Result<()> {
@@ -102,7 +102,7 @@ pub(super) fn enqueue_invalidated_summary(
 }
 
 pub(super) fn ready_jobs(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     providers: &[&str],
     now: DateTime<Utc>,
     limit: usize,
@@ -114,7 +114,7 @@ pub(super) fn ready_jobs(
 }
 
 fn load_ready_jobs(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     providers: &[&str],
     now: DateTime<Utc>,
     limit: usize,
@@ -135,7 +135,7 @@ fn load_ready_jobs(
 }
 
 pub(super) fn update_provider_retry(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     provider: &str,
     next_retry_at: Option<&str>,
@@ -177,7 +177,7 @@ fn provider_selection(providers: &[&str]) -> Result<ProviderSelection> {
 }
 
 fn first_ready_level(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     selection: ProviderSelection,
     now: &str,
 ) -> Result<Option<i32>> {
@@ -194,7 +194,7 @@ fn first_ready_level(
 }
 
 fn load_ready_rows(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     selection: ProviderSelection,
     now: &str,
     level: i32,
@@ -215,7 +215,7 @@ fn load_ready_rows(
 fn ready_query<'a>(
     selection: ProviderSelection,
     now: &'a str,
-) -> memory_compaction_queue::BoxedQuery<'a, diesel::sqlite::Sqlite> {
+) -> memory_compaction_queue::BoxedQuery<'a, crate::persistence::backend::DbBackend> {
     let query = memory_compaction_queue::table.into_boxed();
     match selection {
         ProviderSelection::Any => query,
@@ -240,7 +240,7 @@ fn ready_query<'a>(
 }
 
 fn materialize_jobs(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     rows: Vec<MemoryCompactionQueueRow>,
 ) -> Result<Vec<MemoryCompactionJob>> {
     let mut jobs = Vec::new();
@@ -296,7 +296,7 @@ fn queue_job(space: &MemorySpaceRow, row: MemoryCompactionQueueRow) -> Result<Me
 }
 
 fn enqueue_range_if_ready(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     range: QueueRange,
     now: &str,
@@ -309,7 +309,7 @@ fn enqueue_range_if_ready(
 }
 
 fn queue_source(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     range: QueueRange,
 ) -> Result<Option<String>> {
@@ -332,7 +332,7 @@ fn queue_source(
 }
 
 fn persist_queue_range(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     range: QueueRange,
     source_hash: &str,
@@ -368,7 +368,7 @@ fn persist_queue_range(
 }
 
 fn delete_queue_range(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_id: &str,
     level: u32,
     start: u64,

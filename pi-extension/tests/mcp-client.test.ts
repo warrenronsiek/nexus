@@ -2,6 +2,7 @@
 // @spec docs/features/agent-memory.md
 import { expect, it, vi } from "vitest";
 import {
+  mcpInvocation,
   NexusMcpClient,
   type McpProcess,
 } from "../src/mcp-client.ts";
@@ -82,6 +83,22 @@ function processHarness(): {
     kill,
   };
 }
+
+it("preserves the installed executable and explicit config in Pi MCP argv", () => {
+  expect(mcpInvocation({
+    executable: "/opt/Nexus App/nexus",
+    config: "/Users/agent/Nexus Config/remote.toml",
+  })).toEqual({
+    executable: "/opt/Nexus App/nexus",
+    arguments: [
+      "--config",
+      "/Users/agent/Nexus Config/remote.toml",
+      "mcp",
+      "--agent",
+      "pi",
+    ],
+  });
+});
 
 it("terminates a stalled MCP child when the client closes", async () => {
   vi.useFakeTimers();

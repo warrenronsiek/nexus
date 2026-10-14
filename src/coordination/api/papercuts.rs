@@ -65,6 +65,7 @@ pub enum PapercutResponse {
     Listed {
         ok: bool,
         papercuts: Vec<Papercut>,
+        truncated: bool,
     },
     Dumped {
         ok: bool,

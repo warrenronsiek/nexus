@@ -32,14 +32,18 @@ flowchart TD
     K[scripts/check.sh] --> G
     K --> J
     K --> L[Run both Python tooling test modules]
-    K --> M[Run Rust format, Clippy, and tests]
+    K --> M[Run Rust format, default suite, and PostgreSQL server Clippy]
     N[Tracked pre-commit hook] --> K
     N --> S[Parallel advisory cross-model review]
-    O[CI with pinned analyzer] --> K
+    O[Matrix CI with pinned analyzer] --> K
+    O --> PG[PostgreSQL 17 integration test]
+    O --> DI[Exercise production Compose service]
     G --> P{All checks pass?}
     J --> P
     L --> P
     M --> P
+    PG --> P
+    DI --> P
     P -->|Yes| Q[Validation succeeds]
     P -->|No| R[Print actionable failures]
 ```
@@ -58,17 +62,23 @@ flowchart TD
 10. **Apply committed metric and repetition policy** makes `--check` use the reviewed BCA gates in `bca.toml` and the repository repetition policy in `complexity.toml`.
 11. **`scripts/check.sh`** is the single local validation entry point and runs each required check from the repository root. On macOS it selects installed Command Line Tools so unrelated full-Xcode license state cannot break the Rust linker.
 12. **Run both Python tooling test modules** verifies the feature-map and complexity-wrapper behavior together.
-13. **Run Rust format, Clippy, and tests** keeps compiler-backed validation and the complete application suite in the same path.
+13. **Run Docker healthcheck regression, Rust format, default suite, and PostgreSQL server Clippy** proves the pre-ready startup watchdog before keeping compiler-backed validation and the complete SQLite application suite in the same path, then compiles and lints the PostgreSQL-only `nexus-server` binary with warnings denied.
 14. **Tracked pre-commit hook** invokes the shared check after `scripts/install-hooks.sh` configures this checkout's `core.hooksPath`. It clears Git's repository-local environment variables for validation children so temporary test repositories resolve from their own working directories; the subsequent staged-diff review retains the hook's Git context.
 15. **Parallel advisory cross-model review** runs code-architect and code-deletion perspectives after deterministic checks and prints their findings without converting them into a commit decision.
-16. **CI with pinned analyzer** provisions Python 3.12, installs `big-code-analysis-cli==2.2.0` into that managed runtime, and invokes the same deterministic check on Linux and macOS.
-17. **All checks pass** joins the independent deterministic results into one success or non-zero failure for hooks and CI.
-18. **Validation succeeds** allows the caller to continue once every deterministic architecture, tooling, and Rust check passes.
-19. **Print actionable failures** preserves the failing tool's diagnostics and stops the shared check immediately.
+16. **Matrix CI with pinned analyzer** provisions Python 3.12, installs `big-code-analysis-cli==2.2.0` into that managed runtime, and invokes the same deterministic check on Linux and macOS.
+17. **PostgreSQL 17 integration test** starts an isolated service database and runs the feature-gated test with `NEXUS_TEST_DATABASE_URL`, proving migrations plus coordination, memory, and papercut semantics against the server backend.
+18. **Exercise production Compose service** builds the locked PostgreSQL-only `nexus-server` image, boots it with PostgreSQL, verifies generated-secret MCP authentication and durable feature state, and restarts both service and database to exercise recovery.
+19. **All checks pass** joins the independent deterministic results into one success or non-zero failure for hooks and CI.
+20. **Validation succeeds** allows the caller to continue once every deterministic architecture, tooling, and Rust check passes.
+21. **Print actionable failures** preserves the failing tool's diagnostics and stops the shared check immediately.
 
 ## Implementation details
 
-`scripts/feature_map.py` implements exploration and annotation lint using only the Python standard library. It discovers Rust, Python, and TypeScript/JavaScript symbols and skips generated `dist` and dependency trees. The `complexity-analysis` feature owns `scripts/complexity_analysis.py`, the reviewed BCA gates in `bca.toml`, and repetition policy in `complexity.toml`; this feature only composes its `--check` contract. `scripts/check.sh` combines both linters, both Python test modules, locked Pi-extension validation, formatting, Clippy, and Rust tests. It honors an explicit `PYTHON` interpreter and otherwise selects an available Python 3.11-or-newer executable when the default `python3` lacks the standard-library `tomllib` module. `.githooks/pre-commit` runs that deterministic script and then invokes the separately specified advisory commit review. `.github/workflows/ci.yml` deliberately calls only the deterministic script because CI has neither the implementation-model identity nor user model credentials. CI installs the analyzer and Node at pinned major versions before running it, while `scripts/install-hooks.sh` opts a local checkout into the tracked hook with repository-local Git configuration.
+`scripts/feature_map.py` implements exploration and annotation lint using only the Python standard library. It discovers Rust, Python, and TypeScript/JavaScript symbols and skips generated `dist` and dependency trees. The `complexity-analysis` feature owns `scripts/complexity_analysis.py`, the reviewed BCA gates in `bca.toml`, and repetition policy in `complexity.toml`; this feature only composes its `--check` contract. `scripts/check.sh` combines both linters, both Python test modules, locked Pi-extension validation, the Docker startup-watchdog regression, formatting, default-feature Clippy and Rust tests, and a warnings-denied PostgreSQL server Clippy build. It honors an explicit `PYTHON` interpreter and otherwise selects an available Python 3.11-or-newer executable when the default `python3` lacks the standard-library `tomllib` module. `.githooks/pre-commit` runs that deterministic script and then invokes the separately specified advisory commit review.
+
+`.github/workflows/ci.yml` deliberately runs only deterministic work because CI has neither the implementation-model identity nor user model credentials. Its Linux/macOS matrix installs the analyzer and Node at pinned major versions before running `scripts/check.sh`. A separate Linux job provisions PostgreSQL 17 and runs `cargo test --locked --no-default-features --features postgres --test postgres_service`; another runs `scripts/test-docker-service.sh` against the production Compose stack. Keeping those environment-dependent checks separate preserves the one-command local gate while proving the deployable backend, generated-secret flow, MCP endpoint, durable state, and restart recovery in CI. `scripts/install-hooks.sh` opts a local checkout into the tracked hook with repository-local Git configuration.
+
+`Cargo.toml` declares Rust 1.88 as the minimum supported toolchain, and the container builder uses the same baseline. CI may use a newer stable compiler, but code and dependency choices must remain compatible with that declared minimum.
 
 `AGENTS.md` contains the feature catalog and shared validation command. `tests/test_feature_map.py` verifies both a valid fixture and failures for missing Python types and an unmarked dynamic boundary; `tests/test_complexity_analysis.py` verifies the wrapper's scope translation, output, and threshold behavior. CI provisions Python 3.12 with `actions/setup-python` instead of modifying the runner's system-managed Python environment, keeping analyzer installation portable across Linux and macOS runners.
 

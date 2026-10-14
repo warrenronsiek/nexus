@@ -191,7 +191,12 @@ pub(super) fn session_from_row(row: SessionRow) -> Result<SessionRecord> {
         agent: row.agent,
         worktree: row.worktree,
         status: SessionStatus::from_str(&row.status).map_err(anyhow::Error::msg)?,
-        task_summary: row.task_summary,
+        task_summary: row.task_summary.map(|summary| {
+            crate::coordination::domain::truncate_utf8(
+                summary,
+                crate::coordination::api::MAX_SESSION_SUMMARY_BYTES,
+            )
+        }),
         last_seen_at: parse_time(&row.last_seen_at)?,
     })
 }

@@ -6,7 +6,7 @@ use super::super::schema::{
     papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts,
 };
 use super::super::store::append_event;
-use super::super::transaction::{transaction, TransactionMode};
+use super::super::transaction::{prepared_immediate_transaction, transaction, TransactionMode};
 use super::super::Store;
 use super::mutations::{reopen_papercut, touch_papercut};
 use super::records::{
@@ -18,10 +18,10 @@ use super::{PapercutDuplicateProposal, PapercutReviewAttemptRecord};
 use crate::papercuts::{
     DuplicateReview, PapercutActor, PapercutReviewAttemptOutcome, PapercutReviewDecision,
 };
+use crate::persistence::backend::DbConnection;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -171,11 +171,11 @@ impl Store {
         &mut self,
         record: PapercutReviewAttemptRecord<'_>,
     ) -> Result<()> {
-        let write = PreparedAttempt::prepare(record)?;
-        transaction(
+        prepared_immediate_transaction(
             &mut self.connection,
-            TransactionMode::Immediate,
-            |connection| record_attempt_transaction(connection, &write),
+            record,
+            PreparedAttempt::prepare,
+            record_attempt_transaction,
         )
     }
 }
@@ -192,7 +192,7 @@ fn validate_proposal(proposal: &PapercutDuplicateProposal<'_>) -> Result<()> {
 }
 
 fn propose_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &PreparedProposal<'_>,
 ) -> Result<String> {
     if let Some(existing) =
@@ -205,7 +205,7 @@ fn propose_transaction(
 }
 
 fn review_candidates(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &PreparedProposal<'_>,
 ) -> Result<PapercutRow> {
     let source = load_papercut_row(connection, write.input.project_id, write.input.papercut_id)?;
@@ -217,7 +217,7 @@ fn review_candidates(
 }
 
 fn insert_duplicate_review(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &PreparedProposal<'_>,
     source: &PapercutRow,
 ) -> Result<String> {
@@ -257,7 +257,7 @@ fn insert_duplicate_review(
 }
 
 fn respond_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &ReviewResponseWrite<'_>,
 ) -> Result<()> {
     let review = load_review_row(connection, write.review_id)?;
@@ -269,7 +269,7 @@ fn respond_transaction(
 }
 
 fn authorize_response(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     review: &DuplicateReviewRow,
     reporter_token: &str,
 ) -> Result<()> {
@@ -281,7 +281,7 @@ fn authorize_response(
 }
 
 fn finish_review(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     review: &DuplicateReviewRow,
     write: &ReviewResponseWrite<'_>,
 ) -> Result<()> {
@@ -324,7 +324,7 @@ fn finish_review(
 }
 
 fn consolidate_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: ConsolidationWrite<'_>,
 ) -> Result<()> {
     let plan = plan_consolidation(connection, &write)?;
@@ -346,7 +346,7 @@ fn consolidate_transaction(
 }
 
 fn plan_consolidation(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &ConsolidationWrite<'_>,
 ) -> Result<MergePlan> {
     let source = load_papercut_row(connection, write.project_id, write.source_id)?;
@@ -361,7 +361,7 @@ fn plan_consolidation(
 }
 
 fn apply_consolidation(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     source: &PapercutRow,
     target: &PapercutRow,
     now: &str,
@@ -388,7 +388,7 @@ fn apply_consolidation(
 }
 
 fn record_attempt_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &PreparedAttempt<'_>,
 ) -> Result<()> {
     let _ = load_papercut_row(connection, write.input.project_id, write.input.papercut_id)?;
@@ -432,7 +432,7 @@ fn review_event_kind(outcome: PapercutReviewAttemptOutcome) -> &'static str {
 }
 
 fn pending_review(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
     papercut_id: &str,
 ) -> Result<Option<DuplicateReviewRow>> {
@@ -446,10 +446,7 @@ fn pending_review(
         .map_err(Into::into)
 }
 
-fn load_review_row(
-    connection: &mut SqliteConnection,
-    review_id: &str,
-) -> Result<DuplicateReviewRow> {
+fn load_review_row(connection: &mut DbConnection, review_id: &str) -> Result<DuplicateReviewRow> {
     papercut_duplicate_reviews::table
         .find(review_id)
         .select(DuplicateReviewRow::as_select())
@@ -458,7 +455,7 @@ fn load_review_row(
 }
 
 fn load_duplicate_review(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     review_id: &str,
 ) -> Result<DuplicateReview> {
     load_review_row(connection, review_id)?.into_domain()

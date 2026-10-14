@@ -73,7 +73,7 @@ impl Store {
 }
 
 fn invalidate_summary_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     summary_id: &str,
     now: &str,
 ) -> Result<(usize, MemoryScope)> {
@@ -87,7 +87,7 @@ fn invalidate_summary_transaction(
 }
 
 fn apply_summary_invalidation(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     target: &MemorySummaryRow,
     now: &str,
 ) -> Result<usize> {
@@ -100,7 +100,7 @@ fn apply_summary_invalidation(
 }
 
 fn delete_summary_and_ancestors(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     target: &MemorySummaryRow,
 ) -> Result<usize> {
     diesel::delete(
@@ -114,7 +114,7 @@ fn delete_summary_and_ancestors(
 }
 
 fn finish_summary_invalidation(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     target: &MemorySummaryRow,
     now: &str,
 ) -> Result<()> {
@@ -130,7 +130,7 @@ struct PendingSummary<'a> {
 }
 
 fn insert_summary_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     pending: &PendingSummary<'_>,
 ) -> Result<MemorySummaryInsert> {
@@ -144,7 +144,7 @@ fn insert_summary_transaction(
 }
 
 fn existing_summary_insert(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
 ) -> Result<Option<MemorySummaryInsert>> {
     let existing = find_summary_row(
@@ -166,7 +166,7 @@ fn existing_summary_insert(
 }
 
 fn source_snapshot_matches(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
 ) -> Result<bool> {
     let current_children = load_job_children(connection, job)?;
@@ -174,7 +174,7 @@ fn source_snapshot_matches(
 }
 
 fn persist_summary(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     pending: &PendingSummary<'_>,
 ) -> Result<MemorySummaryInsert> {
@@ -196,7 +196,7 @@ fn persist_summary(
 }
 
 fn insert_summary_row(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     id: &str,
     content_hash: &str,
     job: &MemoryCompactionJob,
@@ -220,7 +220,7 @@ fn insert_summary_row(
     Ok(())
 }
 
-fn bump_space_revision(connection: &mut SqliteConnection, space_id: &str, now: &str) -> Result<()> {
+fn bump_space_revision(connection: &mut DbConnection, space_id: &str, now: &str) -> Result<()> {
     diesel::update(memory_spaces::table.find(space_id))
         .set((
             memory_spaces::revision.eq(memory_spaces::revision + 1),
@@ -231,7 +231,7 @@ fn bump_space_revision(connection: &mut SqliteConnection, space_id: &str, now: &
 }
 
 fn load_summary_required(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     summary_id: &str,
 ) -> Result<MemorySummaryRow> {
     memory_summaries::table
@@ -243,7 +243,7 @@ fn load_summary_required(
 }
 
 fn summary_expansion_job(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     row: MemorySummaryRow,
 ) -> Result<MemoryCompactionJob> {
     let space = memory_spaces::table
@@ -263,7 +263,7 @@ fn summary_expansion_job(
 }
 
 pub(super) fn load_job_children(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
 ) -> Result<Vec<MemoryNode>> {
     let half = (job.end_ordinal - job.start_ordinal) / 2;
@@ -341,7 +341,7 @@ pub(super) fn validate_compaction_job(job: &MemoryCompactionJob) -> Result<()> {
         .context("memory compaction range ends before it starts")?;
     if job.level == 0
         || actual_width != width
-        || job.start_ordinal % width != 0
+        || !job.start_ordinal.is_multiple_of(width)
         || job.children.len() != 2
     {
         bail!("memory compaction job is not an aligned power-of-two range");
@@ -350,7 +350,7 @@ pub(super) fn validate_compaction_job(job: &MemoryCompactionJob) -> Result<()> {
 }
 
 pub(super) fn find_summary_row(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_id: &str,
     start: u64,
     end: u64,

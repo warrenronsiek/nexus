@@ -123,7 +123,7 @@ fn next_retry_at(attempted_at: DateTime<Utc>, consecutive_failures: i32) -> Opti
 }
 
 fn persist_attempt(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     attempt: &MemoryCompactionAttempt,
     prepared: &PreparedAttempt,
@@ -150,7 +150,7 @@ fn persist_attempt(
 }
 
 fn selected_spaces(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<Vec<MemorySpaceRow>> {
     let mut query = memory_spaces::table.into_boxed();
@@ -169,7 +169,7 @@ fn selected_spaces(
 }
 
 fn load_health_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     spaces: &[MemorySpaceRow],
     project_id: Option<&str>,
     now: DateTime<Utc>,
@@ -195,7 +195,7 @@ fn load_health_snapshot(
 }
 
 fn load_queue_health(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_ids: &[String],
     now: DateTime<Utc>,
 ) -> Result<QueueHealthSnapshot> {
@@ -208,7 +208,7 @@ fn load_queue_health(
 }
 
 fn load_attempt_health(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_ids: &[String],
 ) -> Result<AttemptHealthSnapshot> {
     Ok(AttemptHealthSnapshot {
@@ -219,7 +219,7 @@ fn load_attempt_health(
 }
 
 fn load_scope_health_rows(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     spaces: &[MemorySpaceRow],
     project_id: Option<&str>,
 ) -> Result<Vec<MemoryScopeHealth>> {
@@ -258,7 +258,7 @@ fn empty_scope_health(scope: MemoryScope) -> MemoryScopeHealth {
 }
 
 fn load_scope_health(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
 ) -> Result<MemoryScopeHealth> {
     let raw_entries = memory_entries::table
@@ -290,7 +290,7 @@ fn finalize_health(snapshot: HealthSnapshot) -> Result<MemoryHealth> {
     })
 }
 
-fn pending_summary_count(connection: &mut SqliteConnection, space_ids: &[String]) -> Result<usize> {
+fn pending_summary_count(connection: &mut DbConnection, space_ids: &[String]) -> Result<usize> {
     if space_ids.is_empty() {
         return Ok(0);
     }
@@ -302,7 +302,7 @@ fn pending_summary_count(connection: &mut SqliteConnection, space_ids: &[String]
     )
 }
 
-fn failed_attempt_count(connection: &mut SqliteConnection, space_ids: &[String]) -> Result<usize> {
+fn failed_attempt_count(connection: &mut DbConnection, space_ids: &[String]) -> Result<usize> {
     if space_ids.is_empty() {
         return Ok(0);
     }
@@ -319,7 +319,7 @@ fn failed_attempt_count(connection: &mut SqliteConnection, space_ids: &[String])
     )
 }
 
-fn fallback_use_count(connection: &mut SqliteConnection, space_ids: &[String]) -> Result<usize> {
+fn fallback_use_count(connection: &mut DbConnection, space_ids: &[String]) -> Result<usize> {
     if space_ids.is_empty() {
         return Ok(0);
     }
@@ -333,7 +333,7 @@ fn fallback_use_count(connection: &mut SqliteConnection, space_ids: &[String]) -
 }
 
 fn active_cooldown_count(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_ids: &[String],
     now: DateTime<Utc>,
 ) -> Result<usize> {
@@ -358,10 +358,7 @@ fn active_cooldown_count(
     )
 }
 
-fn queued_dual_failure_exists(
-    connection: &mut SqliteConnection,
-    space_ids: &[String],
-) -> Result<bool> {
+fn queued_dual_failure_exists(connection: &mut DbConnection, space_ids: &[String]) -> Result<bool> {
     if space_ids.is_empty() {
         return Ok(false);
     }
@@ -376,7 +373,7 @@ fn queued_dual_failure_exists(
 }
 
 fn latest_provider_attempts(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_ids: &[String],
 ) -> Result<Vec<MemoryCompactionAttemptRow>> {
     if space_ids.is_empty() {
@@ -402,7 +399,7 @@ fn latest_provider_attempts(
 }
 
 fn active_provider_retries(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_ids: &[String],
     now: DateTime<Utc>,
 ) -> Result<BTreeMap<String, DateTime<Utc>>> {
@@ -420,7 +417,7 @@ fn active_provider_retries(
 }
 
 fn active_provider_retry(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_ids: &[String],
     provider: &str,
     now: &str,
@@ -481,7 +478,7 @@ fn provider_health(
 }
 
 fn last_activation_at(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<Option<DateTime<Utc>>> {
     if let Some(project_id) = project_id {
@@ -502,7 +499,7 @@ fn last_activation_at(
 }
 
 fn latest_activation_for_scope(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<Option<DateTime<Utc>>> {
     let mut query = memory_activations::table.into_boxed();
@@ -524,7 +521,7 @@ fn latest_activation_for_scope(
 }
 
 pub(super) fn provider_can_attempt(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     provider: &str,
     now: DateTime<Utc>,
@@ -537,7 +534,7 @@ pub(super) fn provider_can_attempt(
 }
 
 fn latest_attempt(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     job: &MemoryCompactionJob,
     provider: &str,
 ) -> Result<Option<MemoryCompactionAttemptRow>> {

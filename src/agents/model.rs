@@ -5,42 +5,19 @@
 // @spec docs/features/commit-review.md
 // @spec docs/features/agent-memory.md
 // @boundary dynamic-model-output
+mod process;
+mod provider;
+
 use crate::config::{AnalystConfig, ModelConfig, ModelProvider};
 use crate::memory::MemoryCompactionJob;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
-use wait_timeout::ChildExt;
 
-#[derive(Debug)]
-struct ModelTimeout {
-    provider: ModelProvider,
-    seconds: u64,
-}
-
-impl std::fmt::Display for ModelTimeout {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "{} model timed out after {} seconds",
-            provider_name(self.provider),
-            self.seconds
-        )
-    }
-}
-
-impl std::error::Error for ModelTimeout {}
-
-pub(crate) fn is_timeout(error: &anyhow::Error) -> bool {
-    error
-        .chain()
-        .any(|cause| cause.downcast_ref::<ModelTimeout>().is_some())
-}
+pub(crate) use process::{disable_in_process_provider_execution, is_timeout};
 
 pub(crate) fn invoke(
     provider: ModelProvider,
@@ -49,167 +26,14 @@ pub(crate) fn invoke(
     working_directory: Option<&Path>,
     timeout: Duration,
 ) -> Result<String> {
-    let mut command = model_command(provider, model);
-    if let Some(directory) = working_directory.filter(|path| path.exists()) {
-        command.current_dir(directory);
+    process::Invocation {
+        provider,
+        model,
+        prompt,
+        working_directory,
+        timeout,
     }
-    let process = start_model_process(command, provider, model, prompt)?;
-    finish_model_process(process, provider, timeout)
-}
-
-fn model_command(provider: ModelProvider, model: &ModelConfig) -> Command {
-    let mut command = Command::new(&model.command);
-    match provider {
-        ModelProvider::Codex => {
-            command.args([
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "--json",
-            ]);
-            if let Some(model) = &model.model {
-                command.args(["--model", model]);
-            }
-            if let Some(effort) = &model.reasoning_effort {
-                command
-                    .arg("-c")
-                    .arg(format!("model_reasoning_effort={effort:?}"));
-            }
-            command.arg("-");
-        }
-        ModelProvider::Claude => {
-            command.args([
-                "-p",
-                "--output-format",
-                "json",
-                "--permission-mode",
-                "plan",
-                "--no-session-persistence",
-            ]);
-            if let Some(model) = &model.model {
-                command.args(["--model", model]);
-            }
-            if let Some(effort) = &model.reasoning_effort {
-                command.args(["--effort", effort]);
-            }
-        }
-    }
-    command
-}
-
-struct ModelProcess {
-    child: std::process::Child,
-    stdout: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
-    stderr: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
-}
-
-fn start_model_process(
-    mut command: Command,
-    provider: ModelProvider,
-    model: &ModelConfig,
-    prompt: &str,
-) -> Result<ModelProcess> {
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| {
-            format!(
-                "start {} model command {}",
-                provider_name(provider),
-                model.command
-            )
-        })?;
-    child
-        .stdin
-        .take()
-        .context("model stdin unavailable")?
-        .write_all(prompt.as_bytes())?;
-    let mut stdout = child.stdout.take().context("model stdout unavailable")?;
-    let mut stderr = child.stderr.take().context("model stderr unavailable")?;
-    let stdout_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let stderr_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stderr.read_to_end(&mut bytes).map(|_| bytes)
-    });
-    Ok(ModelProcess {
-        child,
-        stdout: stdout_reader,
-        stderr: stderr_reader,
-    })
-}
-
-fn finish_model_process(
-    mut process: ModelProcess,
-    provider: ModelProvider,
-    timeout: Duration,
-) -> Result<String> {
-    let status = wait_for_model_status(&mut process.child, provider, timeout)?;
-    let stdout = join_model_output(process.stdout, "stdout")?;
-    let stderr = join_model_output(process.stderr, "stderr")?;
-    validate_model_output(provider, status, stdout, stderr)
-}
-
-fn wait_for_model_status(
-    child: &mut std::process::Child,
-    provider: ModelProvider,
-    timeout: Duration,
-) -> Result<std::process::ExitStatus> {
-    let status = match child.wait_timeout(timeout)? {
-        Some(status) => status,
-        None => {
-            child.kill()?;
-            child.wait()?;
-            return Err(ModelTimeout {
-                provider,
-                seconds: timeout.as_secs(),
-            }
-            .into());
-        }
-    };
-    Ok(status)
-}
-
-fn join_model_output(
-    reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
-    stream: &str,
-) -> Result<Vec<u8>> {
-    reader
-        .join()
-        .map_err(|_| anyhow::anyhow!("model {stream} reader panicked"))?
-        .map_err(Into::into)
-}
-
-fn validate_model_output(
-    provider: ModelProvider,
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-) -> Result<String> {
-    if !status.success() {
-        bail!(
-            "{} model exited with {}: {}",
-            provider_name(provider),
-            status,
-            failure_detail(provider, &stdout, &stderr)
-        )
-    }
-    String::from_utf8(stdout).context("model output was not UTF-8")
-}
-
-fn failure_detail(provider: ModelProvider, stdout: &[u8], stderr: &[u8]) -> String {
-    let stderr = String::from_utf8_lossy(stderr);
-    if stderr.trim().is_empty() {
-        extract_text(provider, &String::from_utf8_lossy(stdout))
-    } else {
-        stderr.trim().to_owned()
-    }
+    .run()
 }
 
 pub(crate) fn extract_text(provider: ModelProvider, raw: &str) -> String {
@@ -410,7 +234,7 @@ mod memory_tests {
 
     #[test]
     fn timeout_classification_requires_the_typed_model_error() {
-        let timeout = anyhow::Error::new(ModelTimeout {
+        let timeout = anyhow::Error::new(process::ModelTimeout {
             provider: ModelProvider::Claude,
             seconds: 30,
         });

@@ -2,10 +2,12 @@
 // @feature usage-analytics
 // @feature agent-memory
 // @feature papercuts
+// @feature sos
 // @spec docs/features/persistence.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
+// @spec docs/features/sos.md
 diesel::table! {
     advisories (id) {
         id -> Text,
@@ -39,6 +41,16 @@ diesel::table! {
         model_id -> Nullable<Text>,
         first_observed_at -> Text,
         completed_at -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    database_imports (source_digest) {
+        source_digest -> Text,
+        source_kind -> Text,
+        format_version -> Integer,
+        row_count -> BigInt,
+        imported_at -> Text,
     }
 }
 
@@ -101,6 +113,7 @@ diesel::table! {
         session_id -> Text,
         read_scope -> Text,
         project_id -> Nullable<Text>,
+        activation_scope_key -> Text,
         delivered_items -> Integer,
         omitted_ranges -> Integer,
         activated_at -> Text,
@@ -266,9 +279,9 @@ diesel::table! {
 }
 
 diesel::table! {
-    sessions (session_id) {
-        session_id -> Text,
+    sessions (project_id, session_id) {
         project_id -> Text,
+        session_id -> Text,
         agent -> Text,
         worktree -> Nullable<Text>,
         task_summary -> Nullable<Text>,
@@ -280,9 +293,76 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    sos_issue_lifecycle (id) {
+        id -> Text,
+        project_id -> Text,
+        issue_id -> Text,
+        transition -> Text,
+        reason -> Text,
+        actor_agent -> Text,
+        actor_session_id -> Text,
+        actor_model_id -> Nullable<Text>,
+        actor_config_hash -> Text,
+        created_at -> Text,
+    }
+}
+
+diesel::table! {
+    sos_issues (id) {
+        id -> Text,
+        project_id -> Text,
+        title -> Text,
+        summary -> Text,
+        status -> Text,
+        resolution -> Nullable<Text>,
+        created_at -> Text,
+        updated_at -> Text,
+        closed_at -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    sos_reports (id) {
+        id -> Text,
+        project_id -> Text,
+        issue_id -> Nullable<Text>,
+        message -> Text,
+        report_type -> Text,
+        environment -> Text,
+        version -> Text,
+        model -> Text,
+        trace -> Text,
+        metadata_json -> Text,
+        reporter_agent -> Text,
+        reporter_session_id -> Text,
+        reporter_model_id -> Nullable<Text>,
+        reporter_config_hash -> Text,
+        created_at -> Text,
+    }
+}
+
+diesel::table! {
+    sos_triage_attempts (id) {
+        id -> Text,
+        project_id -> Text,
+        report_id -> Text,
+        issue_id -> Nullable<Text>,
+        outcome -> Text,
+        provider -> Text,
+        model_id -> Nullable<Text>,
+        rationale -> Text,
+        generated_title -> Nullable<Text>,
+        generated_summary -> Nullable<Text>,
+        config_hash -> Text,
+        created_at -> Text,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     advisories,
     capability_uses,
+    database_imports,
     claims,
     conflicts,
     events,
@@ -298,5 +378,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     papercut_review_attempts,
     papercut_upvotes,
     papercuts,
-    sessions
+    sessions,
+    sos_issue_lifecycle,
+    sos_issues,
+    sos_reports,
+    sos_triage_attempts
 );

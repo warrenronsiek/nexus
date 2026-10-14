@@ -2,12 +2,40 @@
 // @feature usage-analytics
 // @feature agent-memory
 // @feature papercuts
+// @feature sos
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
+// @spec docs/features/sos.md
 use super::*;
 use serde_json::json;
+
+#[test]
+fn sos_report_rejects_blank_model_and_oversized_metadata_during_decode() {
+    let base = json!({
+        "action":"report",
+        "session_id":"session-a",
+        "agent":"codex",
+        "model":"   ",
+        "message":"Need help with a failing build",
+        "type":"build_failure",
+        "environment":"ci",
+        "version":"1.0.0",
+        "trace":"build timed out",
+        "metadata":{}
+    });
+    let blank = ServiceRequest::decode("sos", base.clone()).unwrap_err();
+    assert!(blank.to_string().contains("SOS model"));
+
+    let mut oversized = base;
+    oversized["model"] = json!("gpt-test");
+    oversized["metadata"] = json!({
+        "payload":"x".repeat(32 * 1024 + 1)
+    });
+    let error = ServiceRequest::decode("sos", oversized).unwrap_err();
+    assert!(error.to_string().contains("SOS metadata exceeds"));
+}
 
 #[test]
 fn query_scope_is_an_enum_not_a_boolean_switch() {
@@ -20,6 +48,38 @@ fn query_scope_is_an_enum_not_a_boolean_switch() {
 
     let error = ServiceRequest::decode("claims", json!({"active_only":false})).unwrap_err();
     assert!(error.to_string().contains("unknown field"));
+}
+
+#[test]
+fn explicit_read_project_ids_are_canonical_and_database_safe() {
+    for method in [
+        "events",
+        "sessions",
+        "claims",
+        "conflicts",
+        "dashboard",
+        "usage",
+    ] {
+        let request =
+            ServiceRequest::decode(method, json!({"project_id":" shared-project "})).unwrap();
+        let project_id = match request {
+            ServiceRequest::Events(query) => query.project_id,
+            ServiceRequest::Sessions(query) => query.project_id,
+            ServiceRequest::Claims(query) => query.project_id,
+            ServiceRequest::Conflicts(query) => query.project_id,
+            ServiceRequest::Dashboard(query) => query.project_id,
+            ServiceRequest::Usage(query) => query.project_id,
+            _ => panic!("expected a project-scoped read"),
+        };
+        assert_eq!(project_id.as_deref(), Some("shared-project"));
+
+        for invalid in ["project\0suffix".to_owned(), "p".repeat(257)] {
+            let error = ServiceRequest::decode(method, json!({"project_id":invalid}))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("project_id"), "{method}: {error}");
+        }
+    }
 }
 
 #[test]
@@ -38,6 +98,43 @@ fn open_ended_tool_json_is_confined_to_the_tool_payload() {
         panic!("expected tool hook");
     };
     assert_eq!(input.tool_input.as_json()["future"]["shape"][2], 3);
+}
+
+#[test]
+fn lifecycle_identity_fields_are_bounded_before_persistence_fanout() {
+    for (field, value) in [
+        ("session_id", "s".repeat(513)),
+        ("agent", "a".repeat(257)),
+        ("project_root", "p".repeat(4_097)),
+        ("tool_use_id", "t".repeat(513)),
+        ("tool_name", "n".repeat(257)),
+    ] {
+        let mut params = json!({
+            "session_id":"session-1",
+            "agent":"codex",
+            "project_root":"/repo",
+            "tool_use_id":"tool-1",
+            "tool_name":"edit",
+            "tool_input":{}
+        });
+        params[field] = value.into();
+
+        let error = ServiceRequest::decode("pre_tool_use", params).unwrap_err();
+        assert!(error.to_string().contains(field), "{field}: {error}");
+    }
+
+    let error = ServiceRequest::decode(
+        "pre_tool_use",
+        json!({
+            "session_id":"session\nspoofed",
+            "agent":"codex",
+            "tool_use_id":"tool-1",
+            "tool_name":"edit",
+            "tool_input":{}
+        }),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("control characters"));
 }
 
 #[test]
@@ -86,7 +183,28 @@ fn memory_search_limit_matches_the_persistence_bound() {
     let ServiceRequest::MemorySearch(query) = request else {
         panic!("expected memory search");
     };
-    assert_eq!(query.bounded_limit(), 256);
+    assert_eq!(query.bounded_limit(), 64);
+}
+
+#[test]
+fn memory_search_regex_is_bounded_before_compilation() {
+    let error = ServiceRequest::decode(
+        "memory_search",
+        json!({"scope":"global","regex":"x".repeat(4_097)}),
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("regex"), "{error}");
+}
+
+#[test]
+fn event_query_limit_matches_the_bounded_response_window() {
+    let request = ServiceRequest::decode("events", json!({"limit":usize::MAX})).unwrap();
+    let ServiceRequest::Events(query) = request else {
+        panic!("expected events query");
+    };
+
+    assert_eq!(query.bounded_limit(), 64);
 }
 
 #[test]

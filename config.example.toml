@@ -1,11 +1,28 @@
 # @feature configuration
 # @feature agent-memory
+# @feature runtime
 # @spec docs/features/configuration.md
 # @spec docs/features/agent-memory.md
+# @spec docs/features/runtime.md
 schema_version = 1
+
+# The default companion CLI and stdio MCP process use the local Unix-socket
+# daemon. For a shared service, replace this section with the commented remote
+# form below. Keep the bearer secret in NEXUS_SECRET or a mode-0600 file, not in
+# this configuration.
+[client]
+transport = "local"
+
+# [client]
+# transport = "remote"
+# endpoint = "https://nexus.internal.example"
+# project_id = "organization/repository"
+# secret_file = "/absolute/path/to/nexus-client.secret"
 
 [coordination]
 claim_ttl_seconds = 120
+# In local mode the daemon reads Git directly. In remote mode the stdio MCP
+# companion submits bounded changed-path evidence from the client checkout.
 reconcile_seconds = 30
 record_ignored_advisories = true
 
@@ -16,7 +33,7 @@ store_full_prompts = false
 
 [ui]
 refresh_interval_ms = 2000
-recent_event_limit = 500
+recent_event_limit = 64
 recent_record_limit = 100
 
 [analyst]

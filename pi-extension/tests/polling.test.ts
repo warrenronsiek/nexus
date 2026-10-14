@@ -85,6 +85,7 @@ afterEach(() => {
       window_ended_at: "2026-10-04T12:00:00Z",
       tools: [],
       skills: [],
+      truncated: false,
       capture_health: {},
     } satisfies UsageSummary;
     const load = vi.fn(async () => usage);

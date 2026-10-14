@@ -83,10 +83,7 @@ function client(responses: Record<string, unknown>) {
         },
       },
     });
-    const api = new NexusMemoryApi(transport, "/repo", () => ({
-      session_id: "session-1",
-      project_root: "/repo",
-    }));
+    const api = new NexusMemoryApi(transport, "/repo");
 
     const view = await api.load();
 
@@ -136,13 +133,7 @@ function client(responses: Record<string, unknown>) {
         fallback_uses: 0,
       },
     });
-    const api = new NexusMemoryApi(transport, "/repo", () => ({
-      session_id: "session-1",
-      project_root: "/repo",
-      agent: "pi",
-      turn_id: "turn-2",
-      model: "model-1",
-    }));
+    const api = new NexusMemoryApi(transport, "/repo");
 
     expect(await api.expand("summary-1")).toEqual([{ kind: "raw", ...rawEntry }]);
     expect(await api.search("typed.*interfaces")).toEqual([{ kind: "raw", ...rawEntry }]);
@@ -160,11 +151,6 @@ function client(responses: Record<string, unknown>) {
       3,
       "nexus_memory_add",
       {
-        session_id: "session-1",
-        project_root: "/repo",
-        agent: "pi",
-        turn_id: "turn-2",
-        model: "model-1",
         scope: "project",
         content: "Prefer typed interfaces.",
       },
@@ -210,10 +196,7 @@ function client(responses: Record<string, unknown>) {
         },
       },
     });
-    const api = new NexusMemoryApi(transport, "/repo", () => ({
-      session_id: "session-1",
-      project_root: "/repo",
-    }));
+    const api = new NexusMemoryApi(transport, "/repo");
 
     await expect(api.load()).rejects.toThrow("health.degraded is invalid");
   });

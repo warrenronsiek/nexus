@@ -11,15 +11,33 @@ use super::records::{
     load_papercut_row, validate_project, DuplicateReviewRow, PapercutReviewAttemptRow, PapercutRow,
     PapercutUpvoteRow,
 };
+use crate::coordination::domain::{query_window_limit, RecordWindow};
 use crate::papercuts::{
     Papercut, PapercutActor, PapercutLifecycleEvent, PapercutLifecycleTransition, PapercutRegistry,
+    PapercutReviewCandidate, PapercutStatus,
 };
+use crate::persistence::backend::DbConnection;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::str::FromStr;
+
+pub(super) const MAX_PAPERCUT_REVIEW_CANDIDATES: usize = 64;
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = papercuts)]
+struct PapercutReviewCandidateRow {
+    id: String,
+    project_id: String,
+    title: String,
+    description: String,
+    status: String,
+    consolidated_into: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
 
 struct RegistryRows {
     papercuts: Vec<PapercutRow>,
@@ -64,6 +82,13 @@ impl Store {
     }
 
     pub fn open_papercuts(&mut self, project_id: &str) -> Result<Vec<Papercut>> {
+        Ok(self.open_papercuts_window(project_id)?.items)
+    }
+
+    pub(crate) fn open_papercuts_window(
+        &mut self,
+        project_id: &str,
+    ) -> Result<RecordWindow<Papercut>> {
         validate_project(project_id)?;
         load_open_papercuts(&mut self.connection, project_id)
     }
@@ -71,48 +96,148 @@ impl Store {
     pub fn papercut_by_id(&mut self, project_id: &str, papercut_id: &str) -> Result<Papercut> {
         load_papercut(&mut self.connection, project_id, papercut_id)
     }
+
+    pub(crate) fn papercut_review_candidates(
+        &mut self,
+        project_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<PapercutReviewCandidate>> {
+        validate_project(project_id)?;
+        load_review_candidates(&mut self.connection, project_id, source_id)
+    }
+}
+
+fn load_review_candidates(
+    connection: &mut DbConnection,
+    project_id: &str,
+    source_id: &str,
+) -> Result<Vec<PapercutReviewCandidate>> {
+    let rows = papercuts::table
+        .filter(papercuts::project_id.eq(project_id))
+        .filter(papercuts::status.eq("open"))
+        .filter(papercuts::id.ne(source_id))
+        .order((papercuts::updated_at.desc(), papercuts::id.asc()))
+        .limit(i64::try_from(MAX_PAPERCUT_REVIEW_CANDIDATES)?)
+        .select(PapercutReviewCandidateRow::as_select())
+        .load::<PapercutReviewCandidateRow>(connection)?;
+    rows.into_iter()
+        .map(|row| {
+            let metrics = bounded_vote_metrics(connection, project_id, &row.id)?;
+            row.into_domain(metrics)
+        })
+        .collect()
+}
+
+impl PapercutReviewCandidateRow {
+    fn into_domain(
+        self,
+        (upvote_count, last_upvoted_at): VoteMetrics,
+    ) -> Result<PapercutReviewCandidate> {
+        Ok(PapercutReviewCandidate {
+            id: self.id,
+            project_id: self.project_id,
+            title: self.title,
+            description: self.description,
+            status: PapercutStatus::from_str(&self.status).map_err(anyhow::Error::msg)?,
+            consolidated_into: self.consolidated_into,
+            created_at: parse_time(&self.created_at)?,
+            updated_at: parse_time(&self.updated_at)?,
+            upvote_count,
+            last_upvoted_at,
+        })
+    }
+}
+
+fn bounded_vote_metrics(
+    connection: &mut DbConnection,
+    project_id: &str,
+    papercut_id: &str,
+) -> Result<VoteMetrics> {
+    let (count, latest) = papercut_upvotes::table
+        .filter(papercut_upvotes::project_id.eq(project_id))
+        .filter(papercut_upvotes::papercut_id.eq(papercut_id))
+        .select((
+            diesel::dsl::count_star(),
+            diesel::dsl::max(papercut_upvotes::created_at),
+        ))
+        .first::<(i64, Option<String>)>(connection)?;
+    Ok((
+        u64::try_from(count).context("papercut upvote count exceeds u64")?,
+        latest.as_deref().map(parse_time).transpose()?,
+    ))
 }
 
 pub(super) fn load_papercut(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
     papercut_id: &str,
 ) -> Result<Papercut> {
     let row = load_papercut_row(connection, project_id, papercut_id)?;
-    let votes = papercut_upvotes::table
-        .filter(papercut_upvotes::papercut_id.eq(papercut_id))
-        .order((
-            papercut_upvotes::created_at.asc(),
-            papercut_upvotes::id.asc(),
-        ))
-        .select(PapercutUpvoteRow::as_select())
-        .load::<PapercutUpvoteRow>(connection)?;
-    row.into_domain(vote_metrics(&votes)?)
+    let metrics = bounded_vote_metrics(connection, project_id, papercut_id)?;
+    row.into_domain(metrics)
 }
 
 fn load_open_papercuts(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
-) -> Result<Vec<Papercut>> {
+) -> Result<RecordWindow<Papercut>> {
     let rows = papercuts::table
         .filter(papercuts::project_id.eq(project_id))
         .filter(papercuts::status.eq("open"))
-        .order((papercuts::created_at.asc(), papercuts::id.asc()))
+        .order((papercuts::updated_at.desc(), papercuts::id.asc()))
+        .limit(query_window_limit(
+            crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS,
+        ))
         .select(PapercutRow::as_select())
         .load::<PapercutRow>(connection)?;
-    let upvotes = papercut_upvotes::table
+    let rows = RecordWindow::bounded(rows, crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS);
+    let papercut_ids = rows
+        .items
+        .iter()
+        .map(|row| row.id.as_str())
+        .collect::<Vec<_>>();
+    if papercut_ids.is_empty() {
+        return Ok(RecordWindow {
+            items: Vec::new(),
+            truncated: rows.truncated,
+        });
+    }
+    let metrics = papercut_upvotes::table
+        .inner_join(
+            papercuts::table.on(papercut_upvotes::papercut_id
+                .eq(papercuts::id)
+                .and(papercut_upvotes::project_id.eq(papercuts::project_id))),
+        )
         .filter(papercut_upvotes::project_id.eq(project_id))
-        .order((
-            papercut_upvotes::created_at.asc(),
-            papercut_upvotes::id.asc(),
+        .filter(papercut_upvotes::papercut_id.eq_any(papercut_ids))
+        .filter(papercuts::project_id.eq(project_id))
+        .filter(papercuts::status.eq("open"))
+        .group_by(papercut_upvotes::papercut_id)
+        .select((
+            papercut_upvotes::papercut_id,
+            diesel::dsl::count_star(),
+            diesel::dsl::max(papercut_upvotes::created_at),
         ))
-        .select(PapercutUpvoteRow::as_select())
-        .load::<PapercutUpvoteRow>(connection)?;
-    papercuts_from_rows(rows, &upvotes)
+        .load::<(String, i64, Option<String>)>(connection)?
+        .into_iter()
+        .map(|(papercut_id, count, latest)| {
+            Ok((
+                papercut_id,
+                (
+                    u64::try_from(count).context("papercut upvote count exceeds u64")?,
+                    latest.as_deref().map(parse_time).transpose()?,
+                ),
+            ))
+        })
+        .collect::<Result<VoteMetricsByPapercut>>()?;
+    Ok(RecordWindow {
+        items: papercuts_from_metrics(rows.items, metrics)?,
+        truncated: rows.truncated,
+    })
 }
 
 fn load_registry(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<PapercutRegistry> {
     let papercuts = load_papercut_rows(connection, project_id)?;
@@ -140,7 +265,7 @@ fn load_registry(
 }
 
 fn load_papercut_rows(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<Vec<PapercutRow>> {
     let mut query = papercuts::table.into_boxed();
@@ -159,7 +284,7 @@ fn load_papercut_rows(
 }
 
 fn load_single_parent_rows(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<SingleParentRows> {
     let mut upvote_query = papercut_upvotes::table.into_boxed();
@@ -192,7 +317,7 @@ fn load_single_parent_rows(
 }
 
 fn load_lifecycle_events(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: Option<&str>,
 ) -> Result<Vec<PapercutLifecycleEvent>> {
     let mut query = events::table
@@ -276,7 +401,13 @@ fn papercuts_from_rows(
     rows: Vec<PapercutRow>,
     upvotes: &[PapercutUpvoteRow],
 ) -> Result<Vec<Papercut>> {
-    let mut metrics = vote_metrics_by_papercut(upvotes)?;
+    papercuts_from_metrics(rows, vote_metrics_by_papercut(upvotes)?)
+}
+
+fn papercuts_from_metrics(
+    rows: Vec<PapercutRow>,
+    mut metrics: VoteMetricsByPapercut,
+) -> Result<Vec<Papercut>> {
     rows.into_iter()
         .map(|row| {
             let row_metrics = metrics.remove(&row.id).unwrap_or((0, None));
@@ -298,13 +429,4 @@ fn vote_metrics_by_papercut(rows: &[PapercutUpvoteRow]) -> Result<VoteMetricsByP
         }
     }
     Ok(metrics)
-}
-
-fn vote_metrics(rows: &[PapercutUpvoteRow]) -> Result<VoteMetrics> {
-    let count = u64::try_from(rows.len()).context("papercut upvote count exceeds u64")?;
-    let latest = rows
-        .last()
-        .map(|row| parse_time(&row.created_at))
-        .transpose()?;
-    Ok((count, latest))
 }

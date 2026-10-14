@@ -384,6 +384,34 @@ impl<T> RecordWindow<T> {
         items.truncate(maximum);
         Self { items, truncated }
     }
+
+    pub(crate) fn try_bounded<Row, Error>(
+        rows: Vec<Row>,
+        maximum: usize,
+        convert: impl FnMut(Row) -> Result<T, Error>,
+    ) -> Result<Self, Error> {
+        rows.into_iter()
+            .map(convert)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|items| Self::bounded(items, maximum))
+    }
+}
+
+pub(crate) fn query_window_limit(maximum: usize) -> i64 {
+    i64::try_from(maximum.saturating_add(1)).unwrap_or(i64::MAX)
+}
+
+pub(crate) fn truncate_utf8(mut value: String, maximum_bytes: usize) -> String {
+    if value.len() <= maximum_bytes {
+        return value;
+    }
+    let mut end = maximum_bytes.saturating_sub('…'.len_utf8());
+    while !value.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    value.truncate(end);
+    value.push('…');
+    value
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -401,4 +429,20 @@ pub struct DashboardRecords {
     pub sessions: RecordWindow<SessionRecord>,
     pub claims: RecordWindow<Claim>,
     pub conflicts: RecordWindow<ConflictRecord>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecordWindow;
+
+    #[test]
+    fn fallible_record_conversion_preserves_the_bounded_window() {
+        let window = RecordWindow::try_bounded(vec![1, 2, 3], 2, |value| {
+            Ok::<_, std::convert::Infallible>(value * 10)
+        })
+        .unwrap();
+
+        assert_eq!(window.items, vec![10, 20]);
+        assert!(window.truncated);
+    }
 }

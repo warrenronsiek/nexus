@@ -7,6 +7,10 @@
 // @entrypoint NexusMcpClient
 // @boundary dynamic-json
 import { spawn } from "node:child_process";
+import {
+  nexusLaunchContext,
+  type NexusLaunchContext,
+} from "./launch-context.ts";
 
 interface McpStdin {
   write(value: string): boolean;
@@ -42,6 +46,17 @@ type JsonObject = Record<string, unknown>;
 
 const MCP_CLOSE_GRACE_MS = 250;
 
+export function mcpInvocation(context: NexusLaunchContext = nexusLaunchContext): {
+  executable: string;
+  arguments: string[];
+} {
+  const argumentsValue = context.config === undefined
+    ? []
+    : ["--config", context.config];
+  argumentsValue.push("mcp", "--agent", "pi");
+  return { executable: context.executable, arguments: argumentsValue };
+}
+
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -60,7 +75,8 @@ function subscribeAbort(
 }
 
 function spawnMcp(cwd: string): McpProcess {
-  const child = spawn("nexus", ["mcp"], {
+  const invocation = mcpInvocation();
+  const child = spawn(invocation.executable, invocation.arguments, {
     cwd,
     stdio: ["pipe", "pipe", "ignore"],
   });

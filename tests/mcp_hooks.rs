@@ -16,7 +16,7 @@ use serde_json::json;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use support::{wait_for_path, write_executable, Harness, HOST_HOOK_BUDGET};
+use support::{executable::write_executable, wait_for_path, Harness, HOST_HOOK_BUDGET};
 
 #[test]
 fn post_tool_use_returns_hook_compatible_text_and_structured_coordination_data() {

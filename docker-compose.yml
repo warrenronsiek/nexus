@@ -1,0 +1,71 @@
+# @feature runtime
+# @feature persistence
+# @spec docs/features/runtime.md
+# @spec docs/features/persistence.md
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: nexus
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus-development-only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - nexus-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  sqlite-import:
+    build: .
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_READ_SEARCH
+    network_mode: none
+    read_only: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    entrypoint:
+      - nexus-import-sqlite
+    volumes:
+      - nexus-import:/var/lib/nexus-import
+      - type: bind
+        source: ${NEXUS_SQLITE_PATH:-/dev/null}
+        target: /var/lib/nexus-import-source/nexus.db
+        read_only: true
+        bind:
+          create_host_path: false
+
+  nexus:
+    build: .
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sqlite-import:
+        condition: service_completed_successfully
+    environment:
+      NEXUS_DATABASE_URL: postgres://nexus:${POSTGRES_PASSWORD:-nexus-development-only}@postgres:5432/nexus
+      NEXUS_SECRET: ${NEXUS_SECRET:-}
+      NEXUS_SECRET_FILE: /var/lib/nexus/service.secret
+      NEXUS_IMPORT_SQLITE_IF_PRESENT: /var/lib/nexus-import/nexus.db
+      NEXUS_HEALTH_STARTUP_FAILURE_LIMIT: ${NEXUS_HEALTH_STARTUP_FAILURE_LIMIT:-12}
+    ports:
+      - "${NEXUS_BIND_ADDRESS:-127.0.0.1}:${NEXUS_PORT:-7337}:7337"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - nexus-service:/var/lib/nexus
+      - nexus-import:/var/lib/nexus-import:ro
+
+volumes:
+  nexus-import:
+  nexus-postgres:
+  nexus-service:

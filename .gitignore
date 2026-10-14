@@ -6,3 +6,8 @@ __pycache__/
 *.db-shm
 *.db-wal
 *.sock
+.env
+.env.*
+!.env.example
+*.secret
+secrets/

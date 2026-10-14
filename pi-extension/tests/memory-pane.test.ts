@@ -279,6 +279,54 @@ async function activate(pane: MemoryPane): Promise<void> {
     pane.dispose();
   });
 
+  it("renders remote memory text and provenance without CSI or OSC controls", async () => {
+    const hostileRaw: MemoryEntry = {
+      ...raw,
+      content: "visible \u001b[31mred\u001b[0m\nclipboard \u001b]52;c;c3RvbGVu\u0007blocked \u009b2J",
+      provenance: {
+        ...provenance,
+        agent: "agent\u001b]0;spoofed-title\u0007",
+        model_id: "model\u009d52;c;c3RvbGVu\u009c",
+      },
+    };
+    const hostileView: MemoryView = {
+      ...view,
+      context: {
+        ...view.context,
+        nodes: [hostileRaw],
+        omitted: [{
+          scope: projectScope,
+          start_ordinal: 0,
+          end_ordinal: 1,
+          reason: "mixed",
+        }],
+        item_count: 1,
+      },
+      health: {
+        ...view.health,
+        providers: [{
+          ...view.health.providers[0],
+          provider: "provider\u001b]52;c;c3RvbGVu\u0007",
+          model_id: "model\u009b31m",
+        }],
+      },
+    };
+    const { pane } = harness({}, hostileView);
+    pane.activate();
+    await vi.waitFor(() => expect(pane.render(120).join("\n")).toContain("visible"));
+
+    expect(pane.render(120)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/[\u0000-\u001f\u007f-\u009f]/u)]),
+    );
+    pane.handleInput("\r");
+    const detail = pane.render(120);
+    expect(detail.join("\n")).toContain("clipboard");
+    expect(detail).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/[\u0000-\u001f\u007f-\u009f]/u)]),
+    );
+    pane.dispose();
+  });
+
   it("ignores an action completion from an earlier tab activation", async () => {
     const consolidation = deferred<undefined>();
     const initialRaw = { ...raw, id: "initial", content: "initial view" };

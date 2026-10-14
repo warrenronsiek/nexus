@@ -3,7 +3,7 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/usage-analytics.md
 // @entrypoint run
-use super::daemon;
+use super::client::NexusClient;
 use crate::config::LoadedConfig;
 use crate::coordination::api::ServiceRequest;
 use crate::coordination::domain::{HookContext, ScriptOutcome, ScriptUseInput};
@@ -46,7 +46,9 @@ pub async fn run(
         script_name: script_identity(program, arguments, working_directory),
         outcome,
     });
-    let _ = daemon::lifecycle_request(loaded, explicit_config, &request).await;
+    let _ = NexusClient::new(loaded, explicit_config)
+        .lifecycle_request(&request)
+        .await;
     Ok(exit_code(status))
 }
 

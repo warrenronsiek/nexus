@@ -5,7 +5,7 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/persistence.md
 // @boundary mock-llm-process
-use super::{memory_cli, support::write_executable};
+use super::{memory_cli, support::executable::write_executable};
 use diesel::dsl::count_star;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;

@@ -4,6 +4,10 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/coordination.md
 // @spec docs/features/analyst.md
+use super::feature_ops::{
+    background_dispatch_adapter, dispatch_background, dump_registry, registry_dump_adapter,
+    BackgroundCommand, BackgroundWorkResult, RegistryDump,
+};
 use super::NexusService;
 use crate::agents::model::{is_timeout, provider_name};
 use crate::agents::papercuts::{self, PapercutReviewResult, PapercutReviewerDecision};
@@ -12,7 +16,10 @@ use crate::coordination::api::{
 };
 use crate::coordination::domain::HookContext;
 use crate::coordination::workspace;
-use crate::papercuts::{PapercutActor, PapercutReviewAttemptOutcome, PapercutReviewDecision};
+use crate::coordination::workspace::ProjectBinding;
+use crate::papercuts::{
+    PapercutActor, PapercutRegistry, PapercutReviewAttemptOutcome, PapercutReviewDecision,
+};
 use crate::persistence::{PapercutDuplicateProposal, PapercutReviewAttemptRecord};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -28,19 +35,24 @@ pub(crate) struct PapercutReviewJob {
     pub(crate) reviewer_worktree: Option<PathBuf>,
 }
 
-struct PapercutResult {
-    response: PapercutResponse,
-    review_job: Option<PapercutReviewJob>,
-}
+type PapercutResult = BackgroundWorkResult<PapercutResponse, PapercutReviewJob>;
 
-impl From<PapercutResponse> for PapercutResult {
-    fn from(response: PapercutResponse) -> Self {
-        Self {
-            response,
-            review_job: None,
-        }
-    }
-}
+background_dispatch_adapter!(
+    command = PapercutCommand,
+    response = PapercutResponse => ServiceResponse::Papercuts,
+    job = PapercutReviewJob,
+    dispatch = PapercutDispatch { review_job },
+    result = papercuts_result,
+    method = dispatch_papercuts
+);
+
+registry_dump_adapter!(
+    scope = PapercutDumpScope,
+    registry = PapercutRegistry,
+    response = PapercutResponse::Dumped,
+    store = papercut_store,
+    load = papercut_registry
+);
 
 struct CompletedPapercutReview {
     project_id: String,
@@ -49,43 +61,36 @@ struct CompletedPapercutReview {
 }
 
 impl NexusService {
-    pub(crate) fn dispatch_papercuts(&self, command: PapercutCommand) -> PapercutDispatch {
-        match self.papercuts_result(command) {
-            Ok(result) => PapercutDispatch {
-                response: ServiceResponse::Papercuts(Box::new(result.response)),
-                review_job: result.review_job,
-            },
-            Err(error) => PapercutDispatch {
-                response: ServiceResponse::error(error),
-                review_job: None,
-            },
-        }
-    }
-
-    fn papercuts_result(&self, command: PapercutCommand) -> Result<PapercutResult> {
+    fn papercuts_result(
+        &self,
+        command: PapercutCommand,
+        binding: &ProjectBinding,
+    ) -> Result<PapercutResult> {
         match command {
-            PapercutCommand::List { context } => self.list_papercuts(context).map(Into::into),
+            PapercutCommand::List { context } => {
+                self.list_papercuts(context, binding).map(Into::into)
+            }
             PapercutCommand::Dump { context, scope } => {
-                self.dump_papercuts(context, scope).map(Into::into)
+                dump_registry(self, context, scope, binding).map(Into::into)
             }
             PapercutCommand::Report {
                 context,
                 title,
                 description,
-            } => self.report_papercut(context, title, description),
+            } => self.report_papercut(context, title, description, binding),
             PapercutCommand::Upvote {
                 context,
                 papercut_id,
                 note,
             } => self
-                .upvote_papercut(context, papercut_id, note)
+                .upvote_papercut(context, papercut_id, note, binding)
                 .map(Into::into),
             PapercutCommand::Remove {
                 context,
                 papercut_id,
                 resolution,
             } => self
-                .remove_papercut(context, papercut_id, resolution)
+                .remove_papercut(context, papercut_id, resolution, binding)
                 .map(Into::into),
             PapercutCommand::Respond {
                 context,
@@ -99,30 +104,18 @@ impl NexusService {
         }
     }
 
-    fn list_papercuts(&self, context: HookContext) -> Result<PapercutResponse> {
-        let project = workspace::identify(context.project_root.as_deref())?;
-        let papercuts = self.papercut_store()?.open_papercuts(&project.id)?;
-        Ok(PapercutResponse::Listed {
-            ok: true,
-            papercuts,
-        })
-    }
-
-    fn dump_papercuts(
+    fn list_papercuts(
         &self,
         context: HookContext,
-        scope: PapercutDumpScope,
+        binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project_id = match scope {
-            PapercutDumpScope::Project => {
-                Some(workspace::identify(context.project_root.as_deref())?.id)
-            }
-            PapercutDumpScope::All => None,
-        };
-        let registry = self
-            .papercut_store()?
-            .papercut_registry(project_id.as_deref())?;
-        Ok(PapercutResponse::Dumped { ok: true, registry })
+        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let window = self.papercut_store()?.open_papercuts_window(&project.id)?;
+        Ok(PapercutResponse::Listed {
+            ok: true,
+            papercuts: window.items,
+            truncated: window.truncated,
+        })
     }
 
     fn report_papercut(
@@ -130,8 +123,9 @@ impl NexusService {
         context: HookContext,
         title: String,
         description: String,
+        binding: &ProjectBinding,
     ) -> Result<PapercutResult> {
-        let project = workspace::identify(context.project_root.as_deref())?;
+        let project = workspace::identify(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let result =
             self.papercut_store()?
@@ -150,7 +144,7 @@ impl NexusService {
                 review_requested,
                 papercut: result.papercut,
             },
-            review_job,
+            job: review_job,
         })
     }
 
@@ -159,8 +153,9 @@ impl NexusService {
         context: HookContext,
         papercut_id: String,
         note: Option<String>,
+        binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project = workspace::identify(context.project_root.as_deref())?;
+        let project = workspace::identify(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let (papercut, upvote) = self.papercut_store()?.upvote_papercut(
             &project.id,
@@ -180,8 +175,9 @@ impl NexusService {
         context: HookContext,
         papercut_id: String,
         resolution: String,
+        binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project = workspace::identify(context.project_root.as_deref())?;
+        let project = workspace::identify(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let papercut = self.papercut_store()?.remove_papercut(
             &project.id,
@@ -217,17 +213,17 @@ impl NexusService {
     }
 
     fn invoke_papercut_reviewer(&self, job: &PapercutReviewJob) -> Result<CompletedPapercutReview> {
-        let (papercut, registry) = {
+        let (papercut, candidates) = {
             let mut store = self.papercut_store()?;
             (
                 store.papercut_by_id(&job.project_id, &job.papercut_id)?,
-                store.papercut_registry(Some(&job.project_id))?,
+                store.papercut_review_candidates(&job.project_id, &job.papercut_id)?,
             )
         };
         let result = papercuts::review(
             &self.loaded.config.analyst,
             &papercut,
-            &registry,
+            &candidates,
             job.reviewer_worktree.as_deref(),
         )?;
         Ok(CompletedPapercutReview {
@@ -312,7 +308,7 @@ impl NexusService {
         }
     }
 
-    fn papercut_store(&self) -> Result<std::sync::MutexGuard<'_, crate::persistence::Store>> {
+    fn papercut_store(&self) -> Result<super::TrackedStoreGuard<'_>> {
         self.store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))

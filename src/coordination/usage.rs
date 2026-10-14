@@ -1,20 +1,26 @@
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 use super::api::{CaptureHealthResponse, ServiceResponse, UsageQuery, UsageResponse};
+use super::client_evidence::ClientDerivedUsage;
 use super::domain::{
     HookResponse, ScriptOutcome, ScriptUseInput, SkillEvidence, SkillUseInput, ToolCompletion,
     ToolHookInput,
 };
 use super::service::NexusService;
 use super::usage_detection::detect_script_invocations;
-use super::workspace::{self, ProjectIdentity};
+use super::workspace::{self, ProjectBinding, ProjectIdentity};
 use crate::persistence::{
     CapabilityEvidence, CapabilityKind, CapabilityObservation, CapabilityOutcome, CapabilitySource,
     Store,
 };
 use anyhow::{Context, Result};
+use std::fs::OpenOptions;
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+const MAX_SKILL_MANIFEST_BYTES: usize = 64 * 1024;
 
 pub(super) struct UsageCapture {
     config_hash: String,
@@ -50,14 +56,23 @@ impl UsageCapture {
         project: &ProjectIdentity,
         input: &ToolHookInput,
         completion: ToolCompletion,
+        client_evidence: Option<ClientDerivedUsage>,
     ) {
         let outcome = tool_outcome(completion);
         let tool = self.tool_observation(&project.id, input);
         let result = store.observe_capability_completion(&tool, outcome);
         let _ = self.record(result);
-        self.observe_scripts(store, project, input, outcome);
-        if completion == ToolCompletion::Succeeded {
-            self.observe_manifest_skill(store, project, input);
+        let filesystem_evidence = client_evidence.or_else(|| {
+            project
+                .worktree
+                .as_deref()
+                .map(|root| derive_filesystem_evidence(input, completion, Path::new(root)))
+        });
+        if let Some(filesystem_evidence) = filesystem_evidence {
+            self.observe_scripts(store, project, input, outcome, &filesystem_evidence.scripts);
+            if let Some(skill) = filesystem_evidence.skill {
+                self.observe_manifest_skill(store, project, input, skill);
+            }
         }
     }
 
@@ -67,18 +82,10 @@ impl UsageCapture {
         project: &ProjectIdentity,
         input: &ToolHookInput,
         outcome: CapabilityOutcome,
+        scripts: &[String],
     ) {
-        let Some(root) = project.worktree.as_deref() else {
-            return;
-        };
-        let Some(command) = input.tool_input.first_string(&["cmd", "command"]) else {
-            return;
-        };
-        for (index, script) in detect_script_invocations(command, Path::new(root))
-            .into_iter()
-            .enumerate()
-        {
-            let observation = self.script_observation(project, input, index, script.path);
+        for (index, script) in scripts.iter().enumerate() {
+            let observation = self.script_observation(project, input, index, script.clone());
             let result = store.observe_capability_completion(&observation, outcome);
             let _ = self.record(result);
         }
@@ -89,13 +96,8 @@ impl UsageCapture {
         store: &mut Store,
         project: &ProjectIdentity,
         input: &ToolHookInput,
+        skill_name: String,
     ) {
-        let Some(root) = project.worktree.as_deref() else {
-            return;
-        };
-        let Some(skill_name) = infer_skill_manifest(input, Path::new(root)) else {
-            return;
-        };
         let turn_id = clean_metadata(input.context.turn_id.as_deref());
         let turn_key = turn_id.as_deref().unwrap_or(&input.tool_use_id);
         let invocation_id = format!("skill:{turn_key}:{skill_name}");
@@ -181,40 +183,136 @@ impl UsageCapture {
     }
 }
 
+pub(crate) fn derive_filesystem_evidence(
+    input: &ToolHookInput,
+    completion: ToolCompletion,
+    project_root: &Path,
+) -> ClientDerivedUsage {
+    let scripts = input
+        .tool_input
+        .first_string(&["cmd", "command"])
+        .map(|command| {
+            detect_script_invocations(command, project_root)
+                .into_iter()
+                .map(|script| script.path)
+                .collect()
+        })
+        .unwrap_or_default();
+    let skill = (completion == ToolCompletion::Succeeded)
+        .then(|| infer_skill_manifest(input, project_root))
+        .flatten();
+    ClientDerivedUsage { scripts, skill }
+}
+
+pub(super) enum ExplicitUsageInput {
+    Skill(SkillUseInput),
+    Script(ScriptUseInput),
+}
+
+impl From<SkillUseInput> for ExplicitUsageInput {
+    fn from(input: SkillUseInput) -> Self {
+        Self::Skill(input)
+    }
+}
+
+impl From<ScriptUseInput> for ExplicitUsageInput {
+    fn from(input: ScriptUseInput) -> Self {
+        Self::Script(input)
+    }
+}
+
+impl ExplicitUsageInput {
+    fn context(&self) -> &super::domain::HookContext {
+        match self {
+            Self::Skill(input) => &input.context,
+            Self::Script(input) => &input.context,
+        }
+    }
+
+    fn into_observation(
+        self,
+        capture: &UsageCapture,
+        project_id: String,
+    ) -> (CapabilityObservation, CapabilityOutcome) {
+        let (context, invocation_id, kind, name, source, evidence, outcome) = match self {
+            Self::Skill(input) => {
+                let source = source_for_agent(&input.context.agent);
+                (
+                    input.context,
+                    input.invocation_id,
+                    CapabilityKind::Skill,
+                    input.skill_name.trim().to_owned(),
+                    source,
+                    skill_evidence(input.evidence),
+                    CapabilityOutcome::Observed,
+                )
+            }
+            Self::Script(input) => {
+                let outcome = wrapped_outcome(input.outcome);
+                (
+                    input.context,
+                    input.invocation_id,
+                    CapabilityKind::Script,
+                    privacy_safe_script_name(&input.script_name),
+                    CapabilitySource::NexusExec,
+                    CapabilityEvidence::Wrapped,
+                    outcome,
+                )
+            }
+        };
+        let super::domain::HookContext {
+            session_id,
+            agent,
+            turn_id,
+            model,
+            ..
+        } = context;
+        (
+            CapabilityObservation {
+                project_id,
+                agent,
+                session_id,
+                turn_id: clean_metadata(turn_id.as_deref()),
+                invocation_id,
+                parent_invocation_id: None,
+                kind,
+                name,
+                source,
+                evidence,
+                config_hash: capture.config_hash.clone(),
+                model_id: clean_metadata(model.as_deref()),
+            },
+            outcome,
+        )
+    }
+}
+
 impl NexusService {
-    pub(super) fn skill_use(&self, input: SkillUseInput) -> ServiceResponse {
-        let result = self.record_skill_use(input);
+    pub(super) fn explicit_usage<I>(&self, input: I, binding: &ProjectBinding) -> ServiceResponse
+    where
+        I: Into<ExplicitUsageInput>,
+    {
+        let result = self.record_explicit_usage(input.into(), binding);
         ServiceResponse::Hook(result.unwrap_or_else(HookResponse::fail_open))
     }
 
-    fn record_skill_use(&self, input: SkillUseInput) -> Result<HookResponse> {
-        let project = workspace::identify(input.context.project_root.as_deref())?;
+    fn record_explicit_usage(
+        &self,
+        input: ExplicitUsageInput,
+        binding: &ProjectBinding,
+    ) -> Result<HookResponse> {
+        let context = input.context();
+        let project = workspace::identify(binding, context.project_root.as_deref())?;
         let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
-        self.touch_usage_session(&mut store, &project, &input.context)?;
-        let observation = explicit_skill_observation(&self.usage, project.id, input);
-        self.usage.record(
-            store.observe_capability_completion(&observation, CapabilityOutcome::Observed),
-        )?;
-        Ok(HookResponse::allow(Vec::new()))
-    }
-
-    pub(super) fn script_use(&self, input: ScriptUseInput) -> ServiceResponse {
-        let result = self.record_script_use(input);
-        ServiceResponse::Hook(result.unwrap_or_else(HookResponse::fail_open))
-    }
-
-    fn record_script_use(&self, input: ScriptUseInput) -> Result<HookResponse> {
-        let project = workspace::identify(input.context.project_root.as_deref())?;
-        let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
-        self.touch_usage_session(&mut store, &project, &input.context)?;
-        let outcome = wrapped_outcome(input.outcome);
-        let observation = wrapped_script_observation(&self.usage, project.id, input);
+        self.touch_usage_session(&mut store, &project, context)?;
+        let (observation, outcome) = input.into_observation(&self.usage, project.id);
         self.usage
             .record(store.observe_capability_completion(&observation, outcome))?;
         Ok(HookResponse::allow(Vec::new()))
     }
 
-    pub(super) fn usage(&self, query: UsageQuery) -> ServiceResponse {
+    pub(super) fn usage(&self, mut query: UsageQuery, binding: &ProjectBinding) -> ServiceResponse {
+        query.project_id = binding.default_read_project(query.project_id);
         let window_ended_at = chrono::Utc::now();
         let window_started_at = window_ended_at - chrono::Duration::days(7);
         let summary = self
@@ -252,48 +350,6 @@ impl NexusService {
             project.worktree.as_deref(),
             &self.loaded.hash,
         )
-    }
-}
-
-fn explicit_skill_observation(
-    capture: &UsageCapture,
-    project_id: String,
-    input: SkillUseInput,
-) -> CapabilityObservation {
-    CapabilityObservation {
-        project_id,
-        agent: input.context.agent.clone(),
-        session_id: input.context.session_id,
-        turn_id: clean_metadata(input.context.turn_id.as_deref()),
-        invocation_id: input.invocation_id,
-        parent_invocation_id: None,
-        kind: CapabilityKind::Skill,
-        name: input.skill_name.trim().to_owned(),
-        source: source_for_agent(&input.context.agent),
-        evidence: skill_evidence(input.evidence),
-        config_hash: capture.config_hash.clone(),
-        model_id: clean_metadata(input.context.model.as_deref()),
-    }
-}
-
-fn wrapped_script_observation(
-    capture: &UsageCapture,
-    project_id: String,
-    input: ScriptUseInput,
-) -> CapabilityObservation {
-    CapabilityObservation {
-        project_id,
-        agent: input.context.agent,
-        session_id: input.context.session_id,
-        turn_id: clean_metadata(input.context.turn_id.as_deref()),
-        invocation_id: input.invocation_id,
-        parent_invocation_id: None,
-        kind: CapabilityKind::Script,
-        name: privacy_safe_script_name(&input.script_name),
-        source: CapabilitySource::NexusExec,
-        evidence: CapabilityEvidence::Wrapped,
-        config_hash: capture.config_hash.clone(),
-        model_id: clean_metadata(input.context.model.as_deref()),
     }
 }
 
@@ -399,7 +455,27 @@ fn resolve_manifest(project_root: &Path, path: &str) -> Option<std::path::PathBu
 }
 
 fn skill_name_from_manifest(manifest: &Path) -> Option<String> {
-    let contents = std::fs::read_to_string(manifest).ok()?;
+    let metadata = std::fs::symlink_metadata(manifest).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_SKILL_MANIFEST_BYTES as u64 {
+        return None;
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+        .open(manifest)
+        .ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_SKILL_MANIFEST_BYTES as u64 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take((MAX_SKILL_MANIFEST_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > MAX_SKILL_MANIFEST_BYTES {
+        return None;
+    }
+    let contents = String::from_utf8(bytes).ok()?;
     let frontmatter = contents
         .lines()
         .skip(1)
@@ -433,16 +509,31 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn skill_manifest_identity_prefers_frontmatter_name_over_directory_alias() {
+    enum ManifestRead {
+        Direct,
+        Shell,
+    }
+
+    fn assert_manifest_inference(
+        read: ManifestRead,
+        directory: &str,
+        contents: &str,
+        expected: &str,
+    ) {
         let temporary = tempfile::tempdir().unwrap();
-        let manifest = temporary.path().join(".codex/skills/alias/SKILL.md");
+        let manifest = temporary
+            .path()
+            .join(format!(".codex/skills/{directory}/SKILL.md"));
         std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
-        std::fs::write(
-            &manifest,
-            "---\nname: canonical-skill\ndescription: Test.\n---\n",
-        )
-        .unwrap();
+        std::fs::write(&manifest, contents).unwrap();
+        let (tool_use_id, tool_name, tool_input) = match read {
+            ManifestRead::Direct => ("read-1", "read_file", json!({"path": manifest}).into()),
+            ManifestRead::Shell => (
+                "shell-read-1",
+                "exec_command",
+                json!({"cmd": format!("sed -n '1,240p' {}", manifest.display())}).into(),
+            ),
+        };
         let input = ToolHookInput {
             context: super::super::domain::HookContext {
                 session_id: "skill-test".to_owned(),
@@ -451,45 +542,49 @@ mod tests {
                 turn_id: None,
                 model: None,
             },
-            tool_use_id: "read-1".to_owned(),
-            tool_name: "read_file".to_owned(),
+            tool_use_id: tool_use_id.to_owned(),
+            tool_name: tool_name.to_owned(),
             parent_tool_use_id: None,
-            tool_input: json!({"path":manifest}).into(),
+            tool_input,
             tool_output: None,
             error: None,
         };
 
         assert_eq!(
             infer_skill_manifest(&input, temporary.path()).as_deref(),
-            Some("canonical-skill")
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn skill_manifest_identity_prefers_frontmatter_name_over_directory_alias() {
+        assert_manifest_inference(
+            ManifestRead::Direct,
+            "alias",
+            "---\nname: canonical-skill\ndescription: Test.\n---\n",
+            "canonical-skill",
         );
     }
 
     #[test]
     fn successful_shell_manifest_reads_are_inferred_without_model_ceremony() {
-        let temporary = tempfile::tempdir().unwrap();
-        let manifest = temporary.path().join(".codex/skills/tdd/SKILL.md");
-        std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
-        std::fs::write(&manifest, "---\nname: tdd\n---\n").unwrap();
-        let input = ToolHookInput {
-            context: super::super::domain::HookContext {
-                session_id: "shell-skill-test".to_owned(),
-                project_root: None,
-                agent: "codex".to_owned(),
-                turn_id: None,
-                model: None,
-            },
-            tool_use_id: "shell-read-1".to_owned(),
-            tool_name: "exec_command".to_owned(),
-            parent_tool_use_id: None,
-            tool_input: json!({"cmd":format!("sed -n '1,240p' {}", manifest.display())}).into(),
-            tool_output: None,
-            error: None,
-        };
+        assert_manifest_inference(ManifestRead::Shell, "tdd", "---\nname: tdd\n---\n", "tdd");
+    }
 
-        assert_eq!(
-            infer_skill_manifest(&input, temporary.path()).as_deref(),
-            Some("tdd")
-        );
+    #[test]
+    fn oversized_skill_manifests_are_ignored_without_reading_the_whole_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let manifest = temporary.path().join(".codex/skills/large/SKILL.md");
+        std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        std::fs::write(
+            &manifest,
+            format!(
+                "---\nname: should-not-be-observed\n---\n{}",
+                "x".repeat(64 * 1024)
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(skill_name_from_manifest(&manifest), None);
     }
 }

@@ -3,6 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
+pub(crate) const MAX_DETECTED_SCRIPT_INVOCATIONS: usize = 64;
+const MAX_SCRIPT_COMMAND_BYTES: usize = 1024 * 1024;
+const MAX_SHELL_SEGMENTS: usize = 256;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScriptInvocation {
     pub path: String,
@@ -35,7 +39,13 @@ impl ScriptDetector {
     }
 
     fn detect(&mut self, command: &str) -> Vec<ScriptInvocation> {
+        if command.len() > MAX_SCRIPT_COMMAND_BYTES {
+            return Vec::new();
+        }
         for segment in shell_segments(command) {
+            if self.invocations.len() >= MAX_DETECTED_SCRIPT_INVOCATIONS {
+                break;
+            }
             self.observe(segment);
         }
         std::mem::take(&mut self.invocations)
@@ -281,6 +291,9 @@ fn shell_segments(command: &str) -> Vec<ShellSegment> {
         if scanner.push(character, characters.peek().copied()) {
             characters.next();
         }
+        if scanner.is_full() {
+            break;
+        }
     }
     scanner.finish()
 }
@@ -302,6 +315,10 @@ struct ShellScanner {
 }
 
 impl ShellScanner {
+    fn is_full(&self) -> bool {
+        self.segments.len() >= MAX_SHELL_SEGMENTS
+    }
+
     fn push(&mut self, character: char, next: Option<char>) -> bool {
         if self.push_quoted_or_escaped(character) {
             return false;
@@ -338,7 +355,7 @@ impl ShellScanner {
     }
 
     fn close_segment(&mut self, separator: Separator) {
-        if !self.current.trim().is_empty() {
+        if !self.is_full() && !self.current.trim().is_empty() {
             self.segments.push(ShellSegment {
                 command: self.current.trim().to_owned(),
                 separator,
@@ -459,5 +476,27 @@ mod tests {
                 interpreter: None,
             }]
         );
+    }
+
+    #[test]
+    fn script_detection_bounds_source_segments_and_results_before_filesystem_work() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::create_dir_all(root.join("scripts")).unwrap();
+        for index in 0..65 {
+            std::fs::write(root.join(format!("scripts/{index}.sh")), "#!/bin/sh\n").unwrap();
+        }
+
+        let many_scripts = (0..65)
+            .map(|index| format!("./scripts/{index}.sh"))
+            .collect::<Vec<_>>()
+            .join(";");
+        assert_eq!(detect_script_invocations(&many_scripts, root).len(), 64);
+
+        let too_many_segments = format!("{}./scripts/0.sh", "cd .;".repeat(256));
+        assert!(detect_script_invocations(&too_many_segments, root).is_empty());
+
+        let oversized_source = format!("./scripts/0.sh {}", "x".repeat(1024 * 1024));
+        assert!(detect_script_invocations(&oversized_source, root).is_empty());
     }
 }

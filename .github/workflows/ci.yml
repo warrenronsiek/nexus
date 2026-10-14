@@ -17,6 +17,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install PostgreSQL client library (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libpq-dev
+      - name: Install PostgreSQL client library (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libpq
+          echo "PQ_LIB_DIR=$(brew --prefix libpq)/lib" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -27,3 +35,38 @@ jobs:
           python-version: "3.12"
       - run: python3 -m pip install big-code-analysis-cli==2.2.0
       - run: ./scripts/check.sh
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: nexus
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexus-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexus -d nexus"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      NEXUS_TEST_DATABASE_URL: postgres://nexus:nexus-ci@127.0.0.1:5432/nexus
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install --yes libpq-dev
+      - run: PGPASSWORD=nexus-ci createdb --host 127.0.0.1 --username nexus nexus_transfer
+      - run: cargo test --locked --no-default-features --features postgres --test postgres_transfer
+        env:
+          NEXUS_TEST_DATABASE_URL: postgres://nexus:nexus-ci@127.0.0.1:5432/nexus_transfer
+      - run: cargo test --locked --no-default-features --features postgres --test postgres_service
+
+  docker-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/test-docker-service.sh

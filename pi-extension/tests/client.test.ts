@@ -59,6 +59,7 @@ describe("Pi local Nexus reads", () => {
       window_ended_at: "2026-10-05T12:00:00Z",
       tools: [],
       skills: [],
+      truncated: false,
       capture_health: {},
     };
     const { call, client } = queryClient({ nexus_usage: response });

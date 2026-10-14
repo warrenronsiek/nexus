@@ -103,4 +103,26 @@ describe("progressive navigation", () => {
     const result = selectEntry(snapshot, { kind: "list", section: "projects" }, "project:project-1");
     expect(result).toEqual({ kind: "scope", projectId: "project-1" });
   });
+
+  it("renders remote filenames and descriptions without terminal control sequences", () => {
+    const malicious: Snapshot = {
+      ...snapshot,
+      dashboard: {
+        ...snapshot.dashboard,
+        conflicts: {
+          truncated: false,
+          items: [{
+            ...snapshot.dashboard.conflicts.items[0],
+            path: "src/\u001b[31mowned.rs\u001b[0m",
+            message: "copy \u001b]52;c;c3RvbGVu\u0007blocked \u009b2J",
+          }],
+        },
+      },
+    };
+
+    const [entry] = entriesFor(malicious, { kind: "list", section: "conflicts" });
+    expect(entry.label).toContain("owned.rs");
+    expect(entry.description).toContain("blocked");
+    expect(`${entry.label}${entry.description}`).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/u);
+  });
 });
