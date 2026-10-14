@@ -1,19 +1,23 @@
 // @feature observability-ui
 // @feature runtime
 // @feature agent-memory
+// @feature sos
 // @spec docs/features/observability-ui.md
 // @spec docs/features/runtime.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/sos.md
 // @entrypoint runTerminalDashboard
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { matchesKey, ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
 import { fetchSnapshot, fetchUsage } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
+import { sanitizeDisplayText } from "./display.ts";
 import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
 import { NexusMemoryApi } from "./memory.ts";
+import { NexusSosApi } from "./sos.ts";
 import { TerminalDialogs } from "./terminal-dialogs.ts";
 import { terminalTheme } from "./theme.ts";
 
@@ -25,7 +29,7 @@ async function runTerminalDashboard(): Promise<void> {
   const cwd = process.cwd();
   const executable = values.nexus;
   const argumentsValue = values.config === undefined ? [] : ["--config", values.config];
-  const client = new NexusMcpClient((directory) => spawn(executable, [...argumentsValue, "mcp"], {
+  const client = new NexusMcpClient((directory) => spawn(executable, [...argumentsValue, "mcp", "--agent", "nexus-tui"], {
     cwd: directory, stdio: ["pipe", "pipe", "ignore"],
   }));
   try {
@@ -40,14 +44,14 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
   const terminal = new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const dialogs = new TerminalDialogs(tui, terminalTheme);
-  const memoryApi = new NexusMemoryApi(client, cwd, () => ({
-    session_id: `nexus-tui:${process.pid}`, project_root: cwd, agent: "nexus-tui",
-  }));
+  const memoryApi = new NexusMemoryApi(client, cwd);
+  const sosApi = new NexusSosApi(client, cwd);
   let done!: () => void;
   const closed = new Promise<void>((resolve) => { done = resolve; });
   const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, {
     loadSnapshot: (projectId, signal) => fetchSnapshot(client, cwd, projectId, signal),
     loadUsage: (projectId, signal) => fetchUsage(client, cwd, projectId, signal),
+    sosApi,
     memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,
   });
   tui.addChild(dashboard);
@@ -69,6 +73,8 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
 }
 
 runTerminalDashboard().catch((error: unknown) => {
-  console.error(`Nexus is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(sanitizeDisplayText(
+    `Nexus is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+  ));
   process.exitCode = 1;
 });

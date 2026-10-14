@@ -1,12 +1,14 @@
 // @feature installation
+// @feature sos
 // @feature usage-analytics
 // @spec docs/features/installation.md
+// @spec docs/features/sos.md
 // @spec docs/features/usage-analytics.md
 // @entrypoint setup_machine
 // @entrypoint install_repository
 // @boundary dynamic-json
-use crate::agents::integration::{hook_configuration, Host};
-use crate::config::Config;
+use crate::agents::integration::{hook_configuration, mcp_server_arguments, Host};
+use crate::config::{ClientConfig, Config};
 use crate::persistence::Store;
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -32,7 +34,7 @@ const SKILL_FILES: [(&str, &str); 4] = [
     ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 16] = [
+const PI_EXTENSION_FILES: [(&str, &str); 19] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
     ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
     ("client.ts", include_str!("../pi-extension/src/client.ts")),
@@ -40,6 +42,7 @@ const PI_EXTENSION_FILES: [(&str, &str); 16] = [
         "component.ts",
         include_str!("../pi-extension/src/component.ts"),
     ),
+    ("display.ts", include_str!("../pi-extension/src/display.ts")),
     ("domain.ts", include_str!("../pi-extension/src/domain.ts")),
     (
         "host-context.ts",
@@ -67,6 +70,11 @@ const PI_EXTENSION_FILES: [(&str, &str); 16] = [
         include_str!("../pi-extension/src/navigation.ts"),
     ),
     ("polling.ts", include_str!("../pi-extension/src/polling.ts")),
+    (
+        "sos-pane.ts",
+        include_str!("../pi-extension/src/sos-pane.ts"),
+    ),
+    ("sos.ts", include_str!("../pi-extension/src/sos.ts")),
     ("theme.ts", include_str!("../pi-extension/src/theme.ts")),
     (
         "usage-pane.ts",
@@ -95,7 +103,10 @@ pub struct RepositoryInstallReport {
     pub mode: &'static str,
 }
 
-pub fn setup_machine(executable: &Path) -> Result<MachineSetupReport> {
+pub fn setup_machine(
+    executable: &Path,
+    explicit_config: Option<&Path>,
+) -> Result<MachineSetupReport> {
     let home = dirs::home_dir().context("resolve home directory")?;
     let codex_home = std::env::var_os("CODEX_HOME")
         .map(PathBuf::from)
@@ -103,29 +114,41 @@ pub fn setup_machine(executable: &Path) -> Result<MachineSetupReport> {
     let claude_home = std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".claude"));
-    let (hosts, extensions) =
-        install_agent_resources(executable, &home, &codex_home, &claude_home)?;
+    let (hosts, extensions) = install_agent_resources(
+        executable,
+        explicit_config,
+        &home,
+        &codex_home,
+        &claude_home,
+    )?;
     if hosts.is_empty() {
         bail!(
             "neither codex nor claude is installed; install an agent host and rerun `nexus setup`"
         );
     }
 
-    let loaded = Config::load(None, None)?;
-    let _store = Store::open(&loaded.config.storage.database_path)?;
+    let loaded = Config::load(explicit_config, None)?;
+    let database = match &loaded.config.client {
+        ClientConfig::Local => {
+            let _store = Store::open(&loaded.config.storage.database_path)?;
+            "ready"
+        }
+        ClientConfig::Remote(_) => "remote",
+    };
     Ok(MachineSetupReport {
         status: "ready",
         executable: executable.to_path_buf(),
         hosts,
         skills: SKILL_NAMES.to_vec(),
         extensions,
-        database: "ready",
+        database,
         mode: "advisory_only",
     })
 }
 
 fn install_agent_resources(
     executable: &Path,
+    explicit_config: Option<&Path>,
     home: &Path,
     codex_home: &Path,
     claude_home: &Path,
@@ -133,11 +156,12 @@ fn install_agent_resources(
     for root in [codex_home, claude_home] {
         install_embedded_files(&root.join("skills"), &SKILL_FILES)?;
     }
-    let hosts = install_host_integrations(executable, codex_home, claude_home)?;
+    let hosts = install_host_integrations(executable, explicit_config, codex_home, claude_home)?;
     let extensions = if command_available("pi") {
-        install_embedded_files(
+        install_pi_extension(
             &home.join(".pi/agent/extensions/nexus"),
-            &PI_EXTENSION_FILES,
+            executable,
+            explicit_config,
         )?;
         vec!["pi:nexus"]
     } else {
@@ -146,8 +170,50 @@ fn install_agent_resources(
     Ok((hosts, extensions))
 }
 
+fn install_pi_extension(
+    root: &Path,
+    executable: &Path,
+    explicit_config: Option<&Path>,
+) -> Result<()> {
+    install_embedded_files(root, &PI_EXTENSION_FILES)?;
+    let launch_context = pi_launch_context(executable, explicit_config)?;
+    install_embedded_files(root, &[("launch-context.ts", launch_context.as_str())])
+}
+
+fn pi_launch_context(executable: &Path, explicit_config: Option<&Path>) -> Result<String> {
+    let executable = executable
+        .to_str()
+        .context("Nexus executable path must be UTF-8 for the Pi extension")?;
+    let executable = serde_json::to_string(executable)?;
+    let config = explicit_config
+        .map(|path| {
+            path.to_str()
+                .context("Nexus configuration path must be UTF-8 for the Pi extension")
+                .and_then(|path| serde_json::to_string(path).map_err(Into::into))
+        })
+        .transpose()?
+        .map(|config| format!("  config: {config},\n"))
+        .unwrap_or_default();
+    Ok(format!(
+        "// @feature runtime\n\
+// @feature installation\n\
+// @spec docs/features/runtime.md\n\
+// @spec docs/features/installation.md\n\
+\n\
+export interface NexusLaunchContext {{\n\
+  executable: string;\n\
+  config?: string;\n\
+}}\n\
+\n\
+export const nexusLaunchContext: NexusLaunchContext = {{\n\
+  executable: {executable},\n\
+{config}}};\n"
+    ))
+}
+
 fn install_host_integrations(
     executable: &Path,
+    explicit_config: Option<&Path>,
     codex_home: &Path,
     claude_home: &Path,
 ) -> Result<Vec<String>> {
@@ -157,8 +223,11 @@ fn install_host_integrations(
         (Host::Claude, claude_home.join("settings.json")),
     ] {
         if command_available(host.name()) {
-            register_mcp(host, executable)?;
-            merge_hooks(&settings, hook_configuration(host, executable))?;
+            register_mcp(host, executable, explicit_config)?;
+            merge_hooks(
+                &settings,
+                hook_configuration(host, executable, explicit_config),
+            )?;
             hosts.push(host.name().to_owned());
         }
     }
@@ -172,21 +241,33 @@ pub fn install_repository(
     let repository = repository
         .canonicalize()
         .with_context(|| format!("resolve repository {}", repository.display()))?;
-    let common_directory = git_common_directory(&repository)?;
+    let common_directory = repository_common_directory(&repository)?;
     let project_config = common_directory.join("nexus.toml");
     if !project_config.exists() {
         std::fs::write(&project_config, PROJECT_CONFIG)
             .with_context(|| format!("write {}", project_config.display()))?;
     }
     let loaded = Config::load(explicit_config, Some(&repository))?;
-    let _store = Store::open(&loaded.config.storage.database_path)?;
+    let database = match &loaded.config.client {
+        ClientConfig::Local => {
+            let _store = Store::open(&loaded.config.storage.database_path)?;
+            "ready"
+        }
+        ClientConfig::Remote(_) => "remote",
+    };
     Ok(RepositoryInstallReport {
         status: "ready",
         repository,
         config: project_config,
-        database: "ready",
+        database,
         mode: "advisory_only",
     })
+}
+
+fn repository_common_directory(repository: &Path) -> Result<PathBuf> {
+    crate::git_process::common_directory(repository)
+        .context("read Git common directory")?
+        .with_context(|| format!("{} is not a Git repository", repository.display()))
 }
 
 fn install_embedded_files(root: &Path, files: &[(&str, &str)]) -> Result<()> {
@@ -211,8 +292,7 @@ fn command_available(command: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn register_mcp(host: Host, executable: &Path) -> Result<()> {
-    let executable = executable.as_os_str();
+fn register_mcp(host: Host, executable: &Path, explicit_config: Option<&Path>) -> Result<()> {
     let remove: Vec<OsString> = match host {
         Host::Codex => ["mcp", "remove", "nexus"]
             .into_iter()
@@ -242,7 +322,7 @@ fn register_mcp(host: Host, executable: &Path) -> Result<()> {
         .map(OsString::from)
         .collect(),
     };
-    add.extend([executable.to_owned(), OsString::from("mcp")]);
+    add.extend(mcp_server_arguments(host, executable, explicit_config));
     let _ = Command::new(host.name())
         .args(remove)
         .stdout(Stdio::null())
@@ -316,22 +396,4 @@ fn contains_nexus_hook(value: &Value) -> bool {
         Value::Array(values) => values.iter().any(contains_nexus_hook),
         _ => false,
     }
-}
-
-fn git_common_directory(repository: &Path) -> Result<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--git-common-dir"])
-        .current_dir(repository)
-        .output()
-        .context("read Git common directory")?;
-    if !output.status.success() {
-        bail!("{} is not a Git repository", repository.display());
-    }
-    let raw = String::from_utf8(output.stdout).context("Git common directory was not UTF-8")?;
-    let path = PathBuf::from(raw.trim());
-    Ok(if path.is_absolute() {
-        path
-    } else {
-        repository.join(path)
-    })
 }

@@ -50,7 +50,7 @@ impl Store {
         if agent.trim().is_empty() || session_id.trim().is_empty() {
             bail!("memory activation requires non-empty agent and session ids");
         }
-        if activation_exists(&mut self.connection, agent, session_id)? {
+        if activation_exists(&mut self.connection, scope, agent, session_id)? {
             return Ok(None);
         }
         let limits = hard_bounded_limits(limits);
@@ -141,7 +141,7 @@ struct PreparedMemoryContext {
 }
 
 fn allocate_layered_contexts(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
     global: snapshot::LoadedSnapshot,
     project: snapshot::LoadedSnapshot,
@@ -275,13 +275,16 @@ fn merge_layered_context(
 }
 
 fn activation_exists(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
+    scope: &MemoryReadScope,
     agent: &str,
     session_id: &str,
 ) -> Result<bool> {
+    let activation_scope_key = activation_scope_key(scope);
     Ok(memory_activations::table
         .filter(memory_activations::agent.eq(agent))
         .filter(memory_activations::session_id.eq(session_id))
+        .filter(memory_activations::activation_scope_key.eq(activation_scope_key))
         .select(memory_activations::id)
         .first::<String>(connection)
         .optional()?
@@ -289,7 +292,7 @@ fn activation_exists(
 }
 
 fn insert_activation(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryReadScope,
     agent: &str,
     session_id: &str,
@@ -297,6 +300,7 @@ fn insert_activation(
 ) -> Result<usize> {
     let activation_id = Uuid::new_v4().to_string();
     let (scope_text, project_id) = read_scope_parts(scope);
+    let activation_scope_key = activation_scope_key(scope);
     let activated_at = Utc::now().to_rfc3339();
     transaction(connection, TransactionMode::Immediate, |connection| {
         if !snapshot::versions_are_current(connection, &prepared.versions)? {
@@ -309,11 +313,16 @@ fn insert_activation(
                 session_id,
                 read_scope: scope_text,
                 project_id,
+                activation_scope_key: &activation_scope_key,
                 delivered_items: i32::try_from(prepared.status.item_count)?,
                 omitted_ranges: i32::try_from(prepared.status.omitted.len())?,
                 activated_at: &activated_at,
             })
-            .on_conflict((memory_activations::agent, memory_activations::session_id))
+            .on_conflict((
+                memory_activations::agent,
+                memory_activations::session_id,
+                memory_activations::activation_scope_key,
+            ))
             .do_nothing()
             .execute(connection)
             .map_err(Into::into)
@@ -321,7 +330,7 @@ fn insert_activation(
 }
 
 fn context_from_set(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     read_scope: MemoryReadScope,
     scope: &MemoryScope,
     set: snapshot::LoadedSnapshot,
@@ -369,4 +378,9 @@ fn read_scope_parts(scope: &MemoryReadScope) -> (&'static str, Option<&str>) {
         MemoryReadScope::Project { project_id } => ("project", Some(project_id)),
         MemoryReadScope::Layered { project_id } => ("layered", Some(project_id)),
     }
+}
+
+fn activation_scope_key(scope: &MemoryReadScope) -> String {
+    let (scope, project_id) = read_scope_parts(scope);
+    format!("{scope}:{}", project_id.unwrap_or_default())
 }

@@ -6,12 +6,14 @@
 use super::models::NewCapabilityUse;
 use super::schema::capability_uses;
 use super::Store;
+use crate::coordination::domain::{query_window_limit, RecordWindow};
+use crate::persistence::backend::DbConnection;
 use anyhow::{bail, Result};
 use chrono::{DateTime, Utc};
 use diesel::dsl::count_star;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -147,6 +149,7 @@ pub struct UsageSummary {
     pub window_ended_at: DateTime<Utc>,
     pub tools: Vec<UsageCount>,
     pub skills: Vec<UsageCount>,
+    pub truncated: bool,
 }
 
 struct CapabilityWrite<'a> {
@@ -282,15 +285,50 @@ impl Store {
         window_ended_at: DateTime<Utc>,
     ) -> Result<UsageSummary> {
         let window = UsageWindow::new(project_id, window_started_at, window_ended_at)?;
+        let dimension_keys = RecordWindow::bounded(
+            top_dimension_keys(&mut self.connection, &window)?,
+            crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
+        );
+        let selected = dimension_keys
+            .items
+            .iter()
+            .map(|(kind, name, _)| (kind.clone(), name.clone()))
+            .collect::<BTreeSet<_>>();
         let mut usage = UsageAccumulator::default();
-        usage.add_dimensions(dimension_counts(&mut self.connection, &window)?)?;
-        usage.add_sessions(session_counts(&mut self.connection, &window)?)?;
-        Ok(usage.into_summary(window))
+        if selected.is_empty() {
+            return Ok(usage.into_summary(window, false));
+        }
+        let dimension_rows = RecordWindow::bounded(
+            dimension_counts(&mut self.connection, &window, &selected)?,
+            MAX_USAGE_DETAIL_ROWS,
+        );
+        let session_rows = RecordWindow::bounded(
+            session_counts(&mut self.connection, &window, &selected)?,
+            crate::coordination::api::MAX_USAGE_SESSION_IDENTITY_ROWS,
+        );
+        usage.add_dimensions(
+            dimension_rows
+                .items
+                .into_iter()
+                .filter(|row| selected.contains(&(row.0.clone(), row.1.clone())))
+                .collect(),
+        )?;
+        usage.add_sessions(
+            session_rows
+                .items
+                .into_iter()
+                .filter(|row| selected.contains(&(row.0.clone(), row.1.clone())))
+                .collect(),
+        )?;
+        Ok(usage.into_summary(
+            window,
+            dimension_keys.truncated || dimension_rows.truncated || session_rows.truncated,
+        ))
     }
 }
 
 fn insert_capability(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &CapabilityWrite<'_>,
 ) -> QueryResult<()> {
     diesel::insert_into(capability_uses::table)
@@ -301,7 +339,7 @@ fn insert_capability(
 }
 
 fn promote_skill_evidence(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &CapabilityWrite<'_>,
 ) -> QueryResult<()> {
     let Some(turn_id) = write.skill_turn_id() else {
@@ -330,7 +368,7 @@ fn promote_skill_evidence(
 }
 
 fn update_capability_completion(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &CapabilityWrite<'_>,
 ) -> QueryResult<()> {
     if write.outcome == CapabilityOutcome::Pending {
@@ -343,7 +381,7 @@ fn update_capability_completion(
 }
 
 fn update_skill_completion(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &CapabilityWrite<'_>,
     turn_id: &str,
 ) -> QueryResult<()> {
@@ -366,7 +404,7 @@ fn update_skill_completion(
 }
 
 fn update_invocation_completion(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &CapabilityWrite<'_>,
 ) -> QueryResult<()> {
     diesel::update(
@@ -415,7 +453,7 @@ impl UsageAccumulator {
         Ok(())
     }
 
-    fn into_summary(self, window: UsageWindow<'_>) -> UsageSummary {
+    fn into_summary(self, window: UsageWindow<'_>, truncated: bool) -> UsageSummary {
         let (mut skills, mut tools): (Vec<_>, Vec<_>) = self
             .counts
             .into_values()
@@ -427,6 +465,7 @@ impl UsageAccumulator {
             window_ended_at: window.ended_at,
             tools,
             skills,
+            truncated,
         }
     }
 }
@@ -495,14 +534,64 @@ fn validate_observation(observation: &CapabilityObservation) -> Result<()> {
 
 type DimensionCountRow = (String, String, String, String, i64);
 type SessionCountRow = (String, String, String, String, String);
+type DimensionKeyRow = (String, String, i64);
 
-fn dimension_counts(
-    connection: &mut SqliteConnection,
+const MAX_USAGE_DETAIL_ROWS: usize =
+    crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS * 3 * 6 * 6;
+
+fn top_dimension_keys(
+    connection: &mut DbConnection,
     window: &UsageWindow<'_>,
-) -> QueryResult<Vec<DimensionCountRow>> {
+) -> QueryResult<Vec<DimensionKeyRow>> {
     let base = capability_uses::table
         .filter(capability_uses::first_observed_at.ge(&window.start))
         .filter(capability_uses::first_observed_at.lt(&window.end));
+    if let Some(project_id) = window.project_id {
+        base.filter(capability_uses::project_id.eq(project_id))
+            .group_by((capability_uses::kind, capability_uses::name))
+            .select((capability_uses::kind, capability_uses::name, count_star()))
+            .order((
+                count_star().desc(),
+                capability_uses::name.asc(),
+                capability_uses::kind.asc(),
+            ))
+            .limit(query_window_limit(
+                crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
+            ))
+            .load(connection)
+    } else {
+        base.group_by((capability_uses::kind, capability_uses::name))
+            .select((capability_uses::kind, capability_uses::name, count_star()))
+            .order((
+                count_star().desc(),
+                capability_uses::name.asc(),
+                capability_uses::kind.asc(),
+            ))
+            .limit(query_window_limit(
+                crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
+            ))
+            .load(connection)
+    }
+}
+
+fn dimension_counts(
+    connection: &mut DbConnection,
+    window: &UsageWindow<'_>,
+    selected: &BTreeSet<(String, String)>,
+) -> QueryResult<Vec<DimensionCountRow>> {
+    let kinds = selected
+        .iter()
+        .map(|(kind, _)| kind.as_str())
+        .collect::<BTreeSet<_>>();
+    let names = selected
+        .iter()
+        .map(|(_, name)| name.as_str())
+        .collect::<Vec<_>>();
+    let base = capability_uses::table
+        .filter(capability_uses::first_observed_at.ge(&window.start))
+        .filter(capability_uses::first_observed_at.lt(&window.end))
+        .filter(capability_uses::kind.eq_any(&kinds))
+        .filter(capability_uses::name.eq_any(&names));
     if let Some(project_id) = window.project_id {
         base.filter(capability_uses::project_id.eq(project_id))
             .group_by((
@@ -518,6 +607,13 @@ fn dimension_counts(
                 capability_uses::evidence,
                 count_star(),
             ))
+            .order((
+                capability_uses::kind.asc(),
+                capability_uses::name.asc(),
+                capability_uses::outcome.asc(),
+                capability_uses::evidence.asc(),
+            ))
+            .limit(query_window_limit(MAX_USAGE_DETAIL_ROWS))
             .load(connection)
     } else {
         base.group_by((
@@ -533,30 +629,41 @@ fn dimension_counts(
             capability_uses::evidence,
             count_star(),
         ))
+        .order((
+            capability_uses::kind.asc(),
+            capability_uses::name.asc(),
+            capability_uses::outcome.asc(),
+            capability_uses::evidence.asc(),
+        ))
+        .limit(query_window_limit(MAX_USAGE_DETAIL_ROWS))
         .load(connection)
     }
 }
 
 fn session_counts(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     window: &UsageWindow<'_>,
+    selected: &BTreeSet<(String, String)>,
 ) -> QueryResult<Vec<SessionCountRow>> {
-    let base = capability_uses::table
+    let kinds = selected
+        .iter()
+        .map(|(kind, _)| kind.as_str())
+        .collect::<BTreeSet<_>>();
+    let names = selected
+        .iter()
+        .map(|(_, name)| name.as_str())
+        .collect::<Vec<_>>();
+    let mut query = capability_uses::table
         .filter(capability_uses::first_observed_at.ge(&window.start))
-        .filter(capability_uses::first_observed_at.lt(&window.end));
+        .filter(capability_uses::first_observed_at.lt(&window.end))
+        .filter(capability_uses::kind.eq_any(kinds))
+        .filter(capability_uses::name.eq_any(names))
+        .into_boxed();
     if let Some(project_id) = window.project_id {
-        base.filter(capability_uses::project_id.eq(project_id))
-            .select((
-                capability_uses::kind,
-                capability_uses::name,
-                capability_uses::project_id,
-                capability_uses::agent,
-                capability_uses::session_id,
-            ))
-            .distinct()
-            .load(connection)
-    } else {
-        base.select((
+        query = query.filter(capability_uses::project_id.eq(project_id));
+    }
+    query
+        .select((
             capability_uses::kind,
             capability_uses::name,
             capability_uses::project_id,
@@ -564,8 +671,17 @@ fn session_counts(
             capability_uses::session_id,
         ))
         .distinct()
+        .order((
+            capability_uses::kind.asc(),
+            capability_uses::name.asc(),
+            capability_uses::project_id.asc(),
+            capability_uses::agent.asc(),
+            capability_uses::session_id.asc(),
+        ))
+        .limit(query_window_limit(
+            crate::coordination::api::MAX_USAGE_SESSION_IDENTITY_ROWS,
+        ))
         .load(connection)
-    }
 }
 
 fn weaker_evidence(evidence: CapabilityEvidence) -> Vec<&'static str> {

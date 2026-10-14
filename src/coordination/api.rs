@@ -2,30 +2,47 @@
 // @feature usage-analytics
 // @feature agent-memory
 // @feature papercuts
+// @feature sos
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
+// @spec docs/features/sos.md
 // @boundary dynamic-json
 mod memory;
 mod papercuts;
+mod responses;
+mod sos;
 
 pub use memory::*;
 pub use papercuts::*;
+pub use responses::*;
+pub use sos::*;
 
 use super::domain::{
-    Claim, ClaimRelease, ConflictRecord, ConflictScope, DashboardRecords, EventRecord,
-    HookResponse, ProjectSummary, RecordScope, ScriptUseInput, SessionRecord, SessionStopInput,
-    SkillUseInput, StatusCounts, ToolCompletion, ToolHookInput, UserPromptInput,
+    ClaimRelease, ConflictScope, HookContext, RecordScope, ScriptUseInput, SessionStopInput,
+    SkillUseInput, ToolCompletion, ToolHookInput, UserPromptInput,
 };
-use crate::agents::analyst::AnalysisResult;
-use crate::config::Config;
-use crate::memory::MemoryContextStatus;
-use crate::persistence::UsageSummary;
 use anyhow::{bail, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
-use std::path::PathBuf;
+
+pub(crate) const MAX_EVENT_RESULTS: usize = 64;
+pub(crate) const MAX_SESSION_RESULTS: usize = 64;
+pub(crate) const MAX_SESSION_SUMMARY_BYTES: usize = 1_024;
+pub(crate) const MAX_CLAIM_RESULTS: usize = 64;
+pub(crate) const MAX_CONFLICT_RESULTS: usize = 32;
+pub(crate) const MAX_PROJECT_RESULTS: usize = 16;
+pub(crate) const MAX_PROJECT_SUMMARY_SESSIONS: usize = 4;
+pub(crate) const MAX_DASHBOARD_EVENT_RESULTS: usize = 32;
+pub(crate) const MAX_DASHBOARD_RECORD_RESULTS: usize = 16;
+pub(crate) const MAX_USAGE_DIMENSION_RESULTS: usize = 64;
+pub(crate) const MAX_USAGE_SESSION_IDENTITY_ROWS: usize = 4_096;
+pub(crate) const MAX_OPEN_PAPERCUT_RESULTS: usize = 32;
+pub(crate) const MAX_MEMORY_SEARCH_REGEX_BYTES: usize = 4 * 1024;
+pub(crate) const MAX_LIFECYCLE_ADVISORIES: usize = 32;
+pub(crate) const MAX_SESSION_ID_BYTES: usize = 512;
+pub(crate) const MAX_AGENT_BYTES: usize = 256;
 
 #[derive(Debug)]
 pub enum ServiceRequest {
@@ -56,6 +73,7 @@ pub enum ServiceRequest {
     MemoryInvalidate(MemorySummaryQuery),
     MemoryConsolidate,
     Papercuts(PapercutCommand),
+    Sos(SosCommand),
     Config,
 }
 
@@ -87,7 +105,7 @@ impl ServiceRequest {
 }
 
 fn decode_lifecycle(method: &str, params: Value) -> Result<ServiceRequest> {
-    match method {
+    let request = match method {
         "user_prompt" => decode(params).map(ServiceRequest::UserPrompt),
         "pre_tool_use" => decode_tool_hook(ToolHookPhase::Before, params),
         "post_tool_use" => {
@@ -100,7 +118,69 @@ fn decode_lifecycle(method: &str, params: Value) -> Result<ServiceRequest> {
         "script_use" => decode(params).map(ServiceRequest::ScriptUse),
         "session_stop" => decode(params).map(ServiceRequest::SessionStop),
         _ => unreachable!("method family was classified before decoding"),
+    }?;
+    validate_lifecycle_request(&request)?;
+    Ok(request)
+}
+
+fn validate_lifecycle_request(request: &ServiceRequest) -> Result<()> {
+    let context = match request {
+        ServiceRequest::UserPrompt(input) => &input.context,
+        ServiceRequest::ToolHook { input, .. } => {
+            validate_required_field("tool_use_id", &input.tool_use_id, 512)?;
+            validate_required_field("tool_name", &input.tool_name, 256)?;
+            validate_optional_field(
+                "parent_tool_use_id",
+                input.parent_tool_use_id.as_deref(),
+                512,
+            )?;
+            &input.context
+        }
+        ServiceRequest::SkillUse(input) => {
+            validate_required_field("invocation_id", &input.invocation_id, 512)?;
+            validate_required_field("skill_name", &input.skill_name, 256)?;
+            validate_optional_field("actor", input.actor.as_deref(), 256)?;
+            &input.context
+        }
+        ServiceRequest::ScriptUse(input) => {
+            validate_required_field("invocation_id", &input.invocation_id, 512)?;
+            validate_required_field("script_name", &input.script_name, 4_096)?;
+            &input.context
+        }
+        ServiceRequest::SessionStop(input) => &input.context,
+        _ => return Ok(()),
+    };
+    validate_hook_context(context)
+}
+
+fn validate_hook_context(context: &HookContext) -> Result<()> {
+    validate_required_field("session_id", &context.session_id, MAX_SESSION_ID_BYTES)?;
+    validate_required_field("agent", &context.agent, MAX_AGENT_BYTES)?;
+    validate_optional_field("project_root", context.project_root.as_deref(), 4_096)?;
+    validate_optional_field("turn_id", context.turn_id.as_deref(), 256)?;
+    validate_optional_field("model", context.model.as_deref(), 256)
+}
+
+pub(crate) fn validate_required_field(field: &str, value: &str, maximum: usize) -> Result<()> {
+    if value.trim().is_empty() || value.len() > maximum {
+        bail!("{field} must contain 1 to {maximum} bytes");
     }
+    if value.chars().any(char::is_control) {
+        bail!("{field} cannot contain control characters");
+    }
+    Ok(())
+}
+
+fn validate_optional_field(field: &str, value: Option<&str>, maximum: usize) -> Result<()> {
+    if let Some(value) = value {
+        if value.len() > maximum {
+            bail!("{field} must contain at most {maximum} bytes");
+        }
+        if value.chars().any(char::is_control) {
+            bail!("{field} cannot contain control characters");
+        }
+    }
+    Ok(())
 }
 
 fn decode_tool_hook(phase: ToolHookPhase, params: Value) -> Result<ServiceRequest> {
@@ -113,13 +193,30 @@ fn decode_tool_hook(phase: ToolHookPhase, params: Value) -> Result<ServiceReques
 fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
     match method {
         "status" => Ok(ServiceRequest::Status),
-        "events" => decode(params).map(ServiceRequest::Events),
-        "sessions" => decode(params).map(ServiceRequest::Sessions),
-        "claims" => decode(params).map(ServiceRequest::Claims),
-        "conflicts" => decode(params).map(ServiceRequest::Conflicts),
+        "events" => decode_project_query(params, |query: &mut EventQuery| &mut query.project_id)
+            .map(ServiceRequest::Events),
+        "sessions" => {
+            decode_project_query(params, |query: &mut SessionQuery| &mut query.project_id)
+                .map(ServiceRequest::Sessions)
+        }
+        "claims" => decode_project_query(params, |query: &mut ClaimQuery| &mut query.project_id)
+            .map(ServiceRequest::Claims),
+        "conflicts" => {
+            decode_project_query(params, |query: &mut ConflictQuery| &mut query.project_id)
+                .map(ServiceRequest::Conflicts)
+        }
         "memory_status" => decode(params).map(ServiceRequest::MemoryStatus),
         "memory_context" => decode(params).map(ServiceRequest::MemoryContext),
-        "memory_search" => decode(params).map(ServiceRequest::MemorySearch),
+        "memory_search" => {
+            let query: MemorySearchQuery = decode(params)?;
+            if query.regex.len() > MAX_MEMORY_SEARCH_REGEX_BYTES {
+                bail!(
+                    "memory search regex must contain at most {} bytes",
+                    MAX_MEMORY_SEARCH_REGEX_BYTES
+                );
+            }
+            Ok(ServiceRequest::MemorySearch(query))
+        }
         "memory_expand" => decode(params).map(ServiceRequest::MemoryExpand),
         _ => unreachable!("method family was classified before decoding"),
     }
@@ -134,6 +231,15 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
         "memory_invalidate" => decode(params).map(ServiceRequest::MemoryInvalidate),
         "memory_consolidate" => Ok(ServiceRequest::MemoryConsolidate),
         "papercuts" => decode(params).map(ServiceRequest::Papercuts),
+        "sos" => {
+            let command: SosCommand = decode(params)?;
+            validate_hook_context(command.context())?;
+            if matches!(&command, SosCommand::Report { context, .. } if context.model.as_deref().is_none_or(|model| model.trim().is_empty()))
+            {
+                bail!("SOS model must contain 1 to 256 bytes");
+            }
+            Ok(ServiceRequest::Sos(command))
+        }
         _ => unreachable!("method family was classified before decoding"),
     }
 }
@@ -141,11 +247,33 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
 fn decode_report(method: &str, params: Value) -> Result<ServiceRequest> {
     match method {
         "projects" => Ok(ServiceRequest::Projects),
-        "dashboard" => decode(params).map(ServiceRequest::Dashboard),
-        "usage" => decode(params).map(ServiceRequest::Usage),
+        "dashboard" => {
+            decode_project_query(params, |query: &mut DashboardQuery| &mut query.project_id)
+                .map(ServiceRequest::Dashboard)
+        }
+        "usage" => decode_project_query(params, |query: &mut UsageQuery| &mut query.project_id)
+            .map(ServiceRequest::Usage),
         "config" => Ok(ServiceRequest::Config),
         _ => unreachable!("method family was classified before decoding"),
     }
+}
+
+fn decode_project_query<T, F>(params: Value, project_id: F) -> Result<T>
+where
+    T: DeserializeOwned,
+    F: FnOnce(&mut T) -> &mut Option<String>,
+{
+    let mut query = decode(params)?;
+    let project_id = project_id(&mut query);
+    if let Some(raw) = project_id.as_deref() {
+        let canonical = crate::config::canonical_project_id(raw).map_err(|_| {
+            anyhow::anyhow!("project_id must contain 1 to 256 bytes and no control characters")
+        })?;
+        if canonical != raw {
+            *project_id = Some(canonical.to_owned());
+        }
+    }
+    Ok(query)
 }
 
 fn request_family(request: &ServiceRequest) -> RequestFamily {
@@ -170,7 +298,8 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::MemoryAdd(_)
         | ServiceRequest::MemoryInvalidate(_)
         | ServiceRequest::MemoryConsolidate
-        | ServiceRequest::Papercuts(_) => RequestFamily::Command,
+        | ServiceRequest::Papercuts(_)
+        | ServiceRequest::Sos(_) => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
         | ServiceRequest::Usage(_)
@@ -213,6 +342,7 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::MemoryInvalidate(command) => encode("memory_invalidate", command),
         ServiceRequest::MemoryConsolidate => Ok(empty("memory_consolidate")),
         ServiceRequest::Papercuts(command) => encode("papercuts", command),
+        ServiceRequest::Sos(command) => encode("sos", command),
         _ => unreachable!("request family was selected before encoding"),
     }
 }
@@ -255,6 +385,7 @@ const COMMAND_METHODS: &[&str] = &[
     "memory_invalidate",
     "memory_consolidate",
     "papercuts",
+    "sos",
 ];
 const REPORT_METHODS: &[&str] = &["projects", "dashboard", "usage", "config"];
 
@@ -318,17 +449,19 @@ pub struct EventQuery {
 
 impl EventQuery {
     pub fn bounded_limit(&self) -> usize {
-        self.limit.clamp(1, 10_000)
+        self.limit.clamp(1, MAX_EVENT_RESULTS)
     }
 }
 
 fn default_event_limit() -> usize {
-    100
+    MAX_EVENT_RESULTS
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct SessionQuery {
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default)]
     pub scope: RecordScope,
 }
@@ -416,155 +549,6 @@ pub struct DashboardQuery {
 pub struct UsageQuery {
     #[serde(default)]
     pub project_id: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum ServiceResponse {
-    Hook(HookResponse),
-    Prompt(PromptResponse),
-    Status(StatusResponse),
-    Events(EventsResponse),
-    Sessions(SessionsResponse),
-    Claims(ClaimsResponse),
-    Conflicts(ConflictsResponse),
-    Resolved(ResolvedResponse),
-    Released(ReleasedResponse),
-    Analysis(AnalysisResponse),
-    Projects(ProjectsResponse),
-    Dashboard(DashboardResponse),
-    Usage(UsageResponse),
-    MemoryWrite(MemoryWriteResponse),
-    MemoryEntries(MemoryEntriesResponse),
-    MemoryContext(MemoryContextResponse),
-    MemoryNodes(MemoryNodesResponse),
-    MemoryInvalidation(MemoryInvalidationResponse),
-    MemoryStatus(MemoryStatusResponse),
-    MemoryConsolidation(MemoryConsolidationReport),
-    Papercuts(Box<PapercutResponse>),
-    Config(Box<ConfigResponse>),
-    Error(ErrorResponse),
-}
-
-impl ServiceResponse {
-    pub fn error(error: impl std::fmt::Display) -> Self {
-        Self::Error(ErrorResponse {
-            ok: false,
-            error: error.to_string(),
-        })
-    }
-
-    pub fn to_json(&self) -> Value {
-        serde_json::to_value(self).expect("service responses are serializable")
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct PromptResponse {
-    pub permitted: bool,
-    pub recorded: bool,
-    pub project_id: String,
-    pub prompt_hash: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_context: Option<MemoryContextStatus>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StatusResponse {
-    pub ok: bool,
-    pub status: &'static str,
-    pub counts: StatusCounts,
-    pub config_hash: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct EventsResponse {
-    pub ok: bool,
-    pub events: Vec<EventRecord>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SessionsResponse {
-    pub ok: bool,
-    pub sessions: Vec<SessionRecord>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ClaimsResponse {
-    pub ok: bool,
-    pub claims: Vec<Claim>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConflictsResponse {
-    pub ok: bool,
-    pub conflicts: Vec<ConflictRecord>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ResolvedResponse {
-    pub ok: bool,
-    pub conflict_id: String,
-    pub status: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReleasedResponse {
-    pub ok: bool,
-    pub released: usize,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AnalysisResponse {
-    pub ok: bool,
-    pub analysis: AnalysisResult,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ProjectsResponse {
-    pub ok: bool,
-    pub projects: Vec<ProjectSummary>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DashboardResponse {
-    pub ok: bool,
-    pub project_id: Option<String>,
-    pub generated_at: chrono::DateTime<chrono::Utc>,
-    pub refresh_interval_ms: u64,
-    #[serde(flatten)]
-    pub records: DashboardRecords,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UsageResponse {
-    pub ok: bool,
-    pub project_id: Option<String>,
-    #[serde(flatten)]
-    pub summary: UsageSummary,
-    pub capture_health: CaptureHealthResponse,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CaptureHealthResponse {
-    pub label: &'static str,
-    pub received: u64,
-    pub recorded: u64,
-    pub dropped: u64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConfigResponse {
-    pub ok: bool,
-    pub config: Config,
-    pub sources: Vec<PathBuf>,
-    pub hash: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub ok: bool,
-    pub error: String,
 }
 
 #[cfg(test)]

@@ -55,7 +55,7 @@ flowchart TD
 
 ## Implementation details
 
-`src/agents/reviewer.rs` owns staged-diff collection, skill loading, prompts, parallel execution, and the typed report. `src/agents/model.rs` is the shared bounded process adapter used by both conflict analysis and commit review, avoiding parallel Codex/Claude implementations with the same lifecycle.
+`src/agents/reviewer.rs` owns staged-diff collection, skill loading, prompts, parallel execution, and the typed report. `src/agents/model.rs` exposes the shared adapter used by conflict analysis and commit review; its `model/provider.rs` and `model/process.rs` implementation modules isolate provider command policy from bounded subprocess lifecycle mechanics, avoiding parallel Codex/Claude implementations with the same lifecycle. The model process delegates only nonblocking byte-bounded stdout and stderr capture to the crate-private `process_capture` mechanism; review-provider policy and failure translation stay in the model adapter.
 
 `review.implementation_provider` and `review.provider` must differ. Each provider has its own configurable command, model, and reasoning effort. The default is a Claude reviewer for Codex-authored changes, with `xhigh` reasoning and a ten-minute timeout so architecture review has enough time for repository inspection. `review.skill_root` defaults to `$CODEX_HOME/skills` or `~/.codex/skills`.
 

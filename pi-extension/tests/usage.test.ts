@@ -36,6 +36,7 @@ const response = {
       evidence: { explicit_invocation: 4, instruction_read: 1 },
     },
   ],
+  truncated: false,
   capture_health: { pending: 1, dropped: 0 },
 };
 
@@ -65,5 +66,21 @@ describe("usage analytics boundary", () => {
     const usage = decodeUsage(response);
     expect(renderUsageBars([], 40)).toEqual(["No usage observed in this window."]);
     expect(renderUsageBars(usage.tools, 28).every((line) => line.length <= 28)).toBe(true);
+  });
+
+  it("renders observed names without ANSI or clipboard control sequences", () => {
+    const usage = decodeUsage({
+      ...response,
+      tools: [{
+        ...response.tools[0],
+        name: "tool\u001b[31mred\u001b[0m\u001b]52;c;c3RvbGVu\u0007\u009b2J",
+      }],
+    });
+    const lines = renderUsageBars(usage.tools, 80);
+
+    expect(lines.join("\n")).toContain("tool");
+    expect(lines).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/[\u0000-\u001f\u007f-\u009f]/u)]),
+    );
   });
 });

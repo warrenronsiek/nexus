@@ -3,13 +3,19 @@
 // @feature usage-analytics
 // @feature agent-memory
 // @feature papercuts
+// @feature sos
 // @spec docs/features/runtime.md
 // @spec docs/features/commit-review.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
+// @spec docs/features/sos.md
 // @entrypoint main
-use anyhow::{Context, Result};
+// @boundary cli-and-json
+#[path = "main/sos.rs"]
+mod sos_cli;
+
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use nexus::agents::integration::{self, Host};
 use nexus::agents::reviewer;
@@ -22,8 +28,9 @@ use nexus::coordination::api::{
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
 use nexus::papercuts::PapercutReviewDecision;
-use nexus::runtime::{daemon, hooks, mcp, script_exec, terminal};
+use nexus::runtime::{client::NexusClient, daemon, hooks, mcp, script_exec, terminal};
 use nexus::{Config, LoadedConfig};
+use sos_cli::SosCliCommand;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -68,17 +75,19 @@ enum Command {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<OsString>,
     },
-    /// Show daemon status and projection counts.
+    /// Show service status and projection counts.
     Status,
     /// Show recent events.
     Events {
         #[arg(long)]
         project_id: Option<String>,
-        #[arg(long, default_value_t = 100)]
+        #[arg(long, default_value_t = 64)]
         limit: usize,
     },
     /// Show registered sessions.
     Sessions {
+        #[arg(long)]
+        project_id: Option<String>,
         #[arg(long)]
         all: bool,
     },
@@ -120,6 +129,11 @@ enum Command {
         #[command(subcommand)]
         command: PapercutsCommand,
     },
+    /// Report, inspect, and maintain complex problems that need help.
+    Sos {
+        #[command(subcommand)]
+        command: SosCliCommand,
+    },
     /// Run parallel cross-model architecture and deletion review on the staged diff.
     ReviewCommit,
     /// Inspect or validate the resolved configuration.
@@ -127,7 +141,7 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    /// Check local configuration and storage prerequisites.
+    /// Check configured transport and storage prerequisites.
     Doctor,
     /// Print host registration and hook configuration.
     Integrate {
@@ -236,15 +250,42 @@ enum IntegrationHost {
     Claude,
 }
 
+struct CliInvocation {
+    command: Command,
+    root: PathBuf,
+    explicit_config: Option<PathBuf>,
+    loaded: LoadedConfig,
+}
+
+impl CliInvocation {
+    fn resolve(cli: Cli) -> Result<Self> {
+        let root = std::env::current_dir()?;
+        let explicit_config = cli
+            .config
+            .or_else(|| std::env::var_os("NEXUS_CONFIG").map(PathBuf::from))
+            .map(|path| root.join(path));
+        let loaded = Config::load(explicit_config.as_deref(), Some(&root))?;
+        Ok(Self {
+            command: cli.command,
+            root,
+            explicit_config,
+            loaded,
+        })
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
-    let root = std::env::current_dir()?;
-    let explicit_config = cli.config;
-    let loaded = Config::load(explicit_config.as_deref(), Some(&root))?;
-    match cli.command {
+    let CliInvocation {
+        command,
+        root,
+        explicit_config,
+        loaded,
+    } = CliInvocation::resolve(Cli::parse())?;
+    match command {
         Command::Setup => {
-            let report = installation::setup_machine(&std::env::current_exe()?)?;
+            let report =
+                installation::setup_machine(&std::env::current_exe()?, explicit_config.as_deref())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
@@ -253,7 +294,15 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
-        Command::Daemon => daemon::serve(loaded).await,
+        Command::Daemon => {
+            if matches!(
+                &loaded.config.client,
+                nexus::config::ClientConfig::Remote(_)
+            ) {
+                bail!("a remote Nexus service is configured; the local daemon is disabled");
+            }
+            daemon::serve(loaded).await
+        }
         Command::Mcp { agent } => {
             mcp::serve_stdio(loaded, explicit_config.as_deref(), &agent).await
         }
@@ -269,12 +318,13 @@ async fn main() -> Result<()> {
         }
         Command::Memory { command } => run_memory_command(command, &root, &loaded).await,
         Command::Papercuts { command } => run_papercuts_command(command, &root, &loaded).await,
+        Command::Sos { command } => sos_cli::run(command, &root, &loaded).await,
         query @ (Command::Status
         | Command::Events { .. }
         | Command::Sessions { .. }
         | Command::Claims { .. }
         | Command::Conflicts { .. }) => run_query_command(query, &loaded).await,
-        command => run_admin_command(command, &root, &loaded).await,
+        command => run_admin_command(command, &root, &loaded, explicit_config.as_deref()).await,
     }
 }
 
@@ -337,27 +387,26 @@ async fn run_papercuts_command(
 async fn run_query_command(command: Command, loaded: &LoadedConfig) -> Result<()> {
     match command {
         Command::Status => {
-            let result =
-                daemon::request(&loaded.config.runtime.socket_path, &ServiceRequest::Status)
-                    .await
-                    .context("Nexus daemon is not running; start it with `nexus daemon`")?;
+            let result = NexusClient::new(loaded, None)
+                .request(&ServiceRequest::Status)
+                .await
+                .context("Nexus is not reachable")?;
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
         Command::Events { project_id, limit } => {
-            let result = daemon::request(
-                &loaded.config.runtime.socket_path,
-                &ServiceRequest::Events(EventQuery { project_id, limit }),
-            )
-            .await
-            .context("Nexus daemon is not running")?;
+            let result = NexusClient::new(loaded, None)
+                .request(&ServiceRequest::Events(EventQuery { project_id, limit }))
+                .await
+                .context("Nexus is not reachable")?;
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
-        Command::Sessions { all } => {
+        Command::Sessions { project_id, all } => {
             request_and_print(
                 loaded,
                 ServiceRequest::Sessions(SessionQuery {
+                    project_id,
                     scope: if all {
                         RecordScope::All
                     } else {
@@ -399,7 +448,12 @@ async fn run_query_command(command: Command, loaded: &LoadedConfig) -> Result<()
     }
 }
 
-async fn run_admin_command(command: Command, root: &Path, loaded: &LoadedConfig) -> Result<()> {
+async fn run_admin_command(
+    command: Command,
+    root: &Path,
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+) -> Result<()> {
     match command {
         Command::Resolve {
             conflict_id,
@@ -440,31 +494,53 @@ async fn run_admin_command(command: Command, root: &Path, loaded: &LoadedConfig)
             }
             Ok(())
         }
-        Command::Doctor => {
-            if let Some(parent) = loaded.config.storage.database_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let _store = nexus::persistence::Store::open(&loaded.config.storage.database_path)?;
-            println!(
-                "configuration: valid\ndatabase: ready\nsocket: {}\nmode: advisory-only",
-                loaded.config.runtime.socket_path.display()
-            );
-            Ok(())
-        }
-        Command::Integrate { host } => {
-            let host = match host {
-                IntegrationHost::Codex => Host::Codex,
-                IntegrationHost::Claude => Host::Claude,
-            };
-            let executable = std::env::current_exe()?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&integration::instructions(host, &executable))?
-            );
-            Ok(())
-        }
+        Command::Doctor => run_doctor(loaded).await,
+        Command::Integrate { host } => print_integration(host, explicit_config),
         _ => unreachable!("non-administrative command handled by main"),
     }
+}
+
+async fn run_doctor(loaded: &LoadedConfig) -> Result<()> {
+    if matches!(
+        &loaded.config.client,
+        nexus::config::ClientConfig::Remote(_)
+    ) {
+        let status = NexusClient::new(loaded, None)
+            .request(&ServiceRequest::Status)
+            .await
+            .context("connect to configured remote Nexus service")?;
+        if status.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            bail!("remote Nexus service is not ready");
+        }
+        println!("configuration: valid\nservice: ready\ntransport: remote\nmode: advisory-only");
+        return Ok(());
+    }
+    if let Some(parent) = loaded.config.storage.database_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _store = nexus::persistence::Store::open(&loaded.config.storage.database_path)?;
+    println!(
+        "configuration: valid\ndatabase: ready\nsocket: {}\nmode: advisory-only",
+        loaded.config.runtime.socket_path.display()
+    );
+    Ok(())
+}
+
+fn print_integration(host: IntegrationHost, explicit_config: Option<&Path>) -> Result<()> {
+    let host = match host {
+        IntegrationHost::Codex => Host::Codex,
+        IntegrationHost::Claude => Host::Claude,
+    };
+    let executable = std::env::current_exe()?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&integration::instructions(
+            host,
+            &executable,
+            explicit_config,
+        ))?
+    );
+    Ok(())
 }
 
 async fn run_memory_command(
@@ -536,108 +612,14 @@ impl From<PapercutReviewDecisionCli> for PapercutReviewDecision {
 }
 
 async fn request_and_print(loaded: &nexus::LoadedConfig, request: ServiceRequest) -> Result<()> {
-    let result = daemon::request(&loaded.config.runtime.socket_path, &request)
+    let result = NexusClient::new(loaded, None)
+        .request(&request)
         .await
-        .context("Nexus daemon is not running")?;
+        .context("Nexus is not reachable")?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn memory_cli_requires_write_scope_and_defaults_reads_to_layered() {
-        let add = Cli::try_parse_from([
-            "nexus",
-            "memory",
-            "add",
-            "--scope",
-            "project",
-            "Prefer typed APIs",
-        ])
-        .unwrap();
-        let Command::Memory {
-            command: MemoryCommand::Add { scope, content },
-        } = add.command
-        else {
-            panic!("expected memory add command");
-        };
-        assert_eq!(scope, MemoryScopeCli::Project);
-        assert_eq!(content, "Prefer typed APIs");
-
-        let context = Cli::try_parse_from(["nexus", "memory", "context"]).unwrap();
-        let Command::Memory {
-            command: MemoryCommand::Context { scope },
-        } = context.command
-        else {
-            panic!("expected memory context command");
-        };
-        assert_eq!(scope, MemoryReadScopeCli::Layered);
-
-        assert!(Cli::try_parse_from(["nexus", "memory", "add", "No scope"]).is_err());
-    }
-
-    #[test]
-    fn papercuts_cli_exposes_typed_actions_and_unbounded_dump_scope() {
-        let report = Cli::try_parse_from([
-            "nexus",
-            "papercuts",
-            "report",
-            "Flaky socket test",
-            "--description",
-            "Intermittently times out",
-        ])
-        .unwrap();
-        let Command::Papercuts {
-            command: PapercutsCommand::Report { title, description },
-        } = report.command
-        else {
-            panic!("expected papercuts report command");
-        };
-        assert_eq!(title, "Flaky socket test");
-        assert_eq!(description, "Intermittently times out");
-
-        let dump = Cli::try_parse_from(["nexus", "papercuts", "dump", "--all-projects"]).unwrap();
-        let Command::Papercuts {
-            command: PapercutsCommand::Dump { all_projects },
-        } = dump.command
-        else {
-            panic!("expected papercuts dump command");
-        };
-        assert!(all_projects);
-
-        let response = Cli::try_parse_from([
-            "nexus",
-            "papercuts",
-            "respond",
-            "review-1",
-            "--reporter-token",
-            "secret-token",
-            "--decision",
-            "approve",
-            "--response",
-            "Same underlying failure",
-        ])
-        .unwrap();
-        let Command::Papercuts {
-            command: PapercutsCommand::Respond { reporter_token, .. },
-        } = response.command
-        else {
-            panic!("expected papercut response command");
-        };
-        assert_eq!(reporter_token, "secret-token");
-        assert!(Cli::try_parse_from([
-            "nexus",
-            "papercuts",
-            "respond",
-            "review-1",
-            "--decision",
-            "approve",
-            "--response",
-            "Same underlying failure",
-        ])
-        .is_err());
-    }
-}
+#[path = "main/tests.rs"]
+mod tests;

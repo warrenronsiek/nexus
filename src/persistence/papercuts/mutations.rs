@@ -16,10 +16,10 @@ use super::records::{
 };
 use super::registry;
 use crate::papercuts::{Papercut, PapercutActor, PapercutReportResult, PapercutUpvote};
+use crate::persistence::backend::DbConnection;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -235,7 +235,7 @@ impl Store {
 }
 
 fn report_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &ReportWrite<'_>,
 ) -> Result<ReportOutcome> {
     let target = resolve_report_target(connection, write)?;
@@ -261,7 +261,7 @@ fn report_transaction(
 }
 
 fn resolve_report_target(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &ReportWrite<'_>,
 ) -> Result<ReportTarget> {
     if let Some(row) = find_fingerprint(connection, write.project_id, &write.fingerprint)? {
@@ -284,7 +284,7 @@ fn resolve_report_target(
 }
 
 fn upvote_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &UpvoteWrite<'_>,
 ) -> Result<UpvoteOutcome> {
     let canonical = load_canonical_papercut(connection, write.project_id, write.papercut_id)?;
@@ -308,7 +308,7 @@ fn upvote_transaction(
 }
 
 fn resolve_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &ResolutionWrite<'_>,
 ) -> Result<String> {
     let canonical = load_canonical_papercut(connection, write.project_id, write.papercut_id)?;
@@ -337,10 +337,7 @@ fn resolve_transaction(
     Ok(canonical.id)
 }
 
-fn append_occurrence(
-    connection: &mut SqliteConnection,
-    write: OccurrenceWrite<'_>,
-) -> Result<String> {
+fn append_occurrence(connection: &mut DbConnection, write: OccurrenceWrite<'_>) -> Result<String> {
     reopen_papercut(connection, write.canonical, write.actor, write.now)?;
     let upvote_id = insert_upvote(connection, &write)?;
     touch_papercut(connection, &write.canonical.id, write.now)?;
@@ -356,7 +353,7 @@ fn append_occurrence(
 }
 
 fn insert_papercut(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     write: &ReportWrite<'_>,
     id: &str,
     token_hash: &str,
@@ -384,7 +381,7 @@ fn insert_papercut(
     Ok(())
 }
 
-fn insert_upvote(connection: &mut SqliteConnection, write: &OccurrenceWrite<'_>) -> Result<String> {
+fn insert_upvote(connection: &mut DbConnection, write: &OccurrenceWrite<'_>) -> Result<String> {
     let id = Uuid::new_v4().to_string();
     diesel::insert_into(papercut_upvotes::table)
         .values(NewPapercutUpvote {
@@ -404,7 +401,7 @@ fn insert_upvote(connection: &mut SqliteConnection, write: &OccurrenceWrite<'_>)
 }
 
 fn find_fingerprint(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
     fingerprint: &str,
 ) -> Result<Option<PapercutRow>> {
@@ -422,7 +419,7 @@ fn find_fingerprint(
 }
 
 pub(super) fn reopen_papercut(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     papercut: &PapercutRow,
     actor: &PapercutActor,
     now: &str,
@@ -451,7 +448,7 @@ pub(super) fn reopen_papercut(
 }
 
 pub(super) fn touch_papercut(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     papercut_id: &str,
     now: &str,
 ) -> Result<()> {
@@ -461,7 +458,7 @@ pub(super) fn touch_papercut(
     Ok(())
 }
 
-fn load_upvote(connection: &mut SqliteConnection, upvote_id: &str) -> Result<PapercutUpvote> {
+fn load_upvote(connection: &mut DbConnection, upvote_id: &str) -> Result<PapercutUpvote> {
     papercut_upvotes::table
         .find(upvote_id)
         .select(PapercutUpvoteRow::as_select())

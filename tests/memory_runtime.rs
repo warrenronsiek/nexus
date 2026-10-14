@@ -5,6 +5,8 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/coordination.md
 // @boundary dynamic-json
+#![cfg(feature = "sqlite")]
+
 #[path = "memory_runtime/database.rs"]
 mod database;
 mod support;
@@ -13,7 +15,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use support::{run_git, wait_for_path, write_executable, Harness};
+use support::{executable::write_executable, run_git, wait_for_path, Harness};
 
 #[test]
 fn first_prompt_injects_memory_once_without_launching_a_provider() {

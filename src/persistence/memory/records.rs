@@ -143,6 +143,7 @@ pub(super) struct NewMemoryActivation<'a> {
     pub(super) session_id: &'a str,
     pub(super) read_scope: &'a str,
     pub(super) project_id: Option<&'a str>,
+    pub(super) activation_scope_key: &'a str,
     pub(super) delivered_items: i32,
     pub(super) omitted_ranges: i32,
     pub(super) activated_at: &'a str,

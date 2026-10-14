@@ -14,19 +14,30 @@ use std::time::{Duration as StdDuration, Instant};
 
 fn add_pair(service: &NexusService, suffix: &str) {
     for ordinal in ["first", "second"] {
-        let response = service.memory_add(MemoryAddCommand {
-            scope: MemoryScopeArg::Global,
-            content: format!("{ordinal} durable {suffix} memory"),
-            context: HookContext {
-                session_id: "memory-test".into(),
-                project_root: None,
-                agent: "codex".into(),
-                turn_id: None,
-                model: None,
+        let response = service.memory_add(
+            MemoryAddCommand {
+                scope: MemoryScopeArg::Global,
+                content: format!("{ordinal} durable {suffix} memory"),
+                context: HookContext {
+                    session_id: "memory-test".into(),
+                    project_root: None,
+                    agent: "codex".into(),
+                    turn_id: None,
+                    model: None,
+                },
             },
-        });
+            &crate::coordination::ProjectBinding::Local,
+        );
         assert!(response.to_json()["ok"].as_bool().unwrap());
     }
+}
+
+#[test]
+fn consolidation_claim_is_acquired_before_background_work_is_spawned() {
+    let service = service_with(Config::default());
+
+    assert!(service.try_claim_memory_consolidation().unwrap());
+    assert!(!service.try_claim_memory_consolidation().unwrap());
 }
 
 #[test]

@@ -1,19 +1,22 @@
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
+// @feature sos
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/sos.md
 // @entrypoint pi-extension
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAnalyticsCapture } from "./capture.ts";
 import { fetchSnapshot, fetchUsage } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
-import { lifecycleArguments } from "./host-context.ts";
+import { sanitizeDisplayText } from "./display.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
 import { NexusMemoryApi } from "./memory.ts";
+import { NexusSosApi } from "./sos.ts";
 
 export default function nexusExtension(pi: ExtensionAPI): void {
   const client = new NexusMcpClient();
@@ -29,11 +32,8 @@ export default function nexusExtension(pi: ExtensionAPI): void {
       try {
         ctx.ui.notify("Connecting to Nexus…", "info");
         const snapshot = await fetchSnapshot(client, ctx.cwd, null);
-        const memoryApi = new NexusMemoryApi(
-          client,
-          ctx.cwd,
-          () => lifecycleArguments(ctx),
-        );
+        const memoryApi = new NexusMemoryApi(client, ctx.cwd);
+        const sosApi = new NexusSosApi(client, ctx.cwd);
         await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
           return new NexusDashboardComponent(
             tui,
@@ -44,6 +44,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
                 fetchSnapshot(client, ctx.cwd, projectId, signal),
               loadUsage: (projectId, signal) =>
                 fetchUsage(client, ctx.cwd, projectId, signal),
+              sosApi,
               memoryApi,
               memoryPrompts: new MemoryPrompts(ctx.ui),
               done: () => done(),
@@ -52,7 +53,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Nexus is unavailable: ${message}`, "error");
+        ctx.ui.notify(sanitizeDisplayText(`Nexus is unavailable: ${message}`), "error");
       }
     },
   });

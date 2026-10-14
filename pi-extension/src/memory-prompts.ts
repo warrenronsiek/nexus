@@ -2,6 +2,7 @@
 // @spec docs/features/agent-memory.md
 import type { MemoryInteractionPrompts } from "./memory-pane.ts";
 import type { MemorySummary } from "./memory.ts";
+import { sanitizeDisplayText } from "./display.ts";
 
 export interface MemoryPromptUI {
   input(title: string, placeholder: string): Promise<string | undefined>;
@@ -33,7 +34,9 @@ export class MemoryPrompts implements MemoryInteractionPrompts {
   confirmInvalidation(summary: MemorySummary): Promise<boolean> {
     return this.ui.confirm(
       "Invalidate derived summary?",
-      `Forget summary ${summary.id} (#${summary.start_ordinal}-${summary.end_ordinal}) and rebuild it during consolidation? Raw notes are immutable and will remain stored.`,
+      sanitizeDisplayText(
+        `Forget summary ${summary.id} (#${summary.start_ordinal}-${summary.end_ordinal}) and rebuild it during consolidation? Raw notes are immutable and will remain stored.`,
+      ),
     );
   }
 }

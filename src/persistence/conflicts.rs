@@ -1,14 +1,15 @@
 // @feature persistence
 // @spec docs/features/persistence.md
 use super::models::{conflict_from_row, ConflictRow, NewAdvisory, NewConflict};
-use super::schema::{advisories, conflicts};
+use super::schema::{advisories, claims, conflicts, sessions};
 use super::store::{append_event, Store};
+use super::window::bounded_projection_reader;
 use crate::agents::analyst::AnalysisResult;
 use crate::coordination::domain::{Advisory, Claim, ConflictRecord, ConflictScope, ConflictStatus};
+use crate::persistence::backend::DbConnection;
 use anyhow::Result;
 use chrono::Utc;
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
 use serde_json::json;
 
 struct ConflictObservation<'a> {
@@ -59,22 +60,51 @@ impl Store {
         project_key: Option<&str>,
         scope: ConflictScope,
     ) -> Result<Vec<ConflictRecord>> {
-        let mut query = conflicts::table.into_boxed();
-        if let Some(project_key) = project_key {
-            query = query.filter(conflicts::project_id.eq(project_key));
+        Ok(self.list_conflicts_window(project_key, scope)?.items)
+    }
+
+    bounded_projection_reader! {
+        pub(crate) fn list_conflicts_window(project_key, scope: ConflictScope) -> ConflictRecord {
+            table: conflicts::table,
+            project_column: conflicts::project_id,
+            scoped_when: scope == ConflictScope::Open,
+            scoped_filter: conflicts::status.eq("open"),
+            order: (conflicts::created_at.desc(), conflicts::id.asc()),
+            row: ConflictRow,
+            decode: conflict_from_row,
+            maximum: crate::coordination::api::MAX_CONFLICT_RESULTS,
         }
-        if scope == ConflictScope::Open {
-            query = query.filter(conflicts::status.eq("open"));
-        }
-        let rows = query
-            .order(conflicts::created_at.desc())
-            .select(ConflictRow::as_select())
-            .load::<ConflictRow>(&mut self.connection)?;
-        rows.into_iter().map(conflict_from_row).collect()
     }
 
     pub(crate) fn conflict_by_id(&mut self, conflict_key: &str) -> Result<Option<ConflictRecord>> {
         find_conflict(&mut self.connection, conflict_key)
+    }
+
+    pub(crate) fn conflict_worktree(
+        &mut self,
+        conflict: &ConflictRecord,
+    ) -> Result<Option<String>> {
+        let session_ids = claims::table
+            .filter(claims::project_id.eq(&conflict.project_id))
+            .filter(claims::id.eq_any([
+                conflict.left_claim_id.as_str(),
+                conflict.right_claim_id.as_str(),
+            ]))
+            .select(claims::session_id)
+            .load::<String>(&mut self.connection)?;
+        for session_id in session_ids {
+            let worktree = sessions::table
+                .filter(sessions::project_id.eq(&conflict.project_id))
+                .filter(sessions::session_id.eq(session_id))
+                .select(sessions::worktree)
+                .first::<Option<String>>(&mut self.connection)
+                .optional()?
+                .flatten();
+            if worktree.is_some() {
+                return Ok(worktree);
+            }
+        }
+        Ok(None)
     }
 
     pub(crate) fn record_analysis(
@@ -128,7 +158,7 @@ impl Store {
 }
 
 fn merge_projection(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     observation: &ConflictObservation<'_>,
 ) -> Result<()> {
     let current = find_conflict(connection, observation.conflict_id)?;
@@ -182,7 +212,7 @@ fn merge_projection(
 }
 
 fn record_occurrence(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     observation: &ConflictObservation<'_>,
 ) -> Result<()> {
     diesel::insert_into(advisories::table)
@@ -209,7 +239,7 @@ fn record_occurrence(
 }
 
 fn find_conflict(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     conflict_key: &str,
 ) -> Result<Option<ConflictRecord>> {
     conflicts::table

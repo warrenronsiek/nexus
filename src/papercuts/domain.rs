@@ -69,6 +69,37 @@ pub struct Papercut {
     pub last_upvoted_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct PapercutReviewCandidate {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    pub description: String,
+    pub status: PapercutStatus,
+    pub consolidated_into: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub upvote_count: u64,
+    pub last_upvoted_at: Option<DateTime<Utc>>,
+}
+
+impl From<&Papercut> for PapercutReviewCandidate {
+    fn from(papercut: &Papercut) -> Self {
+        Self {
+            id: papercut.id.clone(),
+            project_id: papercut.project_id.clone(),
+            title: papercut.title.clone(),
+            description: papercut.description.clone(),
+            status: papercut.status,
+            consolidated_into: papercut.consolidated_into.clone(),
+            created_at: papercut.created_at,
+            updated_at: papercut.updated_at,
+            upvote_count: papercut.upvote_count,
+            last_upvoted_at: papercut.last_upvoted_at,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PapercutUpvote {
     pub id: String,

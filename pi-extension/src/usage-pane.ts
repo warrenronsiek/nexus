@@ -1,20 +1,24 @@
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
+// @feature sos
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/sos.md
 import type { DashboardTheme as Theme } from "./theme.ts";
 import type { Component } from "@earendil-works/pi-tui";
 import type { UsageItem, UsageSummary } from "./domain.ts";
+import { sanitizeDisplayText } from "./display.ts";
 import { UsagePoller, type UsageLoader } from "./polling.ts";
 import { renderUsageBars } from "./usage.ts";
 
-export type DashboardTab = "coordination" | "tools" | "skills" | "memory";
+export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory";
 export type UsageTab = Extract<DashboardTab, "tools" | "skills">;
 
 const DASHBOARD_TABS: readonly DashboardTab[] = [
   "coordination",
+  "sos",
   "tools",
   "skills",
   "memory",
@@ -32,7 +36,7 @@ export function nextDashboardTab(
 
 export function renderTabHeader(theme: Theme, active: DashboardTab): string {
   return DASHBOARD_TABS.map((tab) => {
-    const label = tab[0].toUpperCase() + tab.slice(1);
+    const label = tab === "sos" ? "SOS" : tab[0].toUpperCase() + tab.slice(1);
     const text = `[ ${label} ]`;
     return tab === active
       ? theme.fg("accent", theme.bold(text))
@@ -41,10 +45,10 @@ export function renderTabHeader(theme: Theme, active: DashboardTab): string {
 }
 
 function captureHealth(usage: UsageSummary): string {
-  return Object.entries(usage.capture_health)
+  return sanitizeDisplayText(Object.entries(usage.capture_health)
     .filter((entry): entry is [string, number] => typeof entry[1] === "number")
     .map(([name, count]) => `${name.replaceAll("_", " ")} ${count}`)
-    .join(" · ");
+    .join(" · "));
 }
 
 export class UsagePane implements Component {
@@ -110,6 +114,8 @@ export class UsagePane implements Component {
     const through = this.usage === undefined
       ? "seven-day window"
       : `through ${new Date(this.usage.window_ended_at).toLocaleString()}`;
-    return `${scope} · ${this.status} · last 7 days · observed by Nexus · ${through}`;
+    return sanitizeDisplayText(
+      `${scope} · ${this.status} · last 7 days · observed by Nexus · ${through}`,
+    );
   }
 }

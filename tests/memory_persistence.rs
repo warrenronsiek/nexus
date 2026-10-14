@@ -2,6 +2,8 @@
 // @feature persistence
 // @spec docs/features/agent-memory.md
 // @spec docs/features/persistence.md
+#![cfg(feature = "sqlite")]
+
 use chrono::Utc;
 use nexus::memory::{
     MemoryCompactionAttempt, MemoryCompactionOutcome, MemoryContextLimits, MemoryNode,
@@ -173,7 +175,10 @@ fn raw_search_never_exceeds_the_exported_deterministic_bound() {
         )
         .unwrap();
     assert_eq!(found.len(), MAX_MEMORY_SEARCH_RESULTS);
-    assert_eq!(found.first().unwrap().ordinal, 259);
+    assert_eq!(
+        found.first().unwrap().ordinal,
+        (MAX_MEMORY_SEARCH_RESULTS + 3) as u64
+    );
     assert_eq!(found.last().unwrap().ordinal, 4);
 }
 
@@ -450,6 +455,42 @@ fn activation_is_once_per_agent_session_and_invalidation_preserves_raw_memory() 
         2
     );
     assert!(store.expand_memory_summary(&root.id).is_err());
+}
+
+#[test]
+fn memory_activation_is_once_per_agent_session_and_project_scope() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("nexus.db")).unwrap();
+    build_four_note_summary_tree(&mut store, &MemoryScope::project("project-a"));
+    build_four_note_summary_tree(&mut store, &MemoryScope::project("project-b"));
+
+    assert!(store
+        .activate_memory_context(
+            &MemoryReadScope::project("project-a"),
+            "codex",
+            "shared-session",
+            MemoryContextLimits::default(),
+        )
+        .unwrap()
+        .is_some());
+    assert!(store
+        .activate_memory_context(
+            &MemoryReadScope::project("project-a"),
+            "codex",
+            "shared-session",
+            MemoryContextLimits::default(),
+        )
+        .unwrap()
+        .is_none());
+    assert!(store
+        .activate_memory_context(
+            &MemoryReadScope::project("project-b"),
+            "codex",
+            "shared-session",
+            MemoryContextLimits::default(),
+        )
+        .unwrap()
+        .is_some());
 }
 
 #[test]

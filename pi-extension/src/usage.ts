@@ -4,6 +4,7 @@
 // @spec docs/features/usage-analytics.md
 // @boundary dynamic-json
 import type { UsageItem, UsageSummary } from "./domain.ts";
+import { sanitizeDisplayText } from "./display.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -53,6 +54,7 @@ export function decodeUsage(value: unknown): UsageSummary {
     !value.tools.every(isUsageItem) ||
     !Array.isArray(value.skills) ||
     !value.skills.every(isUsageItem) ||
+    typeof value.truncated !== "boolean" ||
     !isObject(value.capture_health)
   ) {
     throw new Error("Nexus usage analytics returned an unexpected response");
@@ -68,7 +70,7 @@ function trimToWidth(value: string, width: number): string {
 }
 
 function usageLabel(item: UsageItem): string {
-  return item.kind === "script" ? `[script] ${item.name}` : item.name;
+  return sanitizeDisplayText(item.kind === "script" ? `[script] ${item.name}` : item.name);
 }
 
 function usageMetric(item: UsageItem): string {

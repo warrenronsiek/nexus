@@ -1,7 +1,9 @@
 // @feature installation
+// @feature sos
 // @feature usage-analytics
 // @feature agent-memory
 // @spec docs/features/installation.md
+// @spec docs/features/sos.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @boundary child-process-json
@@ -42,10 +44,23 @@ fn machine_setup_installs_integrations_idempotently() {
         .join(".pi/agent/extensions/nexus/component.ts")
         .is_file());
     assert!(home.join(".pi/agent/extensions/nexus/capture.ts").is_file());
+    assert!(home.join(".pi/agent/extensions/nexus/display.ts").is_file());
+    let launch_context =
+        fs::read_to_string(home.join(".pi/agent/extensions/nexus/launch-context.ts")).unwrap();
+    assert!(launch_context.contains(env!("CARGO_BIN_EXE_nexus")));
+    assert!(!launch_context.contains("config:"));
     assert!(home.join(".pi/agent/extensions/nexus/usage.ts").is_file());
     assert!(home
         .join(".pi/agent/extensions/nexus/usage-pane.ts")
         .is_file());
+    for sos_module in ["sos.ts", "sos-pane.ts"] {
+        assert!(
+            home.join(".pi/agent/extensions/nexus")
+                .join(sos_module)
+                .is_file(),
+            "machine setup did not install {sos_module}"
+        );
+    }
     for memory_module in [
         "host-context.ts",
         "mcp-client.ts",
@@ -61,6 +76,95 @@ fn machine_setup_installs_integrations_idempotently() {
             "machine setup did not install {memory_module}"
         );
     }
+}
+
+#[test]
+fn machine_setup_honors_an_explicit_remote_configuration() {
+    exercise_remote_machine_setup(|command, config_name| {
+        command.args(["--config", config_name, "setup"]);
+    });
+}
+
+#[test]
+fn machine_setup_persists_a_relative_nexus_config_environment_path() {
+    exercise_remote_machine_setup(|command, config_name| {
+        command.arg("setup").env("NEXUS_CONFIG", config_name);
+    });
+}
+
+fn exercise_remote_machine_setup(configure: impl FnOnce(&mut Command, &str)) {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path().join("home");
+    let codex_home = home.join(".codex");
+    let command_directory = temporary.path().join("commands");
+    let host_log = temporary.path().join("hosts.log");
+    let config_name = "remote.toml";
+    let config = temporary.path().join(config_name);
+    let persisted_config = temporary.path().canonicalize().unwrap().join(config_name);
+    fs::create_dir_all(&command_directory).unwrap();
+    fs::create_dir_all(&codex_home).unwrap();
+    fake_host(&command_directory, "codex");
+    fake_host(&command_directory, "pi");
+    fs::write(
+        &config,
+        r#"[client]
+transport = "remote"
+endpoint = "https://nexus.example.test"
+project_id = "shared-project"
+"#,
+    )
+    .unwrap();
+
+    let mut command = nexus_command(&home, &codex_home, &command_directory, &host_log);
+    configure(&mut command, config_name);
+    let setup = command.current_dir(temporary.path()).output().unwrap();
+    assert_success(&setup);
+    let report: Value = serde_json::from_slice(&setup.stdout).unwrap();
+    assert_eq!(report["database"], "remote");
+    assert!(!home.join(".local/state/nexus/nexus.db").exists());
+    assert_remote_integrations(&home, &codex_home, &host_log, &persisted_config);
+    assert_session_end_works_from_another_directory(&home, &codex_home);
+}
+
+fn assert_remote_integrations(
+    home: &Path,
+    codex_home: &Path,
+    host_log: &Path,
+    persisted_config: &Path,
+) {
+    let registrations = fs::read_to_string(host_log).unwrap();
+    assert!(
+        registrations.contains(&format!(
+            "codex mcp add nexus -- {} --config {} mcp --agent codex",
+            env!("CARGO_BIN_EXE_nexus"),
+            persisted_config.display()
+        )),
+        "{registrations}"
+    );
+    let hooks = serde_json::to_string(&settings(&codex_home.join("hooks.json"))).unwrap();
+    assert!(hooks.contains(persisted_config.to_str().unwrap()));
+    assert!(hooks.contains("hook-session-end --agent codex"));
+    let pi_launch_context =
+        fs::read_to_string(home.join(".pi/agent/extensions/nexus/launch-context.ts")).unwrap();
+    assert!(pi_launch_context.contains(env!("CARGO_BIN_EXE_nexus")));
+    assert!(pi_launch_context.contains(persisted_config.to_str().unwrap()));
+}
+
+fn assert_session_end_works_from_another_directory(home: &Path, codex_home: &Path) {
+    let session_end = settings(&codex_home.join("hooks.json"))["hooks"]["SessionEnd"][0]["hooks"]
+        [0]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let invocation = Command::new("/bin/sh")
+        .args(["-c", &session_end])
+        .current_dir(home)
+        .env("HOME", home)
+        .env("CODEX_HOME", codex_home)
+        .env("NEXUS_STATE_DIR", home.join(".local/state/nexus"))
+        .output()
+        .unwrap();
+    assert_success(&invocation);
 }
 
 #[test]
@@ -101,8 +205,10 @@ fn assert_machine_setup(home: &Path, codex_home: &Path, host_log: &Path) {
     assert_session_end_hook(&codex_hooks, "codex");
     assert_session_end_hook(&settings(&home.join(".claude/settings.json")), "claude");
     let registrations = fs::read_to_string(host_log).unwrap();
-    assert!(registrations.contains("codex mcp add nexus"));
-    assert!(registrations.contains("claude mcp add --transport stdio --scope user nexus"));
+    assert!(registrations.contains("codex mcp add nexus --"));
+    assert!(registrations.contains("mcp --agent codex"));
+    assert!(registrations.contains("claude mcp add --transport stdio --scope user nexus --"));
+    assert!(registrations.contains("mcp --agent claude"));
 }
 
 fn nexus_command(

@@ -16,13 +16,15 @@
 // Each integration-test crate uses a different subset of these shared helpers.
 #![allow(dead_code)]
 
+pub mod executable;
+mod stdio_mcp;
+
 use nexus::persistence::Store;
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
+use stdio_mcp::StdioMcpConnection;
 use tempfile::TempDir;
 
 pub struct Harness {
@@ -31,9 +33,7 @@ pub struct Harness {
     pub database: PathBuf,
     pub daemon: Child,
     pub mcp: Child,
-    pub input: ChildStdin,
-    pub output: BufReader<ChildStdout>,
-    pub next_id: u64,
+    connection: StdioMcpConnection,
 }
 
 struct HarnessOptions<'a> {
@@ -116,16 +116,14 @@ impl Harness {
         let executable = env!("CARGO_BIN_EXE_nexus");
         let daemon = spawn_daemon(executable, &config);
         wait_for_socket(&socket);
-        let (mcp, input, output) = spawn_mcp(executable, &config, &root);
+        let (mcp, connection) = spawn_mcp(executable, &config, &root);
         Self {
             _temp: temp,
             root,
             database,
             daemon,
             mcp,
-            input,
-            output,
-            next_id: 1,
+            connection,
         }
     }
 
@@ -167,18 +165,11 @@ impl Harness {
     }
 
     pub fn request(&mut self, method: &str, params: Value) -> Value {
-        let id = self.send(method, params);
-        let mut line = String::new();
-        self.output.read_line(&mut line).unwrap();
-        let response: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(response["id"], id);
-        response
+        self.connection.request(method, params)
     }
 
     pub fn call(&mut self, name: &str, arguments: Value) -> Value {
-        self.request("tools/call", json!({"name":name,"arguments":arguments}))["result"]
-            ["structuredContent"]
-            .clone()
+        self.connection.call(name, arguments)
     }
 
     pub fn status(&mut self) -> Value {
@@ -223,16 +214,7 @@ impl Harness {
     }
 
     pub fn send(&mut self, method: &str, params: Value) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        writeln!(
-            self.input,
-            "{}",
-            json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
-        )
-        .unwrap();
-        self.input.flush().unwrap();
-        id
+        self.connection.send(method, params)
     }
 
     pub fn post_tool_arguments(&self, session: &str, tool_id: &str) -> Value {
@@ -247,11 +229,8 @@ impl Harness {
     pub fn next_response_within(mut self, budget: Duration) -> (Self, Value) {
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let mut line = String::new();
-            self.output.read_line(&mut line).unwrap();
-            sender
-                .send((self, serde_json::from_str::<Value>(&line).unwrap()))
-                .ok();
+            let response = self.connection.read_response();
+            sender.send((self, response)).ok();
         });
         receiver
             .recv_timeout(budget)
@@ -267,11 +246,7 @@ fn wait_for_socket(socket: &Path) {
     }
 }
 
-fn spawn_mcp(
-    executable: &str,
-    config: &Path,
-    root: &Path,
-) -> (Child, ChildStdin, BufReader<ChildStdout>) {
+fn spawn_mcp(executable: &str, config: &Path, root: &Path) -> (Child, StdioMcpConnection) {
     let mut child = Command::new(executable)
         .args(["--config", config.to_str().unwrap(), "mcp"])
         .current_dir(root)
@@ -281,8 +256,8 @@ fn spawn_mcp(
         .spawn()
         .unwrap();
     let input = child.stdin.take().unwrap();
-    let output = BufReader::new(child.stdout.take().unwrap());
-    (child, input, output)
+    let output = child.stdout.take().unwrap();
+    (child, StdioMcpConnection::new(input, output))
 }
 
 /// Stays shorter than the five-second timeout generated for host lifecycle hooks.
@@ -401,13 +376,6 @@ pub fn assert_success(label: &str, output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-pub fn write_executable(path: &Path, contents: &str) {
-    std::fs::write(path, contents).unwrap();
-    let mut permissions = std::fs::metadata(path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).unwrap();
 }
 
 pub fn git_command() -> Command {

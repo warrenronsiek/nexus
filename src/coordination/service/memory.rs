@@ -14,6 +14,7 @@ use crate::coordination::api::{
 };
 use crate::coordination::domain::ToolHookInput;
 use crate::coordination::workspace;
+use crate::coordination::workspace::ProjectBinding;
 use crate::memory::{
     MemoryCompactionAttempt, MemoryCompactionJob, MemoryCompactionOutcome, MemoryContextLimits,
     MemoryProvenance, MemoryReadScope, MemoryScope, MemorySummaryInsert,
@@ -65,12 +66,16 @@ impl NexusService {
         Ok(())
     }
 
-    pub(super) fn memory_add(&self, command: MemoryAddCommand) -> ServiceResponse {
+    pub(super) fn memory_add(
+        &self,
+        command: MemoryAddCommand,
+        binding: &ProjectBinding,
+    ) -> ServiceResponse {
         let result = (|| -> Result<_> {
             let scope = match command.scope {
                 MemoryScopeArg::Global => MemoryScope::Global,
                 MemoryScopeArg::Project => MemoryScope::project(
-                    workspace::identify(command.context.project_root.as_deref())?.id,
+                    workspace::identify(binding, command.context.project_root.as_deref())?.id,
                 ),
             };
             let provenance = MemoryProvenance {
@@ -90,9 +95,13 @@ impl NexusService {
         }
     }
 
-    pub(super) fn memory_search(&self, query: MemorySearchQuery) -> ServiceResponse {
+    pub(super) fn memory_search(
+        &self,
+        query: MemorySearchQuery,
+        binding: &ProjectBinding,
+    ) -> ServiceResponse {
         let result = (|| -> Result<_> {
-            let scope = memory_read_scope(query.scope, query.project_root.as_deref())?;
+            let scope = memory_read_scope(binding, query.scope, query.project_root.as_deref())?;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -106,9 +115,13 @@ impl NexusService {
         }
     }
 
-    pub(super) fn memory_context(&self, query: MemoryContextQuery) -> ServiceResponse {
+    pub(super) fn memory_context(
+        &self,
+        query: MemoryContextQuery,
+        binding: &ProjectBinding,
+    ) -> ServiceResponse {
         let result = (|| -> Result<_> {
-            let scope = memory_read_scope(query.scope, query.project_root.as_deref())?;
+            let scope = memory_read_scope(binding, query.scope, query.project_root.as_deref())?;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -151,9 +164,13 @@ impl NexusService {
         }
     }
 
-    pub(super) fn memory_status(&self, query: MemoryStatusQuery) -> ServiceResponse {
+    pub(super) fn memory_status(
+        &self,
+        query: MemoryStatusQuery,
+        binding: &ProjectBinding,
+    ) -> ServiceResponse {
         let result = (|| -> Result<_> {
-            let project_id = workspace::identify(query.project_root.as_deref())?.id;
+            let project_id = workspace::identify(binding, query.project_root.as_deref())?.id;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -173,22 +190,41 @@ impl NexusService {
     }
 
     pub(crate) fn consolidate_memories(&self) -> Result<MemoryConsolidationReport> {
-        if !self.loaded.config.memory.enabled {
-            bail!("memory is disabled");
-        }
-        if self
-            .memory_consolidation_in_flight
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
+        if !self.try_claim_memory_consolidation()? {
             return Ok(MemoryConsolidationReport {
                 ok: true,
                 in_progress: true,
                 ..MemoryConsolidationReport::default()
             });
         }
+        self.run_claimed_memory_consolidation()
+    }
+
+    pub(crate) fn try_claim_memory_consolidation(&self) -> Result<bool> {
+        if !self.loaded.config.memory.enabled {
+            bail!("memory is disabled");
+        }
+        Ok(self
+            .memory_consolidation_in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok())
+    }
+
+    pub(crate) fn run_claimed_memory_consolidation(&self) -> Result<MemoryConsolidationReport> {
+        debug_assert!(
+            self.memory_consolidation_in_flight.load(Ordering::Acquire),
+            "memory consolidation must be claimed before it runs"
+        );
         let _lease = MemoryConsolidationLease(&self.memory_consolidation_in_flight);
         MemoryConsolidator { service: self }.run()
+    }
+
+    pub(crate) fn memory_schedule_seconds(&self) -> Option<u64> {
+        self.loaded
+            .config
+            .memory
+            .enabled
+            .then_some(self.loaded.config.memory.consolidation_interval_seconds)
     }
 
     pub(super) fn memory_context_limits(&self) -> MemoryContextLimits {
@@ -443,16 +479,17 @@ fn other_provider(provider: ModelProvider) -> ModelProvider {
 }
 
 fn memory_read_scope(
+    binding: &ProjectBinding,
     scope: MemoryReadScopeArg,
     project_root: Option<&str>,
 ) -> Result<MemoryReadScope> {
     Ok(match scope {
         MemoryReadScopeArg::Global => MemoryReadScope::Global,
         MemoryReadScopeArg::Project => {
-            MemoryReadScope::project(workspace::identify(project_root)?.id)
+            MemoryReadScope::project(workspace::identify(binding, project_root)?.id)
         }
         MemoryReadScopeArg::Layered => {
-            MemoryReadScope::layered(workspace::identify(project_root)?.id)
+            MemoryReadScope::layered(workspace::identify(binding, project_root)?.id)
         }
     })
 }

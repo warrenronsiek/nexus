@@ -107,6 +107,7 @@ export interface UsageSummary {
   window_ended_at: string;
   tools: UsageItem[];
   skills: UsageItem[];
+  truncated: boolean;
   capture_health: Record<string, unknown>;
 }
 

@@ -1,9 +1,11 @@
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
+// @feature sos
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/sos.md
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { expect, it, vi } from "vitest";
@@ -14,6 +16,7 @@ import {
 import type { Snapshot, UsageSummary } from "../src/domain.ts";
 import type { MemoryInteractionPrompts } from "../src/memory-pane.ts";
 import type { MemoryApi, MemoryView } from "../src/memory.ts";
+import type { SosApi, SosList } from "../src/sos.ts";
 
 const snapshot = {
   dashboard: {
@@ -42,6 +45,7 @@ const usage = {
   window_ended_at: "2026-10-04T12:00:00Z",
   tools: [{ kind: "tool", name: "bash", count: 7, sessions: 2 }],
   skills: [{ kind: "skill", name: "tdd", count: 3, sessions: 2 }],
+  truncated: false,
   capture_health: {},
 } satisfies UsageSummary;
 
@@ -106,8 +110,27 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
   };
 }
 
-  it("cycles the four top-level tabs in both directions", () => {
-    expect(nextDashboardTab("coordination", 1)).toBe("tools");
+const sosList: SosList = {
+  ok: true,
+  issues: [],
+  untriaged_report_count: 0,
+  truncated: false,
+};
+
+function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
+  const list = vi.fn(async () => sosList);
+  return {
+    list,
+    api: {
+      list,
+      get: vi.fn(async () => { throw new Error("no SOS issue selected"); }),
+    },
+  };
+}
+
+  it("cycles the five top-level tabs in both directions", () => {
+    expect(nextDashboardTab("coordination", 1)).toBe("sos");
+    expect(nextDashboardTab("sos", 1)).toBe("tools");
     expect(nextDashboardTab("tools", 1)).toBe("skills");
     expect(nextDashboardTab("skills", 1)).toBe("memory");
     expect(nextDashboardTab("memory", 1)).toBe("coordination");
@@ -117,6 +140,7 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
   it("loads analytics on tab activation rather than dashboard construction", async () => {
     const usageLoader = vi.fn(async () => usage);
     const memory = memoryHarness();
+    const sos = sosHarness();
     const component = new NexusDashboardComponent(
       { requestRender: vi.fn() } as unknown as TUI,
       theme,
@@ -124,6 +148,7 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
       {
         loadSnapshot: async () => snapshot,
         loadUsage: usageLoader,
+        sosApi: sos.api,
         memoryApi: memory.api,
         memoryPrompts: memory.prompts,
         done: vi.fn(),
@@ -135,7 +160,10 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
     expect(component.render(80).join("\n")).toContain("Tools");
     expect(component.render(80).join("\n")).toContain("Skills");
     expect(component.render(80).join("\n")).toContain("Memory");
+    expect(component.render(80).join("\n")).toContain("SOS");
 
+    component.handleInput("\t");
+    expect(usageLoader).not.toHaveBeenCalled();
     component.handleInput("\t");
     await vi.waitFor(() => expect(usageLoader).toHaveBeenCalledWith(null, expect.any(AbortSignal)));
     await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("bash"));
@@ -144,6 +172,7 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
 
   it("activates the local MCP memory pane only when its fourth tab is shown", async () => {
     const memory = memoryHarness();
+    const sos = sosHarness();
     const component = new NexusDashboardComponent(
       { requestRender: vi.fn() } as unknown as TUI,
       theme,
@@ -151,6 +180,7 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
       {
         loadSnapshot: async () => snapshot,
         loadUsage: async () => usage,
+        sosApi: sos.api,
         memoryApi: memory.api,
         memoryPrompts: memory.prompts,
         done: vi.fn(),
@@ -161,13 +191,41 @@ function memoryHarness(): { api: MemoryApi; load: ReturnType<typeof vi.fn>; prom
     component.handleInput("\t");
     component.handleInput("\t");
     component.handleInput("\t");
+    component.handleInput("\t");
 
     await vi.waitFor(() => expect(memory.load).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(component.render(100).join("\n")).toContain("Keep boundaries typed"));
     expect(component.render(100).join("\n")).toContain("enter expand/detail");
     expect(component.render(100).join("\n")).toContain("f invalidate summary");
-    expect(component.render(100).join("\n")).toContain("layered memory · live · MCP local only");
+    expect(component.render(100).join("\n")).toContain(
+      "layered memory · live · MCP via configured companion",
+    );
     expect(component.render(100).join("\n")).toContain("providers not yet attempted");
     expect(component.render(100).join("\n")).not.toContain("providers healthy");
+    component.dispose();
+  });
+
+  it("loads the read-only SOS pane only when its tab is shown", async () => {
+    const memory = memoryHarness();
+    const sos = sosHarness();
+    const component = new NexusDashboardComponent(
+      { requestRender: vi.fn() } as unknown as TUI,
+      theme,
+      snapshot,
+      {
+        loadSnapshot: async () => snapshot,
+        loadUsage: async () => usage,
+        sosApi: sos.api,
+        memoryApi: memory.api,
+        memoryPrompts: memory.prompts,
+        done: vi.fn(),
+      },
+    );
+
+    expect(sos.list).not.toHaveBeenCalled();
+    component.handleInput("\t");
+    await vi.waitFor(() => expect(sos.list).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("No current SOS issues"));
+    expect(component.render(80).join("\n")).toContain("0 awaiting triage");
     component.dispose();
   });

@@ -3,6 +3,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/persistence.md
 use super::*;
+use crate::persistence::test_support::capture_queries;
 
 fn provenance(session_id: &str) -> MemoryProvenance {
     MemoryProvenance {
@@ -14,11 +15,79 @@ fn provenance(session_id: &str) -> MemoryProvenance {
 }
 
 #[test]
+fn memory_rejects_oversized_raw_whitespace_before_normalizing() {
+    let mut store = Store::open_memory().unwrap();
+    let oversized = " ".repeat(crate::memory::MAX_MEMORY_ENTRY_BYTES + 1);
+
+    let error = store
+        .add_memory(&MemoryScope::Global, &oversized, &provenance("session-a"))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("byte limit"));
+}
+
+#[test]
+fn memory_rejects_unbounded_provenance_before_persistence() {
+    let mut store = Store::open_memory().unwrap();
+    let mut oversized = provenance("session-a");
+    oversized.session_id = "s".repeat(513);
+
+    let error = store
+        .add_memory(&MemoryScope::Global, "bounded provenance", &oversized)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("session_id"));
+    assert!(error.to_string().contains("512-byte"));
+
+    let mut controlled = provenance("session-a");
+    controlled.agent = "codex\nspoofed".to_owned();
+    let error = store
+        .add_memory(&MemoryScope::Global, "bounded provenance", &controlled)
+        .unwrap_err();
+    assert!(error.to_string().contains("control characters"));
+}
+
+#[test]
+fn raw_memory_search_uses_a_bounded_candidate_query() {
+    let mut store = Store::open_memory().unwrap();
+    store
+        .add_memory(
+            &MemoryScope::Global,
+            "bounded search",
+            &provenance("session-a"),
+        )
+        .unwrap();
+    let queries = capture_queries(&mut store.connection);
+
+    let found = store
+        .search_memories(&MemoryReadScope::Global, "bounded", 10)
+        .unwrap();
+
+    assert_eq!(found.len(), 1);
+    let entry_queries = queries
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|query| {
+            query.contains("memory_entries") && query.to_ascii_lowercase().contains("select")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(!entry_queries.is_empty());
+    assert!(
+        entry_queries
+            .iter()
+            .all(|query| query.to_ascii_lowercase().contains("limit")),
+        "raw search issued an unbounded entry query: {entry_queries:#?}"
+    );
+}
+
+#[test]
 fn application_writer_retries_a_short_sqlite_lock() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("locked-memory.db");
     let mut writer = Store::open(&path).unwrap();
-    let mut blocker = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+    let mut blocker = DbConnection::establish(path.to_str().unwrap()).unwrap();
 
     let handle = blocker
         .exclusive_transaction::<_, anyhow::Error, _>(|_| {
@@ -37,7 +106,7 @@ fn application_writer_retries_a_short_sqlite_lock() {
     assert!(handle.join().unwrap().unwrap().inserted);
 }
 
-fn observe_failed_commit(connection: &mut SqliteConnection) -> std::sync::mpsc::Receiver<()> {
+fn observe_failed_commit(connection: &mut DbConnection) -> std::sync::mpsc::Receiver<()> {
     let (commit_failed, observed_failure) = std::sync::mpsc::channel();
     connection.set_instrumentation(move |event: diesel::connection::InstrumentationEvent<'_>| {
         if let diesel::connection::InstrumentationEvent::FinishQuery {

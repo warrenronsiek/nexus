@@ -7,6 +7,7 @@ import type {
   SessionRecord,
   Snapshot,
 } from "./domain.ts";
+import { sanitizeDisplayText } from "./display.ts";
 
 export type Section = "projects" | "conflicts" | "sessions" | "claims" | "events";
 export type RecordSection = Exclude<Section, "projects">;
@@ -89,9 +90,10 @@ function emptyEntry(section: Section): Entry[] {
 }
 
 export function entriesFor(snapshot: Snapshot, page: Exclude<Page, { kind: "detail" }>): Entry[] {
-  if (page.kind === "overview") return overviewEntries(snapshot);
-  if (page.section === "projects") {
-    return [
+  let entries: Entry[];
+  if (page.kind === "overview") entries = overviewEntries(snapshot);
+  else if (page.section === "projects") {
+    entries = [
       { value: "project:all", label: "All projects", description: "Machine-wide activity" },
       ...snapshot.projects.map((project) => ({
         value: `project:${project.project_id}`,
@@ -99,14 +101,22 @@ export function entriesFor(snapshot: Snapshot, page: Exclude<Page, { kind: "deta
         description: `${project.agents.join(", ") || "no active agents"} · ${project.worktrees[0] ?? "unknown worktree"}`,
       })),
     ];
+  } else {
+    entries = {
+      conflicts: snapshot.dashboard.conflicts.items.map(conflictEntry),
+      sessions: snapshot.dashboard.sessions.items.map(sessionEntry),
+      claims: snapshot.dashboard.claims.items.map(claimEntry),
+      events: snapshot.dashboard.events.items.map(eventEntry),
+    }[page.section];
+    if (entries.length === 0) entries = emptyEntry(page.section);
   }
-  const entries = {
-    conflicts: snapshot.dashboard.conflicts.items.map(conflictEntry),
-    sessions: snapshot.dashboard.sessions.items.map(sessionEntry),
-    claims: snapshot.dashboard.claims.items.map(claimEntry),
-    events: snapshot.dashboard.events.items.map(eventEntry),
-  }[page.section];
-  return entries.length === 0 ? emptyEntry(page.section) : entries;
+  return entries.map((entry) => ({
+    ...entry,
+    label: sanitizeDisplayText(entry.label),
+    description: entry.description === undefined
+      ? undefined
+      : sanitizeDisplayText(entry.description),
+  }));
 }
 
 function recordExists(snapshot: Snapshot, section: RecordSection, key: string): boolean {
@@ -153,12 +163,15 @@ function recordFor(snapshot: Snapshot, page: Extract<Page, { kind: "detail" }>):
 
 export function detailText(snapshot: Snapshot, page: Extract<Page, { kind: "detail" }>): string {
   const record = recordFor(snapshot, page);
-  return record === undefined ? "This record is no longer present in the current window." : JSON.stringify(record, null, 2);
+  const detail = record === undefined
+    ? "This record is no longer present in the current window."
+    : JSON.stringify(record, null, 2);
+  return sanitizeDisplayText(detail, "multiline");
 }
 
 export function scopeLabel(snapshot: Snapshot): string {
   const selected = snapshot.dashboard.project_id;
   if (selected === null) return "all projects";
   const project = snapshot.projects.find((candidate) => candidate.project_id === selected);
-  return project?.worktrees[0] ?? shortId(selected);
+  return sanitizeDisplayText(project?.worktrees[0] ?? shortId(selected));
 }

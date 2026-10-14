@@ -131,6 +131,8 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
                 cwd=root, env=environment, capture_output=True, check=True, timeout=5,
             )
             assert json.loads(added.stdout)["ok"] is True
+            os.write(master, b"\t")
+            wait_for_text(process, master, b"No current SOS issues")
             os.write(master, b"\t\t\t")
             wait_for_text(process, master, b"terminal fixture memory")
             os.write(master, b"/")

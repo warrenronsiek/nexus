@@ -61,4 +61,31 @@ fn usage_window_includes_start_and_excludes_end() {
 
     assert_eq!(summary.tools.len(), 1);
     assert_eq!(summary.tools[0].name, "included");
+    assert!(!summary.truncated);
+}
+
+#[test]
+fn usage_summary_has_a_server_owned_dimension_cap() {
+    let mut store = Store::open_memory().unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
+    let end = start + chrono::Duration::days(7);
+
+    for index in 0..65 {
+        store
+            .observe_capability_at(
+                &observation(
+                    "project-a",
+                    &format!("invocation-{index:03}"),
+                    &format!("tool-{index:03}"),
+                ),
+                CapabilityOutcome::Succeeded,
+                start,
+            )
+            .unwrap();
+    }
+
+    let summary = store.usage_summary(Some("project-a"), start, end).unwrap();
+
+    assert_eq!(summary.tools.len() + summary.skills.len(), 64);
+    assert!(summary.truncated);
 }

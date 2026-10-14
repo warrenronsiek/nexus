@@ -2,30 +2,43 @@
 // @feature usage-analytics
 // @feature agent-memory
 // @feature papercuts
+// @feature sos
 // @spec docs/features/runtime.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
+// @spec docs/features/sos.md
 // @entrypoint serve_stdio
 // @boundary dynamic-json
-use super::daemon;
+use super::bounded_io;
 use crate::config::LoadedConfig;
 use crate::coordination::api::ServiceRequest;
 use crate::coordination::domain::HookResponse;
 use anyhow::Result;
+use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::io::{AsyncBufRead, AsyncWriteExt, BufReader};
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
+
 use uuid::Uuid;
 
-const PROTOCOL_VERSION: &str = "2025-06-18";
+mod reconciliation;
+mod tool_definitions;
+#[cfg(test)]
+use reconciliation::MAX_ACTIVE_CLIENT_SESSIONS;
+use reconciliation::{spawn_remote_reconciler, ConfiguredInvoker};
+use tool_definitions::tool_definitions;
+
+pub(crate) const PROTOCOL_VERSION: &str = "2025-06-18";
+const MAX_IN_FLIGHT_STDIO_REQUESTS: usize = 32;
+const MAX_QUEUED_STDIO_RESPONSES: usize = 32;
 
 #[derive(Debug)]
-struct McpInvocationContext {
+pub(crate) struct McpInvocationContext {
     session_id: String,
-    project_root: String,
+    project_root: Option<String>,
     agent: String,
 }
 
@@ -36,10 +49,33 @@ impl McpInvocationContext {
         }
         Ok(Self {
             session_id: format!("mcp-{}", Uuid::new_v4()),
-            project_root: std::env::current_dir()?.to_string_lossy().into_owned(),
+            project_root: Some(std::env::current_dir()?.to_string_lossy().into_owned()),
             agent: agent.to_owned(),
         })
     }
+
+    pub(crate) fn remote(
+        session_id: String,
+        project_root: Option<String>,
+        agent: String,
+    ) -> Result<Self> {
+        if session_id.trim().is_empty() {
+            anyhow::bail!("MCP session identity cannot be empty");
+        }
+        if agent.trim().is_empty() {
+            anyhow::bail!("MCP agent identity cannot be empty");
+        }
+        Ok(Self {
+            session_id,
+            project_root,
+            agent,
+        })
+    }
+}
+
+#[async_trait]
+pub(crate) trait ServiceInvoker: Send + Sync {
+    async fn invoke(&self, request: ServiceRequest, lifecycle: bool) -> Result<Value>;
 }
 
 /// Answers each request on its own task. Hosts multiplex hooks from many threads and
@@ -53,43 +89,69 @@ pub async fn serve_stdio(
     let loaded = Arc::new(loaded);
     let invocation_context = Arc::new(McpInvocationContext::from_process(agent)?);
     let explicit_config = explicit_config.map(Path::to_path_buf);
-    let (responses, outgoing) = mpsc::unbounded_channel::<Value>();
+    let invoker = Arc::new(ConfiguredInvoker::from_loaded(
+        loaded.clone(),
+        explicit_config.clone(),
+    ));
+    let reconciler = spawn_remote_reconciler(
+        loaded.config.coordination.reconcile_seconds,
+        invoker.clone(),
+    );
+    let request_slots = Arc::new(Semaphore::new(MAX_IN_FLIGHT_STDIO_REQUESTS));
+    let (responses, outgoing) = mpsc::channel::<QueuedResponse>(MAX_QUEUED_STDIO_RESPONSES);
     let writer = tokio::spawn(write_responses(outgoing));
-    let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    while let Some(line) = lines.next_line().await? {
-        let Ok(request) = serde_json::from_str::<Value>(&line) else {
+    let mut input = BufReader::new(tokio::io::stdin());
+    while let Some(frame) = read_stdio_frame(&mut input).await? {
+        let Ok(request) = serde_json::from_slice::<Value>(&frame) else {
             continue;
         };
         let Some(id) = request.get("id").cloned() else {
             continue;
         };
-        let (loaded, invocation_context, explicit_config, responses) = (
-            loaded.clone(),
+        let permit = request_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| anyhow::anyhow!("stdio MCP request gate closed"))?;
+        let (invoker, invocation_context, responses) = (
+            invoker.clone(),
             invocation_context.clone(),
-            explicit_config.clone(),
             responses.clone(),
         );
         tokio::spawn(async move {
-            let response = respond(
-                &loaded,
-                &invocation_context,
-                explicit_config.as_deref(),
-                id,
-                request,
-            )
-            .await;
-            let _ = responses.send(response);
+            let response = respond(invoker.as_ref(), &invocation_context, id, request).await;
+            let _ = responses
+                .send(QueuedResponse {
+                    value: response,
+                    _permit: permit,
+                })
+                .await;
         });
+    }
+    if let Some(reconciler) = reconciler {
+        reconciler.abort();
     }
     drop(responses);
     writer.await?
 }
 
+async fn read_stdio_frame<R>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    bounded_io::read_json_line(reader).await
+}
+
 /// Owns stdout so concurrently completed responses are written as whole lines.
-async fn write_responses(mut outgoing: mpsc::UnboundedReceiver<Value>) -> Result<()> {
+struct QueuedResponse {
+    value: Value,
+    _permit: OwnedSemaphorePermit,
+}
+
+async fn write_responses(mut outgoing: mpsc::Receiver<QueuedResponse>) -> Result<()> {
     let mut stdout = tokio::io::stdout();
     while let Some(response) = outgoing.recv().await {
-        let mut line = serde_json::to_vec(&response)?;
+        let mut line = serde_json::to_vec(&response.value)?;
         line.push(b'\n');
         stdout.write_all(&line).await?;
         stdout.flush().await?;
@@ -97,13 +159,19 @@ async fn write_responses(mut outgoing: mpsc::UnboundedReceiver<Value>) -> Result
     Ok(())
 }
 
-async fn respond(
-    loaded: &LoadedConfig,
+pub(crate) async fn respond(
+    invoker: &dyn ServiceInvoker,
     invocation_context: &McpInvocationContext,
-    explicit_config: Option<&Path>,
     id: Value,
     request: Value,
 ) -> Value {
+    if !valid_request_id(&id) {
+        return json!({
+            "jsonrpc":"2.0",
+            "id":null,
+            "error":{"code":-32600,"message":"request id must be a string or integer"}
+        });
+    }
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
     let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
     match method {
@@ -112,70 +180,133 @@ async fn respond(
         }
         "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
         "tools/list" => json!({"jsonrpc":"2.0","id":id,"result":{"tools":tool_definitions()}}),
-        "tools/call" => tool_call(loaded, invocation_context, explicit_config, id, params).await,
+        "tools/call" => tool_call(invoker, invocation_context, id, params).await,
         "resources/list" => json!({"jsonrpc":"2.0","id":id,"result":{"resources":[
             {"uri":"nexus://status","name":"Nexus status","mimeType":"application/json"},
             {"uri":"nexus://sessions","name":"Active agent sessions","mimeType":"application/json"},
             {"uri":"nexus://claims","name":"Active advisory claims","mimeType":"application/json"},
             {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
             {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"},
-            {"uri":"nexus://papercuts","name":"Complete current-project papercut registry","mimeType":"application/json"}
+            {"uri":"nexus://papercuts","name":"Complete current-project papercut registry","mimeType":"application/json"},
+            {"uri":"nexus://sos","name":"Complete current-project SOS registry","mimeType":"application/json"}
         ]}}),
-        "resources/read" => {
-            resource_read(loaded, invocation_context, explicit_config, id, params).await
-        }
+        "resources/read" => resource_read(invoker, invocation_context, id, params).await,
         _ => {
             json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":format!("method not found: {method}")}})
         }
     }
 }
 
+pub(crate) fn valid_request_id(id: &Value) -> bool {
+    match id {
+        Value::String(_) => true,
+        Value::Number(number) => number.is_i64() || number.is_u64(),
+        _ => false,
+    }
+}
+
 async fn tool_call(
-    loaded: &LoadedConfig,
+    invoker: &dyn ServiceInvoker,
     invocation_context: &McpInvocationContext,
-    explicit_config: Option<&Path>,
     id: Value,
     params: Value,
 ) -> Value {
-    let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+    let Some(name) = params.get("name").and_then(Value::as_str) else {
+        return invalid_params(id, "tools/call requires a string name");
+    };
+    let Some(method) = supported_tool_method(name) else {
+        return invalid_params(id, format!("unknown tool: {name}"));
+    };
     let mut arguments = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let method = name.strip_prefix("nexus_").unwrap_or(name);
+    let lifecycle = ServiceRequest::is_lifecycle_method(method);
+    if !arguments.is_object() && !lifecycle {
+        return invalid_params(id, "tools/call arguments must be an object");
+    }
     enrich_memory_arguments(method, &mut arguments, invocation_context);
     if method == "papercuts" {
         enrich_papercut_arguments(&mut arguments, invocation_context);
     }
-    let lifecycle = ServiceRequest::is_lifecycle_method(method);
+    if method == "sos" {
+        enrich_sos_arguments(&mut arguments, invocation_context);
+    }
     let mut result = match ServiceRequest::decode(method, arguments) {
-        Ok(request) if lifecycle => {
-            daemon::lifecycle_request(loaded, explicit_config, &request).await
-        }
-        Ok(request) => daemon::ensure_and_request(loaded, explicit_config, &request)
+        Ok(request) => invoker
+            .invoke(request, lifecycle)
             .await
             .unwrap_or_else(|error| json!({"ok":false,"error":error.to_string()})),
         Err(error) if lifecycle => serde_json::to_value(HookResponse::fail_open(error)).unwrap(),
-        Err(error) => json!({"ok":false,"error":error.to_string()}),
+        Err(error) => return invalid_params(id, error.to_string()),
     };
     add_hook_context(method, &mut result);
     let text = hook_text(method, &result);
-    json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&text).unwrap()}],"structuredContent":result,"isError":false}})
+    let is_error = tool_result_is_error(&result);
+    json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&text).unwrap()}],"structuredContent":result,"isError":is_error}})
+}
+
+fn supported_tool_method(name: &str) -> Option<&str> {
+    let method = name.strip_prefix("nexus_")?;
+    let advertised = tool_definitions()
+        .as_array()?
+        .iter()
+        .any(|definition| definition.get("name").and_then(Value::as_str) == Some(name));
+    // Native and Pi terminal surfaces use these administrative operations over their
+    // private companion process. They remain callable for that established interface but
+    // are deliberately omitted from agent discovery.
+    (advertised
+        || matches!(
+            method,
+            "memory_status" | "memory_context" | "memory_invalidate" | "memory_consolidate"
+        ))
+    .then_some(method)
+}
+
+fn invalid_params(id: Value, message: impl Into<String>) -> Value {
+    json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":message.into()}})
+}
+
+fn tool_result_is_error(result: &Value) -> bool {
+    result.get("ok").and_then(Value::as_bool) == Some(false)
 }
 
 fn enrich_papercut_arguments(arguments: &mut Value, context: &McpInvocationContext) {
+    enrich_issue_arguments(arguments, context, ModelFieldPolicy::Remove);
+}
+
+fn enrich_sos_arguments(arguments: &mut Value, context: &McpInvocationContext) {
+    enrich_issue_arguments(arguments, context, ModelFieldPolicy::Preserve);
+}
+
+#[derive(Clone, Copy)]
+enum ModelFieldPolicy {
+    Remove,
+    Preserve,
+}
+
+fn enrich_issue_arguments(
+    arguments: &mut Value,
+    context: &McpInvocationContext,
+    model: ModelFieldPolicy,
+) {
     let Some(arguments) = arguments.as_object_mut() else {
         return;
     };
-    arguments
-        .entry("project_root")
-        .or_insert_with(|| Value::String(context.project_root.clone()));
-    arguments
-        .entry("session_id")
-        .or_insert_with(|| Value::String(context.session_id.clone()));
-    arguments
-        .entry("agent")
-        .or_insert_with(|| Value::String(context.agent.clone()));
+    for field in ["project_root", "session_id", "agent", "turn_id"] {
+        arguments.remove(field);
+    }
+    if matches!(model, ModelFieldPolicy::Remove) {
+        arguments.remove("model");
+    }
+    if let Some(project_root) = &context.project_root {
+        arguments.insert("project_root".into(), Value::String(project_root.clone()));
+    }
+    arguments.insert(
+        "session_id".into(),
+        Value::String(context.session_id.clone()),
+    );
+    arguments.insert("agent".into(), Value::String(context.agent.clone()));
 }
 
 fn enrich_memory_arguments(method: &str, arguments: &mut Value, context: &McpInvocationContext) {
@@ -185,17 +316,19 @@ fn enrich_memory_arguments(method: &str, arguments: &mut Value, context: &McpInv
     let Some(arguments) = arguments.as_object_mut() else {
         return;
     };
-    arguments.insert(
-        "project_root".into(),
-        Value::String(context.project_root.clone()),
-    );
+    arguments.remove("project_root");
+    if let Some(project_root) = &context.project_root {
+        arguments.insert("project_root".into(), Value::String(project_root.clone()));
+    }
     if method == "memory_add" {
-        arguments
-            .entry("session_id")
-            .or_insert_with(|| Value::String(context.session_id.clone()));
-        arguments
-            .entry("agent")
-            .or_insert_with(|| Value::String(context.agent.clone()));
+        for field in ["session_id", "agent", "turn_id", "model"] {
+            arguments.remove(field);
+        }
+        arguments.insert(
+            "session_id".into(),
+            Value::String(context.session_id.clone()),
+        );
+        arguments.insert("agent".into(), Value::String(context.agent.clone()));
     }
 }
 
@@ -350,9 +483,8 @@ fn model_visible_memory_read(method: &str, result: &Value) -> Option<Value> {
 }
 
 async fn resource_read(
-    loaded: &LoadedConfig,
+    invoker: &dyn ServiceInvoker,
     invocation_context: &McpInvocationContext,
-    explicit_config: Option<&Path>,
     id: Value,
     params: Value,
 ) -> Value {
@@ -361,7 +493,7 @@ async fn resource_read(
         return json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"unknown resource"}});
     };
     let request = ServiceRequest::decode(method, arguments).expect("resource requests are valid");
-    match daemon::ensure_and_request(loaded, explicit_config, &request).await {
+    match invoker.invoke(request, false).await {
         Ok(result) => {
             json!({"jsonrpc":"2.0","id":id,"result":{"contents":[{"uri":uri,"mimeType":"application/json","text":serde_json::to_string_pretty(&result).unwrap()}]}})
         }
@@ -380,7 +512,7 @@ fn resource_request(
         "nexus://sessions" => Some(("sessions", json!({"scope":"active"}))),
         "nexus://claims" => Some(("claims", json!({"scope":"active"}))),
         "nexus://conflicts" => Some(("conflicts", json!({"scope":"open"}))),
-        "nexus://events" => Some(("events", json!({"limit":100}))),
+        "nexus://events" => Some(("events", json!({"limit":64}))),
         "nexus://papercuts" => Some((
             "papercuts",
             json!({
@@ -391,84 +523,17 @@ fn resource_request(
                 "agent":invocation_context.agent
             }),
         )),
+        "nexus://sos" => Some((
+            "sos",
+            json!({
+                "action":"dump",
+                "scope":"project",
+                "project_root":invocation_context.project_root,
+                "session_id":invocation_context.session_id,
+                "agent":invocation_context.agent
+            }),
+        )),
         _ => None,
-    }
-}
-
-fn tool_definitions() -> Value {
-    let mut definitions = lifecycle_tool_definitions();
-    definitions.extend(coordination_tool_definitions());
-    Value::Array(definitions)
-}
-
-fn lifecycle_tool_definitions() -> Vec<Value> {
-    let tool_hook_schema = json!({
-        "type":"object",
-        "required":["session_id","tool_use_id","tool_name"],
-        "properties":{
-            "session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},
-            "turn_id":{"type":"string"},"model":{"type":"string"},
-            "tool_use_id":{"type":"string"},"parent_tool_use_id":{"type":"string"},"tool_name":{"type":"string"},"tool_input":{},"tool_output":{},"error":{"type":"string"}
-        },
-        "additionalProperties":true
-    });
-    json_array(json!([
-        {"name":"nexus_user_prompt","description":"Record a privacy-limited task synopsis for agent coordination.","inputSchema":{"type":"object","required":["session_id","prompt"],"properties":{"session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},"prompt":{"type":"string"}}}},
-        {"name":"nexus_pre_tool_use","description":"Inspect an upcoming tool call and return non-blocking coordination advisories. Always permits execution.","inputSchema":tool_hook_schema},
-        {"name":"nexus_post_tool_use","description":"Record successful tool completion. Never controls execution.","inputSchema":tool_hook_schema},
-        {"name":"nexus_post_tool_failure","description":"Record failed tool completion. Never controls execution.","inputSchema":tool_hook_schema},
-        {"name":"nexus_skill_use","description":"Record an observed skill activation with typed evidence. Never controls execution.","inputSchema":{"type":"object","required":["session_id","invocation_id","skill_name","evidence"],"properties":{"session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},"turn_id":{"type":"string"},"model":{"type":"string"},"invocation_id":{"type":"string"},"skill_name":{"type":"string"},"evidence":{"type":"string","enum":["native_hook","explicit_invocation","instruction_read","asset_execution"]},"actor":{"type":"string"}}}},
-        {"name":"nexus_session_stop","description":"Mark a session stopped and release its advisory claims.","inputSchema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"}}}},
-    ]))
-}
-
-fn coordination_tool_definitions() -> Vec<Value> {
-    // Agent discovery includes read-only coordination and observability plus the simple
-    // caller memory tools. Memory administration stays reserved for local user surfaces.
-    json_array(json!([
-        {"name":"nexus_status","description":"Return daemon and projection counts.","inputSchema":{"type":"object"}},
-        {"name":"nexus_sessions","description":"List agent sessions.","inputSchema":{"type":"object","properties":{"scope":{"type":"string","enum":["active","all"],"default":"active"}}}},
-        {"name":"nexus_claims","description":"List advisory path claims.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"scope":{"type":"string","enum":["active","all"],"default":"active"}}}},
-        {"name":"nexus_conflicts","description":"List detected overlaps.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"scope":{"type":"string","enum":["open","all"],"default":"open"}}}},
-        {"name":"nexus_resolve","description":"Record an optional resolution chosen by an agent or user.","inputSchema":{"type":"object","required":["conflict_id"],"properties":{"conflict_id":{"type":"string"},"resolution":{"type":"string"}}}},
-        {"name":"nexus_release","description":"Release a session's advisory claims.","inputSchema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"},"path":{"type":"string"}}}},
-        {"name":"nexus_analyze","description":"Explicitly ask the configured read-only Codex or Claude analyst to summarize one conflict and suggest optional resolutions.","inputSchema":{"type":"object","required":["conflict_id"],"properties":{"conflict_id":{"type":"string"}}}},
-        {"name":"nexus_events","description":"Return recent coordination events.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10000}}}},
-        {"name":"nexus_projects","description":"List repositories with observed Nexus activity.","inputSchema":{"type":"object","additionalProperties":false}},
-        {"name":"nexus_dashboard","description":"Return bounded coordination state for the terminal interfaces.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"}},"additionalProperties":false}},
-        {"name":"nexus_usage","description":"Return observed tool, script, and skill usage for the rolling seven-day window.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"}}}},
-        {"name":"nexus_memory_add","description":"Record one explicit durable memory. Nexus handles background consolidation.","inputSchema":{"type":"object","required":["scope","content"],"properties":{"scope":{"type":"string","enum":["global","project"]},"content":{"type":"string","maxLength":512}},"additionalProperties":false}},
-        {"name":"nexus_memory_search","description":"Search authoritative raw memories with a case-insensitive Rust regular expression.","inputSchema":{"type":"object","required":["regex"],"properties":{"scope":{"type":"string","enum":["layered","global","project"],"default":"layered"},"regex":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":crate::memory::MAX_MEMORY_SEARCH_RESULTS,"default":50}},"additionalProperties":false}},
-        {"name":"nexus_memory_expand","description":"Expand one derived memory summary into its two source children.","inputSchema":{"type":"object","required":["summary_id"],"properties":{"summary_id":{"type":"string"}},"additionalProperties":false}},
-        papercut_tool_definition(),
-        {"name":"nexus_config","description":"Return resolved non-secret Nexus configuration and its hash.","inputSchema":{"type":"object"}}
-    ]))
-}
-
-fn papercut_tool_definition() -> Value {
-    json!({
-        "name":"nexus_papercuts",
-        "description":"List, dump, report, upvote, remove, or respond to project development-environment papercuts. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
-        "inputSchema":{
-            "type":"object",
-            "required":["action"],
-            "properties":{
-                "action":{"type":"string","enum":["list","dump","report","upvote","remove","respond"]},
-                "project_root":{"type":"string"},"session_id":{"type":"string"},"agent":{"type":"string"},"turn_id":{"type":"string"},"model":{"type":"string"},
-                "scope":{"type":"string","enum":["project","all"],"default":"project"},
-                "title":{"type":"string"},"description":{"type":"string","default":""},
-                "papercut_id":{"type":"string"},"note":{"type":"string"},"resolution":{"type":"string"},
-                "review_id":{"type":"string"},"reporter_token":{"type":"string"},"decision":{"type":"string","enum":["approve","reject"]},"response":{"type":"string"}
-            },
-            "additionalProperties":false
-        }
-    })
-}
-
-fn json_array(value: Value) -> Vec<Value> {
-    match value {
-        Value::Array(items) => items,
-        _ => unreachable!("static tool definitions are always JSON arrays"),
     }
 }
 

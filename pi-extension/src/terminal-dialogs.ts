@@ -4,6 +4,7 @@
 // @spec docs/features/agent-memory.md
 import { Container, Input, Key, matchesKey, SelectList, Text, type TUI } from "@earendil-works/pi-tui";
 import type { MemoryPromptUI } from "./memory-prompts.ts";
+import { sanitizeDisplayText } from "./display.ts";
 import { DashboardBorder, selectListTheme, type DashboardTheme } from "./theme.ts";
 
 class PromptDialog extends Container {
@@ -31,11 +32,15 @@ export class TerminalDialogs implements MemoryPromptUI {
   constructor(private readonly tui: TUI, private readonly theme: DashboardTheme) {}
 
   input(title: string, placeholder: string): Promise<string | undefined> {
-    return this.prompt(title, new Input({ placeholder }));
+    return this.prompt(title, new Input({ placeholder: sanitizeDisplayText(placeholder) }));
   }
 
   select(title: string, choices: string[]): Promise<string | undefined> {
-    const control = new SelectList(choices.map((choice) => ({ value: choice, label: choice })), choices.length, selectListTheme(this.theme));
+    const control = new SelectList(
+      choices.map((choice) => ({ value: choice, label: sanitizeDisplayText(choice) })),
+      choices.length,
+      selectListTheme(this.theme),
+    );
     return this.prompt(title, control);
   }
 
@@ -58,7 +63,9 @@ export class TerminalDialogs implements MemoryPromptUI {
       else control.onSelect = (item) => finish(item.value);
       const dialog = new PromptDialog(control, this.tui, this.cancel);
       dialog.addChild(new DashboardBorder((text) => this.theme.fg("accent", text)));
-      dialog.addChild(new Text(this.theme.bold(title), 1, 1));
+      dialog.addChild(
+        new Text(this.theme.bold(sanitizeDisplayText(title, "multiline")), 1, 1),
+      );
       dialog.addChild(control);
       dialog.addChild(new Text(this.theme.fg("dim", "enter confirm · esc cancel"), 1, 1));
       const overlay = this.tui.showOverlay(dialog, { width: "80%", maxHeight: "80%" });

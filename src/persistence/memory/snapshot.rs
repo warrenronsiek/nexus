@@ -36,7 +36,7 @@ struct EncodedSnapshot {
 }
 
 pub(super) fn load_current_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
 ) -> Result<Option<LoadedSnapshot>> {
     let Some(space) = find_space(connection, scope)? else {
@@ -50,7 +50,7 @@ pub(super) fn load_current_snapshot(
 }
 
 pub(super) fn space_snapshot_is_current(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
 ) -> Result<bool> {
     Ok(memory_frontier_snapshots::table
@@ -63,7 +63,7 @@ pub(super) fn space_snapshot_is_current(
 }
 
 pub(super) fn advance_snapshot_for_append(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     entry: &MemoryEntry,
     now: &str,
@@ -77,7 +77,7 @@ pub(super) fn advance_snapshot_for_append(
 }
 
 fn advance_loaded_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     entry: &MemoryEntry,
     now: &str,
@@ -98,7 +98,7 @@ fn advance_loaded_snapshot(
 }
 
 fn snapshot_before_append(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     scope: &MemoryScope,
 ) -> Result<Option<LoadedSnapshot>> {
@@ -123,7 +123,7 @@ fn next_revision(space: &MemorySpaceRow) -> Result<i64> {
 }
 
 pub(super) fn continue_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
     snapshot: LoadedSnapshot,
     limits: MemoryContextLimits,
@@ -146,7 +146,7 @@ pub(super) fn continue_snapshot(
 }
 
 pub(super) fn rebuild_frontier_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
 ) -> Result<bool> {
     let Some((space, frontier)) = build_snapshot(connection, scope)? else {
@@ -156,7 +156,7 @@ pub(super) fn rebuild_frontier_snapshot(
 }
 
 fn build_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
 ) -> Result<Option<(MemorySpaceRow, crate::memory::tree::MemoryFrontier)>> {
     let Some(space) = find_space(connection, scope)? else {
@@ -174,7 +174,7 @@ fn build_snapshot(
 }
 
 fn publish_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     frontier: &crate::memory::tree::MemoryFrontier,
 ) -> Result<bool> {
@@ -193,7 +193,7 @@ fn publish_snapshot(
 }
 
 pub(super) fn stale_snapshot_scopes(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     limit: usize,
 ) -> Result<Vec<MemoryScope>> {
     if limit == 0 {
@@ -229,7 +229,7 @@ pub(super) fn stale_snapshot_scopes(
 }
 
 pub(super) fn versions_are_current(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     versions: &[SnapshotVersion],
 ) -> Result<bool> {
     for version in versions {
@@ -240,10 +240,7 @@ pub(super) fn versions_are_current(
     Ok(true)
 }
 
-fn version_is_current(
-    connection: &mut SqliteConnection,
-    version: &SnapshotVersion,
-) -> Result<bool> {
+fn version_is_current(connection: &mut DbConnection, version: &SnapshotVersion) -> Result<bool> {
     match version {
         SnapshotVersion::Absent(scope) => Ok(find_space(connection, scope)?.is_none()),
         SnapshotVersion::Present { space_id, revision } => {
@@ -263,7 +260,7 @@ fn version_is_current(
 }
 
 fn load_snapshot_for_space(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     scope: &MemoryScope,
 ) -> Result<Option<LoadedSnapshot>> {
@@ -278,7 +275,7 @@ fn load_snapshot_for_space(
 }
 
 fn decode_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
     row: MemoryFrontierSnapshotRow,
 ) -> Result<LoadedSnapshot> {
@@ -296,7 +293,7 @@ fn decode_snapshot(
 }
 
 fn decode_snapshot_contents(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
     row: &MemoryFrontierSnapshotRow,
 ) -> Result<(Vec<MemoryNode>, Vec<crate::memory::MemoryOmission>)> {
@@ -338,7 +335,7 @@ fn decode_omissions(row: &MemoryFrontierSnapshotRow) -> Result<Vec<crate::memory
 }
 
 fn load_referenced_nodes(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
     references: &[SnapshotNodeRef],
 ) -> Result<Vec<MemoryNode>> {
@@ -430,7 +427,7 @@ fn validate_snapshot_ranges(
 }
 
 fn continue_with_stored_parents(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
     nodes: Vec<MemoryNode>,
     omitted: Vec<crate::memory::MemoryOmission>,
@@ -447,7 +444,7 @@ fn continue_with_stored_parents(
 }
 
 fn persist_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_id: &str,
     revision: i64,
     frontier: &crate::memory::tree::MemoryFrontier,
@@ -503,7 +500,7 @@ fn snapshot_references(nodes: &[MemoryNode]) -> Vec<SnapshotNodeRef> {
 }
 
 fn upsert_snapshot(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     row: &NewMemoryFrontierSnapshot<'_>,
 ) -> Result<()> {
     diesel::insert_into(memory_frontier_snapshots::table)

@@ -6,12 +6,43 @@
 // @boundary dynamic-config
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+
+mod project;
+use project::project_config_path;
+
+const MAX_CONFIG_FILE_BYTES: usize = 1024 * 1024;
+const MAX_CONFIGURED_DURATION_SECONDS: u64 = 365 * 24 * 60 * 60;
+const MAX_UI_REFRESH_INTERVAL_MS: u64 = i32::MAX as u64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProjectIdError {
+    Empty,
+    TooLong,
+    ControlCharacter,
+}
+
+pub(crate) fn canonical_project_id(value: &str) -> std::result::Result<&str, ProjectIdError> {
+    if value.chars().any(char::is_control) {
+        return Err(ProjectIdError::ControlCharacter);
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ProjectIdError::Empty);
+    }
+    if value.len() > 256 {
+        return Err(ProjectIdError::TooLong);
+    }
+    Ok(value)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
+    pub client: ClientConfig,
     pub coordination: CoordinationConfig,
     pub privacy: PrivacyConfig,
     pub analyst: AnalystConfig,
@@ -20,6 +51,23 @@ pub struct Config {
     pub storage: StorageConfig,
     pub runtime: RuntimeConfig,
     pub ui: UiConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "transport", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ClientConfig {
+    #[default]
+    Local,
+    Remote(RemoteClientConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteClientConfig {
+    pub endpoint: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub secret_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +158,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             schema_version: 1,
+            client: ClientConfig::default(),
             coordination: CoordinationConfig::default(),
             privacy: PrivacyConfig::default(),
             analyst: AnalystConfig::default(),
@@ -226,7 +275,7 @@ impl Default for UiConfig {
     fn default() -> Self {
         Self {
             refresh_interval_ms: 2_000,
-            recent_event_limit: 500,
+            recent_event_limit: 64,
             recent_record_limit: 100,
         }
     }
@@ -286,28 +335,67 @@ impl Config {
                 self.schema_version
             );
         }
-        if self.coordination.claim_ttl_seconds <= 0 {
-            bail!("coordination.claim_ttl_seconds must be positive");
-        }
+        validate_positive_bounded_seconds(
+            "coordination.claim_ttl_seconds",
+            self.coordination.claim_ttl_seconds,
+        )?;
+        validate_positive_bounded_seconds(
+            "coordination.reconcile_seconds",
+            self.coordination.reconcile_seconds,
+        )?;
         if self.privacy.prompt_synopsis_max_chars == 0 {
             bail!("privacy.prompt_synopsis_max_chars must be positive");
         }
-        if self.review.timeout_seconds == 0 {
-            bail!("review.timeout_seconds must be positive");
-        }
+        validate_positive_bounded_seconds("review.timeout_seconds", self.review.timeout_seconds)?;
         self.analyst.validate()?;
         self.memory.validate()?;
+        self.client.validate()?;
         if self.review.implementation_provider == self.review.provider {
             bail!("review.provider must differ from review.implementation_provider");
         }
-        if self.ui.refresh_interval_ms == 0 {
-            bail!("ui.refresh_interval_ms must be positive");
-        }
+        validate_positive_bounded(
+            "ui.refresh_interval_ms",
+            self.ui.refresh_interval_ms,
+            MAX_UI_REFRESH_INTERVAL_MS,
+        )?;
         if self.ui.recent_event_limit == 0 {
             bail!("ui.recent_event_limit must be positive");
         }
         if self.ui.recent_record_limit == 0 {
             bail!("ui.recent_record_limit must be positive");
+        }
+        Ok(())
+    }
+}
+
+impl ClientConfig {
+    fn validate(&self) -> Result<()> {
+        let Self::Remote(remote) = self else {
+            return Ok(());
+        };
+        let endpoint = reqwest::Url::parse(remote.endpoint.trim())
+            .context("client.endpoint must be a valid absolute URL")?;
+        if !matches!(endpoint.scheme(), "http" | "https") {
+            bail!("client.endpoint must use http:// or https://");
+        }
+        if endpoint.host_str().is_none() {
+            bail!("client.endpoint must include a host");
+        }
+        if !endpoint.username().is_empty() || endpoint.password().is_some() {
+            bail!("client.endpoint must not contain credentials");
+        }
+        if endpoint.query().is_some() || endpoint.fragment().is_some() {
+            bail!("client.endpoint must not contain a query or fragment");
+        }
+        match canonical_project_id(&remote.project_id) {
+            Ok(_) => {}
+            Err(ProjectIdError::Empty) => bail!("client.project_id cannot be empty"),
+            Err(ProjectIdError::TooLong) => {
+                bail!("client.project_id must be at most 256 bytes")
+            }
+            Err(ProjectIdError::ControlCharacter) => {
+                bail!("client.project_id must not contain control characters")
+            }
         }
         Ok(())
     }
@@ -322,27 +410,25 @@ impl AnalystConfig {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.timeout_seconds == 0 {
-            bail!("analyst.timeout_seconds must be positive");
-        }
-        Ok(())
+        validate_positive_bounded_seconds("analyst.timeout_seconds", self.timeout_seconds)
     }
 }
 
 impl MemoryConfig {
     fn validate(&self) -> Result<()> {
-        if self.consolidation_interval_seconds == 0 {
-            bail!("memory.consolidation_interval_seconds must be positive");
-        }
+        validate_positive_bounded_seconds(
+            "memory.consolidation_interval_seconds",
+            self.consolidation_interval_seconds,
+        )?;
         if self.consolidation_batch_size == 0 {
             bail!("memory.consolidation_batch_size must be positive");
         }
-        validate_bounded_memory_limit(
+        validate_positive_bounded(
             "memory.context_max_items",
             self.context_max_items,
             crate::memory::DEFAULT_MEMORY_MAX_ITEMS,
         )?;
-        validate_bounded_memory_limit(
+        validate_positive_bounded(
             "memory.context_max_bytes",
             self.context_max_bytes,
             crate::memory::DEFAULT_MEMORY_MAX_BYTES,
@@ -350,8 +436,21 @@ impl MemoryConfig {
     }
 }
 
-fn validate_bounded_memory_limit(name: &str, value: usize, maximum: usize) -> Result<()> {
-    if value == 0 {
+fn validate_positive_bounded_seconds<T>(name: &str, value: T) -> Result<()>
+where
+    T: TryInto<u64>,
+{
+    let value = value
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("{name} must be positive"))?;
+    validate_positive_bounded(name, value, MAX_CONFIGURED_DURATION_SECONDS)
+}
+
+fn validate_positive_bounded<T>(name: &str, value: T, maximum: T) -> Result<()>
+where
+    T: From<u8> + PartialOrd + std::fmt::Display,
+{
+    if value <= T::from(0) {
         bail!("{name} must be positive");
     }
     if value > maximum {
@@ -371,12 +470,47 @@ fn default_state_dir() -> PathBuf {
 }
 
 fn merge_file(base: &mut toml::Value, path: &Path) -> Result<()> {
-    let contents =
-        std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let contents = read_config_file(path)?;
     let overlay: toml::Value =
         toml::from_str(&contents).with_context(|| format!("parse {}", path.display()))?;
     merge(base, overlay);
     Ok(())
+}
+
+fn read_config_file(path: &Path) -> Result<String> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("inspect {}", path.display()))?;
+    if !metadata.file_type().is_file() {
+        bail!(
+            "configuration path must refer to a regular file: {}",
+            path.display()
+        );
+    }
+    if metadata.len() > MAX_CONFIG_FILE_BYTES as u64 {
+        bail!(
+            "configuration file {} exceeds the {MAX_CONFIG_FILE_BYTES}-byte limit",
+            path.display()
+        );
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.by_ref()
+        .take((MAX_CONFIG_FILE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("read {}", path.display()))?;
+    if bytes.len() > MAX_CONFIG_FILE_BYTES {
+        bail!(
+            "configuration file {} exceeds the {MAX_CONFIG_FILE_BYTES}-byte limit",
+            path.display()
+        );
+    }
+    String::from_utf8(bytes)
+        .with_context(|| format!("configuration file {} is not UTF-8", path.display()))
 }
 
 fn merge(base: &mut toml::Value, overlay: toml::Value) {
@@ -411,6 +545,36 @@ fn apply_env(value: &mut toml::Value) -> Result<()> {
     ] {
         override_.apply(table)?;
     }
+    apply_client_env(table)?;
+    Ok(())
+}
+
+fn apply_client_env(root: &mut toml::map::Map<String, toml::Value>) -> Result<()> {
+    let endpoint = std::env::var_os("NEXUS_ENDPOINT");
+    let project_id = std::env::var_os("NEXUS_PROJECT_ID");
+    let secret_file = std::env::var_os("NEXUS_CLIENT_SECRET_FILE");
+    if endpoint.is_none() && project_id.is_none() && secret_file.is_none() {
+        return Ok(());
+    }
+
+    let client = root
+        .entry("client")
+        .or_insert_with(|| toml::Value::Table(Default::default()))
+        .as_table_mut()
+        .context("client configuration must be a table")?;
+    client.insert("transport".into(), toml::Value::String("remote".into()));
+    for (name, value) in [
+        ("endpoint", endpoint),
+        ("project_id", project_id),
+        ("secret_file", secret_file),
+    ] {
+        if let Some(value) = value {
+            client.insert(
+                name.into(),
+                toml::Value::String(value.to_string_lossy().into_owned()),
+            );
+        }
+    }
     Ok(())
 }
 
@@ -442,22 +606,4 @@ impl EnvironmentOverride {
             );
         Ok(())
     }
-}
-
-fn project_config_path(root: &Path) -> Option<PathBuf> {
-    let output = std::process::Command::new("git")
-        .args(["-C", root.to_str()?, "rev-parse", "--git-common-dir"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let raw = String::from_utf8(output.stdout).ok()?;
-    let common = PathBuf::from(raw.trim());
-    let common = if common.is_absolute() {
-        common
-    } else {
-        root.join(common)
-    };
-    Some(common.join("nexus.toml"))
 }

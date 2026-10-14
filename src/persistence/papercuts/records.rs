@@ -10,10 +10,10 @@ use crate::papercuts::{
     DuplicateReview, DuplicateReviewStatus, Papercut, PapercutActor, PapercutReviewAttempt,
     PapercutReviewAttemptOutcome, PapercutStatus, PapercutUpvote,
 };
+use crate::persistence::backend::DbConnection;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
 use std::collections::HashSet;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -244,7 +244,7 @@ impl PapercutReviewAttemptRow {
 }
 
 pub(super) fn load_papercut_row(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
     papercut_id: &str,
 ) -> Result<PapercutRow> {
@@ -258,7 +258,7 @@ pub(super) fn load_papercut_row(
 }
 
 pub(super) fn canonical_papercut(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     mut row: PapercutRow,
 ) -> Result<PapercutRow> {
     let mut visited = HashSet::new();
@@ -277,7 +277,7 @@ pub(super) fn canonical_papercut(
 }
 
 pub(super) fn load_canonical_papercut(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     project_id: &str,
     papercut_id: &str,
 ) -> Result<PapercutRow> {
@@ -299,6 +299,9 @@ pub(super) fn papercut_fingerprint(title: &str, description: &str) -> Result<Str
 }
 
 pub(super) fn normalize_text(field: &str, value: &str, max_bytes: usize) -> Result<String> {
+    if value.len() > max_bytes {
+        bail!("{field} exceeds the {max_bytes}-byte limit");
+    }
     if value.chars().any(|character| character == '\0') {
         bail!("{field} cannot contain NUL characters");
     }
@@ -313,6 +316,9 @@ pub(super) fn normalize_text(field: &str, value: &str, max_bytes: usize) -> Resu
 }
 
 pub(super) fn normalize_description(value: &str) -> Result<String> {
+    if value.len() > MAX_TEXT_BYTES {
+        bail!("papercut description exceeds the {MAX_TEXT_BYTES}-byte limit");
+    }
     if value.chars().any(|character| character == '\0') {
         bail!("papercut description cannot contain NUL characters");
     }
@@ -336,16 +342,27 @@ pub(super) fn validate_actor(actor: &PapercutActor) -> Result<()> {
         ("session id", actor.session_id.as_str()),
         ("config hash", actor.config_hash.as_str()),
     ] {
-        if value.trim().is_empty() {
-            bail!("papercut actor {field} cannot be empty");
-        }
+        validate_metadata(&format!("papercut actor {field}"), value)?;
     }
     validate_optional("papercut actor model", actor.model_id.as_deref())
 }
 
 pub(super) fn validate_optional(field: &str, value: Option<&str>) -> Result<()> {
-    if value.is_some_and(|value| value.trim().is_empty()) {
-        bail!("{field} cannot be empty when present");
+    if let Some(value) = value {
+        validate_metadata(field, value)?;
+    }
+    Ok(())
+}
+
+fn validate_metadata(field: &str, value: &str) -> Result<()> {
+    if value.chars().any(|character| character == '\0') {
+        bail!("{field} cannot contain NUL characters");
+    }
+    if value.trim().is_empty() {
+        bail!("{field} cannot be empty");
+    }
+    if value.len() > MAX_METADATA_BYTES {
+        bail!("{field} exceeds the {MAX_METADATA_BYTES}-byte limit");
     }
     Ok(())
 }

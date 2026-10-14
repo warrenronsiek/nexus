@@ -151,7 +151,12 @@ fn respond_to_duplicate(
     )
 }
 
-fn assert_registry_history(dump: &Value, papercut_id: &str) {
+fn assert_registry_history(
+    dump: &Value,
+    papercut_id: &str,
+    bound_session_id: &str,
+    bound_agent: &str,
+) {
     assert_eq!(dump["ok"], true);
     assert_eq!(dump["action"], "dumped");
     assert_eq!(dump["registry"]["truncated"], false);
@@ -174,9 +179,12 @@ fn assert_registry_history(dump: &Value, papercut_id: &str) {
     assert!(upvotes
         .iter()
         .all(|upvote| upvote["created_at"].is_string()));
-    assert_eq!(upvotes[0]["reporter_session_id"], "reporter-a");
-    assert_eq!(upvotes[1]["reporter_session_id"], "reporter-b");
-    assert_eq!(upvotes[2]["reporter_session_id"], "reporter-c");
+    assert!(upvotes
+        .iter()
+        .all(|upvote| upvote["reporter_session_id"] == bound_session_id));
+    assert!(upvotes
+        .iter()
+        .all(|upvote| upvote["reporter_agent"] == bound_agent));
 
     let lifecycle = dump["registry"]["lifecycle_events"]
         .as_array()
@@ -188,17 +196,23 @@ fn assert_registry_history(dump: &Value, papercut_id: &str) {
         lifecycle[0]["resolution"],
         "Stopped sharing the fixed TCP port."
     );
-    assert_eq!(lifecycle[0]["actor"]["agent"], "codex");
-    assert_eq!(lifecycle[0]["actor"]["session_id"], "reporter-a");
+    assert_eq!(lifecycle[0]["actor"]["agent"], bound_agent);
+    assert_eq!(lifecycle[0]["actor"]["session_id"], bound_session_id);
     assert!(lifecycle[0]["created_at"].is_string());
     assert_eq!(lifecycle[1]["transition"], "reopened");
     assert_eq!(lifecycle[1]["papercut_id"], papercut_id);
-    assert_eq!(lifecycle[1]["actor"]["agent"], "codex");
-    assert_eq!(lifecycle[1]["actor"]["session_id"], "reporter-c");
+    assert_eq!(lifecycle[1]["actor"]["agent"], bound_agent);
+    assert_eq!(lifecycle[1]["actor"]["session_id"], bound_session_id);
     assert!(lifecycle[1]["created_at"].is_string());
 }
 
-fn assert_consolidation_history(dump: &Value, source_id: &str, canonical_id: &str) {
+fn assert_consolidation_history(
+    dump: &Value,
+    source_id: &str,
+    canonical_id: &str,
+    bound_session_id: &str,
+    bound_agent: &str,
+) {
     let consolidation = dump["registry"]["lifecycle_events"]
         .as_array()
         .expect("complete dumps include consolidation history")
@@ -211,8 +225,8 @@ fn assert_consolidation_history(dump: &Value, source_id: &str, canonical_id: &st
         consolidation["rationale"],
         "Both reports appear to describe the same hanging test process."
     );
-    assert_eq!(consolidation["actor"]["agent"], "codex");
-    assert_eq!(consolidation["actor"]["session_id"], "reporter-b");
+    assert_eq!(consolidation["actor"]["agent"], bound_agent);
+    assert_eq!(consolidation["actor"]["session_id"], bound_session_id);
     assert!(consolidation["created_at"].is_string());
 }
 
@@ -233,6 +247,16 @@ fn registry_collapses_exact_reports_keeps_vote_times_and_reopens_solved_issues()
     assert_eq!(first["created"], true);
     assert!(first["reporter_token"].is_string());
     let id = first["papercut"]["id"].as_str().unwrap().to_owned();
+    let bound_session_id = first["papercut"]["creator_session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let bound_agent = first["papercut"]["creator_agent"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(bound_session_id, "reporter-a");
+    assert_ne!(bound_agent, "codex");
 
     let duplicate = report(
         &mut harness,
@@ -276,7 +300,7 @@ fn registry_collapses_exact_reports_keeps_vote_times_and_reopens_solved_issues()
     assert!(recurring["papercut"]["resolved_at"].is_null());
 
     let dump = dump(&mut harness);
-    assert_registry_history(&dump, &id);
+    assert_registry_history(&dump, &id, &bound_session_id, &bound_agent);
 }
 
 #[test]
@@ -301,6 +325,14 @@ fn duplicate_proposal_can_ask_the_reporter_before_consolidating() {
     );
     assert_eq!(canonical["review_requested"], true);
     let canonical_id = canonical["papercut"]["id"].as_str().unwrap().to_owned();
+    let bound_session_id = canonical["papercut"]["creator_session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let bound_agent = canonical["papercut"]["creator_agent"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let first_review = wait_for_review_record(
         &mut harness,
         &canonical_id,
@@ -335,7 +367,7 @@ fn duplicate_proposal_can_ask_the_reporter_before_consolidating() {
         "reviewer did not persist its question",
     );
     assert_eq!(proposal["status"], "pending_reporter");
-    assert_eq!(proposal["reporter_session_id"], "reporter-b");
+    assert_eq!(proposal["reporter_session_id"], bound_session_id);
     let review_id = proposal["id"].as_str().unwrap().to_owned();
 
     let unauthorized = respond_to_duplicate(
@@ -376,7 +408,13 @@ fn duplicate_proposal_can_ask_the_reporter_before_consolidating() {
         .unwrap()
         .iter()
         .all(|upvote| upvote["papercut_id"] == canonical_id));
-    assert_consolidation_history(&dump, &duplicate_id, &canonical_id);
+    assert_consolidation_history(
+        &dump,
+        &duplicate_id,
+        &canonical_id,
+        &bound_session_id,
+        &bound_agent,
+    );
 }
 
 #[test]

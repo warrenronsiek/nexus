@@ -2,7 +2,8 @@
 // @spec docs/features/runtime.md
 // @entrypoint session_end
 // @boundary dynamic-json
-use super::daemon;
+use super::bounded_io;
+use super::client::NexusClient;
 use crate::config::LoadedConfig;
 use crate::coordination::api::ServiceRequest;
 use crate::coordination::domain::{HookContext, SessionStopInput};
@@ -18,11 +19,7 @@ struct SessionEndHookInput {
 }
 
 pub async fn session_end(loaded: &LoadedConfig, explicit_config: Option<&Path>, agent: &str) {
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
-        return;
-    }
-    let Ok(input) = serde_json::from_str::<SessionEndHookInput>(&input) else {
+    let Some(input) = decode_session_end_input(&mut std::io::stdin().lock()) else {
         return;
     };
     let request = ServiceRequest::SessionStop(SessionStopInput {
@@ -34,5 +31,32 @@ pub async fn session_end(loaded: &LoadedConfig, explicit_config: Option<&Path>, 
             model: None,
         },
     });
-    daemon::lifecycle_request(loaded, explicit_config, &request).await;
+    NexusClient::new(loaded, explicit_config)
+        .lifecycle_request(&request)
+        .await;
+}
+
+fn decode_session_end_input(reader: &mut impl Read) -> Option<SessionEndHookInput> {
+    let input = bounded_io::read_json_document(reader).ok()?;
+    serde_json::from_slice(&input).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn oversized_nonterminated_session_end_input_is_rejected_at_the_sentinel() {
+        let mut input = Cursor::new(vec![
+            b'x';
+            super::super::bounded_io::MAX_JSON_FRAME_BYTES + 2
+        ]);
+
+        assert!(decode_session_end_input(&mut input).is_none());
+        assert_eq!(
+            input.position(),
+            (super::super::bounded_io::MAX_JSON_FRAME_BYTES + 1) as u64
+        );
+    }
 }

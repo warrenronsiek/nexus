@@ -15,6 +15,7 @@ use crate::memory::{
     MemoryProviderHealth, MemoryReadScope, MemoryScope, MemoryScopeHealth, MemorySummary,
     MemorySummaryInsert, MemoryWriteResult,
 };
+use crate::persistence::backend::DbConnection;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -23,6 +24,12 @@ use std::collections::BTreeMap;
 use std::time::{Duration as StdDuration, Instant};
 use uuid::Uuid;
 
+const MAX_MEMORY_SEARCH_CANDIDATES_PER_SCOPE: usize = 4_096;
+const MAX_MEMORY_AGENT_BYTES: usize = 256;
+const MAX_MEMORY_SESSION_ID_BYTES: usize = 512;
+const MAX_MEMORY_MODEL_ID_BYTES: usize = 256;
+const MAX_MEMORY_CONFIG_HASH_BYTES: usize = 256;
+
 mod compaction;
 mod context;
 mod health;
@@ -30,7 +37,7 @@ mod queue;
 mod records;
 mod snapshot;
 use records::*;
-#[cfg(test)]
+#[cfg(all(test, feature = "sqlite"))]
 mod tests;
 
 impl Store {
@@ -91,7 +98,10 @@ impl Store {
             .context("invalid memory search regular expression")?;
         let mut entries = Vec::new();
         for concrete_scope in read_scopes(scope) {
-            entries.extend(load_entries(&mut self.connection, &concrete_scope)?);
+            entries.extend(load_search_candidates(
+                &mut self.connection,
+                &concrete_scope,
+            )?);
         }
         entries.retain(|entry| expression.is_match(&entry.content));
         entries.sort_by(compare_memory_recency);
@@ -122,7 +132,7 @@ struct MemoryWriteCommit {
 }
 
 fn write_memory_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     pending: &PendingMemory<'_>,
 ) -> Result<MemoryWriteCommit> {
     let space = get_or_create_space(connection, pending.scope, &pending.now)?;
@@ -139,7 +149,7 @@ fn write_memory_transaction(
 }
 
 fn find_duplicate_entry(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_id: &str,
     content_hash: &str,
 ) -> Result<Option<MemoryEntryRow>> {
@@ -153,7 +163,7 @@ fn find_duplicate_entry(
 }
 
 fn insert_memory_entry(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     pending: &PendingMemory<'_>,
 ) -> Result<MemoryWriteCommit> {
@@ -173,7 +183,7 @@ fn insert_memory_entry(
 }
 
 fn persist_memory_entry(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     pending: &PendingMemory<'_>,
     entry_id: &str,
@@ -200,7 +210,7 @@ fn persist_memory_entry(
 }
 
 fn advance_memory_space(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space: &MemorySpaceRow,
     now: &str,
 ) -> Result<()> {
@@ -215,7 +225,7 @@ fn advance_memory_space(
 }
 
 fn load_raw_nodes(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_id: &str,
     scope: &MemoryScope,
 ) -> Result<Vec<MemoryNode>> {
@@ -230,7 +240,7 @@ fn load_raw_nodes(
 }
 
 fn load_summaries(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     space_id: &str,
     scope: &MemoryScope,
 ) -> Result<Vec<MemorySummary>> {
@@ -262,10 +272,8 @@ fn read_scopes(scope: &MemoryReadScope) -> Vec<MemoryScope> {
     }
 }
 
-fn load_entries(
-    connection: &mut SqliteConnection,
-    scope: &MemoryScope,
-) -> Result<Vec<MemoryEntry>> {
+#[cfg(all(test, feature = "sqlite"))]
+fn load_entries(connection: &mut DbConnection, scope: &MemoryScope) -> Result<Vec<MemoryEntry>> {
     let Some(space) = find_space(connection, scope)? else {
         return Ok(Vec::new());
     };
@@ -279,8 +287,26 @@ fn load_entries(
         .collect()
 }
 
+fn load_search_candidates(
+    connection: &mut DbConnection,
+    scope: &MemoryScope,
+) -> Result<Vec<MemoryEntry>> {
+    let Some(space) = find_space(connection, scope)? else {
+        return Ok(Vec::new());
+    };
+    memory_entries::table
+        .filter(memory_entries::space_id.eq(&space.id))
+        .order(memory_entries::ordinal.desc())
+        .limit(MAX_MEMORY_SEARCH_CANDIDATES_PER_SCOPE as i64)
+        .select(MemoryEntryRow::as_select())
+        .load(connection)?
+        .into_iter()
+        .map(|row| entry_from_row(row, scope.clone()))
+        .collect()
+}
+
 fn get_or_create_space(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
     now: &str,
 ) -> Result<MemorySpaceRow> {
@@ -309,7 +335,7 @@ fn get_or_create_space(
 }
 
 fn find_space(
-    connection: &mut SqliteConnection,
+    connection: &mut DbConnection,
     scope: &MemoryScope,
 ) -> Result<Option<MemorySpaceRow>> {
     let query = memory_spaces::table
@@ -345,19 +371,44 @@ fn validate_scope(scope: &MemoryScope) -> Result<()> {
 }
 
 fn validate_provenance(provenance: &MemoryProvenance) -> Result<()> {
-    for (name, value) in [
-        ("agent", provenance.agent.as_str()),
-        ("session_id", provenance.session_id.as_str()),
-        ("config_hash", provenance.config_hash.as_str()),
+    for (name, value, maximum) in [
+        ("agent", provenance.agent.as_str(), MAX_MEMORY_AGENT_BYTES),
+        (
+            "session_id",
+            provenance.session_id.as_str(),
+            MAX_MEMORY_SESSION_ID_BYTES,
+        ),
+        (
+            "config_hash",
+            provenance.config_hash.as_str(),
+            MAX_MEMORY_CONFIG_HASH_BYTES,
+        ),
     ] {
         if value.trim().is_empty() {
             bail!("memory provenance {name} cannot be empty");
+        }
+        if value.chars().any(char::is_control) {
+            bail!("memory provenance {name} cannot contain control characters");
+        }
+        if value.len() > maximum {
+            bail!("memory provenance {name} exceeds the {maximum}-byte limit");
+        }
+    }
+    if let Some(model_id) = provenance.model_id.as_ref() {
+        if model_id.chars().any(char::is_control) {
+            bail!("memory provenance model_id cannot contain control characters");
+        }
+        if model_id.len() > MAX_MEMORY_MODEL_ID_BYTES {
+            bail!("memory provenance model_id exceeds the {MAX_MEMORY_MODEL_ID_BYTES}-byte limit");
         }
     }
     Ok(())
 }
 
 fn normalize_memory_text(content: &str, max_bytes: usize) -> Result<String> {
+    if content.len() > max_bytes {
+        bail!("memory text exceeds the {max_bytes}-byte limit");
+    }
     if content
         .chars()
         .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
@@ -392,8 +443,8 @@ fn entry_from_row(row: MemoryEntryRow, scope: MemoryScope) -> Result<MemoryEntry
 }
 
 fn retry_memory_write<T>(
-    connection: &mut SqliteConnection,
-    mut operation: impl FnMut(&mut SqliteConnection) -> Result<T>,
+    connection: &mut DbConnection,
+    mut operation: impl FnMut(&mut DbConnection) -> Result<T>,
 ) -> Result<T> {
     let mut retry_deadline = None;
     let mut delay = StdDuration::from_millis(5);

@@ -18,6 +18,7 @@ import type {
   MemorySummary,
   MemoryView,
 } from "./memory.ts";
+import { centeredWindowStart, sanitizeDisplayText } from "./display.ts";
 
 export interface MemoryInteractionPrompts {
   searchRegex(): Promise<string | undefined>;
@@ -41,18 +42,15 @@ function scopeLabel(node: MemoryNode): string {
 
 function nodeLine(node: MemoryNode): string {
   if (node.kind === "raw") {
-    return `raw #${node.ordinal} · ${scopeLabel(node)} · ${node.content}`;
+    return sanitizeDisplayText(`raw #${node.ordinal} · ${scopeLabel(node)} · ${node.content}`);
   }
-  return `summary #${node.start_ordinal}-${node.end_ordinal} · level ${node.level} · provider ${node.provider} · ${node.content}`;
+  return sanitizeDisplayText(
+    `summary #${node.start_ordinal}-${node.end_ordinal} · level ${node.level} · provider ${node.provider} · ${node.content}`,
+  );
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function windowStart(total: number, selected: number, maximum: number): number {
-  const centered = selected - Math.floor(maximum / 2);
-  return Math.max(0, Math.min(centered, Math.max(0, total - maximum)));
 }
 
 function formatSummaryCount(count: number): string {
@@ -113,20 +111,23 @@ function renderMemoryDetail(
   detail: MemoryEntry,
   scroll: number,
 ): MemoryRenderResult {
-  const detailLines = wrapTextWithAnsi(detail.content, contentWidth);
+  const detailLines = wrapTextWithAnsi(
+    sanitizeDisplayText(detail.content, "multiline"),
+    contentWidth,
+  );
   const start = Math.min(scroll, Math.max(0, detailLines.length - MAX_VISIBLE_DETAIL_LINES));
   const end = Math.min(detailLines.length, start + MAX_VISIBLE_DETAIL_LINES);
   const lines = [
     "",
     theme.fg("accent", theme.bold("Raw memory detail")),
-    `id ${detail.id}`,
+    sanitizeDisplayText(`id ${detail.id}`),
     `scope ${scopeLabel(detail)}`,
     `ordinal ${detail.ordinal}`,
-    `created ${detail.created_at}`,
-    `agent ${detail.provenance.agent}`,
-    `session ${detail.provenance.session_id}`,
-    `model ${detail.provenance.model_id ?? "unknown"}`,
-    `config ${detail.provenance.config_hash}`,
+    sanitizeDisplayText(`created ${detail.created_at}`),
+    sanitizeDisplayText(`agent ${detail.provenance.agent}`),
+    sanitizeDisplayText(`session ${detail.provenance.session_id}`),
+    sanitizeDisplayText(`model ${detail.provenance.model_id ?? "unknown"}`),
+    sanitizeDisplayText(`config ${detail.provenance.config_hash}`),
     "",
   ];
   if (start > 0) lines.push(theme.fg("dim", `↑ ${start} detail lines above`));
@@ -149,7 +150,11 @@ function renderMemoryNodes(
     };
   }
   const heading = memoryNodeHeading(state.mode);
-  const start = windowStart(state.nodes.length, state.selectedIndex, MAX_VISIBLE_NODES);
+  const start = centeredWindowStart(
+    state.nodes.length,
+    state.selectedIndex,
+    MAX_VISIBLE_NODES,
+  );
   const end = Math.min(state.nodes.length, start + MAX_VISIBLE_NODES);
   const lines = ["", theme.fg("accent", theme.bold(heading))];
   if (state.mode === "root") {
@@ -193,7 +198,9 @@ function memoryOmissionLines(theme: Theme, view: MemoryView | undefined): string
     const label = omission.scope.scope === "global" ? "global" : "project";
     return theme.fg(
       "warning",
-      `omitted ${label} #${omission.start_ordinal}-${omission.end_ordinal} · ${omission.reason}`,
+      sanitizeDisplayText(
+        `omitted ${label} #${omission.start_ordinal}-${omission.end_ordinal} · ${omission.reason}`,
+      ),
     );
   });
   const hidden = omissions.length - lines.length;
@@ -202,7 +209,7 @@ function memoryOmissionLines(theme: Theme, view: MemoryView | undefined): string
 }
 
 function memoryHealthLines(theme: Theme, view: MemoryView | undefined, status: string): string[] {
-  if (view === undefined) return [theme.fg("muted", status)];
+  if (view === undefined) return [theme.fg("muted", sanitizeDisplayText(status))];
   const health = view.health;
   const rawCount = health.scopes.reduce((total, value) => total + value.raw_entries, 0);
   const summaryCount = health.scopes.reduce((total, value) => total + value.summaries, 0);
@@ -224,7 +231,7 @@ function memoryHealthLines(theme: Theme, view: MemoryView | undefined, status: s
     `${providerState} · failures ${health.failed_attempts} · cooling ${health.cooling_down_attempts} · fallbacks ${health.fallback_uses}`,
     ...health.providers.map(providerHealthLine),
     `${activation} · ${view.context.item_count} shown · ${view.context.byte_count} bytes`,
-    theme.fg("dim", status),
+    theme.fg("dim", sanitizeDisplayText(status)),
   ];
 }
 
@@ -234,7 +241,9 @@ function providerHealthLine(provider: MemoryView["health"]["providers"][number])
       ? "retry window"
       : new Date(provider.next_retry_at).toLocaleString()}`
     : "ready";
-  return `${provider.provider} · ${provider.model_id ?? "default model"} · ${provider.last_outcome} · ${availability} · failures ${provider.consecutive_failures} · attempted ${new Date(provider.last_attempted_at).toLocaleString()}`;
+  return sanitizeDisplayText(
+    `${provider.provider} · ${provider.model_id ?? "default model"} · ${provider.last_outcome} · ${availability} · failures ${provider.consecutive_failures} · attempted ${new Date(provider.last_attempted_at).toLocaleString()}`,
+  );
 }
 
 function initialMemoryPaneState(): MutableMemoryPaneState {
@@ -498,7 +507,9 @@ export class MemoryPane implements Component {
 
   statusLine(): string {
     const scope = this.state.view?.context.scope.scope ?? "layered";
-    return `${scope} memory · ${this.state.status} · MCP local only`;
+    return sanitizeDisplayText(
+      `${scope} memory · ${this.state.status} · MCP via configured companion`,
+    );
   }
 
   handleInput(data: string): void {

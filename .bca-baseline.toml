@@ -56,12 +56,6 @@ value = 17.0
 
 [[entry]]
 path = "scripts/feature_map.py"
-qualified = "discover_symbols"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
-path = "scripts/feature_map.py"
 qualified = "lint"
 metric = "cognitive"
 value = 35.0
@@ -79,118 +73,70 @@ metric = "cognitive"
 value = 21.0
 
 [[entry]]
-path = "src/agents/model.rs"
-qualified = "invoke"
-metric = "abc"
-value = 52.744667976962376
-
-[[entry]]
-path = "src/agents/model.rs"
-qualified = "invoke"
-metric = "halstead.effort"
-value = 93208.81926122407
-
-[[entry]]
-path = "src/agents/model.rs"
-qualified = "invoke"
-metric = "nexits"
-value = 12.0
-
-[[entry]]
 path = "src/config.rs"
 qualified = "Config::load"
 metric = "nexits"
 value = 7.0
 
 [[entry]]
-path = "src/coordination/api.rs"
-qualified = "ServiceRequest::decode"
-metric = "abc"
-value = 42.15447781671598
-
-[[entry]]
-path = "src/coordination/api.rs"
-qualified = "ServiceRequest::decode"
-metric = "cyclomatic"
-value = 17.0
-
-[[entry]]
-path = "src/coordination/api.rs"
-qualified = "ServiceRequest::decode"
+path = "src/config.rs"
+qualified = "Config::validate"
 metric = "nexits"
-value = 13.0
+value = 7.0
 
 [[entry]]
 path = "src/coordination/api.rs"
-qualified = "ServiceRequest::wire_parts"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 621.0
+
+[[entry]]
+path = "src/coordination/api.rs"
+qualified = "validate_lifecycle_request"
 metric = "nexits"
-value = 11.0
+value = 9.0
 
 [[entry]]
-path = "src/coordination/classifier.rs"
-qualified = "extract_patch"
-metric = "halstead.effort"
-value = 89334.42238810813
-
-[[entry]]
-path = "src/coordination/classifier.rs"
-qualified = "extract_path_intents"
-metric = "cyclomatic"
-value = 16.0
-
-[[entry]]
-path = "src/coordination/classifier.rs"
-qualified = "extract_shell"
-metric = "cognitive"
-value = 18.0
-
-[[entry]]
-path = "src/coordination/classifier.rs"
-qualified = "extract_shell"
-metric = "halstead.effort"
-value = 109081.00331728932
+path = "src/coordination/service.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 689.0
 
 [[entry]]
 path = "src/coordination/service.rs"
 qualified = "NexusService"
 metric = "nom"
-value = 50.0
+value = 40.0
 
 [[entry]]
 path = "src/coordination/service.rs"
 qualified = "NexusService"
 metric = "wmc"
-value = 92.0
+value = 78.0
 
 [[entry]]
 path = "src/coordination/service.rs"
-qualified = "NexusService::analyze"
-metric = "nexits"
+qualified = "record_intent_advisories"
+metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "src/coordination/service.rs"
-qualified = "NexusService::analyze::<anon@L318>"
-metric = "nexits"
-value = 6.0
+path = "src/coordination/service/tests.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 1072.0
 
 [[entry]]
-path = "src/coordination/service.rs"
-qualified = "NexusService::handle"
-metric = "cyclomatic"
-value = 16.0
+path = "src/coordination/service/tests.rs"
+qualified = "ordinary_coordination_reads_have_server_owned_hard_caps"
+metric = "halstead.effort"
+value = 81010.27906104822
 
 [[entry]]
-path = "src/coordination/service.rs"
-qualified = "NexusService::pre_tool_use"
+path = "src/coordination/usage.rs"
+qualified = "skill_name_from_manifest"
 metric = "nexits"
-value = 7.0
-
-[[entry]]
-path = "src/coordination/service.rs"
-qualified = "NexusService::pre_tool_use::<anon@L121>"
-metric = "nexits"
-value = 7.0
+value = 10.0
 
 [[entry]]
 path = "src/installation.rs"
@@ -199,40 +145,16 @@ metric = "nexits"
 value = 9.0
 
 [[entry]]
-path = "src/installation.rs"
-qualified = "setup_machine"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
-path = "src/main.rs"
-qualified = "main"
-metric = "abc"
-value = 69.91423317179414
-
-[[entry]]
-path = "src/main.rs"
-qualified = "main"
-metric = "cognitive"
-value = 23.0
-
-[[entry]]
-path = "src/main.rs"
-qualified = "main"
-metric = "cyclomatic"
-value = 29.0
-
-[[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "halstead.effort"
-value = 141518.27706103484
+value = 58012.55273137094
 
 [[entry]]
 path = "src/main.rs"
 qualified = "main"
 metric = "nexits"
-value = 13.0
+value = 6.0
 
 [[entry]]
 path = "src/persistence/conflicts.rs"
@@ -244,25 +166,73 @@ value = 56210.40350560419
 path = "src/persistence/dashboard.rs"
 qualified = "Store::dashboard"
 metric = "abc"
-value = 75.05997601918082
+value = 66.2872536767062
 
 [[entry]]
 path = "src/persistence/dashboard.rs"
 qualified = "Store::dashboard"
 metric = "halstead.effort"
-value = 111022.60489881203
+value = 79206.91474979224
 
 [[entry]]
 path = "src/persistence/dashboard.rs"
 qualified = "Store::dashboard"
 metric = "nexits"
-value = 11.0
+value = 8.0
+
+[[entry]]
+path = "src/persistence/dashboard.rs"
+qualified = "Store::list_projects_window"
+metric = "halstead.effort"
+value = 56046.76039716184
+
+[[entry]]
+path = "src/persistence/migrations.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 657.0
+
+[[entry]]
+path = "src/persistence/migrations.rs"
+qualified = "upgrades_v7_coordination_projections_to_enforced_storage_bounds"
+metric = "abc"
+value = 70.46985170979147
+
+[[entry]]
+path = "src/persistence/migrations.rs"
+qualified = "upgrades_v7_coordination_projections_to_enforced_storage_bounds"
+metric = "halstead.effort"
+value = 239445.99623282315
+
+[[entry]]
+path = "src/persistence/papercuts/registry.rs"
+qualified = "load_open_papercuts"
+metric = "abc"
+value = 46.184412955021955
+
+[[entry]]
+path = "src/persistence/papercuts/registry.rs"
+qualified = "load_open_papercuts"
+metric = "halstead.effort"
+value = 52898.29552217247
+
+[[entry]]
+path = "src/persistence/papercuts/registry.rs"
+qualified = "load_open_papercuts"
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "src/persistence/store.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 739.0
 
 [[entry]]
 path = "src/persistence/store.rs"
 qualified = "Store::insert_claim"
 metric = "halstead.effort"
-value = 91356.25408442957
+value = 89884.96248971141
 
 [[entry]]
 path = "src/persistence/store.rs"
@@ -272,9 +242,33 @@ value = 6.0
 
 [[entry]]
 path = "src/persistence/store.rs"
-qualified = "Store::release_claims"
+qualified = "active_claim_row"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "src/persistence/store.rs"
+qualified = "strongest_active_claim_for_session"
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/persistence/usage.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 665.0
+
+[[entry]]
+path = "src/persistence/usage.rs"
+qualified = "Store::usage_summary"
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "src/persistence/usage.rs"
+qualified = "dimension_counts"
 metric = "halstead.effort"
-value = 52968.854870731244
+value = 57314.17386701043
 
 [[entry]]
 path = "src/runtime/daemon.rs"
@@ -284,27 +278,51 @@ value = 6.0
 
 [[entry]]
 path = "src/runtime/daemon.rs"
-qualified = "serve"
-metric = "halstead.effort"
-value = 67273.65706343006
+qualified = "run_event_loop"
+metric = "nargs"
+value = 6.0
 
 [[entry]]
-path = "src/runtime/daemon.rs"
-qualified = "serve"
-metric = "nexits"
+path = "src/runtime/dispatch.rs"
+qualified = "handle_observed_bounded"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "src/runtime/dispatch.rs"
+qualified = "handle_with_evidence"
+metric = "nargs"
 value = 6.0
 
 [[entry]]
 path = "src/runtime/mcp.rs"
 qualified = "serve_stdio"
-metric = "halstead.effort"
-value = 67762.24150426582
+metric = "abc"
+value = 40.124805295477756
 
 [[entry]]
 path = "src/runtime/mcp.rs"
-qualified = "tool_call"
+qualified = "serve_stdio"
 metric = "halstead.effort"
-value = 57843.253985364376
+value = 50307.603122173656
+
+[[entry]]
+path = "src/runtime/mcp/tests.rs"
+qualified = "advertises_one_typed_papercuts_tool"
+metric = "halstead.effort"
+value = 54022.13088850311
+
+[[entry]]
+path = "src/runtime/mcp/tool_definitions.rs"
+qualified = "coordination_tool_definitions"
+metric = "halstead.effort"
+value = 55483.20507505919
+
+[[entry]]
+path = "src/runtime/server/secret.rs"
+qualified = "read_secret_file_if_exists"
+metric = "nexits"
+value = 6.0
 
 [[entry]]
 path = "tests/install_e2e.rs"
@@ -319,25 +337,19 @@ metric = "halstead.effort"
 value = 50220.20051693353
 
 [[entry]]
-path = "tests/installation.rs"
-qualified = "machine_setup_and_repository_install_are_complete_commands"
-metric = "abc"
-value = 50.695167422546305
-
-[[entry]]
-path = "tests/support/mod.rs"
-qualified = "Harness::start_with_analyst"
-metric = "abc"
-value = 54.85435260760991
-
-[[entry]]
-path = "tests/support/mod.rs"
-qualified = "Harness::start_with_analyst"
-metric = "halstead.effort"
-value = 54438.69955137801
-
-[[entry]]
 path = "tests/mcp_hooks.rs"
 qualified = "mcp_lifecycle_classifies_conflicts_and_persists_projections"
 metric = "halstead.effort"
 value = 94444.75898694253
+
+[[entry]]
+path = "tests/papercuts.rs"
+qualified = "assert_registry_history"
+metric = "halstead.effort"
+value = 52869.30425978627
+
+[[entry]]
+path = "tests/papercuts.rs"
+qualified = "duplicate_proposal_can_ask_the_reporter_before_consolidating"
+metric = "halstead.effort"
+value = 55789.92327794914

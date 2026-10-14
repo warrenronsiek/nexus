@@ -8,7 +8,7 @@ pub const DEFAULT_MEMORY_MAX_ITEMS: usize = 64;
 pub const DEFAULT_MEMORY_MAX_BYTES: usize = 16 * 1024;
 pub const MAX_MEMORY_ENTRY_BYTES: usize = 512;
 pub const MAX_MEMORY_SUMMARY_BYTES: usize = 2 * 1024;
-pub const MAX_MEMORY_SEARCH_RESULTS: usize = 256;
+pub const MAX_MEMORY_SEARCH_RESULTS: usize = 64;
 pub const MAX_MEMORY_FRONTIER_OMISSIONS: usize = DEFAULT_MEMORY_MAX_ITEMS + 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

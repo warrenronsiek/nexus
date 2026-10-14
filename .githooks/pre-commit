@@ -14,6 +14,6 @@ repository_root="$(git rev-parse --show-toplevel)"
   "${repository_root}/scripts/check.sh"
 )
 
-if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" -- review-commit; then
+if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" --bin nexus -- review-commit; then
   printf '%s\n' "warning: cross-model commit review failed; deterministic checks passed" >&2
 fi
