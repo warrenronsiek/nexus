@@ -330,12 +330,15 @@ fn remote_project_ids_reject_control_characters() {
 #[test]
 fn server_credentials_do_not_select_or_leak_into_client_configuration() {
     let _guard = ENV_LOCK.lock().unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let configuration = temporary.path().join("config.toml");
+    std::fs::write(&configuration, "schema_version = 1\n").unwrap();
     let secret = "server-secret-that-must-not-enter-config";
     let secret_file = "/run/secrets/nexus-server";
 
     std::env::set_var("NEXUS_SECRET", secret);
     std::env::set_var("NEXUS_SECRET_FILE", secret_file);
-    let loaded = Config::load(None, None).unwrap();
+    let loaded = Config::load(Some(&configuration), None).unwrap();
     std::env::remove_var("NEXUS_SECRET");
     std::env::remove_var("NEXUS_SECRET_FILE");
 

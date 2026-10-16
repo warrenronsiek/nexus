@@ -160,6 +160,7 @@ fn assert_session_end_works_from_another_directory(home: &Path, codex_home: &Pat
         .args(["-c", &session_end])
         .current_dir(home)
         .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .env("CODEX_HOME", codex_home)
         .env("NEXUS_STATE_DIR", home.join(".local/state/nexus"))
         .output()
@@ -223,6 +224,7 @@ fn nexus_command(
     path.extend(std::env::split_paths(&inherited_path));
     command
         .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .env("CODEX_HOME", codex_home)
         .env("NEXUS_STATE_DIR", home.join(".local/state/nexus"))
         .env("NEXUS_TEST_HOST_LOG", host_log)
