@@ -3,7 +3,7 @@
 // @entrypoint main
 use anyhow::{Context, Result};
 use clap::Parser;
-use nexus::persistence::{backup_sqlite_database, snapshot_sqlite_database};
+use nexus::persistence::{backup_sqlite_database, export_sqlite_stream};
 use std::io::{self, BufWriter};
 use std::path::PathBuf;
 
@@ -27,9 +27,8 @@ fn main() -> Result<()> {
     if let Some(destination) = args.copy_to {
         return backup_sqlite_database(&args.database, &destination);
     }
-    let snapshot = snapshot_sqlite_database(&args.database)?;
     let stdout = io::stdout();
-    snapshot
-        .write_to(BufWriter::new(stdout.lock()))
-        .context("write portable SQLite snapshot")
+    export_sqlite_stream(&args.database, BufWriter::new(stdout.lock()))
+        .context("write portable SQLite stream")?;
+    Ok(())
 }

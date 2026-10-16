@@ -6,7 +6,7 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/configuration.md
 // @spec docs/features/analyst.md
-use super::{sqlite_import, Args};
+use super::{sqlite_import, Args, ServerMode};
 use anyhow::{bail, Context, Result};
 use nexus::runtime::server::{
     disable_in_process_model_providers, load_or_generate_secret, serve_listener, ServerSecret,
@@ -19,7 +19,23 @@ use std::sync::Arc;
 const HEALTH_READY_FILE_ENV: &str = "NEXUS_HEALTH_READY_FILE";
 
 pub(super) async fn run(args: Args) -> Result<()> {
-    PreparedServer::prepare(args).await?.serve().await
+    match args.mode {
+        ServerMode::Import => import_offline(args),
+        ServerMode::Export => export_offline(args),
+        ServerMode::Serve => PreparedServer::prepare(args).await?.serve().await,
+    }
+}
+
+fn import_offline(args: Args) -> Result<()> {
+    let inputs = StartupInputs::resolve(args)?;
+    sqlite_import::run(inputs.import_sqlite, &inputs.database_url)
+}
+
+fn export_offline(args: Args) -> Result<()> {
+    let inputs = StartupInputs::resolve(args)?;
+    let mut store = nexus::persistence::Store::connect(&inputs.database_url)?;
+    store.write_streamed_snapshot(std::io::BufWriter::new(std::io::stdout().lock()))?;
+    Ok(())
 }
 
 struct StartupInputs {

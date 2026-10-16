@@ -19,19 +19,21 @@ const PROJECT: &str = "sqlite-transfer-fixture";
 const AT: &str = "2026-01-02T03:04:05Z";
 
 #[test]
-fn sqlite_snapshot_import_preserves_relationships_and_advances_the_event_identity() {
+fn sqlite_stream_import_preserves_relationships_and_advances_the_event_identity() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL integration test");
     let snapshot = transfer_fixture();
-    let digest = snapshot.digest().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let stream = directory.path().join("snapshot.jsonl");
+    write_fixture_stream(&snapshot, &stream);
     let mut store = Store::connect(&database_url).unwrap();
 
     assert!(matches!(
-        store.import_snapshot(&snapshot, &digest).unwrap(),
+        store.import_streamed_snapshot(&stream).unwrap(),
         ImportOutcome::Imported { rows: 8, .. }
     ));
     assert!(matches!(
-        store.import_snapshot(&snapshot, &digest).unwrap(),
+        store.import_streamed_snapshot(&stream).unwrap(),
         ImportOutcome::AlreadyImported { rows: 8, .. }
     ));
 
@@ -78,6 +80,46 @@ fn sqlite_snapshot_import_preserves_relationships_and_advances_the_event_identit
     let events = store.list_events(Some(PROJECT), 64).unwrap();
     assert_eq!(events[0].id, 42);
     assert_eq!(events.last().unwrap().id, 41);
+}
+
+fn write_fixture_stream(snapshot: &PortableSnapshot, stream: &std::path::Path) {
+    let mut output = Vec::new();
+    snapshot.write_to(&mut output).unwrap();
+    let fixture: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let mut records = vec![json!({"kind":"header", "format_version":2})];
+    let tables = [
+        "sessions",
+        "claims",
+        "conflicts",
+        "advisories",
+        "capability_uses",
+        "events",
+        "memory_spaces",
+        "memory_entries",
+        "memory_summaries",
+        "memory_frontier_snapshots",
+        "memory_compaction_queue",
+        "memory_activations",
+        "memory_compaction_attempts",
+        "papercuts",
+        "papercut_upvotes",
+        "papercut_duplicate_reviews",
+        "papercut_review_attempts",
+        "sos_issues",
+        "sos_reports",
+        "sos_triage_attempts",
+        "sos_issue_lifecycle",
+    ];
+    for table in tables {
+        let mut rows = fixture[table].as_array().unwrap().clone();
+        if table == "papercuts" {
+            rows.reverse();
+        }
+        records.push(json!({"kind":"batch", "data":{"table":table, "rows":rows}}));
+    }
+    records.push(json!({"kind":"complete", "rows":8}));
+    let encoded: String = records.iter().map(|record| format!("{record}\n")).collect();
+    std::fs::write(&stream, encoded).unwrap();
 }
 
 fn transfer_fixture() -> PortableSnapshot {

@@ -5,6 +5,44 @@
 use nexus::memory::{MemoryProvenance, MemoryReadScope, MemoryScope};
 use nexus::persistence::{backup_sqlite_database, snapshot_sqlite_database, ImportOutcome, Store};
 
+#[test]
+fn sqlite_staging_accepts_a_large_source_without_changing_it() {
+    let temporary = tempfile::tempdir().unwrap();
+    let source_path = temporary.path().join("large-source.db");
+    let mut source = Store::open(&source_path).unwrap();
+    source
+        .add_memory(
+            &MemoryScope::project("large-project"),
+            "retained large-source note",
+            &provenance(),
+        )
+        .unwrap();
+    drop(source);
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&source_path)
+        .unwrap();
+    file.set_len(257 * 1024 * 1024).unwrap();
+    let before = std::fs::metadata(&source_path).unwrap();
+    let staged_path = temporary.path().join("staged.db");
+
+    backup_sqlite_database(&source_path, &staged_path).unwrap();
+
+    assert_eq!(std::fs::metadata(&source_path).unwrap().len(), before.len());
+    let mut staged = Store::open(&staged_path).unwrap();
+    assert_eq!(
+        staged
+            .search_memories(
+                &MemoryReadScope::project("large-project"),
+                "retained large-source",
+                10
+            )
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
 fn provenance() -> MemoryProvenance {
     MemoryProvenance {
         agent: "migration-test".to_owned(),
@@ -12,6 +50,82 @@ fn provenance() -> MemoryProvenance {
         model_id: Some("model-a".to_owned()),
         config_hash: "config-a".to_owned(),
     }
+}
+
+#[test]
+fn streamed_import_preserves_notes_and_is_idempotent() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut source = Store::open(&temporary.path().join("source.db")).unwrap();
+    for index in 0..40 {
+        source
+            .add_memory(
+                &MemoryScope::project("project-a"),
+                &format!("streamed note {index}"),
+                &provenance(),
+            )
+            .unwrap();
+    }
+    let snapshot_path = temporary.path().join("snapshot.jsonl");
+    let manifest = source
+        .write_streamed_snapshot(std::fs::File::create(&snapshot_path).unwrap())
+        .unwrap();
+    let mut target = Store::open(&temporary.path().join("target.db")).unwrap();
+
+    assert_eq!(
+        target.import_streamed_snapshot(&snapshot_path).unwrap(),
+        ImportOutcome::Imported {
+            rows: manifest.rows,
+            digest: manifest.digest.clone()
+        }
+    );
+    assert_eq!(
+        target
+            .search_memories(&MemoryReadScope::project("project-a"), "streamed note", 64)
+            .unwrap()
+            .len(),
+        40
+    );
+    assert!(matches!(
+        target.import_streamed_snapshot(&snapshot_path).unwrap(),
+        ImportOutcome::AlreadyImported { .. }
+    ));
+}
+
+#[test]
+fn incomplete_stream_never_commits_partial_notes() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut source = Store::open(&temporary.path().join("source.db")).unwrap();
+    source
+        .add_memory(
+            &MemoryScope::project("project-a"),
+            "must roll back",
+            &provenance(),
+        )
+        .unwrap();
+    let mut encoded = Vec::new();
+    source.write_streamed_snapshot(&mut encoded).unwrap();
+    let end = encoded[..encoded.len() - 1]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .unwrap();
+    let snapshot_path = temporary.path().join("incomplete.jsonl");
+    std::fs::write(&snapshot_path, &encoded[..end + 1]).unwrap();
+    let mut target = Store::open(&temporary.path().join("target.db")).unwrap();
+
+    assert!(target.import_streamed_snapshot(&snapshot_path).is_err());
+    assert!(target
+        .search_memories(&MemoryReadScope::project("project-a"), "must roll back", 10)
+        .unwrap()
+        .is_empty());
+    assert!(matches!(
+        target
+            .import_snapshot(
+                &source.portable_snapshot().unwrap(),
+                &source.portable_snapshot().unwrap().digest().unwrap()
+            )
+            .unwrap(),
+        ImportOutcome::Imported { .. }
+    ));
 }
 
 #[test]

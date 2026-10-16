@@ -3,7 +3,7 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/persistence.md
 use anyhow::{bail, Context, Result};
-use nexus::persistence::{ImportOutcome, PortableSnapshot, Store};
+use nexus::persistence::{ImportOutcome, Store};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -113,9 +113,8 @@ fn optional_source(path: PathBuf) -> Result<SqliteImportDecision> {
 
 fn import_database(path: &Path, database_url: &str) -> Result<()> {
     let snapshot = export_sqlite_snapshot(path)?;
-    let digest = snapshot.digest()?;
     let mut target = Store::connect(database_url).context("open PostgreSQL import target")?;
-    match target.import_snapshot(&snapshot, &digest)? {
+    match target.import_streamed_snapshot(snapshot.path())? {
         ImportOutcome::Imported { rows, digest } => eprintln!(
             "SQLite import completed: {rows} rows from {} (snapshot {digest})",
             path.display()
@@ -127,7 +126,7 @@ fn import_database(path: &Path, database_url: &str) -> Result<()> {
     Ok(())
 }
 
-fn export_sqlite_snapshot(database_path: &Path) -> Result<PortableSnapshot> {
+fn export_sqlite_snapshot(database_path: &Path) -> Result<tempfile::NamedTempFile> {
     let current_executable = std::env::current_exe().context("locate nexus-server executable")?;
     let exporter = sibling_exporter(&current_executable);
     let output = tempfile::NamedTempFile::new().context("create portable snapshot output")?;
@@ -151,7 +150,7 @@ fn export_sqlite_snapshot(database_path: &Path) -> Result<PortableSnapshot> {
     if !status.success() {
         bail!("SQLite snapshot helper exited with {status}");
     }
-    PortableSnapshot::read_file(output.path()).context("read completed portable SQLite snapshot")
+    Ok(output)
 }
 
 fn sibling_exporter(server_executable: &Path) -> PathBuf {

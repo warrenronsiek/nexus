@@ -23,7 +23,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 smoke_directory="$(mktemp -d)"
-compose_project="nexus-smoke-$$"
+compose_project="${NEXUS_TEST_COMPOSE_PROJECT:-nexus-smoke-$$}"
 compose=(docker compose --project-name "${compose_project}" --file "${repository_root}/docker-compose.yml")
 
 export NEXUS_BIND_ADDRESS="127.0.0.1"

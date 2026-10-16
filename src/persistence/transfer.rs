@@ -28,11 +28,13 @@ use std::collections::HashMap;
 
 mod codec;
 mod rows;
+mod stream;
 use rows::*;
+pub use stream::SnapshotManifest;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 #[cfg(feature = "sqlite")]
-pub use sqlite::{backup_sqlite_database, snapshot_sqlite_database};
+pub use sqlite::{backup_sqlite_database, export_sqlite_stream, snapshot_sqlite_database};
 
 const PORTABLE_SNAPSHOT_VERSION: u32 = 1;
 const INSERT_CHUNK_ROWS: usize = 16;
@@ -116,9 +118,20 @@ impl Store {
         let rows = snapshot.row_count();
         let outcome = self
             .connection
-            .transaction(|connection| import_transaction(connection, snapshot, &digest, rows))
+            .transaction(|connection| {
+                let outcome = import_transaction(connection, snapshot, &digest, rows)?;
+                sync_event_identity(
+                    connection,
+                    snapshot
+                        .events
+                        .iter()
+                        .map(|event| event.id)
+                        .max()
+                        .unwrap_or(0),
+                )?;
+                Ok::<_, anyhow::Error>(outcome)
+            })
             .context("import portable database snapshot")?;
-        sync_event_identity(&mut self.connection, snapshot)?;
         Ok(outcome)
     }
 }
@@ -217,7 +230,7 @@ fn import_transaction(
     digest: &str,
     rows: usize,
 ) -> Result<ImportOutcome> {
-    match existing_import_outcome(connection, digest, rows)? {
+    match existing_import_outcome(connection, digest)? {
         Some(outcome) => Ok(outcome),
         None => import_into_empty_target(connection, snapshot, digest, rows),
     }
@@ -226,24 +239,20 @@ fn import_transaction(
 fn existing_import_outcome(
     connection: &mut DbConnection,
     digest: &str,
-    rows: usize,
 ) -> Result<Option<ImportOutcome>> {
-    let existing = database_imports::table
-        .select(database_imports::source_digest)
-        .order(database_imports::imported_at.asc())
-        .load::<String>(connection)?;
-    if let Some(existing_digest) = existing.first() {
-        if existing.len() == 1 && existing_digest == digest {
-            return Ok(Some(ImportOutcome::AlreadyImported {
-                rows,
+    let previous = database_imports::table
+        .select((database_imports::source_digest, database_imports::row_count))
+        .load::<(String, i64)>(connection)?;
+    match previous.as_slice() {
+        [] => Ok(None),
+        [(previous_digest, rows)] if previous_digest == digest => {
+            Ok(Some(ImportOutcome::AlreadyImported {
+                rows: usize::try_from(*rows)?,
                 digest: digest.to_owned(),
-            }));
+            }))
         }
-        bail!(
-            "target database was already initialized from a different SQLite snapshot ({existing_digest})"
-        );
+        _ => bail!("target database was already initialized from a different SQLite snapshot"),
     }
-    Ok(None)
 }
 
 fn import_into_empty_target(
@@ -257,12 +266,21 @@ fn import_into_empty_target(
     }
 
     insert_snapshot(connection, snapshot)?;
+    record_import_marker(connection, digest, PORTABLE_SNAPSHOT_VERSION as i32, rows)
+}
+
+fn record_import_marker(
+    connection: &mut DbConnection,
+    digest: &str,
+    version: i32,
+    rows: usize,
+) -> Result<ImportOutcome> {
     let row_count = i64::try_from(rows).context("portable snapshot row count exceeds i64")?;
     diesel::insert_into(database_imports::table)
         .values((
             database_imports::source_digest.eq(digest),
             database_imports::source_kind.eq("sqlite"),
-            database_imports::format_version.eq(PORTABLE_SNAPSHOT_VERSION as i32),
+            database_imports::format_version.eq(version),
             database_imports::row_count.eq(row_count),
             database_imports::imported_at.eq(Utc::now().to_rfc3339()),
         ))
@@ -426,7 +444,7 @@ fn visit_papercut(
 }
 
 #[cfg(feature = "sqlite")]
-fn sync_event_identity(_connection: &mut DbConnection, _snapshot: &PortableSnapshot) -> Result<()> {
+fn sync_event_identity(_connection: &mut DbConnection, _imported_max: i64) -> Result<()> {
     Ok(())
 }
 
@@ -477,17 +495,11 @@ mod tests {
 }
 
 #[cfg(feature = "postgres")]
-fn sync_event_identity(connection: &mut DbConnection, snapshot: &PortableSnapshot) -> Result<()> {
+fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Result<()> {
     use diesel::sql_types::BigInt;
     diesel::define_sql_function! {
         fn nexus_sync_event_identity(imported_max: BigInt) -> BigInt;
     }
-    let imported_max = snapshot
-        .events
-        .iter()
-        .map(|event| event.id)
-        .max()
-        .unwrap_or(0);
     diesel::select(nexus_sync_event_identity(imported_max))
         .get_result::<i64>(connection)
         .context("synchronize PostgreSQL event identity after import")?;
