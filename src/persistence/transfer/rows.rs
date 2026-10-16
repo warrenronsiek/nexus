@@ -20,9 +20,7 @@ use serde::{Deserialize, Serialize};
 
 macro_rules! portable_row {
     ($name:ident, $table:ident, { $($field:ident: $kind:ty),+ $(,)? }) => {
-        #[derive(
-            Clone, Debug, Deserialize, Eq, Insertable, PartialEq, Queryable, Selectable, Serialize,
-        )]
+        #[derive(Deserialize, Insertable, Queryable, Selectable, Serialize)]
         #[diesel(table_name = $table)]
         pub(super) struct $name {
             $(pub(super) $field: $kind),+

@@ -115,11 +115,11 @@ fn write_fixture_stream(fixture: &serde_json::Value, stream: &std::path::Path) {
     }
     records.push(json!({"kind":"complete", "rows":8}));
     let encoded: String = records.iter().map(|record| format!("{record}\n")).collect();
-    std::fs::write(&stream, encoded).unwrap();
+    std::fs::write(stream, encoded).unwrap();
 }
 
 fn transfer_fixture() -> serde_json::Value {
-    let snapshot = json!({
+    json!({
         "advisories": [],
         "capability_uses": [],
         "claims": [],
@@ -241,6 +241,5 @@ fn transfer_fixture() -> serde_json::Value {
             "created_at": AT
         }],
         "sos_triage_attempts": []
-    });
-    snapshot
+    })
 }

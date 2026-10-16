@@ -2,7 +2,7 @@
 // @spec docs/features/persistence.md
 // @entrypoint export_sqlite_stream
 // @boundary SQLite online-backup FFI
-use super::Store;
+use super::super::Store;
 use anyhow::{bail, Context, Result};
 use libsqlite3_sys as sqlite;
 use std::ffi::{CStr, CString};
