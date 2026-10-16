@@ -49,47 +49,6 @@ fn existing_import_outcome(
     }
 }
 
-macro_rules! table_has_rows {
-    ($connection:expr, $table:ident, $column:ident) => {
-        $table::table
-            .select($table::$column)
-            .first::<String>($connection)
-            .optional()?
-            .is_some()
-    };
-}
-
-fn target_has_application_data(connection: &mut DbConnection) -> QueryResult<bool> {
-    let text_tables_have_rows = [
-        table_has_rows!(connection, advisories, id),
-        table_has_rows!(connection, capability_uses, id),
-        table_has_rows!(connection, claims, id),
-        table_has_rows!(connection, conflicts, id),
-        table_has_rows!(connection, memory_activations, id),
-        table_has_rows!(connection, memory_compaction_attempts, id),
-        table_has_rows!(connection, memory_compaction_queue, space_id),
-        table_has_rows!(connection, memory_entries, id),
-        table_has_rows!(connection, memory_frontier_snapshots, space_id),
-        table_has_rows!(connection, memory_spaces, id),
-        table_has_rows!(connection, memory_summaries, id),
-        table_has_rows!(connection, papercut_duplicate_reviews, id),
-        table_has_rows!(connection, papercut_review_attempts, id),
-        table_has_rows!(connection, papercut_upvotes, id),
-        table_has_rows!(connection, papercuts, id),
-        table_has_rows!(connection, sessions, session_id),
-        table_has_rows!(connection, sos_issue_lifecycle, id),
-        table_has_rows!(connection, sos_issues, id),
-        table_has_rows!(connection, sos_reports, id),
-        table_has_rows!(connection, sos_triage_attempts, id),
-    ];
-    let events_have_rows = events::table
-        .select(events::id)
-        .first::<i64>(connection)
-        .optional()?
-        .is_some();
-    Ok(events_have_rows || text_tables_have_rows.into_iter().any(|has_rows| has_rows))
-}
-
 #[cfg(feature = "sqlite")]
 fn sync_event_identity(_connection: &mut DbConnection, _imported_max: i64) -> Result<()> {
     Ok(())
@@ -145,6 +104,15 @@ macro_rules! batches {
         fn export(connection: &mut DbConnection, writer: &mut StreamWriter<impl Write>) -> Result<()> {
             $( export_table!(connection, writer, $variant, $row, $table, $order); )+
             Ok(())
+        }
+        fn target_has_application_data(connection: &mut DbConnection) -> QueryResult<bool> {
+            $(
+                if diesel::select(diesel::dsl::exists($table::table.select($table::all_columns)))
+                    .get_result::<bool>(connection)? {
+                    return Ok(true);
+                }
+            )+
+            Ok(false)
         }
         const TABLE_COUNT: usize = [$(stringify!($table)),+].len();
     }
