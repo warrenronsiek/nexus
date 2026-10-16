@@ -37,4 +37,6 @@ scripts/test-docker-healthcheck.sh
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo clippy --no-default-features --features postgres --bin nexus-server -- -D warnings
-cargo test --all-targets
+# Tests own their credentials; never inherit a developer's live service/provider keys.
+env -u NEXUS_SECRET -u NEXUS_CLAUDE_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
+    -u CLAUDE_CODE_OAUTH_TOKEN -u OPENAI_API_KEY -u AZURE_OPENAI_API_KEY cargo test --all-targets

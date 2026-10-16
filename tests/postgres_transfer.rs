@@ -11,9 +11,8 @@
 
 use nexus::memory::{MemoryReadScope, MemoryScope};
 use nexus::papercuts::{PapercutActor, PapercutStatus};
-use nexus::persistence::{ImportOutcome, PortableSnapshot, Store};
+use nexus::persistence::{ImportOutcome, Store};
 use serde_json::json;
-use std::io::Cursor;
 
 const PROJECT: &str = "sqlite-transfer-fixture";
 const AT: &str = "2026-01-02T03:04:05Z";
@@ -82,10 +81,7 @@ fn sqlite_stream_import_preserves_relationships_and_advances_the_event_identity(
     assert_eq!(events.last().unwrap().id, 41);
 }
 
-fn write_fixture_stream(snapshot: &PortableSnapshot, stream: &std::path::Path) {
-    let mut output = Vec::new();
-    snapshot.write_to(&mut output).unwrap();
-    let fixture: serde_json::Value = serde_json::from_slice(&output).unwrap();
+fn write_fixture_stream(fixture: &serde_json::Value, stream: &std::path::Path) {
     let mut records = vec![json!({"kind":"header", "format_version":2})];
     let tables = [
         "sessions",
@@ -122,9 +118,8 @@ fn write_fixture_stream(snapshot: &PortableSnapshot, stream: &std::path::Path) {
     std::fs::write(&stream, encoded).unwrap();
 }
 
-fn transfer_fixture() -> PortableSnapshot {
+fn transfer_fixture() -> serde_json::Value {
     let snapshot = json!({
-        "format_version": 1,
         "advisories": [],
         "capability_uses": [],
         "claims": [],
@@ -247,5 +242,5 @@ fn transfer_fixture() -> PortableSnapshot {
         }],
         "sos_triage_attempts": []
     });
-    PortableSnapshot::read_from(Cursor::new(serde_json::to_vec(&snapshot).unwrap())).unwrap()
+    snapshot
 }

@@ -8,8 +8,8 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
-// @entrypoint Store::portable_snapshot
-// @entrypoint Store::import_snapshot
+// @entrypoint Store::write_streamed_snapshot
+// @entrypoint Store::import_streamed_snapshot
 // @boundary portable-database-snapshot
 use super::backend::DbConnection;
 use super::schema::{
@@ -23,217 +23,21 @@ use super::Store;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use diesel::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-mod codec;
 mod rows;
 mod stream;
-use rows::*;
 pub use stream::SnapshotManifest;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 #[cfg(feature = "sqlite")]
-pub use sqlite::{backup_sqlite_database, export_sqlite_stream, snapshot_sqlite_database};
+pub use sqlite::{backup_sqlite_database, export_sqlite_stream};
 
-const PORTABLE_SNAPSHOT_VERSION: u32 = 1;
 const INSERT_CHUNK_ROWS: usize = 16;
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortableSnapshot {
-    format_version: u32,
-    advisories: Vec<AdvisoryTransfer>,
-    capability_uses: Vec<CapabilityUseTransfer>,
-    claims: Vec<ClaimTransfer>,
-    conflicts: Vec<ConflictTransfer>,
-    events: Vec<EventTransfer>,
-    memory_activations: Vec<MemoryActivationTransfer>,
-    memory_compaction_attempts: Vec<MemoryCompactionAttemptTransfer>,
-    memory_compaction_queue: Vec<MemoryCompactionQueueTransfer>,
-    memory_entries: Vec<MemoryEntryTransfer>,
-    memory_frontier_snapshots: Vec<MemoryFrontierTransfer>,
-    memory_spaces: Vec<MemorySpaceTransfer>,
-    memory_summaries: Vec<MemorySummaryTransfer>,
-    papercut_duplicate_reviews: Vec<PapercutDuplicateReviewTransfer>,
-    papercut_review_attempts: Vec<PapercutReviewAttemptTransfer>,
-    papercut_upvotes: Vec<PapercutUpvoteTransfer>,
-    papercuts: Vec<PapercutTransfer>,
-    sessions: Vec<SessionTransfer>,
-    sos_issue_lifecycle: Vec<SosIssueLifecycleTransfer>,
-    sos_issues: Vec<SosIssueTransfer>,
-    sos_reports: Vec<SosReportTransfer>,
-    sos_triage_attempts: Vec<SosTriageAttemptTransfer>,
-}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ImportOutcome {
     Imported { rows: usize, digest: String },
     AlreadyImported { rows: usize, digest: String },
-}
-
-impl PortableSnapshot {
-    pub fn row_count(&self) -> usize {
-        self.advisories.len()
-            + self.capability_uses.len()
-            + self.claims.len()
-            + self.conflicts.len()
-            + self.events.len()
-            + self.memory_activations.len()
-            + self.memory_compaction_attempts.len()
-            + self.memory_compaction_queue.len()
-            + self.memory_entries.len()
-            + self.memory_frontier_snapshots.len()
-            + self.memory_spaces.len()
-            + self.memory_summaries.len()
-            + self.papercut_duplicate_reviews.len()
-            + self.papercut_review_attempts.len()
-            + self.papercut_upvotes.len()
-            + self.papercuts.len()
-            + self.sessions.len()
-            + self.sos_issue_lifecycle.len()
-            + self.sos_issues.len()
-            + self.sos_reports.len()
-            + self.sos_triage_attempts.len()
-    }
-}
-
-impl Store {
-    pub fn portable_snapshot(&mut self) -> Result<PortableSnapshot> {
-        self.connection
-            .transaction(snapshot_transaction)
-            .context("export portable database snapshot")
-    }
-
-    pub fn import_snapshot(
-        &mut self,
-        snapshot: &PortableSnapshot,
-        expected_digest: &str,
-    ) -> Result<ImportOutcome> {
-        snapshot.validate()?;
-        let digest = snapshot.digest()?;
-        if expected_digest != digest {
-            bail!("portable snapshot digest does not match its contents");
-        }
-        let rows = snapshot.row_count();
-        let outcome = self
-            .connection
-            .transaction(|connection| {
-                let outcome = import_transaction(connection, snapshot, &digest, rows)?;
-                sync_event_identity(
-                    connection,
-                    snapshot
-                        .events
-                        .iter()
-                        .map(|event| event.id)
-                        .max()
-                        .unwrap_or(0),
-                )?;
-                Ok::<_, anyhow::Error>(outcome)
-            })
-            .context("import portable database snapshot")?;
-        Ok(outcome)
-    }
-}
-
-macro_rules! load_ordered {
-    ($connection:expr, $table:ident, $order:expr) => {
-        $table::table.order($order).load($connection)?
-    };
-}
-
-macro_rules! load_snapshot {
-    ($connection:expr) => {
-        PortableSnapshot {
-            format_version: PORTABLE_SNAPSHOT_VERSION,
-            advisories: load_ordered!($connection, advisories, advisories::id.asc()),
-            capability_uses: load_ordered!($connection, capability_uses, capability_uses::id.asc()),
-            claims: load_ordered!($connection, claims, claims::id.asc()),
-            conflicts: load_ordered!($connection, conflicts, conflicts::id.asc()),
-            events: load_ordered!($connection, events, events::id.asc()),
-            memory_activations: load_ordered!(
-                $connection,
-                memory_activations,
-                memory_activations::id.asc()
-            ),
-            memory_compaction_attempts: load_ordered!(
-                $connection,
-                memory_compaction_attempts,
-                memory_compaction_attempts::id.asc()
-            ),
-            memory_compaction_queue: load_ordered!(
-                $connection,
-                memory_compaction_queue,
-                (
-                    memory_compaction_queue::space_id.asc(),
-                    memory_compaction_queue::level.asc(),
-                    memory_compaction_queue::start_ordinal.asc(),
-                    memory_compaction_queue::end_ordinal.asc(),
-                )
-            ),
-            memory_entries: load_ordered!($connection, memory_entries, memory_entries::id.asc()),
-            memory_frontier_snapshots: load_ordered!(
-                $connection,
-                memory_frontier_snapshots,
-                memory_frontier_snapshots::space_id.asc()
-            ),
-            memory_spaces: load_ordered!($connection, memory_spaces, memory_spaces::id.asc()),
-            memory_summaries: load_ordered!(
-                $connection,
-                memory_summaries,
-                memory_summaries::id.asc()
-            ),
-            papercut_duplicate_reviews: load_ordered!(
-                $connection,
-                papercut_duplicate_reviews,
-                papercut_duplicate_reviews::id.asc()
-            ),
-            papercut_review_attempts: load_ordered!(
-                $connection,
-                papercut_review_attempts,
-                papercut_review_attempts::id.asc()
-            ),
-            papercut_upvotes: load_ordered!(
-                $connection,
-                papercut_upvotes,
-                papercut_upvotes::id.asc()
-            ),
-            papercuts: load_ordered!($connection, papercuts, papercuts::id.asc()),
-            sessions: load_ordered!(
-                $connection,
-                sessions,
-                (sessions::project_id.asc(), sessions::session_id.asc())
-            ),
-            sos_issue_lifecycle: load_ordered!(
-                $connection,
-                sos_issue_lifecycle,
-                sos_issue_lifecycle::id.asc()
-            ),
-            sos_issues: load_ordered!($connection, sos_issues, sos_issues::id.asc()),
-            sos_reports: load_ordered!($connection, sos_reports, sos_reports::id.asc()),
-            sos_triage_attempts: load_ordered!(
-                $connection,
-                sos_triage_attempts,
-                sos_triage_attempts::id.asc()
-            ),
-        }
-    };
-}
-
-fn snapshot_transaction(connection: &mut DbConnection) -> QueryResult<PortableSnapshot> {
-    Ok(load_snapshot!(connection))
-}
-
-fn import_transaction(
-    connection: &mut DbConnection,
-    snapshot: &PortableSnapshot,
-    digest: &str,
-    rows: usize,
-) -> Result<ImportOutcome> {
-    match existing_import_outcome(connection, digest)? {
-        Some(outcome) => Ok(outcome),
-        None => import_into_empty_target(connection, snapshot, digest, rows),
-    }
 }
 
 fn existing_import_outcome(
@@ -253,20 +57,6 @@ fn existing_import_outcome(
         }
         _ => bail!("target database was already initialized from a different SQLite snapshot"),
     }
-}
-
-fn import_into_empty_target(
-    connection: &mut DbConnection,
-    snapshot: &PortableSnapshot,
-    digest: &str,
-    rows: usize,
-) -> Result<ImportOutcome> {
-    if target_has_application_data(connection)? {
-        bail!("target database is not empty; refusing to merge a SQLite snapshot");
-    }
-
-    insert_snapshot(connection, snapshot)?;
-    record_import_marker(connection, digest, PORTABLE_SNAPSHOT_VERSION as i32, rows)
 }
 
 fn record_import_marker(
@@ -332,124 +122,26 @@ fn target_has_application_data(connection: &mut DbConnection) -> QueryResult<boo
     Ok(events_have_rows || text_tables_have_rows.into_iter().any(|has_rows| has_rows))
 }
 
-macro_rules! insert_rows {
-    ($connection:expr, $table:ident, $rows:expr) => {
-        for chunk in $rows.chunks(INSERT_CHUNK_ROWS) {
-            diesel::insert_into($table::table)
-                .values(chunk)
-                .execute($connection)?;
-        }
-    };
-}
-
-fn insert_snapshot(connection: &mut DbConnection, snapshot: &PortableSnapshot) -> Result<()> {
-    insert_rows!(connection, sessions, snapshot.sessions);
-    insert_rows!(connection, claims, snapshot.claims);
-    insert_rows!(connection, conflicts, snapshot.conflicts);
-    insert_rows!(connection, advisories, snapshot.advisories);
-    insert_rows!(connection, capability_uses, snapshot.capability_uses);
-    insert_rows!(connection, events, snapshot.events);
-    insert_rows!(connection, memory_spaces, snapshot.memory_spaces);
-    insert_rows!(connection, memory_entries, snapshot.memory_entries);
-    insert_rows!(connection, memory_summaries, snapshot.memory_summaries);
-    insert_rows!(
-        connection,
-        memory_frontier_snapshots,
-        snapshot.memory_frontier_snapshots
-    );
-    insert_rows!(
-        connection,
-        memory_compaction_queue,
-        snapshot.memory_compaction_queue
-    );
-    insert_rows!(connection, memory_activations, snapshot.memory_activations);
-    insert_rows!(
-        connection,
-        memory_compaction_attempts,
-        snapshot.memory_compaction_attempts
-    );
-    let ordered_papercuts = papercuts_in_dependency_order(&snapshot.papercuts)?;
-    insert_rows!(connection, papercuts, ordered_papercuts);
-    insert_rows!(connection, papercut_upvotes, snapshot.papercut_upvotes);
-    insert_rows!(
-        connection,
-        papercut_duplicate_reviews,
-        snapshot.papercut_duplicate_reviews
-    );
-    insert_rows!(
-        connection,
-        papercut_review_attempts,
-        snapshot.papercut_review_attempts
-    );
-    insert_rows!(connection, sos_issues, snapshot.sos_issues);
-    insert_rows!(connection, sos_reports, snapshot.sos_reports);
-    insert_rows!(
-        connection,
-        sos_triage_attempts,
-        snapshot.sos_triage_attempts
-    );
-    insert_rows!(
-        connection,
-        sos_issue_lifecycle,
-        snapshot.sos_issue_lifecycle
-    );
-    Ok(())
-}
-
-fn papercuts_in_dependency_order(rows: &[PapercutTransfer]) -> Result<Vec<PapercutTransfer>> {
-    let indices = rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (row.id.as_str(), index))
-        .collect::<HashMap<_, _>>();
-    if indices.len() != rows.len() {
-        bail!("portable snapshot contains duplicate papercut identifiers");
-    }
-    let mut states = vec![0; rows.len()];
-    let mut ordered = Vec::with_capacity(rows.len());
-    for row_index in 0..rows.len() {
-        visit_papercut(row_index, rows, &indices, &mut states, &mut ordered)?;
-    }
-    Ok(ordered)
-}
-
-fn visit_papercut(
-    row_index: usize,
-    rows: &[PapercutTransfer],
-    indices: &HashMap<&str, usize>,
-    states: &mut [u8],
-    ordered: &mut Vec<PapercutTransfer>,
-) -> Result<()> {
-    match states[row_index] {
-        2 => return Ok(()),
-        1 => bail!(
-            "papercut consolidation cycle includes {}",
-            rows[row_index].id
-        ),
-        _ => {}
-    }
-    states[row_index] = 1;
-    if let Some(target_id) = rows[row_index].consolidated_into.as_deref() {
-        let target_index = indices.get(target_id).copied().with_context(|| {
-            format!(
-                "papercut {} references missing consolidation target {target_id}",
-                rows[row_index].id
-            )
-        })?;
-        visit_papercut(target_index, rows, indices, states, ordered)?;
-    }
-    states[row_index] = 2;
-    ordered.push(rows[row_index].clone());
-    Ok(())
-}
-
 #[cfg(feature = "sqlite")]
 fn sync_event_identity(_connection: &mut DbConnection, _imported_max: i64) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(feature = "postgres")]
+fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Result<()> {
+    use diesel::sql_types::BigInt;
+    diesel::define_sql_function! {
+        fn nexus_sync_event_identity(imported_max: BigInt) -> BigInt;
+    }
+    diesel::select(nexus_sync_event_identity(imported_max))
+        .get_result::<i64>(connection)
+        .context("synchronize PostgreSQL event identity after import")?;
+    Ok(())
+}
+
+#[cfg(all(test, feature = "sqlite"))]
 mod tests {
+    use super::rows::PapercutTransfer;
     use super::*;
 
     fn papercut(id: &str, consolidated_into: Option<&str>) -> PapercutTransfer {
@@ -482,26 +174,31 @@ mod tests {
         let source = papercut("000-source", Some("zzz-canonical"));
         let canonical = papercut("zzz-canonical", None);
 
-        let ordered = papercuts_in_dependency_order(&[source, canonical]).unwrap();
-
+        let mut store = Store::open_memory().unwrap();
+        for row in [&canonical, &source] {
+            diesel::insert_into(papercuts::table)
+                .values(row)
+                .execute(&mut store.connection)
+                .unwrap();
+        }
+        let snapshot = tempfile::NamedTempFile::new().unwrap();
+        let manifest = store.write_streamed_snapshot(snapshot.as_file()).unwrap();
+        let mut target = Store::open_memory().unwrap();
+        assert!(matches!(
+            target.import_streamed_snapshot(snapshot.path()).unwrap(),
+            ImportOutcome::Imported { rows: 2, .. }
+        ));
+        assert_eq!(manifest.rows, 2);
+        let registry = target.papercut_registry(Some("project-a")).unwrap();
+        assert_eq!(registry.papercuts.len(), 2);
+        let copied_source = registry
+            .papercuts
+            .iter()
+            .find(|row| row.id == "000-source")
+            .unwrap();
         assert_eq!(
-            ordered
-                .iter()
-                .map(|papercut| papercut.id.as_str())
-                .collect::<Vec<_>>(),
-            ["zzz-canonical", "000-source"]
+            copied_source.consolidated_into.as_deref(),
+            Some("zzz-canonical")
         );
     }
-}
-
-#[cfg(feature = "postgres")]
-fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Result<()> {
-    use diesel::sql_types::BigInt;
-    diesel::define_sql_function! {
-        fn nexus_sync_event_identity(imported_max: BigInt) -> BigInt;
-    }
-    diesel::select(nexus_sync_event_identity(imported_max))
-        .get_result::<i64>(connection)
-        .context("synchronize PostgreSQL event identity after import")?;
-    Ok(())
 }

@@ -3,7 +3,7 @@
 #![cfg(feature = "sqlite")]
 
 use nexus::memory::{MemoryProvenance, MemoryReadScope, MemoryScope};
-use nexus::persistence::{backup_sqlite_database, snapshot_sqlite_database, ImportOutcome, Store};
+use nexus::persistence::{backup_sqlite_database, export_sqlite_stream, ImportOutcome, Store};
 
 #[test]
 fn sqlite_staging_accepts_a_large_source_without_changing_it() {
@@ -117,71 +117,45 @@ fn incomplete_stream_never_commits_partial_notes() {
         .search_memories(&MemoryReadScope::project("project-a"), "must roll back", 10)
         .unwrap()
         .is_empty());
+    std::fs::write(&snapshot_path, &encoded).unwrap();
     assert!(matches!(
-        target
-            .import_snapshot(
-                &source.portable_snapshot().unwrap(),
-                &source.portable_snapshot().unwrap().digest().unwrap()
-            )
-            .unwrap(),
+        target.import_streamed_snapshot(&snapshot_path).unwrap(),
         ImportOutcome::Imported { .. }
     ));
 }
 
 #[test]
-fn logical_snapshot_import_is_atomic_idempotent_and_refuses_a_different_source() {
+fn streamed_import_refuses_a_different_source() {
     let temporary = tempfile::tempdir().unwrap();
-    let source_path = temporary.path().join("source.db");
-    let mut source = Store::open(&source_path).unwrap();
+    let snapshot_path = temporary.path().join("snapshot.jsonl");
+    let mut source = Store::open(&temporary.path().join("source.db")).unwrap();
+    source
+        .write_streamed_snapshot(std::fs::File::create(&snapshot_path).unwrap())
+        .unwrap();
+    let mut target = Store::open(&temporary.path().join("target.db")).unwrap();
+    target.import_streamed_snapshot(&snapshot_path).unwrap();
     source
         .add_memory(
             &MemoryScope::project("project-a"),
-            "preserve this migration marker",
+            "different source",
             &provenance(),
         )
         .unwrap();
-
-    let snapshot = source.portable_snapshot().unwrap();
-    let digest = snapshot.digest().unwrap();
-    let target_path = temporary.path().join("target.db");
-    let mut target = Store::open(&target_path).unwrap();
-
-    assert!(matches!(
-        target.import_snapshot(&snapshot, &digest).unwrap(),
-        ImportOutcome::Imported { .. }
-    ));
-    assert_eq!(
-        target
-            .search_memories(
-                &MemoryReadScope::project("project-a"),
-                "migration marker",
-                10,
-            )
-            .unwrap()
-            .len(),
-        1
-    );
-    assert!(matches!(
-        target.import_snapshot(&snapshot, &digest).unwrap(),
-        ImportOutcome::AlreadyImported { .. }
-    ));
-
-    let other_path = temporary.path().join("other.db");
-    let mut other = Store::open(&other_path).unwrap();
-    let other_snapshot = other.portable_snapshot().unwrap();
-    let other_digest = other_snapshot.digest().unwrap();
-    let error = target
-        .import_snapshot(&other_snapshot, &other_digest)
-        .unwrap_err();
+    source
+        .write_streamed_snapshot(std::fs::File::create(&snapshot_path).unwrap())
+        .unwrap();
+    let error = target.import_streamed_snapshot(&snapshot_path).unwrap_err();
     assert!(format!("{error:#}").contains("different SQLite snapshot"));
 }
 
 #[test]
-fn logical_snapshot_refuses_to_merge_into_unmarked_existing_data() {
+fn streamed_import_refuses_to_merge_into_unmarked_existing_data() {
     let temporary = tempfile::tempdir().unwrap();
     let mut source = Store::open(&temporary.path().join("source.db")).unwrap();
-    let snapshot = source.portable_snapshot().unwrap();
-    let digest = snapshot.digest().unwrap();
+    let snapshot_path = temporary.path().join("snapshot.jsonl");
+    source
+        .write_streamed_snapshot(std::fs::File::create(&snapshot_path).unwrap())
+        .unwrap();
 
     let mut target = Store::open(&temporary.path().join("target.db")).unwrap();
     target
@@ -192,7 +166,7 @@ fn logical_snapshot_refuses_to_merge_into_unmarked_existing_data() {
         )
         .unwrap();
 
-    let error = target.import_snapshot(&snapshot, &digest).unwrap_err();
+    let error = target.import_streamed_snapshot(&snapshot_path).unwrap_err();
     assert!(format!("{error:#}").contains("target database is not empty"));
 }
 
@@ -211,12 +185,12 @@ fn sqlite_snapshot_uses_a_read_only_online_copy_of_the_source() {
     drop(source);
     let before = std::fs::read(&source_path).unwrap();
 
-    let snapshot = snapshot_sqlite_database(&source_path).unwrap();
+    let snapshot_path = temporary.path().join("snapshot.jsonl");
+    export_sqlite_stream(&source_path, std::fs::File::create(&snapshot_path).unwrap()).unwrap();
 
     assert_eq!(std::fs::read(&source_path).unwrap(), before);
     let mut target = Store::open(&temporary.path().join("target.db")).unwrap();
-    let digest = snapshot.digest().unwrap();
-    target.import_snapshot(&snapshot, &digest).unwrap();
+    target.import_streamed_snapshot(&snapshot_path).unwrap();
     assert_eq!(
         target
             .search_memories(

@@ -202,7 +202,7 @@ nexus config check
 nexus config show
 ```
 
-`config show` includes the resolved configuration, loaded source files, and a stable configuration hash. Unknown properties and invalid values are rejected rather than silently ignored. Credentials do not belong in this file.
+`config show` includes the resolved configuration, loaded source files, and a stable configuration hash. Unknown properties and invalid values are rejected rather than silently ignored. Credentials do not belong in this file. Supply a dedicated Claude API key as `NEXUS_CLAUDE_KEY` in the process environment at startup. Nexus maps it to `ANTHROPIC_API_KEY` only for Claude subprocesses, overriding ambient API/OAuth tokens; it is never serialized into configuration or sent to Codex.
 
 `[client]` selects `local` or `remote` transport. A remote client requires an HTTP(S) endpoint and explicit project ID; its optional `secret_file` points at the credential without embedding it in configuration. Server-only `NEXUS_DATABASE_URL` and `NEXUS_SECRET_FILE` are separate from the client overrides.
 
@@ -309,7 +309,7 @@ Enable the repository's tracked pre-commit hook for the current checkout with:
 ./scripts/install-hooks.sh
 ```
 
-The hook invokes `scripts/check.sh`, which runs feature-map and complexity lint, both Python tooling test modules, the Docker startup-watchdog regression, Rust formatting, SQLite and PostgreSQL server Clippy checks, and the complete default-backend Rust test suite. It then runs both advisory cross-model review skills in parallel against the staged diff. CI additionally runs the PostgreSQL integration test against PostgreSQL 17 and exercises the production Compose service end to end, including generated-secret authentication and Nexus/PostgreSQL restart persistence.
+The hook invokes `scripts/check.sh`, which removes live service/provider key exports from the test process, then runs feature-map and complexity lint, both Python tooling test modules, the Docker startup-watchdog regression, Rust formatting, SQLite and PostgreSQL server Clippy checks, and the complete default-backend Rust test suite. It then runs both advisory cross-model review skills in parallel against the staged diff. CI additionally runs the PostgreSQL integration test against PostgreSQL 17 and exercises the production Compose service end to end, including generated-secret authentication and Nexus/PostgreSQL restart persistence.
 
 ## Tests
 

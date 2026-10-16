@@ -64,7 +64,7 @@ The remote deployment has one authoritative `nexus-server` process per PostgreSQ
 
 ### SQLite to PostgreSQL transfer
 
-`Store::portable_snapshot` reads every durable application table inside one database transaction and emits a deterministic, versioned representation. It deliberately excludes `flyway_migrations` because each backend owns its schema history, and excludes `database_imports` because that is target-side provenance rather than user state. Table rows are ordered by stable keys before encoding. Import preserves identifiers, RFC 3339 timestamps, foreign-key relationships, projection state, immutable raw memory, papercut consolidation and vote provenance, and normalized SOS reports and their aggregate issue links.
+`Store::write_streamed_snapshot` reads every durable application table inside one database transaction and emits a deterministic, versioned representation. It deliberately excludes `flyway_migrations` because each backend owns its schema history, and excludes `database_imports` because that is target-side provenance rather than user state. Table rows are ordered by stable keys before encoding. Import preserves identifiers, RFC 3339 timestamps, foreign-key relationships, projection state, immutable raw memory, papercut consolidation and vote provenance, and normalized SOS reports and their aggregate issue links.
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
@@ -74,8 +74,7 @@ application row count. Each ordinary batch holds at most sixteen rows; PostgreSQ
 row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated
 sources, with only dependency identifiers retained between batches. Every table appears even when
 empty. A malformed record, missing table or footer, unexpected order, or count mismatch aborts the
-transaction. The existing version-one `PortableSnapshot` library API remains available with its
-64 MiB ceiling for bounded in-process callers; service migration no longer materializes that format.
+transaction.
 
 The source SQLite file, consistent backup, and completed record stream each have a 4 GiB ceiling.
 Individual encoded records are limited to 8 MiB. The server launches the sibling exporter with a
