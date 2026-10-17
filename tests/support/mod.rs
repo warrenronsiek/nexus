@@ -114,7 +114,7 @@ impl Harness {
         .unwrap();
 
         let executable = env!("CARGO_BIN_EXE_nexus");
-        let daemon = spawn_daemon(executable, &config);
+        let daemon = spawn_daemon(executable, &config, &root);
         wait_for_socket(&socket);
         let (mcp, connection) = spawn_mcp(executable, &config, &root);
         Self {
@@ -272,10 +272,11 @@ impl Drop for Harness {
     }
 }
 
-fn spawn_daemon(executable: &str, config: &Path) -> Child {
+fn spawn_daemon(executable: &str, config: &Path, root: &Path) -> Child {
     let mut command = Command::new(executable);
     clear_git_environment(&mut command);
     command
+        .current_dir(root)
         .args(["--config", config.to_str().unwrap(), "daemon"])
         // Prove synchronous service work cannot starve the async runtime.
         .env("TOKIO_WORKER_THREADS", "1");

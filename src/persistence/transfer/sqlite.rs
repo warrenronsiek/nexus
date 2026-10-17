@@ -1,8 +1,8 @@
 // @feature persistence
 // @spec docs/features/persistence.md
-// @entrypoint snapshot_sqlite_database
+// @entrypoint export_sqlite_stream
 // @boundary SQLite online-backup FFI
-use super::{PortableSnapshot, Store};
+use super::super::Store;
 use anyhow::{bail, Context, Result};
 use libsqlite3_sys as sqlite;
 use std::ffi::{CStr, CString};
@@ -11,16 +11,19 @@ use std::path::Path;
 use std::ptr;
 use std::time::{Duration, Instant};
 
-const MAX_SQLITE_IMPORT_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_SQLITE_IMPORT_SOURCE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
-pub fn snapshot_sqlite_database(source_path: &Path) -> Result<PortableSnapshot> {
+pub fn export_sqlite_stream(
+    source_path: &Path,
+    output: impl std::io::Write,
+) -> Result<super::SnapshotManifest> {
     ensure_sqlite_source(source_path)?;
     let copy = tempfile::NamedTempFile::new().context("create temporary SQLite snapshot")?;
     sqlite_online_backup(source_path, copy.path())?;
     let mut store = Store::open(copy.path()).context("migrate temporary SQLite snapshot")?;
     super::super::migrations::validate_portable_source_migrations(&mut store.connection)
         .context("validate SQLite source migration history")?;
-    store.portable_snapshot()
+    store.write_streamed_snapshot(output)
 }
 
 pub fn backup_sqlite_database(source_path: &Path, destination_path: &Path) -> Result<()> {
@@ -261,7 +264,7 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let error = snapshot_sqlite_database(&source_path).unwrap_err();
+        let error = export_sqlite_stream(&source_path, std::io::sink()).unwrap_err();
 
         assert!(
             format!("{error:#}").contains("unsupported SQLite migration version 9999"),
@@ -280,7 +283,7 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let error = snapshot_sqlite_database(&source_path).unwrap_err();
+        let error = export_sqlite_stream(&source_path, std::io::sink()).unwrap_err();
 
         assert!(
             format!("{error:#}").contains("SQLite migration version 10 does not match"),
@@ -298,7 +301,7 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let error = snapshot_sqlite_database(&source_path).unwrap_err();
+        let error = export_sqlite_stream(&source_path, std::io::sink()).unwrap_err();
 
         assert!(
             format!("{error:#}").contains("migration history is missing supported version 9"),
@@ -309,9 +312,12 @@ mod tests {
     #[test]
     fn snapshot_rejects_an_oversized_sqlite_source_before_opening_it() {
         let source = tempfile::NamedTempFile::new().unwrap();
-        source.as_file().set_len(256 * 1024 * 1024 + 1).unwrap();
+        source
+            .as_file()
+            .set_len(4 * 1024 * 1024 * 1024 + 1)
+            .unwrap();
 
-        let error = snapshot_sqlite_database(source.path()).unwrap_err();
+        let error = export_sqlite_stream(source.path(), std::io::sink()).unwrap_err();
 
         assert!(
             format!("{error:#}").contains("SQLite import source exceeds"),

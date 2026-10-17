@@ -34,8 +34,8 @@ pub(crate) use readiness::DatabaseReadinessProbe;
 pub(crate) use sos::{SosTriageApply, SosTriageFailure};
 pub use store::Store;
 #[cfg(feature = "sqlite")]
-pub use transfer::{backup_sqlite_database, snapshot_sqlite_database};
-pub use transfer::{ImportOutcome, PortableSnapshot};
+pub use transfer::{backup_sqlite_database, export_sqlite_stream};
+pub use transfer::{ImportOutcome, SnapshotManifest};
 pub use usage::{
     CapabilityEvidence, CapabilityKind, CapabilityObservation, CapabilityOutcome, CapabilitySource,
     UsageCount, UsageSummary,

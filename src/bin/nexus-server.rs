@@ -8,7 +8,7 @@
 // @spec docs/features/analyst.md
 // @entrypoint main
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -24,6 +24,9 @@ mod startup;
     about = "Authenticated Nexus HTTP and MCP service"
 )]
 struct Args {
+    /// Import exits after the atomic database transfer without starting schedulers or a listener.
+    #[arg(long, value_enum, default_value = "serve")]
+    mode: ServerMode,
     /// Address and port exposed by the service.
     #[arg(long, default_value = "127.0.0.1:7337")]
     listen: SocketAddr,
@@ -43,11 +46,18 @@ struct Args {
     #[arg(long)]
     config: Option<PathBuf>,
     /// Import an existing Nexus SQLite database before accepting requests.
-    #[arg(long)]
+    #[arg(long, required_if_eq("mode", "import"))]
     import_sqlite: Option<PathBuf>,
     /// Permit same-UID provider subprocesses. Requires external OS isolation from service secrets.
     #[arg(long)]
     allow_local_providers: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ServerMode {
+    Serve,
+    Import,
+    Export,
 }
 
 #[tokio::main]
@@ -85,5 +95,25 @@ mod tests {
             args.import_sqlite,
             Some(PathBuf::from("/var/lib/nexus-import/nexus.db"))
         );
+    }
+
+    #[test]
+    fn offline_import_requires_an_explicit_source_and_never_selects_serve_mode() {
+        assert!(Args::try_parse_from(["nexus-server", "--mode", "import"]).is_err());
+        let args = Args::try_parse_from([
+            "nexus-server",
+            "--mode",
+            "import",
+            "--import-sqlite",
+            "/snapshot.db",
+        ])
+        .unwrap();
+        assert_eq!(args.mode, ServerMode::Import);
+    }
+
+    #[test]
+    fn offline_export_selects_a_stream_without_requiring_an_import_source() {
+        let args = Args::try_parse_from(["nexus-server", "--mode", "export"]).unwrap();
+        assert_eq!(args.mode, ServerMode::Export);
     }
 }

@@ -139,6 +139,14 @@ fn apply_provider_environment(
     environment: impl IntoIterator<Item = (OsString, OsString)>,
 ) {
     let environment = environment.into_iter().collect::<Vec<_>>();
+    let claude_api_key = (provider == ModelProvider::Claude)
+        .then(|| {
+            environment
+                .iter()
+                .find(|(key, value)| key == "NEXUS_CLAUDE_KEY" && !value.is_empty())
+        })
+        .flatten()
+        .map(|(_, value)| value.clone());
     let policy = ProviderEnvironmentPolicy {
         provider,
         bedrock_enabled: environment_flag_enabled(&environment, "CLAUDE_CODE_USE_BEDROCK"),
@@ -149,6 +157,11 @@ fn apply_provider_environment(
         if policy.permits(&key) {
             command.env(key, value);
         }
+    }
+    if let Some(key) = claude_api_key {
+        command.env("ANTHROPIC_API_KEY", key);
+        command.env_remove("CLAUDE_CODE_OAUTH_TOKEN");
+        command.env_remove("ANTHROPIC_AUTH_TOKEN");
     }
     for key in NEXUS_SECRET_ENVIRONMENT {
         command.env_remove(key);
@@ -237,6 +250,33 @@ mod tests {
         }
         apply_provider_environment(&mut command, provider, environment);
         String::from_utf8(command.output().unwrap().stdout).unwrap()
+    }
+
+    #[test]
+    fn nexus_claude_key_selects_api_auth_only_for_claude() {
+        for provider in [ModelProvider::Claude, ModelProvider::Codex] {
+            let mut command = Command::new("/usr/bin/env");
+            apply_provider_environment(
+                &mut command,
+                provider,
+                [
+                    ("NEXUS_CLAUDE_KEY".into(), "nexus-api-test-key".into()),
+                    ("ANTHROPIC_API_KEY".into(), "ambient-test-key".into()),
+                    ("CLAUDE_CODE_OAUTH_TOKEN".into(), "oauth-test-token".into()),
+                    ("ANTHROPIC_AUTH_TOKEN".into(), "auth-test-token".into()),
+                ],
+            );
+            let output = command.output().unwrap();
+            let environment = String::from_utf8(output.stdout).unwrap();
+            assert!(!environment.contains("NEXUS_CLAUDE_KEY="));
+            if provider == ModelProvider::Claude {
+                assert!(environment.contains("ANTHROPIC_API_KEY=nexus-api-test-key"));
+                assert!(!environment.contains("CLAUDE_CODE_OAUTH_TOKEN="));
+                assert!(!environment.contains("ANTHROPIC_AUTH_TOKEN="));
+            } else {
+                assert!(!environment.contains("ANTHROPIC_API_KEY="));
+            }
+        }
     }
 
     #[test]

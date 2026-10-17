@@ -64,11 +64,31 @@ The remote deployment has one authoritative `nexus-server` process per PostgreSQ
 
 ### SQLite to PostgreSQL transfer
 
-`Store::portable_snapshot` reads every durable application table inside one database transaction and emits a deterministic, versioned representation. It deliberately excludes `flyway_migrations` because each backend owns its schema history, and excludes `database_imports` because that is target-side provenance rather than user state. Table rows are ordered by stable keys before encoding. Import preserves identifiers, RFC 3339 timestamps, foreign-key relationships, projection state, immutable raw memory, papercut consolidation and vote provenance, and normalized SOS reports and their aggregate issue links.
+`Store::write_streamed_snapshot` reads every durable application table inside one database transaction and emits a deterministic, versioned representation. It deliberately excludes `flyway_migrations` because each backend owns its schema history, and excludes `database_imports` because that is target-side provenance rather than user state. Table rows are ordered by stable keys before encoding. Import preserves identifiers, RFC 3339 timestamps, foreign-key relationships, projection state, immutable raw memory, papercut consolidation and vote provenance, and normalized SOS reports and their aggregate issue links.
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
-Both sides enforce resource ceilings before import. The source SQLite file and its consistent backup may each be at most 256 MiB, bounding the database materialized by the helper even when current state is hidden in a WAL. The deterministic portable JSON may be at most 64 MiB. Export uses a bounded streaming writer, the server checks the completed helper file's metadata before decoding it and also uses a bounded streaming reader, and digest calculation streams the same canonical encoding directly into BLAKE3 instead of allocating a second full payload. The PostgreSQL-only server launches the sibling helper with a scrubbed environment and a mode-0600 temporary output file, decodes the validated snapshot, and inserts bounded batches using Diesel's typed query DSL. Dependency-bearing rows are ordered explicitly: memory spaces precede their nodes, papercut canonical targets precede consolidated tombstones, and SOS issues precede reports, triage attempts, and lifecycle records.
+The CLI transfer uses a version-two newline-delimited JSON record stream. A header fixes the format,
+typed table batches follow in foreign-key dependency order, and a mandatory footer confirms the
+application row count. Each ordinary batch holds at most sixteen rows; PostgreSQL export uses its
+row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated
+sources, with only dependency identifiers retained between batches. Every table appears even when
+empty. A malformed record, missing table or footer, unexpected order, or count mismatch aborts the
+transaction.
+
+The source SQLite file, consistent backup, and completed record stream each have a 4 GiB ceiling.
+Individual encoded records are limited to 8 MiB. The server launches the sibling exporter with a
+scrubbed environment into a mode-0600 temporary file, hashes the same open file before import, then
+checks its digest again while streaming typed Diesel inserts. A changed file cannot commit partial
+rows. Both import and export retain bounded batches rather than complete application history in
+memory. Historical schema normalizations still apply on the private copy: preserve an immutable
+pre-migration backup if original oversized event payloads must remain retrievable.
+
+`nexus-server --mode import --import-sqlite PATH` performs the transfer and exits before starting
+HTTP listeners or model schedulers. `--mode export` writes a deterministic PostgreSQL record stream
+and exits, allowing an independent byte comparison against the SQLite stream before serving begins.
+Default `--mode serve` retains the ordinary service lifecycle. Import mode requires an explicit
+source path, so it cannot silently start an empty service when the migration source is missing.
 
 `database_imports` makes startup idempotent without turning import into a merge operation. The first import is allowed only when every application table is empty; all rows and the content digest are committed in one transaction. A later start with the same digest is a no-op. A different digest or a nonempty unmarked database is rejected with no writes. PostgreSQL receives explicit historical event IDs, then the migration-defined typed `nexus_sync_event_identity` function advances its identity generator so the next live event cannot collide. Import logs state whether data was imported, already present, or intentionally skipped.
 

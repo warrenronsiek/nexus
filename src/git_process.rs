@@ -281,7 +281,15 @@ mod tests {
             .parse::<i32>()
             .unwrap();
 
-        let still_exists = unsafe { libc::kill(process_id, 0) } == 0;
+        // SIGKILL delivery and orphan reaping finish asynchronously after the group signal.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let still_exists = loop {
+            let exists = unsafe { libc::kill(process_id, 0) } == 0;
+            if !exists || Instant::now() >= deadline {
+                break exists;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
         if still_exists {
             let _ = unsafe { libc::kill(process_id, libc::SIGKILL) };
         }

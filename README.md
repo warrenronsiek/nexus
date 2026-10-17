@@ -89,7 +89,9 @@ For the one-command path, use the startup helper instead. It automatically looks
 ./scripts/start-docker-service.sh
 ```
 
-Pass a non-default database explicitly with `./scripts/start-docker-service.sh --sqlite /absolute/path/to/nexus.db`, or use `--no-import` for a deliberately fresh service. Compose mounts the source read-only into a network-isolated one-shot container, which takes a consistent SQLite online backup into a private named volume. The main image upgrades only that staged copy and transfers the logical records into PostgreSQL; neither container migrates or changes the source file. Sessions, claims, event identifiers and timestamps, usage, memory relationships and derived state, papercuts, and SOS source/aggregate history are retained. Backend-specific Flyway history is rebuilt normally rather than copied. Import accepts SQLite sources and consistent backups up to 256 MiB and a portable snapshot up to 64 MiB; it rejects unknown, newer, missing, or checksum-divergent source migrations rather than silently dropping state this binary does not understand.
+Pass a non-default database explicitly with `./scripts/start-docker-service.sh --sqlite /absolute/path/to/nexus.db`, or use `--no-import` for a deliberately fresh service. Compose mounts the source read-only into a network-isolated one-shot container, which takes a consistent SQLite online backup into a private named volume. The main image upgrades only that staged copy and transfers the logical records into PostgreSQL; neither container migrates or changes the source file. Sessions, claims, event identifiers and timestamps, usage, memory relationships and derived state, papercuts, and SOS source/aggregate history are retained. Backend-specific Flyway history is rebuilt normally rather than copied. Import accepts SQLite sources, consistent backups, and version-two record streams up to 4 GiB, with bounded batches and an 8 MiB per-record ceiling; it rejects unknown, newer, missing, or checksum-divergent source migrations rather than silently dropping state this binary does not understand.
+
+For a maintenance-window migration, run `nexus-server --mode import --import-sqlite PATH` to import and exit without starting HTTP or model schedulers. `nexus-server --mode export` emits the PostgreSQL record stream for independent comparison before serving. Preserve an original archive before migration: historical V7/V8 schema normalizations run on the private copy and may replace oversized legacy values.
 
 The import is atomic and restart-safe. A fresh PostgreSQL target records the snapshot digest after every row succeeds; restarting with that same snapshot reports a no-op. Nexus refuses a different snapshot after an import and refuses to merge into any nonempty PostgreSQL target that lacks the matching import marker. Remove `NEXUS_SQLITE_PATH` or use `--no-import` after a successful cutover if the old SQLite database will continue changing independently.
 
@@ -200,7 +202,7 @@ nexus config check
 nexus config show
 ```
 
-`config show` includes the resolved configuration, loaded source files, and a stable configuration hash. Unknown properties and invalid values are rejected rather than silently ignored. Credentials do not belong in this file.
+`config show` includes the resolved configuration, loaded source files, and a stable configuration hash. Unknown properties and invalid values are rejected rather than silently ignored. Credentials do not belong in this file. Supply a dedicated Claude API key as `NEXUS_CLAUDE_KEY` in the process environment at startup. Nexus maps it to `ANTHROPIC_API_KEY` only for Claude subprocesses, overriding ambient API/OAuth tokens; it is never serialized into configuration or sent to Codex.
 
 `[client]` selects `local` or `remote` transport. A remote client requires an HTTP(S) endpoint and explicit project ID; its optional `secret_file` points at the credential without embedding it in configuration. Server-only `NEXUS_DATABASE_URL` and `NEXUS_SECRET_FILE` are separate from the client overrides.
 
@@ -307,7 +309,7 @@ Enable the repository's tracked pre-commit hook for the current checkout with:
 ./scripts/install-hooks.sh
 ```
 
-The hook invokes `scripts/check.sh`, which runs feature-map and complexity lint, both Python tooling test modules, the Docker startup-watchdog regression, Rust formatting, SQLite and PostgreSQL server Clippy checks, and the complete default-backend Rust test suite. It then runs both advisory cross-model review skills in parallel against the staged diff. CI additionally runs the PostgreSQL integration test against PostgreSQL 17 and exercises the production Compose service end to end, including generated-secret authentication and Nexus/PostgreSQL restart persistence.
+The hook invokes `scripts/check.sh`, which removes live service/provider key exports from the test process, then runs feature-map and complexity lint, both Python tooling test modules, the Docker startup-watchdog regression, Rust formatting, SQLite and PostgreSQL server Clippy checks, and the complete default-backend Rust test suite. It then runs both advisory cross-model review skills in parallel against the staged diff. CI additionally runs the PostgreSQL integration test against PostgreSQL 17 and exercises the production Compose service end to end, including generated-secret authentication and Nexus/PostgreSQL restart persistence.
 
 ## Tests
 
