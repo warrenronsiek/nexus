@@ -8,6 +8,8 @@
 # @boundary child-process-json
 """Exercise the installed dashboard in a real terminal with no Pi on PATH."""
 
+from __future__ import annotations
+
 import fcntl
 import json
 import os
@@ -51,7 +53,8 @@ def isolated_project(temporary: Path) -> tuple[Path, Path, dict[str, str]]:
     (executables / "node").symlink_to(node)
     (executables / "git").symlink_to(git)
     environment = {key: value for key, value in os.environ.items() if not key.startswith("NEXUS_")}
-    environment.update(PATH=str(executables), HOME=str(temporary), NEXUS_STATE_DIR=str(state))
+    environment.update(PATH=str(executables), HOME=str(temporary), NEXUS_STATE_DIR=str(state),
+                       XDG_CACHE_HOME=str(temporary / "cache"), XDG_CONFIG_HOME=str(temporary / "config"))
     assert shutil.which("pi", path=environment["PATH"]) is None
     config = temporary / "terminal config.toml"
     config.write_text(
@@ -81,7 +84,8 @@ def select_runtime(environment: dict[str, str], source: str) -> None:
     if source == "cache":
         operating_system = "darwin" if sys.platform == "darwin" else "linux"
         architecture = "arm64" if platform.machine() in ("arm64", "aarch64") else "x64"
-        managed = Path(environment["NEXUS_STATE_DIR"]) / "tui" / f"node-v24.21.0-{operating_system}-{architecture}" / "bin/node"
+        cache = Path(environment["HOME"]) / "Library/Caches" if operating_system == "darwin" else Path(environment["XDG_CACHE_HOME"])
+        managed = cache / "nexus/tui" / f"node-v24.21.0-{operating_system}-{architecture}" / "bin/node"
         managed.parent.mkdir(parents=True)
         managed.symlink_to(node)
     elif source == "download":
@@ -112,9 +116,11 @@ def close_dashboard(process: subprocess.Popen[bytes], master: int, exit_mode: st
     assert process.wait(timeout=1) == 0
 
 
-def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str) -> None:
+def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
+        if remote_config is not None:
+            config = remote_config
         select_runtime(environment, runtime_source)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 120, 0, 0))
@@ -161,4 +167,4 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
 
 
 if __name__ == "__main__":
-    exercise_terminal_dashboard(sys.argv[1], sys.argv[2], sys.argv[3])
+    exercise_terminal_dashboard(sys.argv[1], sys.argv[2], sys.argv[3], Path(sys.argv[4]) if len(sys.argv) > 4 else None)

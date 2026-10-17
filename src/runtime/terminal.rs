@@ -5,7 +5,6 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/installation.md
 // @entrypoint open
-use crate::config::LoadedConfig;
 use anyhow::{bail, Context, Result};
 use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
@@ -14,22 +13,16 @@ use std::process::Command;
 
 const DASHBOARD: &str = include_str!("../../pi-extension/dist/nexus-tui.mjs");
 
-pub async fn open(
-    loaded: &LoadedConfig,
-    explicit_config: Option<&Path>,
-    working_directory: &Path,
-) -> Result<()> {
+pub async fn open(explicit_config: Option<&Path>, working_directory: &Path) -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("Run `nexus tui` from an interactive terminal");
     }
-    let cache = loaded
-        .config
-        .storage
-        .database_path
-        .parent()
-        .context("Nexus database must have a parent directory")?
+    let cache = dirs::cache_dir()
+        .context("find the user cache directory for the Nexus terminal")?
+        .join("nexus")
         .join("tui");
-    let mut command = terminal_command(&cache, working_directory, explicit_config)?;
+    let mut command = terminal_command(&cache, working_directory, explicit_config)
+        .with_context(|| format!("prepare Nexus terminal dashboard in {}", cache.display()))?;
     Err(command.exec()).context("open Nexus terminal dashboard")
 }
 

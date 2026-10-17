@@ -3,11 +3,13 @@
 // @feature coordination
 // @feature usage-analytics
 // @feature sos
+// @feature observability-ui
 // @spec docs/features/runtime.md
 // @spec docs/features/configuration.md
 // @spec docs/features/coordination.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/sos.md
+// @spec docs/features/observability-ui.md
 // @boundary dynamic-json
 #[path = "remote_runtime/support.rs"]
 mod support;
@@ -21,6 +23,39 @@ use std::sync::Arc;
 use std::time::Duration;
 use support::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remote_terminal_works_without_a_local_database_directory() {
+    let service = RunningService::start(Vec::new()).await;
+    let temporary = tempfile::tempdir().unwrap();
+    let unavailable = temporary.path().join("legacy state");
+    std::fs::write(&unavailable, "archived local state").unwrap();
+    let mut loaded = service.client_config("terminal-project", 3600);
+    loaded.config.storage.database_path = unavailable.join("nexus.db");
+    let config = temporary.path().join("remote terminal.toml");
+    std::fs::write(&config, toml::to_string_pretty(&loaded.config).unwrap()).unwrap();
+
+    let output = std::process::Command::new("python3")
+        .args([
+            "tests/tui_terminal.py",
+            env!("CARGO_BIN_EXE_nexus"),
+            "system",
+            "quit",
+        ])
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(unavailable).unwrap(),
+        "archived local state"
+    );
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_client_authenticates_and_sends_project_outside_feature_payload() {

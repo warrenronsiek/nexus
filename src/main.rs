@@ -310,7 +310,7 @@ async fn main() -> Result<()> {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
             Ok(())
         }
-        Command::Tui => terminal::open(&loaded, explicit_config.as_deref(), &root).await,
+        Command::Tui => terminal::open(explicit_config.as_deref(), &root).await,
         Command::Exec { command } => {
             let code =
                 script_exec::run(&loaded, explicit_config.as_deref(), &root, command).await?;
