@@ -24,21 +24,43 @@ fn prompt() -> ServiceRequest {
 }
 
 #[test]
-fn lifecycle_waits_briefly_for_store_contention_then_records() {
-    let service = Arc::new(super::tests::service_with(Config::default()));
-    let guard = service.store.lock().unwrap();
-    let request_service = service.clone();
-    let worker = std::thread::spawn(move || {
-        request_service
-            .handle_remote("contention-project", prompt())
-            .to_json()
-    });
-
-    std::thread::sleep(Duration::from_millis(20));
-    drop(guard);
-    let response = worker.join().unwrap();
+fn lifecycle_store_retries_after_contention_clears() {
+    let service = super::tests::service_with(Config::default());
+    let mut held = Some(service.store.lock().unwrap());
+    let mut retries = 0;
+    let acquired = service
+        .store
+        .try_lock_with_retry(|| {
+            retries += 1;
+            assert_eq!(retries, 1, "the released store must be acquired on retry");
+            drop(held.take());
+            true
+        })
+        .unwrap();
+    assert_eq!(retries, 1);
+    drop(acquired);
+    let response = service
+        .handle_remote("contention-project", prompt())
+        .to_json();
     assert_eq!(response["permitted"], true);
     assert_eq!(response["recorded"], true, "{response}");
+}
+
+#[test]
+fn lifecycle_store_stops_when_retry_budget_is_exhausted() {
+    let service = super::tests::service_with(Config::default());
+    let _held = service.store.lock().unwrap();
+    let mut retries = 0;
+    let error = service
+        .store
+        .try_lock_with_retry(|| {
+            retries += 1;
+            false
+        })
+        .err()
+        .expect("contention must respect the retry budget");
+    assert_eq!(retries, 1);
+    assert!(matches!(error, std::sync::TryLockError::WouldBlock));
 }
 
 #[test]

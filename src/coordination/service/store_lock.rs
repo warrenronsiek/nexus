@@ -5,9 +5,7 @@
 use crate::persistence::Store;
 use std::ops::{Deref, DerefMut};
 use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
-#[cfg(feature = "postgres")]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub(in crate::coordination) struct TrackedStoreMutex {
     inner: Mutex<Store>,
@@ -36,6 +34,33 @@ impl TrackedStoreMutex {
             Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
                 self.track(error.into_inner()),
             ))),
+        }
+    }
+
+    pub(super) fn try_lock_for(
+        &self,
+        timeout: Duration,
+        retry_interval: Duration,
+    ) -> TryLockResult<TrackedStoreGuard<'_>> {
+        let deadline = Instant::now() + timeout;
+        self.try_lock_with_retry(|| {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(retry_interval);
+            true
+        })
+    }
+
+    pub(super) fn try_lock_with_retry(
+        &self,
+        mut retry: impl FnMut() -> bool,
+    ) -> TryLockResult<TrackedStoreGuard<'_>> {
+        loop {
+            match self.try_lock() {
+                Err(TryLockError::WouldBlock) if retry() => {}
+                result => return result,
+            }
         }
     }
 
