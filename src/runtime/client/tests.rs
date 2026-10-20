@@ -251,6 +251,7 @@ fn only_explicit_registry_dumps_select_the_complete_response_policy() {
     });
     let list = ServiceRequest::Papercuts(PapercutCommand::List {
         context: issue_context(),
+        project_id: None,
     });
     let sos_dump = ServiceRequest::Sos(SosCommand::Dump {
         context: issue_context(),

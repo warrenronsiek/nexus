@@ -98,3 +98,7 @@ The central invariants are:
 - review-workflow failures leave the reported issue visible; once the detached worker starts, Nexus attempts to record a typed failure without assuming whether the provider or a later persistence race caused it.
 
 Focused tests cover normalized exact reports, timestamped upvotes, append-only resolution/reopen/consolidation history, token-authorized proposal/response consolidation, complete dumps including reviewer attempts, strict reviewer output, typed API round trips, MCP context enrichment, migration upgrades, the real daemon/MCP/SQLite path, and the PostgreSQL service backend.
+
+The shared native and Pi terminal UI includes a read-only Papercuts tab. It shows open issues for the current or explicitly selected project, encounter counts, last encounter timestamps, and full descriptions on selection. Truncated lists explicitly direct users to the complete CLI dump. Reporting and lifecycle mutations remain MCP or CLI actions.
+
+The typed `list` action accepts an optional explicit `project_id` for terminal project selection. It uses the same canonicalization and 256-byte/control-character validation as other project reads. Omission retains the invocation’s current local or remote project; write actions continue to bind their project from caller context.

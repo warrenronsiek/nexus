@@ -1,3 +1,5 @@
+// @feature papercuts
+// @spec docs/features/papercuts.md
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
@@ -22,6 +24,8 @@ import type { Snapshot } from "./domain.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import { MemoryPane, type MemoryInteractionPrompts } from "./memory-pane.ts";
 import type { MemoryApi } from "./memory.ts";
+import { PapercutsPane } from "./papercuts-pane.ts";
+import type { PapercutsApi } from "./papercuts.ts";
 import { SosPane } from "./sos-pane.ts";
 import type { SosApi } from "./sos.ts";
 import {
@@ -53,6 +57,7 @@ export { nextDashboardTab } from "./usage-pane.ts";
 interface DashboardOptions {
   loadSnapshot: SnapshotLoader;
   loadUsage: UsageLoader;
+  papercutsApi: PapercutsApi;
   sosApi: SosApi;
   memoryApi: MemoryApi;
   memoryPrompts: MemoryInteractionPrompts;
@@ -62,10 +67,11 @@ interface DashboardOptions {
 interface DashboardPanes {
   usage: UsagePane;
   memory: MemoryPane;
+  papercuts: PapercutsPane;
   sos: SosPane;
 }
 
-type DashboardPaneKind = "coordination" | "usage" | "memory" | "sos";
+type DashboardPaneKind = "coordination" | "usage" | "memory" | "sos" | "papercuts";
 
 function paneKind(tab: DashboardTab): DashboardPaneKind {
   if (tab === "tools" || tab === "skills") return "usage";
@@ -76,6 +82,7 @@ function deactivatePane(kind: DashboardPaneKind, panes: DashboardPanes): void {
   if (kind === "usage") panes.usage.deactivate();
   else if (kind === "memory") panes.memory.deactivate();
   else if (kind === "sos") panes.sos.deactivate();
+  else if (kind === "papercuts") panes.papercuts.deactivate();
 }
 
 function activatePane(
@@ -87,6 +94,7 @@ function activatePane(
   if (kind === "usage") panes.usage.activate(tab as UsageTab, projectId);
   else if (kind === "memory") panes.memory.activate();
   else if (kind === "sos") panes.sos.activate();
+  else if (kind === "papercuts") panes.papercuts.activate(projectId);
 }
 
 function transitionPane(
@@ -106,6 +114,7 @@ function transitionPane(
 }
 
 const TAB_TITLES: Record<Exclude<DashboardTab, "coordination">, string> = {
+  papercuts: "Papercuts",
   sos: "SOS issues",
   tools: "Tool usage",
   skills: "Skill usage",
@@ -131,6 +140,8 @@ function dashboardStatus(options: DashboardStatusOptions): string {
     case "tools":
     case "skills":
       return options.panes.usage.statusLine(options.scope);
+    case "papercuts":
+      return options.panes.papercuts.statusLine();
     case "sos":
       return options.panes.sos.statusLine();
     case "memory":
@@ -154,7 +165,7 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
 }
 
 function footerHint(tab: DashboardTab, page: Page): string {
-  if (tab === "sos") {
+  if (tab === "sos" || tab === "papercuts") {
     return "tab switch · ↑↓ navigate · enter detail · j/k scroll · esc back · r refresh · q close";
   }
   if (tab === "memory") {
@@ -182,6 +193,7 @@ interface DashboardBodyOptions {
   theme: Theme;
   usagePane: UsagePane;
   memoryPane: MemoryPane;
+  papercutsPane: PapercutsPane;
   sosPane: SosPane;
   back: () => void;
   open: (value: string) => void;
@@ -214,16 +226,15 @@ function addOverviewCounts(container: Container, snapshot: Snapshot, theme: Them
 }
 
 function addDashboardBody(options: DashboardBodyOptions): BodyState {
-  if (options.tab === "tools" || options.tab === "skills") {
-    options.container.addChild(options.usagePane);
-    return {};
-  }
-  if (options.tab === "memory") {
-    options.container.addChild(options.memoryPane);
-    return {};
-  }
-  if (options.tab === "sos") {
-    options.container.addChild(options.sosPane);
+  if (options.tab !== "coordination") {
+    const panes: Record<Exclude<DashboardTab, "coordination">, Component> = {
+      tools: options.usagePane,
+      skills: options.usagePane,
+      memory: options.memoryPane,
+      sos: options.sosPane,
+      papercuts: options.papercutsPane,
+    };
+    options.container.addChild(panes[options.tab]);
     return {};
   }
   if (options.page.kind === "overview") {
@@ -297,6 +308,7 @@ export class NexusDashboardComponent implements Component {
   private readonly poller: SnapshotPoller;
   private readonly usagePane: UsagePane;
   private readonly memoryPane: MemoryPane;
+  private readonly papercutsPane: PapercutsPane;
   private readonly sosPane: SosPane;
 
   constructor(
@@ -321,6 +333,7 @@ export class NexusDashboardComponent implements Component {
       options.memoryPrompts,
       () => this.rebuild(),
     );
+    this.papercutsPane = new PapercutsPane(tui, theme, options.papercutsApi, () => this.rebuild());
     this.sosPane = new SosPane(tui, theme, options.sosApi, () => this.rebuild());
     this.rebuild();
     this.poller.start();
@@ -356,6 +369,8 @@ export class NexusDashboardComponent implements Component {
           );
         } else if (this.tab === "memory") {
           this.memoryPane.handleInput(data);
+        } else if (this.tab === "papercuts") {
+          this.papercutsPane.handleInput(data);
         } else if (this.tab === "sos") {
           this.sosPane.handleInput(data);
         }
@@ -368,6 +383,7 @@ export class NexusDashboardComponent implements Component {
     this.usagePane.dispose();
     this.memoryPane.dispose();
     this.sosPane.dispose();
+    this.papercutsPane.dispose();
   }
 
   private applyPollingUpdate(update: PollingUpdate): void {
@@ -388,6 +404,7 @@ export class NexusDashboardComponent implements Component {
     transitionPane(previous, tab, this.snapshot.dashboard.project_id, {
       usage: this.usagePane,
       memory: this.memoryPane,
+      papercuts: this.papercutsPane,
       sos: this.sosPane,
     });
     this.rebuild();
@@ -401,6 +418,7 @@ export class NexusDashboardComponent implements Component {
       this.usagePane.refresh();
     } else {
       if (this.tab === "memory") this.memoryPane.refresh();
+      else if (this.tab === "papercuts") this.papercutsPane.refresh();
       else this.sosPane.refresh();
     }
   }
@@ -429,6 +447,7 @@ export class NexusDashboardComponent implements Component {
       theme: this.theme,
       usagePane: this.usagePane,
       memoryPane: this.memoryPane,
+      papercutsPane: this.papercutsPane,
       sosPane: this.sosPane,
       back: () => this.goBack(),
       open: (value) => this.open(value),
@@ -453,6 +472,7 @@ export class NexusDashboardComponent implements Component {
       panes: {
         usage: this.usagePane,
         memory: this.memoryPane,
+        papercuts: this.papercutsPane,
         sos: this.sosPane,
       },
     });

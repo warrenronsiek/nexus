@@ -1,3 +1,5 @@
+// @feature papercuts
+// @spec docs/features/papercuts.md
 // @feature observability-ui
 // @feature runtime
 // @feature agent-memory
@@ -17,6 +19,7 @@ import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
 import { NexusMemoryApi } from "./memory.ts";
+import { NexusPapercutsApi } from "./papercuts.ts";
 import { NexusSosApi } from "./sos.ts";
 import { TerminalDialogs } from "./terminal-dialogs.ts";
 import { terminalTheme } from "./theme.ts";
@@ -51,6 +54,7 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
   const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, {
     loadSnapshot: (projectId, signal) => fetchSnapshot(client, cwd, projectId, signal),
     loadUsage: (projectId, signal) => fetchUsage(client, cwd, projectId, signal),
+    papercutsApi: new NexusPapercutsApi(client, cwd),
     sosApi,
     memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,
   });

@@ -1,3 +1,5 @@
+// @feature papercuts
+// @spec docs/features/papercuts.md
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
@@ -13,7 +15,7 @@ import { sanitizeDisplayText } from "./display.ts";
 import { UsagePoller, type UsageLoader } from "./polling.ts";
 import { renderUsageBars } from "./usage.ts";
 
-export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory";
+export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts";
 export type UsageTab = Extract<DashboardTab, "tools" | "skills">;
 
 const DASHBOARD_TABS: readonly DashboardTab[] = [
@@ -22,6 +24,7 @@ const DASHBOARD_TABS: readonly DashboardTab[] = [
   "tools",
   "skills",
   "memory",
+  "papercuts",
 ];
 
 export function nextDashboardTab(

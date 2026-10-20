@@ -302,3 +302,18 @@ fn papercut_duplicate_response_requires_the_reporter_token() {
     .unwrap_err();
     assert!(error.to_string().contains("reporter_token"));
 }
+
+#[test]
+fn papercut_list_accepts_a_canonical_explicit_project_scope() {
+    let request = ServiceRequest::decode(
+        "papercuts",
+        json!({"action":"list", "session_id":"tui", "project_id":" project-b "}),
+    )
+    .unwrap();
+    assert_eq!(request.wire_parts().unwrap().1["project_id"], "project-b");
+    assert!(ServiceRequest::decode(
+        "papercuts",
+        json!({"action":"list", "session_id":"tui", "project_id":"bad\nproject"}),
+    )
+    .is_err());
+}

@@ -69,7 +69,7 @@ fn papercut_tool_definition() -> Value {
         "inputSchema":{
             "type":"object",
             "oneOf":[
-                papercut_action_schema("list", &[], json!({})),
+                papercut_action_schema("list", &[], json!({"project_id":{"type":"string","maxLength":256}})),
                 papercut_action_schema("dump", &[], json!({
                     "scope":{"type":"string","enum":["project","all"],"default":"project"}
                 })),

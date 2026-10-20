@@ -22,6 +22,8 @@ pub enum PapercutCommand {
     List {
         #[serde(flatten)]
         context: HookContext,
+        #[serde(default)]
+        project_id: Option<String>,
     },
     Dump {
         #[serde(flatten)]

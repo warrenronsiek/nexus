@@ -128,13 +128,14 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
   };
 }
 
-  it("cycles the five top-level tabs in both directions", () => {
+  it("cycles the six top-level tabs in both directions", () => {
     expect(nextDashboardTab("coordination", 1)).toBe("sos");
     expect(nextDashboardTab("sos", 1)).toBe("tools");
     expect(nextDashboardTab("tools", 1)).toBe("skills");
     expect(nextDashboardTab("skills", 1)).toBe("memory");
-    expect(nextDashboardTab("memory", 1)).toBe("coordination");
-    expect(nextDashboardTab("coordination", -1)).toBe("memory");
+    expect(nextDashboardTab("memory", 1)).toBe("papercuts");
+    expect(nextDashboardTab("papercuts", 1)).toBe("coordination");
+    expect(nextDashboardTab("coordination", -1)).toBe("papercuts");
   });
 
   it("loads analytics on tab activation rather than dashboard construction", async () => {
@@ -148,6 +149,7 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
       {
         loadSnapshot: async () => snapshot,
         loadUsage: usageLoader,
+        papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) },
         sosApi: sos.api,
         memoryApi: memory.api,
         memoryPrompts: memory.prompts,
@@ -180,6 +182,7 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
       {
         loadSnapshot: async () => snapshot,
         loadUsage: async () => usage,
+        papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) },
         sosApi: sos.api,
         memoryApi: memory.api,
         memoryPrompts: memory.prompts,
@@ -215,6 +218,7 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
       {
         loadSnapshot: async () => snapshot,
         loadUsage: async () => usage,
+        papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) },
         sosApi: sos.api,
         memoryApi: memory.api,
         memoryPrompts: memory.prompts,
@@ -229,3 +233,20 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
     expect(component.render(80).join("\n")).toContain("0 awaiting triage");
     component.dispose();
   });
+
+it("opens papercuts from the shared dashboard tab bar", async () => {
+  const memory = memoryHarness();
+  const sos = sosHarness();
+  const list = vi.fn(async () => ({ papercuts: [], truncated: false }));
+  const component = new NexusDashboardComponent(
+    { requestRender: vi.fn() } as unknown as TUI, theme, snapshot,
+    { loadSnapshot: async () => snapshot, loadUsage: async () => usage,
+      sosApi: sos.api, papercutsApi: { list }, memoryApi: memory.api,
+      memoryPrompts: memory.prompts, done: vi.fn() },
+  );
+  expect(list).not.toHaveBeenCalled();
+  component.handleInput("\u001b[Z");
+  await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No open papercuts"));
+  expect(list).toHaveBeenCalledWith(null, expect.any(AbortSignal));
+  component.dispose();
+});

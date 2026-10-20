@@ -341,7 +341,10 @@ async fn run_papercuts_command(
         model: None,
     };
     let command = match command {
-        PapercutsCommand::List => PapercutCommand::List { context },
+        PapercutsCommand::List => PapercutCommand::List {
+            context,
+            project_id: None,
+        },
         PapercutsCommand::Dump { all_projects } => PapercutCommand::Dump {
             context,
             scope: if all_projects {

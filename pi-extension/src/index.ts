@@ -1,3 +1,5 @@
+// @feature papercuts
+// @spec docs/features/papercuts.md
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
@@ -16,6 +18,7 @@ import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
 import { NexusMemoryApi } from "./memory.ts";
+import { NexusPapercutsApi } from "./papercuts.ts";
 import { NexusSosApi } from "./sos.ts";
 
 export default function nexusExtension(pi: ExtensionAPI): void {
@@ -44,6 +47,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
                 fetchSnapshot(client, ctx.cwd, projectId, signal),
               loadUsage: (projectId, signal) =>
                 fetchUsage(client, ctx.cwd, projectId, signal),
+              papercutsApi: new NexusPapercutsApi(client, ctx.cwd),
               sosApi,
               memoryApi,
               memoryPrompts: new MemoryPrompts(ctx.ui),
