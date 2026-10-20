@@ -8,10 +8,8 @@ on:
 
 jobs:
   test:
-    env:
-      # Deadline tests must not compete with unrelated test subprocesses.
-      RUST_TEST_THREADS: "1"
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}

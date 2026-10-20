@@ -53,7 +53,7 @@ use std::sync::atomic::AtomicBool;
 #[cfg(feature = "postgres")]
 use std::sync::Mutex;
 use std::sync::TryLockError;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const LIFECYCLE_STORE_WAIT: Duration = Duration::from_millis(100);
 const LIFECYCLE_STORE_RETRY: Duration = Duration::from_millis(1);
@@ -394,23 +394,18 @@ impl NexusService {
     }
 
     pub(super) fn lifecycle_store(&self) -> Result<TrackedStoreGuard<'_>> {
-        let deadline = Instant::now() + LIFECYCLE_STORE_WAIT;
-        loop {
-            match self.store.try_lock() {
-                Ok(store) => return Ok(store),
-                Err(TryLockError::Poisoned(error)) => {
-                    return Err(anyhow::anyhow!("lifecycle store unavailable: {error}"));
-                }
-                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
-                    std::thread::sleep(LIFECYCLE_STORE_RETRY);
-                }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(anyhow::anyhow!(
-                        "lifecycle store remained busy for {}ms",
-                        LIFECYCLE_STORE_WAIT.as_millis()
-                    ));
-                }
+        match self
+            .store
+            .try_lock_for(LIFECYCLE_STORE_WAIT, LIFECYCLE_STORE_RETRY)
+        {
+            Ok(store) => Ok(store),
+            Err(TryLockError::Poisoned(error)) => {
+                Err(anyhow::anyhow!("lifecycle store unavailable: {error}"))
             }
+            Err(TryLockError::WouldBlock) => Err(anyhow::anyhow!(
+                "lifecycle store remained busy for {}ms",
+                LIFECYCLE_STORE_WAIT.as_millis()
+            )),
         }
     }
 
