@@ -1,3 +1,5 @@
+// @feature papercuts
+// @spec docs/features/papercuts.md
 // @feature coordination
 // @feature persistence
 // @feature agent-memory
@@ -300,4 +302,36 @@ fn assert_local_and_explicit_reads_remain_available(service: &NexusService) {
         .unwrap()
         .iter()
         .all(|session| session["project_id"] == "project-b"));
+}
+
+#[test]
+fn papercut_list_uses_the_selected_project_without_changing_write_binding() {
+    let service = service();
+    for project in ["project-a", "project-b"] {
+        service.handle_remote(
+            project,
+            ServiceRequest::decode(
+                "papercuts",
+                json!({"action":"report", "session_id":"tui", "title":project}),
+            )
+            .unwrap(),
+        );
+    }
+    let selected = service.handle_remote(
+        "project-a",
+        ServiceRequest::decode(
+            "papercuts",
+            json!({"action":"list", "session_id":"tui", "project_id":"project-b"}),
+        )
+        .unwrap(),
+    );
+    let selected = selected.to_json();
+    assert_eq!(selected["papercuts"].as_array().unwrap().len(), 1);
+    assert_eq!(selected["papercuts"][0]["title"], "project-b");
+    let current = service.handle_remote(
+        "project-a",
+        ServiceRequest::decode("papercuts", json!({"action":"list", "session_id":"tui"})).unwrap(),
+    );
+    let current = current.to_json();
+    assert_eq!(current["papercuts"][0]["title"], "project-a");
 }

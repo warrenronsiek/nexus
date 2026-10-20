@@ -230,7 +230,13 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
         "memory_add" => decode(params).map(ServiceRequest::MemoryAdd),
         "memory_invalidate" => decode(params).map(ServiceRequest::MemoryInvalidate),
         "memory_consolidate" => Ok(ServiceRequest::MemoryConsolidate),
-        "papercuts" => decode(params).map(ServiceRequest::Papercuts),
+        "papercuts" => {
+            let mut command: PapercutCommand = decode(params)?;
+            if let PapercutCommand::List { project_id, .. } = &mut command {
+                normalize_read_project(project_id)?;
+            }
+            Ok(ServiceRequest::Papercuts(command))
+        }
         "sos" => {
             let command: SosCommand = decode(params)?;
             validate_hook_context(command.context())?;
@@ -264,7 +270,11 @@ where
     F: FnOnce(&mut T) -> &mut Option<String>,
 {
     let mut query = decode(params)?;
-    let project_id = project_id(&mut query);
+    normalize_read_project(project_id(&mut query))?;
+    Ok(query)
+}
+
+fn normalize_read_project(project_id: &mut Option<String>) -> Result<()> {
     if let Some(raw) = project_id.as_deref() {
         let canonical = crate::config::canonical_project_id(raw).map_err(|_| {
             anyhow::anyhow!("project_id must contain 1 to 256 bytes and no control characters")
@@ -273,7 +283,7 @@ where
             *project_id = Some(canonical.to_owned());
         }
     }
-    Ok(query)
+    Ok(())
 }
 
 fn request_family(request: &ServiceRequest) -> RequestFamily {

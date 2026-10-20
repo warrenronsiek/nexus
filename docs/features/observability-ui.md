@@ -6,9 +6,9 @@ feature: observability-ui
 
 ## What this feature does
 
-Nexus has two entry points for one terminal interface: the bundled `nexus tui` command and `/nexus` inside Pi. Both render the same Coordination, SOS, Tools, Skills, and Memory tabs. Coordination progressively discloses sessions, claims, conflicts, and events. SOS presents aggregate issues by importance and last arrival, then reveals their retained source reports, triage attempts, and lifecycle history. Tools and Skills show rolling seven-day horizontal bar charts. Memory browses and searches notes, adds an explicitly scoped raw note, expands or invalidates a derived summary, and requests consolidation.
+Nexus has two entry points for one terminal interface: the bundled `nexus tui` command and `/nexus` inside Pi. Both render the same Coordination, SOS, Tools, Skills, Memory, and Papercuts tabs. Coordination progressively discloses sessions, claims, conflicts, and events. SOS presents aggregate issues by importance and last arrival, then reveals their retained source reports, triage attempts, and lifecycle history. Papercuts lists the current or selected project’s open issues with encounter counts and latest encounter times; Enter opens the full description, identifiers, and timestamps. The list exposes the service truncation flag and points to `nexus papercuts dump` for the complete historical registry. Reads are abortable when leaving the tab, stale responses cannot replace a newer scope, and refresh retains the last successful list on failure. Tools and Skills show rolling seven-day horizontal bar charts. Memory browses and searches notes, adds an explicitly scoped raw note, expands or invalidates a derived summary, and requests consolidation.
 
-All data travels through one persistent local `nexus mcp` child per interface. Coordination, SOS, project, usage, and memory reads use the same typed service boundary and configured client transport as the CLI. Memory requests carry correlated host context. Nexus serves an authenticated machine API and direct MCP endpoint for shared deployments, but it does not serve a web application and the repository contains no HTML, CSS, Elm, or other browser assets.
+All data travels through one persistent local `nexus mcp` child per interface. Coordination, SOS, Papercuts, project, usage, and memory reads use the same typed service boundary and configured client transport as the CLI. Memory requests carry correlated host context. Nexus serves an authenticated machine API and direct MCP endpoint for shared deployments, but it does not serve a web application and the repository contains no HTML, CSS, Elm, or other browser assets.
 
 `nexus tui` embeds the terminal renderer and dashboard bundle. It uses a compatible Node runtime already on `PATH` or installs a pinned, verified runtime into `nexus/tui/` under the operating system's per-user cache directory. Dashboard files and the managed runtime do not depend on access to the configured database directory, including when a remote client retains an inaccessible local database path. It requires no Pi installation, agent login, or model credentials for rendering. Remote mode does require the Nexus bearer credential selected by `NEXUS_SECRET` or `client.secret_file`. The Pi extension uses its host's renderer and also observes tool calls and explicit skill invocations through a bounded, fail-open capture queue.
 
@@ -16,7 +16,7 @@ All data travels through one persistent local `nexus mcp` child per interface. C
 
 Agent-facing advisories solve immediate collisions, but a person still needs a compact operational view of repositories, sessions, claims, conflicts, recurring SOS problems, tool activity, skill activity, and memory health. Keeping the interface in the terminal avoids a browser frontend toolchain and browser security surface while remaining available both inside Pi and directly from the CLI. A remote service listener is transport infrastructure shared with every other client, not a separate UI server.
 
-Progressive disclosure keeps recent operational state first. The initial Coordination page answers whether Nexus is healthy, where work is happening, and whether conflicts are open. Full payloads and metadata appear only after a person selects a category and record. Coordination, SOS, and analytics are read-only; only explicit Memory-tab operations mutate state, and immutable raw notes cannot be edited or deleted.
+Progressive disclosure keeps recent operational state first. The initial Coordination page answers whether Nexus is healthy, where work is happening, and whether conflicts are open. Full payloads and metadata appear only after a person selects a category and record. Coordination, SOS, Papercuts, and analytics are read-only; only explicit Memory-tab operations mutate state, and immutable raw notes cannot be edited or deleted.
 
 ## Data flow
 
@@ -42,7 +42,7 @@ flowchart TD
     L --> N
     M --> N
     SI --> N
-    N --> O[Coordination, SOS, Tools, Skills, Memory tabs]
+    N --> O[Coordination, SOS, Tools, Skills, Memory, Papercuts tabs]
     P[Polling tick] --> Q{Request already active?}
     Q -->|yes| R[Skip overlapping poll]
     Q -->|no| B
@@ -67,7 +67,7 @@ flowchart TD
 14. **Memory context and health** remain on the correlated MCP protocol and are delimited as untrusted data when injected into a model session.
 15. **SOS aggregate and source detail** is read-only in the terminal: list shows importance and last arrival first, while detail includes source reports, triage timestamps, and lifecycle history. Reporting, resolution, and deprecation remain explicit HTTP, MCP, or CLI actions.
 16. **Typed terminal decoders** reject malformed dynamic responses before they enter component state.
-17. **Coordination, SOS, Tools, Skills, Memory tabs** present the shared keyboard-driven component in either host.
+17. **Coordination, SOS, Tools, Skills, Memory, Papercuts tabs** present the shared keyboard-driven component in either host.
 18. **Polling tick** refreshes only the active surface and never overlaps a prior polling request.
 19. **Skip overlapping poll** bounds work while a previous request is active.
 20. **Abort queued MCP read** removes stale scope requests before backpressure can send them.
@@ -87,3 +87,7 @@ All strings received from Nexus, remote peers, filenames, providers, and errors 
 `src/runtime/terminal.rs` embeds the bundle, materializes a content-addressed copy outside the checkout, and replaces the launcher process with the selected runtime. `terminal_runtime.rs` owns compatible-runtime detection and verified installation. Real pseudo-terminal tests run with Pi absent, exercise navigation and memory operations, verify explicit configuration and repository paths containing spaces, and check terminal restoration. Another scenario proves cached offline startup without Node on `PATH`.
 
 Repository validation installs the single locked Pi-extension Node tree, runs its typecheck and tests, rebuilds the tracked terminal bundle, and then runs the Rust and architecture gates. Installed users need no frontend build tools.
+
+Papercut output, including truncation notices, wraps within the host terminal width.
+
+`papercuts.ts` validates the MCP list projection and `papercuts-pane.ts` owns project-scoped read-only list/detail navigation in both terminal hosts.

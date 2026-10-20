@@ -1,3 +1,5 @@
+# @feature papercuts
+# @spec docs/features/papercuts.md
 # @feature observability-ui
 # @feature installation
 # @feature runtime
@@ -116,6 +118,32 @@ def close_dashboard(process: subprocess.Popen[bytes], master: int, exit_mode: st
     assert process.wait(timeout=1) == 0
 
 
+def exercise_memory_actions(process: subprocess.Popen[bytes], master: int) -> None:
+    os.write(master, b"/")
+    wait_for_text(process, master, b"Search memory")
+    os.write(master, b"terminal.*fixture\r")
+    wait_for_text(process, master, b"Search results")
+    os.write(master, b"a")
+    wait_for_text(process, master, b"Memory scope")
+    os.write(master, b"\r")
+    wait_for_text(process, master, b"Add immutable memory")
+    os.write(master, b"created from the native terminal\r")
+    wait_for_text(process, master, b"created from the native terminal")
+
+
+def exercise_papercuts(binary: str, config: Path, root: Path, environment: dict[str, str], terminal: tuple[int, subprocess.Popen[bytes]]) -> None:
+    master, process = terminal
+    reported = subprocess.run(
+        [binary, "--config", str(config), "papercuts", "report", "Terminal papercut fixture", "--description", "Inspect the complete description"],
+        cwd=root, env=environment, capture_output=True, check=True, timeout=5,
+    )
+    assert json.loads(reported.stdout)["ok"] is True
+    os.write(master, b"\t")
+    wait_for_text(process, master, b"Terminal papercut fixture")
+    os.write(master, b"\r")
+    wait_for_text(process, master, b"Inspect the complete description")
+
+
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
@@ -141,16 +169,8 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             wait_for_text(process, master, b"No current SOS issues")
             os.write(master, b"\t\t\t")
             wait_for_text(process, master, b"terminal fixture memory")
-            os.write(master, b"/")
-            wait_for_text(process, master, b"Search memory")
-            os.write(master, b"terminal.*fixture\r")
-            wait_for_text(process, master, b"Search results")
-            os.write(master, b"a")
-            wait_for_text(process, master, b"Memory scope")
-            os.write(master, b"\r")
-            wait_for_text(process, master, b"Add immutable memory")
-            os.write(master, b"created from the native terminal\r")
-            wait_for_text(process, master, b"created from the native terminal")
+            exercise_memory_actions(process, master)
+            exercise_papercuts(binary, config, root, environment, (master, process))
             close_dashboard(process, master, exit_mode)
             mask = termios.ICANON | termios.ECHO
             assert termios.tcgetattr(slave)[3] & mask == original_settings[3] & mask

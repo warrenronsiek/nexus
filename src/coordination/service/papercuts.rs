@@ -67,9 +67,12 @@ impl NexusService {
         binding: &ProjectBinding,
     ) -> Result<PapercutResult> {
         match command {
-            PapercutCommand::List { context } => {
-                self.list_papercuts(context, binding).map(Into::into)
-            }
+            PapercutCommand::List {
+                context,
+                project_id,
+            } => self
+                .list_papercuts(context, project_id, binding)
+                .map(Into::into),
             PapercutCommand::Dump { context, scope } => {
                 dump_registry(self, context, scope, binding).map(Into::into)
             }
@@ -107,10 +110,14 @@ impl NexusService {
     fn list_papercuts(
         &self,
         context: HookContext,
+        project_id: Option<String>,
         binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
-        let window = self.papercut_store()?.open_papercuts_window(&project.id)?;
+        let project_id = match project_id {
+            Some(id) => id,
+            None => workspace::identify(binding, context.project_root.as_deref())?.id,
+        };
+        let window = self.papercut_store()?.open_papercuts_window(&project_id)?;
         Ok(PapercutResponse::Listed {
             ok: true,
             papercuts: window.items,
