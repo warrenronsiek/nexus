@@ -17,6 +17,8 @@ pub(crate) fn read_json_document(reader: &mut impl Read) -> std::io::Result<Vec<
     Ok(bytes)
 }
 
+/// On overflow, the reader remains within the oversized frame, before its newline.
+/// Callers can close the transport or discard the remainder before reading another frame.
 pub(crate) async fn read_json_line<R>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>>
 where
     R: AsyncBufRead + Unpin,
@@ -46,6 +48,24 @@ where
         if bytes.len() > MAX_JSON_FRAME_BYTES {
             return Err(frame_too_large());
         }
+    }
+}
+
+pub(crate) async fn discard_json_line<R>(reader: &mut R) -> std::io::Result<()>
+where
+    R: AsyncBufRead + Unpin,
+{
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(());
+        }
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            reader.consume(newline + 1);
+            return Ok(());
+        }
+        let consumed = available.len();
+        reader.consume(consumed);
     }
 }
 

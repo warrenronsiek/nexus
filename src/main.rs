@@ -303,9 +303,7 @@ async fn main() -> Result<()> {
             }
             daemon::serve(loaded).await
         }
-        Command::Mcp { agent } => {
-            mcp::serve_stdio(loaded, explicit_config.as_deref(), &agent).await
-        }
+        Command::Mcp { agent } => run_mcp(loaded, explicit_config.as_deref(), &agent).await,
         Command::HookSessionEnd { agent } => {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
             Ok(())
@@ -326,6 +324,16 @@ async fn main() -> Result<()> {
         | Command::Conflicts { .. }) => run_query_command(query, &loaded).await,
         command => run_admin_command(command, &root, &loaded, explicit_config.as_deref()).await,
     }
+}
+
+async fn run_mcp(loaded: LoadedConfig, explicit_config: Option<&Path>, agent: &str) -> Result<()> {
+    if let Err(error) = mcp::serve_stdio(loaded, explicit_config, agent).await {
+        // Tokio's blocking stdin read cannot be canceled. A failed MCP companion must
+        // close its transport without waiting for that read during runtime shutdown.
+        eprintln!("Error: {error:#}");
+        std::process::exit(1);
+    }
+    Ok(())
 }
 
 async fn run_papercuts_command(

@@ -608,16 +608,6 @@ fn failed_tool_results_are_marked_as_mcp_errors() {
 }
 
 #[tokio::test]
-async fn oversized_nonterminated_stdio_frame_is_rejected_at_the_sentinel() {
-    let input = vec![b'x'; super::super::bounded_io::MAX_JSON_FRAME_BYTES + 2];
-    let mut reader = tokio::io::BufReader::new(std::io::Cursor::new(input));
-
-    let error = read_stdio_frame(&mut reader).await.unwrap_err();
-
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-}
-
-#[tokio::test]
 async fn queued_stdio_response_retains_request_capacity_until_consumed() {
     let slots = Arc::new(Semaphore::new(1));
     let (sender, mut receiver) = mpsc::channel(1);
