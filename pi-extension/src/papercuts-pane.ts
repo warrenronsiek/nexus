@@ -50,9 +50,10 @@ export class PapercutsPane implements Component {
   render(width: number): string[] {
     const cut = this.list?.papercuts[this.selected];
     const contentWidth = Math.max(1, width - 2);
-    return this.detail && cut
+    const lines = this.detail && cut
       ? this.renderDetail(cut, contentWidth)
       : this.renderList(contentWidth);
+    return lines.flatMap(line => wrapTextWithAnsi(line, Math.max(1, width)));
   }
   private renderDetail(cut: Papercut, contentWidth: number): string[] {
     const lines = [cut.title, `${cut.upvote_count} encounters · ${cut.status}`, `ID: ${cut.id}`,

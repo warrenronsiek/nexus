@@ -88,4 +88,6 @@ All strings received from Nexus, remote peers, filenames, providers, and errors 
 
 Repository validation installs the single locked Pi-extension Node tree, runs its typecheck and tests, rebuilds the tracked terminal bundle, and then runs the Rust and architecture gates. Installed users need no frontend build tools.
 
+Papercut output, including truncation notices, wraps within the host terminal width.
+
 `papercuts.ts` validates the MCP list projection and `papercuts-pane.ts` owns project-scoped read-only list/detail navigation in both terminal hosts.

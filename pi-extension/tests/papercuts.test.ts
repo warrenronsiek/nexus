@@ -5,11 +5,11 @@
 import { expect, it, vi } from "vitest";
 import { NexusPapercutsApi } from "../src/papercuts.ts";
 import { PapercutsPane } from "../src/papercuts-pane.ts";
-import type { TUI } from "@earendil-works/pi-tui";
+import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 
 export const issue = {
   id: "cut-1", project_id: "project-1", title: "Slow checks", description: "Build\u001b]52;c;bad\u0007 takes minutes",
-  status: "open", upvote_count: 4, last_upvoted_at: "2026-10-19T12:00:00Z",
+  status: "open" as const, upvote_count: 4, last_upvoted_at: "2026-10-19T12:00:00Z",
   created_at: "2026-10-18T12:00:00Z", updated_at: "2026-10-19T12:00:00Z",
   resolution: null, consolidated_into: null,
 };
@@ -66,5 +66,20 @@ it("keeps the last list visible when a refresh fails", async () => {
   pane.refresh();
   await vi.waitFor(() => expect(pane.statusLine()).toContain("stale · offline"));
   expect(pane.render(100).join("\n")).toContain("Slow checks");
+  pane.dispose();
+});
+
+it("keeps truncated lists and details within narrow terminal widths", async () => {
+  const pane = new PapercutsPane({ requestRender: vi.fn() } as unknown as TUI,
+    { fg: (_color, text) => text, bold: text => text },
+    { list: async () => ({ papercuts: [issue], truncated: true }) }, vi.fn());
+  pane.activate(null);
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
+  for (const width of [20, 40, 80]) {
+    expect(pane.render(width).every(line => visibleWidth(line) <= width)).toBe(true);
+    pane.handleInput("\r");
+    expect(pane.render(width).every(line => visibleWidth(line) <= width)).toBe(true);
+    pane.handleInput("\u001b");
+  }
   pane.dispose();
 });
