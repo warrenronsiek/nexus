@@ -101,7 +101,7 @@ pub async fn serve_stdio(
     let (responses, outgoing) = mpsc::channel::<QueuedResponse>(MAX_QUEUED_STDIO_RESPONSES);
     let writer = tokio::spawn(write_responses(outgoing));
     let mut input = BufReader::new(tokio::io::stdin());
-    while let Some(frame) = read_stdio_frame(&mut input).await? {
+    while let Some(frame) = next_stdio_frame(&mut input).await? {
         let Ok(request) = serde_json::from_slice::<Value>(&frame) else {
             continue;
         };
@@ -135,11 +135,29 @@ pub async fn serve_stdio(
     writer.await?
 }
 
-async fn read_stdio_frame<R>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>>
+async fn next_stdio_frame<R>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>>
 where
     R: AsyncBufRead + Unpin,
 {
-    bounded_io::read_json_line(reader).await
+    loop {
+        match bounded_io::read_json_line(reader).await {
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                eprintln!("Nexus skipped an oversized MCP frame; later requests remain available");
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    bounded_io::discard_json_line(reader),
+                )
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "oversized MCP frame did not end within 2 seconds",
+                    )
+                })??;
+            }
+            result => return result,
+        }
+    }
 }
 
 /// Owns stdout so concurrently completed responses are written as whole lines.
@@ -537,5 +555,7 @@ fn resource_request(
     }
 }
 
+#[cfg(test)]
+mod framing_tests;
 #[cfg(test)]
 mod tests;
