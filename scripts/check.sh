@@ -7,6 +7,9 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repository_root}"
 
+# Deadline-sensitive tests share this policy in local, hook, and CI runs.
+export RUST_TEST_THREADS="${RUST_TEST_THREADS:-1}"
+
 python_command="${PYTHON:-python3}"
 if ! "${python_command}" -c 'import tomllib' >/dev/null 2>&1; then
   if [[ -n "${PYTHON:-}" ]]; then
