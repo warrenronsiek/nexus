@@ -174,6 +174,27 @@ fn memory_add_requires_an_explicit_scope_and_round_trips_over_the_daemon_wire() 
 }
 
 #[test]
+fn unpaged_papercuts_list_omits_the_new_cursor_on_the_daemon_wire() {
+    let request = ServiceRequest::decode(
+        "papercuts",
+        json!({
+            "action":"list",
+            "session_id":"session-1",
+            "project_root":"/tmp/project",
+            "agent":"codex"
+        }),
+    )
+    .unwrap();
+
+    let (method, params) = request.wire_parts().unwrap();
+    assert_eq!(method, "papercuts");
+    assert!(
+        !params.as_object().unwrap().contains_key("after"),
+        "{params}"
+    );
+}
+
+#[test]
 fn memory_search_limit_matches_the_persistence_bound() {
     let request = ServiceRequest::decode(
         "memory_search",
@@ -314,6 +335,26 @@ fn papercut_list_accepts_a_canonical_explicit_project_scope() {
     assert!(ServiceRequest::decode(
         "papercuts",
         json!({"action":"list", "session_id":"tui", "project_id":"bad\nproject"}),
+    )
+    .is_err());
+
+    let paged = ServiceRequest::decode(
+        "papercuts",
+        json!({
+            "action":"list",
+            "session_id":"tui",
+            "after":{"updated_at":"2026-10-19T12:00:00Z","id":"cut-1"}
+        }),
+    )
+    .unwrap();
+    assert_eq!(paged.wire_parts().unwrap().1["after"]["id"], "cut-1");
+    assert!(ServiceRequest::decode(
+        "papercuts",
+        json!({
+            "action":"list",
+            "session_id":"tui",
+            "after":{"updated_at":"invalid","id":"cut-1"}
+        }),
     )
     .is_err());
 }

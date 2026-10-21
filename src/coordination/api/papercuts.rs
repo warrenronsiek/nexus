@@ -6,7 +6,15 @@ use crate::coordination::domain::HookContext;
 use crate::papercuts::{
     DuplicateReview, Papercut, PapercutRegistry, PapercutReviewDecision, PapercutUpvote,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PapercutListCursor {
+    pub updated_at: DateTime<Utc>,
+    pub id: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -24,6 +32,8 @@ pub enum PapercutCommand {
         context: HookContext,
         #[serde(default)]
         project_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<PapercutListCursor>,
     },
     Dump {
         #[serde(flatten)]

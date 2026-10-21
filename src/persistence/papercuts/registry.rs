@@ -16,7 +16,7 @@ use crate::papercuts::{
     Papercut, PapercutActor, PapercutLifecycleEvent, PapercutLifecycleTransition, PapercutRegistry,
     PapercutReviewCandidate, PapercutStatus,
 };
-use crate::persistence::backend::DbConnection;
+use crate::persistence::backend::{DbBackend, DbConnection};
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -82,15 +82,16 @@ impl Store {
     }
 
     pub fn open_papercuts(&mut self, project_id: &str) -> Result<Vec<Papercut>> {
-        Ok(self.open_papercuts_window(project_id)?.items)
+        Ok(self.open_papercuts_window(project_id, None)?.items)
     }
 
     pub(crate) fn open_papercuts_window(
         &mut self,
         project_id: &str,
+        after: Option<&crate::coordination::api::PapercutListCursor>,
     ) -> Result<RecordWindow<Papercut>> {
         validate_project(project_id)?;
-        load_open_papercuts(&mut self.connection, project_id)
+        load_open_papercuts(&mut self.connection, project_id, after)
     }
 
     pub fn papercut_by_id(&mut self, project_id: &str, papercut_id: &str) -> Result<Papercut> {
@@ -180,17 +181,9 @@ pub(super) fn load_papercut(
 fn load_open_papercuts(
     connection: &mut DbConnection,
     project_id: &str,
+    after: Option<&crate::coordination::api::PapercutListCursor>,
 ) -> Result<RecordWindow<Papercut>> {
-    let rows = papercuts::table
-        .filter(papercuts::project_id.eq(project_id))
-        .filter(papercuts::status.eq("open"))
-        .order((papercuts::updated_at.desc(), papercuts::id.asc()))
-        .limit(query_window_limit(
-            crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS,
-        ))
-        .select(PapercutRow::as_select())
-        .load::<PapercutRow>(connection)?;
-    let rows = RecordWindow::bounded(rows, crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS);
+    let rows = select_open_page_rows(connection, project_id, after)?;
     let papercut_ids = rows
         .items
         .iter()
@@ -234,6 +227,38 @@ fn load_open_papercuts(
         items: papercuts_from_metrics(rows.items, metrics)?,
         truncated: rows.truncated,
     })
+}
+
+fn select_open_page_rows(
+    connection: &mut DbConnection,
+    project_id: &str,
+    after: Option<&crate::coordination::api::PapercutListCursor>,
+) -> Result<RecordWindow<PapercutRow>> {
+    let mut query = papercuts::table
+        .filter(papercuts::project_id.eq(project_id))
+        .filter(papercuts::status.eq("open"))
+        .into_boxed::<DbBackend>();
+    if let Some(after) = after {
+        let updated_at = after.updated_at.to_rfc3339();
+        query = query.filter(
+            papercuts::updated_at
+                .lt(updated_at.clone())
+                .or(papercuts::updated_at
+                    .eq(updated_at)
+                    .and(papercuts::id.gt(after.id.clone()))),
+        );
+    }
+    let rows = query
+        .order((papercuts::updated_at.desc(), papercuts::id.asc()))
+        .limit(query_window_limit(
+            crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS,
+        ))
+        .select(PapercutRow::as_select())
+        .load::<PapercutRow>(connection)?;
+    Ok(RecordWindow::bounded(
+        rows,
+        crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS,
+    ))
 }
 
 fn load_registry(

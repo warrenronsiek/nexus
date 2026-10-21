@@ -143,13 +143,54 @@ fn ordinary_open_list_has_a_recent_activity_cap_but_dump_remains_complete() {
             .unwrap();
     }
 
-    let listed = store.open_papercuts_window("project").unwrap();
+    let listed = store.open_papercuts_window("project", None).unwrap();
     let registry = store.papercut_registry(Some("project")).unwrap();
 
     assert_eq!(listed.items.len(), 32);
     assert!(listed.truncated);
     assert_eq!(registry.papercuts.len(), 33);
     assert_eq!(registry.upvotes.len(), 33);
+}
+
+#[test]
+fn open_list_cursor_reaches_every_older_report_in_bounded_pages() {
+    let mut store = Store::open_memory().unwrap();
+    for index in 0..65 {
+        store
+            .report_papercut(
+                "project",
+                &format!("Friction {index:03}"),
+                "Still cumbersome",
+                &actor(&format!("reporter-{index:03}")),
+            )
+            .unwrap();
+    }
+    diesel::update(papercuts::table.filter(papercuts::project_id.eq("project")))
+        .set(papercuts::updated_at.eq("2026-10-19T12:00:00+00:00"))
+        .execute(&mut store.connection)
+        .unwrap();
+
+    let mut all = Vec::new();
+    let mut after = None;
+    loop {
+        let page = store
+            .open_papercuts_window("project", after.as_ref())
+            .unwrap();
+        assert!(page.items.len() <= 32);
+        all.extend(page.items.iter().map(|cut| cut.id.clone()));
+        if !page.truncated {
+            break;
+        }
+        let last = page.items.last().unwrap();
+        after = Some(crate::coordination::api::PapercutListCursor {
+            updated_at: last.updated_at,
+            id: last.id.clone(),
+        });
+    }
+
+    let unique = all.iter().collect::<std::collections::HashSet<_>>();
+    assert_eq!(all.len(), 65);
+    assert_eq!(unique.len(), 65);
 }
 
 #[test]

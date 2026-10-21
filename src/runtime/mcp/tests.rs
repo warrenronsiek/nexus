@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+mod papercuts_schema;
 mod sos;
 
 fn configured_invoker(claim_ttl: Duration) -> ConfiguredInvoker {

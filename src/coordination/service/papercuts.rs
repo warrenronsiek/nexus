@@ -70,8 +70,9 @@ impl NexusService {
             PapercutCommand::List {
                 context,
                 project_id,
+                after,
             } => self
-                .list_papercuts(context, project_id, binding)
+                .list_papercuts(context, project_id, after, binding)
                 .map(Into::into),
             PapercutCommand::Dump { context, scope } => {
                 dump_registry(self, context, scope, binding).map(Into::into)
@@ -111,13 +112,16 @@ impl NexusService {
         &self,
         context: HookContext,
         project_id: Option<String>,
+        after: Option<crate::coordination::api::PapercutListCursor>,
         binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
         let project_id = match project_id {
             Some(id) => id,
             None => workspace::identify(binding, context.project_root.as_deref())?.id,
         };
-        let window = self.papercut_store()?.open_papercuts_window(&project_id)?;
+        let window = self
+            .papercut_store()?
+            .open_papercuts_window(&project_id, after.as_ref())?;
         Ok(PapercutResponse::Listed {
             ok: true,
             papercuts: window.items,

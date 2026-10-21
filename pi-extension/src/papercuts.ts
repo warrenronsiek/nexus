@@ -19,8 +19,9 @@ export interface Papercut {
   consolidated_into: string | null;
 }
 export interface PapercutsList { papercuts: Papercut[]; truncated: boolean }
+export interface PapercutCursor { updated_at: string; id: string }
 export interface PapercutsApi {
-  list(projectId: string | null, signal?: AbortSignal): Promise<PapercutsList>;
+  list(projectId: string | null, signal?: AbortSignal, after?: PapercutCursor): Promise<PapercutsList>;
 }
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -34,9 +35,10 @@ function isPapercut(value: unknown): value is Papercut {
 }
 export class NexusPapercutsApi implements PapercutsApi {
   constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
-  async list(projectId: string | null, signal?: AbortSignal): Promise<PapercutsList> {
+  async list(projectId: string | null, signal?: AbortSignal, after?: PapercutCursor): Promise<PapercutsList> {
     const value = await this.client.call("nexus_papercuts", {
       action: "list", ...(projectId === null ? {} : { project_id: projectId }),
+      ...(after === undefined ? {} : { after }),
     }, this.cwd, signal);
     if (!object(value) || value.ok !== true || value.action !== "listed" ||
       !Array.isArray(value.papercuts) || !value.papercuts.every(isPapercut) || typeof value.truncated !== "boolean") {

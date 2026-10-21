@@ -25,18 +25,30 @@ it("reads the selected project and browses sanitized papercut details", async ()
   await vi.waitFor(() => expect(pane.render(100).join("\n")).toContain("Slow checks"));
   expect(call).toHaveBeenCalledWith("nexus_papercuts", { action: "list", project_id: "project-1" }, "/repo", expect.any(AbortSignal));
   expect(pane.render(100).join("\n")).toContain("4 encounters");
-  expect(pane.render(100).join("\n")).toContain("more not shown");
+  expect(pane.render(100).join("\n")).toContain("↓ load older");
   pane.handleInput("\r");
   expect(pane.render(100).join("\n")).toContain("cut-1");
   expect(pane.render(100).join("\n")).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u);
   pane.handleInput("\u001b");
-  expect(pane.render(100).join("\n")).toContain("more not shown");
+  expect(pane.render(100).join("\n")).toContain("↓ load older");
   pane.dispose();
 });
 
 it("rejects malformed papercut responses", async () => {
   const api = new NexusPapercutsApi({ call: vi.fn(async () => ({ ok: true, action: "listed", papercuts: [{ ...issue, upvote_count: -1 }], truncated: false })) }, "/repo");
   await expect(api.list(null)).rejects.toThrow("unexpected response");
+});
+
+it("sends the selected project and page cursor through the MCP boundary", async () => {
+  const call = vi.fn(async () => ({ ok: true, action: "listed", papercuts: [], truncated: false }));
+  const api = new NexusPapercutsApi({ call }, "/repo");
+  const after = { updated_at: issue.updated_at, id: issue.id };
+
+  await api.list("project-1", undefined, after);
+
+  expect(call).toHaveBeenCalledWith("nexus_papercuts", {
+    action: "list", project_id: "project-1", after,
+  }, "/repo", undefined);
 });
 
 it("aborts an old project read and ignores its late result", async () => {
@@ -81,5 +93,85 @@ it("keeps truncated lists and details within narrow terminal widths", async () =
     expect(pane.render(width).every(line => visibleWidth(line) <= width)).toBe(true);
     pane.handleInput("\u001b");
   }
+  pane.dispose();
+});
+
+it("loads older open papercuts when navigation reaches the end of a bounded page", async () => {
+  const firstPage = Array.from({ length: 32 }, (_, index) => ({
+    ...issue,
+    id: `cut-${index}`,
+    title: `Recent cut ${index}`,
+  }));
+  const older = { ...issue, id: "cut-older", title: "Older imported papercut" };
+  const list = vi.fn()
+    .mockResolvedValueOnce({ papercuts: firstPage, truncated: true })
+    .mockResolvedValueOnce({ papercuts: [older], truncated: false });
+  const pane = new PapercutsPane({ requestRender: vi.fn() } as unknown as TUI,
+    { fg: (_color, text) => text, bold: text => text }, { list }, vi.fn());
+
+  pane.activate("project-1");
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
+  for (let index = 0; index < firstPage.length; index++) pane.handleInput("j");
+
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(list.mock.calls[1][2]).toEqual({
+    updated_at: firstPage.at(-1)?.updated_at,
+    id: firstPage.at(-1)?.id,
+  });
+  await vi.waitFor(() => expect(pane.render(100).join("\n")).toContain("Older imported papercut"));
+  expect(pane.render(100).join("\n")).toContain("33 open papercuts loaded");
+  pane.dispose();
+});
+
+it("loads the next page directly without scrolling through every visible row", async () => {
+  const older = { ...issue, id: "cut-older", title: "Older imported papercut" };
+  const list = vi.fn()
+    .mockResolvedValueOnce({ papercuts: [issue], truncated: true })
+    .mockResolvedValueOnce({ papercuts: [older], truncated: false });
+  const pane = new PapercutsPane({ requestRender: vi.fn() } as unknown as TUI,
+    { fg: (_color, text) => text, bold: text => text }, { list }, vi.fn());
+
+  pane.activate("project-1");
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
+  pane.handleInput("n");
+
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(pane.render(100).join("\n")).toContain("Older imported papercut");
+  pane.dispose();
+});
+
+it("keeps a later row selection when an older page finishes loading", async () => {
+  const first = { ...issue, id: "cut-first", title: "First papercut" };
+  const second = { ...issue, id: "cut-second", title: "Second papercut" };
+  const older = { ...issue, id: "cut-older", title: "Older papercut" };
+  let complete!: (value: { papercuts: typeof issue[]; truncated: boolean }) => void;
+  const olderPage = new Promise<{ papercuts: typeof issue[]; truncated: boolean }>(resolve => { complete = resolve; });
+  const list = vi.fn()
+    .mockResolvedValueOnce({ papercuts: [first, second], truncated: true })
+    .mockReturnValueOnce(olderPage);
+  const pane = new PapercutsPane({ requestRender: vi.fn() } as unknown as TUI,
+    { fg: (_color, text) => text, bold: text => text }, { list }, vi.fn());
+
+  pane.activate("project-1");
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
+  pane.handleInput("j");
+  pane.handleInput("n");
+  pane.handleInput("k");
+  expect(pane.render(100).join("\n")).toContain("› 4 encounters · First papercut");
+
+  complete({ papercuts: [older], truncated: false });
+  await vi.waitFor(() => expect(pane.render(100).join("\n")).toContain("Older papercut"));
+  expect(pane.render(100).join("\n")).toContain("› 4 encounters · First papercut");
+  pane.dispose();
+});
+
+it("explains how to retry when the first papercut read times out", async () => {
+  const pane = new PapercutsPane({ requestRender: vi.fn() } as unknown as TUI,
+    { fg: (_color, text) => text, bold: text => text },
+    { list: async () => { throw new Error("Nexus MCP request timed out after 5000ms"); } }, vi.fn());
+
+  pane.activate(null);
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("unavailable"));
+  expect(pane.render(100).join("\n")).toContain("r retry");
   pane.dispose();
 });
