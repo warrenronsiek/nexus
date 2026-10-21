@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tomllib
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -405,54 +406,65 @@ def token_shingles(tokens: Sequence[str], width: int = 5) -> set[tuple[str, ...]
     return {tuple(tokens[index : index + width]) for index in range(len(tokens) - width + 1)}
 
 
-def find_repetition(
-    root: Path,
-    units: Sequence[UnitMetric],
-    policy: RepetitionPolicy,
-) -> list[RepetitionCandidate]:
-    comparable_kinds = {"function", "method", "closure"}
-    tokenized: list[tuple[UnitMetric, tuple[str, ...]]] = []
-    for unit in units:
-        if unit.kind not in comparable_kinds:
-            continue
-        lines = (root / unit.path).read_text(encoding="utf-8").splitlines()
-        body = "\n".join(lines[max(unit.start_line - 1, 0) : unit.end_line])
-        tokens = normalized_tokens(body)
-        if len(tokens) >= policy.minimum_tokens:
-            tokenized.append((unit, tokens))
+class AnalysisPurpose(Enum):
+    REVIEW = "review"
+    ENFORCE = "enforce"
 
+
+@dataclass(frozen=True)
+class ComparableUnit:
+    unit: UnitMetric
+    tokens: tuple[str, ...]
+    shingles: frozenset[tuple[str, ...]]
+
+    def contains_or_is_contained_by(self, other: ComparableUnit) -> bool:
+        left, right = self.unit, other.unit
+        return left.path == right.path and (
+            (left.start_line <= right.start_line and left.end_line >= right.end_line)
+            or (right.start_line <= left.start_line and right.end_line >= left.end_line)
+        )
+
+
+def comparable_units(root: Path, units: Sequence[UnitMetric], minimum_tokens: int) -> list[ComparableUnit]:
+    lines_by_path: dict[str, list[str]] = {}
+    result: list[ComparableUnit] = []
+    for unit in units:
+        if unit.kind not in {"function", "method", "closure"}:
+            continue
+        if unit.path not in lines_by_path:
+            lines_by_path[unit.path] = (root / unit.path).read_text(encoding="utf-8").splitlines()
+        lines = lines_by_path[unit.path]
+        tokens = normalized_tokens("\n".join(lines[max(unit.start_line - 1, 0):unit.end_line]))
+        if len(tokens) >= minimum_tokens:
+            result.append(ComparableUnit(unit, tokens, frozenset(token_shingles(tokens))))
+    return result
+
+
+def compare_units(left: ComparableUnit, right: ComparableUnit, policy: RepetitionPolicy, purpose: AnalysisPurpose) -> RepetitionCandidate | None:
+    if left.contains_or_is_contained_by(right):
+        return None
+    total = len(left.tokens) + len(right.tokens)
+    upper_bound = 2 * min(len(left.tokens), len(right.tokens)) / total if total else 1.0
+    if purpose is AnalysisPurpose.ENFORCE and upper_bound < policy.fail_similarity:
+        return None
+    denominator = min(len(left.shingles), len(right.shingles))
+    containment = len(left.shingles & right.shingles) / denominator if denominator else 0.0
+    if purpose is AnalysisPurpose.ENFORCE and containment < policy.fail_similarity:
+        return None
+    sequence = difflib.SequenceMatcher(None, left.tokens, right.tokens, autojunk=False).ratio()
+    candidate = RepetitionCandidate(left.unit.label(), right.unit.label(), len(left.tokens), len(right.tokens), sequence, containment)
+    accepted = candidate.breaches(policy.fail_similarity) if purpose is AnalysisPurpose.ENFORCE else candidate.similarity() >= policy.warning_similarity
+    return candidate if accepted else None
+
+
+def find_repetition(root: Path, units: Sequence[UnitMetric], policy: RepetitionPolicy, purpose: AnalysisPurpose = AnalysisPurpose.REVIEW) -> list[RepetitionCandidate]:
+    comparable = comparable_units(root, units, policy.minimum_tokens)
     candidates: list[RepetitionCandidate] = []
-    for left_index, (left, left_tokens) in enumerate(tokenized):
-        for right, right_tokens in tokenized[left_index + 1 :]:
-            ranges_overlap_by_containment = left.path == right.path and (
-                (left.start_line <= right.start_line and left.end_line >= right.end_line)
-                or (
-                    right.start_line <= left.start_line
-                    and right.end_line >= left.end_line
-                )
-            )
-            if ranges_overlap_by_containment:
-                continue
-            sequence = difflib.SequenceMatcher(
-                None, left_tokens, right_tokens, autojunk=False
-            ).ratio()
-            left_shingles = token_shingles(left_tokens)
-            right_shingles = token_shingles(right_tokens)
-            denominator = min(len(left_shingles), len(right_shingles))
-            containment = (
-                len(left_shingles & right_shingles) / denominator if denominator else 0.0
-            )
-            if max(sequence, containment) >= policy.warning_similarity:
-                candidates.append(
-                    RepetitionCandidate(
-                        left=left.label(),
-                        right=right.label(),
-                        left_tokens=len(left_tokens),
-                        right_tokens=len(right_tokens),
-                        sequence_similarity=sequence,
-                        shingle_containment=containment,
-                    )
-                )
+    for index, left in enumerate(comparable):
+        for right in comparable[index + 1:]:
+            candidate = compare_units(left, right, policy, purpose)
+            if candidate is not None:
+                candidates.append(candidate)
     return sorted(candidates, key=lambda candidate: candidate.similarity(), reverse=True)
 
 
@@ -530,6 +542,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def selected_units(root: Path, paths: Sequence[Path], weights: RankingWeights, symbol: str | None) -> list[UnitMetric]:
+    units = collect_units(root, run_bca_metrics(root, paths), weights)
+    if symbol is not None:
+        units = [unit for unit in units if unit.name == symbol]
+        if not units:
+            raise AnalysisError(f"symbol not found in selected scope: {symbol}")
+    return units
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parse_args(argv)
     root = arguments.root.resolve()
@@ -538,12 +559,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         paths = select_paths(root, arguments.feature, arguments.path)
         if not paths:
             raise AnalysisError("the selected scope has no BCA-analyzable source files")
-        units = collect_units(root, run_bca_metrics(root, paths), policy.ranking)
-        if arguments.symbol is not None:
-            units = [unit for unit in units if unit.name == arguments.symbol]
-            if not units:
-                raise AnalysisError(f"symbol not found in selected scope: {arguments.symbol}")
-        candidates = find_repetition(root, units, policy.repetition)
+        units = selected_units(root, paths, policy.ranking, arguments.symbol)
+        purpose = AnalysisPurpose.ENFORCE if arguments.check else AnalysisPurpose.REVIEW
+        candidates = find_repetition(root, units, policy.repetition, purpose)
         violations = [
             candidate
             for candidate in candidates
@@ -561,6 +579,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 json.dumps(
                     {
                         "scope": scope,
+                        "comparison": purpose.value,
                         "formula": RANKING_FORMULA,
                         "units": [unit_document(unit) for unit in units],
                         "repetition": [
@@ -579,6 +598,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
         else:
+            print(f"comparison: {purpose.value} (omit --check for advisory comparisons)")
             print_text(scope, units, candidates, arguments.limit)
 
         bca_status = run_bca_check(root, paths) if arguments.check else 0

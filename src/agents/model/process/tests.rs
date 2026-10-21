@@ -30,10 +30,10 @@ fn invoke_claude(
     timeout: Duration,
 ) -> Result<String> {
     Invocation {
+        scope: InvocationScope::ReadOnly(working_directory),
         provider: ModelProvider::Claude,
         model,
         prompt,
-        working_directory,
         timeout,
     }
     .run()

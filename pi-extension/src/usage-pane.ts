@@ -13,6 +13,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { UsageItem, UsageSummary } from "./domain.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import { UsagePoller, type UsageLoader } from "./polling.ts";
+import { AnalyticsBrowser, type AnalyticsApi } from "./analytics.ts";
 import { renderUsageBars } from "./usage.ts";
 
 export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts";
@@ -54,7 +55,11 @@ function captureHealth(usage: UsageSummary): string {
     .join(" · "));
 }
 
+export interface AnalyticsOptions { loadAnalyticsUsage?: UsageLoader; analyticsApi?: AnalyticsApi }
+
 export class UsagePane implements Component {
+  private browser?: AnalyticsBrowser;
+  private project: string | null = null;
   private tab: UsageTab = "tools";
   private status = "not loaded";
   private usage: UsageSummary | undefined;
@@ -64,10 +69,13 @@ export class UsagePane implements Component {
     private readonly theme: Theme,
     load: UsageLoader,
     private readonly updated: () => void,
+    options: AnalyticsOptions = {},
   ) {
-    this.poller = new UsagePoller(load, (update) => {
+    if (options.analyticsApi) this.browser = new AnalyticsBrowser(options.analyticsApi, updated);
+    this.poller = new UsagePoller((project, signal) => this.tab === "tools" && options.loadAnalyticsUsage ? options.loadAnalyticsUsage(project, signal) : load(project, signal), (update) => {
       this.usage = update.usage;
       this.status = update.status;
+      if (update.usage?.analytics) this.browser?.update(update.usage.analytics, this.project);
       this.updated();
     });
   }
@@ -76,40 +84,53 @@ export class UsagePane implements Component {
     if (this.usage === undefined) {
       return [` ${this.theme.fg("muted", "Waiting for observed usage…")}`];
     }
+    if (this.tab === "tools" && this.usage.analytics && !this.browser?.legacy && this.browser) return this.browser.render(width);
+    const warning = this.tab === "tools" && this.usage.analytics_error ? [this.usage.analytics_error, ""] : [];
     const items: readonly UsageItem[] = this.tab === "tools"
       ? this.usage.tools
       : this.usage.skills;
     const lines = renderUsageBars(items, Math.max(1, width - 2)).map((line) => ` ${line}`);
     const health = captureHealth(this.usage);
     return health.length === 0
-      ? lines
-      : [...lines, "", ` ${this.theme.fg("dim", `Capture health · ${health}`)}`];
+      ? [...warning, ...lines]
+      : [...warning, ...lines, "", ` ${this.theme.fg("dim", `Capture health · ${health}`)}`];
   }
+
+  handleInput(data: string): boolean { return this.tab === "tools" && this.usage?.analytics !== undefined && this.browser?.handleInput(data) === true; }
 
   invalidate(): void {}
 
   activate(tab: UsageTab, projectId: string | null): void {
     this.tab = tab;
+    if (projectId !== this.project) { this.browser?.clear(); this.usage = undefined; }
+    this.project = projectId;
     this.poller.activate(projectId);
   }
 
   show(tab: UsageTab): void {
+    this.browser?.deactivate();
     this.tab = tab;
+    this.poller.activate(this.project);
   }
 
   deactivate(): void {
+    this.browser?.deactivate();
     this.poller.deactivate();
   }
 
   setScope(projectId: string | null): void {
+    if (projectId !== this.project) { this.browser?.clear(); this.usage = undefined; }
+    this.project = projectId;
     this.poller.setScope(projectId);
   }
 
   refresh(): void {
+    this.browser?.refresh();
     this.poller.manualRefresh();
   }
 
   dispose(): void {
+    this.browser?.deactivate();
     this.poller.dispose();
   }
 

@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature analyst
 // @feature commit-review
 // @feature agent-memory
@@ -96,11 +98,25 @@ fn ensure_in_process_provider_execution_allowed(disabled: bool) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum InvocationScope<'a> {
+    ReadOnly(Option<&'a Path>),
+    Classification,
+}
+impl<'a> InvocationScope<'a> {
+    fn working_directory(self) -> Option<&'a Path> {
+        match self {
+            Self::ReadOnly(directory) => directory,
+            Self::Classification => None,
+        }
+    }
+}
+
 pub(super) struct Invocation<'a> {
+    pub(super) scope: InvocationScope<'a>,
     pub(super) provider: ModelProvider,
     pub(super) model: &'a ModelConfig,
     pub(super) prompt: &'a str,
-    pub(super) working_directory: Option<&'a Path>,
     pub(super) timeout: Duration,
 }
 
@@ -119,8 +135,11 @@ impl Invocation<'_> {
             .checked_add(self.timeout)
             .context("model timeout exceeds the supported monotonic clock range")?;
         let mut command = provider::command(self.provider, self.model);
+        if matches!(self.scope, InvocationScope::Classification) {
+            provider::restrict_classification(&mut command, self.provider);
+        }
         let isolated_directory;
-        let directory = match self.working_directory.filter(|path| path.is_dir()) {
+        let directory = match self.scope.working_directory().filter(|path| path.is_dir()) {
             Some(directory) => directory,
             None => {
                 isolated_directory =

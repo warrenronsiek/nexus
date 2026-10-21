@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature runtime
 // @feature configuration
 // @feature sos
@@ -56,7 +58,13 @@ impl RemoteResponsePolicy {
     }
 }
 
+enum LocalServicePolicy {
+    RequireRunning,
+    EnsureRunning,
+}
+
 pub struct NexusClient {
+    analytics: Option<super::analytics::ClientAnalytics>,
     loaded: Arc<LoadedConfig>,
     explicit_config: Option<PathBuf>,
     http: reqwest::Client,
@@ -75,7 +83,17 @@ impl NexusClient {
     }
 
     pub(crate) fn from_shared(loaded: Arc<LoadedConfig>, explicit_config: Option<PathBuf>) -> Self {
+        let mut client = Self::without_analytics(loaded.clone(), explicit_config.clone());
+        client.analytics = super::analytics::ClientAnalytics::start(loaded, explicit_config);
+        client
+    }
+
+    pub(crate) fn without_analytics(
+        loaded: Arc<LoadedConfig>,
+        explicit_config: Option<PathBuf>,
+    ) -> Self {
         Self {
+            analytics: None,
             loaded,
             explicit_config,
             http: reqwest::Client::builder()
@@ -90,22 +108,43 @@ impl NexusClient {
     }
 
     pub async fn request(&self, request: &ServiceRequest) -> Result<Value> {
-        match &self.loaded.config.client {
-            ClientConfig::Local => {
-                daemon::request(&self.loaded.config.runtime.socket_path, request).await
-            }
-            ClientConfig::Remote(remote) => self.remote_request(remote, request).await,
-        }
+        self.send_request(request, LocalServicePolicy::RequireRunning)
+            .await
     }
-
     pub async fn ensure_and_request(&self, request: &ServiceRequest) -> Result<Value> {
-        match &self.loaded.config.client {
-            ClientConfig::Local => {
-                daemon::ensure_and_request(&self.loaded, self.explicit_config.as_deref(), request)
+        self.send_request(request, LocalServicePolicy::EnsureRunning)
+            .await
+    }
+    async fn send_request(
+        &self,
+        request: &ServiceRequest,
+        policy: LocalServicePolicy,
+    ) -> Result<Value> {
+        let result = match &self.loaded.config.client {
+            ClientConfig::Local => match policy {
+                LocalServicePolicy::RequireRunning => {
+                    daemon::request(&self.loaded.config.runtime.socket_path, request).await
+                }
+                LocalServicePolicy::EnsureRunning => {
+                    daemon::ensure_and_request(
+                        &self.loaded,
+                        self.explicit_config.as_deref(),
+                        request,
+                    )
                     .await
-            }
+                }
+            },
             ClientConfig::Remote(remote) => self.remote_request(remote, request).await,
+        };
+        if result.as_ref().is_ok_and(|value| {
+            value.get("recorded").and_then(Value::as_bool) == Some(true)
+                || value.get("ok").and_then(Value::as_bool) == Some(true)
+        }) {
+            if let Some(analytics) = &self.analytics {
+                analytics.observe(request);
+            }
         }
+        result
     }
 
     pub async fn lifecycle_request(&self, request: &ServiceRequest) -> Value {

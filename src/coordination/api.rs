@@ -9,6 +9,7 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 // @boundary dynamic-json
+mod analytics;
 mod memory;
 mod papercuts;
 mod responses;
@@ -74,6 +75,7 @@ pub enum ServiceRequest {
     MemoryConsolidate,
     Papercuts(PapercutCommand),
     Sos(SosCommand),
+    Analytics(crate::analytics::types::AnalyticsCommand),
     Config,
 }
 
@@ -224,6 +226,7 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
 
 fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
     match method {
+        "analytics" => analytics::decode_analytics(params),
         "resolve" => decode(params).map(ServiceRequest::Resolve),
         "release" => decode(params).map(ServiceRequest::Release),
         "analyze" => decode(params).map(ServiceRequest::Analyze),
@@ -309,7 +312,8 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::MemoryInvalidate(_)
         | ServiceRequest::MemoryConsolidate
         | ServiceRequest::Papercuts(_)
-        | ServiceRequest::Sos(_) => RequestFamily::Command,
+        | ServiceRequest::Sos(_)
+        | ServiceRequest::Analytics(_) => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
         | ServiceRequest::Usage(_)
@@ -353,6 +357,7 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::MemoryConsolidate => Ok(empty("memory_consolidate")),
         ServiceRequest::Papercuts(command) => encode("papercuts", command),
         ServiceRequest::Sos(command) => encode("sos", command),
+        ServiceRequest::Analytics(command) => encode("analytics", command),
         _ => unreachable!("request family was selected before encoding"),
     }
 }
@@ -388,6 +393,7 @@ const READ_METHODS: &[&str] = &[
     "memory_expand",
 ];
 const COMMAND_METHODS: &[&str] = &[
+    "analytics",
     "resolve",
     "release",
     "analyze",

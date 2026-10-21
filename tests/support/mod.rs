@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature coordination
 // @feature persistence
 // @feature runtime
@@ -40,6 +42,7 @@ struct HarnessOptions<'a> {
     analyst_command: Option<&'a Path>,
     codex_command: Option<&'a Path>,
     analyst_enabled: bool,
+    classification_enabled: bool,
     claim_ttl_seconds: i64,
     consolidation_interval_seconds: u64,
     timeout_seconds: u64,
@@ -51,6 +54,7 @@ impl Harness {
             analyst_command: None,
             codex_command: None,
             analyst_enabled: false,
+            classification_enabled: false,
             claim_ttl_seconds: 120,
             consolidation_interval_seconds: 15,
             timeout_seconds: 60,
@@ -62,6 +66,7 @@ impl Harness {
             analyst_command: None,
             codex_command: None,
             analyst_enabled: false,
+            classification_enabled: false,
             claim_ttl_seconds,
             consolidation_interval_seconds: 15,
             timeout_seconds: 60,
@@ -76,6 +81,7 @@ impl Harness {
             analyst_command,
             codex_command: None,
             analyst_enabled: analyst_command.is_some(),
+            classification_enabled: false,
             claim_ttl_seconds,
             consolidation_interval_seconds: 15,
             timeout_seconds: 60,
@@ -92,6 +98,7 @@ impl Harness {
             analyst_command: Some(claude_command),
             codex_command: Some(codex_command),
             analyst_enabled: false,
+            classification_enabled: false,
             claim_ttl_seconds: 120,
             consolidation_interval_seconds,
             timeout_seconds,
@@ -309,6 +316,7 @@ fn test_config(
         .unwrap_or_else(|| "codex".into());
     let HarnessOptions {
         analyst_enabled,
+        classification_enabled,
         claim_ttl_seconds,
         consolidation_interval_seconds,
         timeout_seconds,
@@ -324,6 +332,8 @@ database_path = '{}'
 [runtime]
 socket_path = '{}'
 lock_path = '{}'
+[analytics]
+classification_enabled = {classification_enabled}
 [analyst]
 enabled = {analyst_enabled}
 provider = "claude"
@@ -396,4 +406,16 @@ fn clear_git_environment(command: &mut Command) {
     ] {
         command.env_remove(variable);
     }
+}
+
+pub fn start_classifier_harness(command: &Path) -> Harness {
+    Harness::start_with_options(HarnessOptions {
+        analyst_command: Some(command),
+        codex_command: Some(command),
+        analyst_enabled: false,
+        classification_enabled: true,
+        claim_ttl_seconds: 120,
+        consolidation_interval_seconds: 15,
+        timeout_seconds: 30,
+    })
 }

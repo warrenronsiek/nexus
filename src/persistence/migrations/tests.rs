@@ -3,7 +3,7 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 10;
+const CURRENT_SCHEMA_VERSION: u64 = 11;
 
 struct ThroughVersion(u64);
 
@@ -544,4 +544,42 @@ fn upgrades_v7_coordination_projections_to_enforced_storage_bounds() {
     assert_session_bound_enforced(&mut connection, &fixture);
     assert_claim_bound_enforced(&mut connection, &session_id, fixture.now);
     assert_conflict_bound_enforced(&mut connection);
+}
+
+#[test]
+fn upgrades_v10_with_empty_activity_projections() {
+    use super::super::schema::{
+        analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
+        analytics_resources, analytics_revisions,
+    };
+    let (_temp, path) = database_through("upgrade-v10.db", 10);
+    assert_current_version(&path);
+    let mut connection = establish_connection(path.to_str().unwrap()).unwrap();
+    let counts = [
+        analytics_calls::table
+            .count()
+            .get_result::<i64>(&mut connection)
+            .unwrap(),
+        analytics_actions::table
+            .count()
+            .get_result::<i64>(&mut connection)
+            .unwrap(),
+        analytics_exposures::table
+            .count()
+            .get_result::<i64>(&mut connection)
+            .unwrap(),
+        analytics_resources::table
+            .count()
+            .get_result::<i64>(&mut connection)
+            .unwrap(),
+        analytics_categories::table
+            .count()
+            .get_result::<i64>(&mut connection)
+            .unwrap(),
+        analytics_revisions::table
+            .count()
+            .get_result::<i64>(&mut connection)
+            .unwrap(),
+    ];
+    assert_eq!(counts, [0; 6]);
 }

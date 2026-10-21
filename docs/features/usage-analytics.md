@@ -51,3 +51,44 @@ The usage read first selects the 64 highest-count `(kind, name)` dimensions in d
 Runtime exposes lifecycle ingestion and typed usage reads through MCP. Direct Streamable HTTP clients do not receive filesystem-derived evidence automatically because the remote service never opens `X-Nexus-Project-Root`; they must use or reproduce the companion-side observation contract if they need it. The Pi extension modules own automatic host-event forwarding, independent analytics polling, shared tab state, and terminal bar rendering for Pi and the bundled native host.
 
 Existing dashboard event windows are not an analytics source. Usage aggregation runs separately and less frequently so the high-frequency coordination dashboard does not increase lifecycle-store contention.
+
+## Activities, availability, and opportunities
+
+The Tools tab starts with **Activities**, with separate **Capabilities**, **Opportunities**, and **Legacy** views. Skills retain their own tab. Activities answer what work was attempted; capabilities retain the concrete host tool, CLI operation, or repository script. The legacy projection stays available for older observations. Historical shell arguments were deliberately never saved, so Nexus cannot reconstruct their intent or fabricate historical availability.
+
+```mermaid
+flowchart LR
+    H[Host lifecycle] --> F[Exact invocation facts]
+    H --> D[Conservative CLI and named-script resolution]
+    I[Host and repository inventory] --> E[Availability evidence]
+    D --> A[Identified operations]
+    H --> R[Local redaction and bounded memory queues]
+    I --> R
+    R --> B[Server reserves a daily classification budget]
+    B --> M[Local companion invokes restricted classifier]
+    M --> L[Validated category and purpose labels]
+    L --> A
+    L --> E
+    F --> Q[Seven-day activity and capability reads]
+    A --> Q
+    E --> Q
+    Q --> O[Recurring alternative implementations]
+    Q --> T[Terminal summary, lists, and paged details]
+    O --> T
+```
+
+The invocation fact keeps the original host tool name and caller namespace, outcome, parent relationship, and timestamps. Starts remain visible if completion never arrives. A completion identifies at most 64 operations. Deterministic CLI rules use bounded, known verbs rather than private arguments. Standard commands remain CLI capabilities even when their precise purpose needs inference; unknown executables keep unknown origin. Native named tools retain their identity when they accept code or command arguments. Inline-program provenance is reserved for generic execution tools, and a repository script that shadows a standard CLI is counted once. A named repository script keeps its relative identity. A pre-execution snapshot of `scripts/`, `tools/`, and `.githooks/` distinguishes scripts already supplied from scripts introduced during that session; incomplete snapshots or paths outside that coverage yield unknown origin. Repository scans visit at most 1,024 entries, return at most 256 resources, and stop after 25 milliseconds. Metadata fingerprints invalidate a named script's classification after edits.
+
+Calls and operations are different denominators. A call may identify multiple operations and occur in multiple categories. Parents with observed children retain their exact capability use but do not add activity operations. The API never computes a misleading adoption percentage. A capability with zero uses and observed exposure is distinguishable from one whose availability is unknown. Exposure counts mean the resource was offered or discoverable at some point in that session; they do not prove availability at each invocation. A later inventory change does not erase earlier exposure evidence.
+
+Pi reports its configured tool catalog, active tools, descriptions, and definition fingerprints at session start and when changed, with periodic retries during subsequent tool calls. SDKs that do not provide this inventory keep unknown host-tool availability. Codex and Claude still contribute concrete observed tool identities, deterministic CLI activity, script provenance, and semantic classification through the stdio companion; their host-wide inventories are not invented. Direct HTTP lifecycle clients contribute facts but need the companion (or the explicit inventory/classification reporting contract) for local enrichment. `nexus exec` observations remain in Legacy.
+
+The local companion owns classification so a shared service never acquires filesystem access or executes model providers. It removes outputs and errors before normalization. It redacts literals, comments, absolute paths, URLs, environment assignments, and opaque tokens from bounded input, retaining safe known CLI operation names embedded in programs. Redaction is conservative best effort; custom identifiers may still reach the configured provider. Named-script source is read only beside the checkout, within the checkout, and bounded to 8 KiB. No source, command, argument, environment value, output, error text, or classifier prompt is stored in the analytics projection or transmitted by the classification-report API. Only validated generic category labels, short purpose descriptions, fingerprints, and provenance persist.
+
+Classification uses the analyst provider/model configuration independently of `analyst.enabled`. It runs from an isolated temporary working directory with the CLI's operational tools, child-agent delegation, MCP integrations, hooks, web access, and session persistence disabled. The Codex classifier ignores unrelated user configuration and execpolicy rules while preserving authentication and the explicit Nexus provider/model settings. It receives no Nexus service secrets. A model result describes inferred intent, not proof that a branch in an inline program executed. Unclear, failed, expired, or dropped work remains explicitly unclassified. Queue saturation and model failures never change a lifecycle response. Actual observations have a separate bounded queue and priority over catalog enrichment. Transient inputs expire after two minutes and disappear when the companion exits; they are never queued on disk.
+
+The server reserves at most one attempt per project/pattern/policy/day and enforces a global daily budget (default 128). Classification defaults to a 30-second timeout and can be disabled under `[analytics]`. A report must match a reserved subject and source fingerprint. Repeated matching actions reuse labels. Known tool definitions supply categories to later calls without another per-call model call; these carry separate definition evidence. Deferred enrichment only fills invocations from the matching definition version, preserving earlier unknown observations after a definition changes. Classification revisions retain the classifier model and policy version; facts remain independent of taxonomy. Categories are automatically created as needed; `nexus_analytics` also supports category rename and merge. Merged IDs redirect future observations and supplied-tool comparisons.
+
+`nexus_analytics` exposes summary, catalog, opportunities, examples, categories, inventory, classification reservation/reporting, rename, and merge actions. Reads respect authenticated project binding. The catalog pages 32 resources by default (maximum 64), including zero-use entries; implementations page 32 records. Summaries expose their top-64 truncation. Opportunity matching uses up to 4,096 session/category memberships and offered-resource memberships and marks truncation. Suggestions compare categories only in matching observed sessions; a category match is a lead, not a guarantee of suitability. A CLI is identified as a standard CLI, not mislabeled as an agent-written program.
+
+Migration V11 adds separate call, operation, resource, exposure, category, and revision projections on SQLite and PostgreSQL. Portable stream version 3 includes all six tables and still accepts complete version-2 streams. Both terminal hosts share the same browser and polling lifecycle, abort scope changes and superseded requests, preserve successful data on errors, sanitize terminal text, and disclose provenance/model metadata on demand.

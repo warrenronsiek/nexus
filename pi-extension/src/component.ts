@@ -50,11 +50,12 @@ import {
   UsagePane,
   type DashboardTab,
   type UsageTab,
+  type AnalyticsOptions,
 } from "./usage-pane.ts";
 
 export { nextDashboardTab } from "./usage-pane.ts";
 
-interface DashboardOptions {
+interface DashboardOptions extends AnalyticsOptions {
   loadSnapshot: SnapshotLoader;
   loadUsage: UsageLoader;
   papercutsApi: PapercutsApi;
@@ -171,7 +172,8 @@ function footerHint(tab: DashboardTab, page: Page): string {
   if (tab === "memory") {
     return "tab switch · ↑↓ navigate · enter expand/detail · / search · a add · f invalidate summary · c retry consolidation · r refresh · q close";
   }
-  if (tab === "tools" || tab === "skills") {
+  if (tab === "tools") return "1 activities · 2 capabilities · 3 opportunities · 4 legacy · ↑↓ select · enter detail · n/p pages · esc back · r refresh · q close";
+  if (tab === "skills") {
     return "tab/shift-tab switch · esc coordination · r refresh · q close";
   }
   return page.kind === "detail"
@@ -325,7 +327,7 @@ export class NexusDashboardComponent implements Component {
     this.usagePane = new UsagePane(theme, options.loadUsage, () => {
       this.rebuild();
       this.tui.requestRender();
-    });
+    }, options);
     this.memoryPane = new MemoryPane(
       tui,
       theme,
@@ -348,6 +350,7 @@ export class NexusDashboardComponent implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.tab === "tools" && this.usagePane.handleInput(data)) return;
     const command = dashboardCommand(data, this.tab);
     switch (command) {
       case "quit": this.options.done(); break;

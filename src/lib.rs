@@ -7,6 +7,7 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 pub mod agents;
+pub(crate) mod analytics;
 pub mod config;
 pub mod coordination;
 mod git_process;

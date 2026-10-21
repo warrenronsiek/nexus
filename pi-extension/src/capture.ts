@@ -11,6 +11,7 @@ import type {
   ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { NexusMcpClient } from "./mcp-client.ts";
+import { inventoryCapture } from "./inventory-capture.ts";
 import { lifecycleArguments } from "./host-context.ts";
 
 export type AnalyticsTransport = Pick<NexusMcpClient, "call" | "close">;
@@ -50,7 +51,16 @@ export function registerAnalyticsCapture(
   transport: AnalyticsTransport = new NexusMcpClient(),
 ): void {
   let skillSequence = 0;
+  const captureInventory = inventoryCapture(pi);
+  const reportInventory = (context: ExtensionContext): void => {
+    try {
+      const snapshot = captureInventory(context);
+      if (snapshot !== undefined) sendBestEffort(transport, "nexus_analytics", snapshot, context.cwd);
+    } catch { /* Inventory discovery cannot change host execution. */ }
+  };
+  pi.on("session_start", (_event, context) => reportInventory(context));
   pi.on("tool_call", (event, context) => {
+    reportInventory(context);
     sendBestEffort(
       transport,
       "nexus_pre_tool_use",

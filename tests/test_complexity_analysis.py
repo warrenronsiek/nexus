@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
 
 
 def load_complexity_analysis() -> ModuleType:
@@ -125,6 +126,37 @@ class ComplexityAnalysisTests(unittest.TestCase):
         ]
 
         self.assertEqual(analysis.declaration_count(source, lines, 1, 4), 4)
+
+    def test_enforcement_preserves_every_full_report_violation(self) -> None:
+        analysis = load_complexity_analysis()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = ["fn alpha() { let x = 1; let y = 2; x + y }", "fn beta() { let p = 3; let q = 4; p + q }", "fn other() { if true { loop { break; } } }", "", ""]
+            units = []
+            for index, source in enumerate(sources):
+                name = f"unit{index}.rs"
+                (root / name).write_text(source)
+                units.append(analysis.UnitMetric(name, name, "function", 1, 1, 0, 0.0, {}))
+            for minimum in (0, 4):
+                policy = analysis.RepetitionPolicy(minimum, 0.5, 0.96)
+                expected = [candidate for candidate in analysis.find_repetition(root, units, policy) if candidate.breaches(policy.fail_similarity)]
+                actual = analysis.find_repetition(root, units, policy, analysis.AnalysisPurpose.ENFORCE)
+                self.assertTrue(expected)
+                self.assertEqual(actual, expected)
+
+    def test_enforcement_avoids_sequence_work_for_provably_nonmatching_pairs(self) -> None:
+        analysis = load_complexity_analysis()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = ["fn long() { " + "let x = 1; " * 60 + "}", "fn short() { return 0; }"]
+            units = []
+            for index, source in enumerate(sources):
+                name = f"unit{index}.rs"
+                (root / name).write_text(source)
+                units.append(analysis.UnitMetric(name, name, "function", 1, 1, 0, 0.0, {}))
+            with patch.object(analysis.difflib, "SequenceMatcher", side_effect=AssertionError("unnecessary sequence comparison")):
+                candidates = analysis.find_repetition(root, units, analysis.RepetitionPolicy(4, 0.5, 0.96), analysis.AnalysisPurpose.ENFORCE)
+            self.assertEqual(candidates, [])
 
 
 if __name__ == "__main__":

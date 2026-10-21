@@ -22,6 +22,19 @@ pub(crate) fn detect_script_invocations(
         .unwrap_or_default()
 }
 
+pub(crate) fn command_words(command: &str) -> Vec<Vec<String>> {
+    if command.len() > MAX_SCRIPT_COMMAND_BYTES {
+        return Vec::new();
+    }
+    shell_segments(command)
+        .into_iter()
+        .filter_map(|segment| {
+            let words = shell_words::split(&segment.command).ok()?;
+            unwrap_command(strip_assignments(&words)).map(|words| words.to_vec())
+        })
+        .collect()
+}
+
 struct ScriptDetector {
     project_root: PathBuf,
     working_directory: PathBuf,

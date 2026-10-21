@@ -24,6 +24,7 @@ use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 
 use uuid::Uuid;
 
+mod analytics_schema;
 mod reconciliation;
 mod tool_definitions;
 #[cfg(test)]

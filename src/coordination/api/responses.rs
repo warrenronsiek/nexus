@@ -52,6 +52,7 @@ pub enum ServiceResponse {
     MemoryConsolidation(MemoryConsolidationReport),
     Papercuts(Box<PapercutResponse>),
     Sos(Box<SosResponse>),
+    Analytics(crate::analytics::types::AnalyticsResponse),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),
 }

@@ -11,7 +11,7 @@
 // @entrypoint pi-extension
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAnalyticsCapture } from "./capture.ts";
-import { fetchSnapshot, fetchUsage } from "./client.ts";
+import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
@@ -47,6 +47,8 @@ export default function nexusExtension(pi: ExtensionAPI): void {
                 fetchSnapshot(client, ctx.cwd, projectId, signal),
               loadUsage: (projectId, signal) =>
                 fetchUsage(client, ctx.cwd, projectId, signal),
+              loadAnalyticsUsage: (projectId, signal) => fetchAnalyticsUsage(client, ctx.cwd, projectId, signal),
+              analyticsApi: new NexusAnalyticsApi(client, ctx.cwd),
               papercutsApi: new NexusPapercutsApi(client, ctx.cwd),
               sosApi,
               memoryApi,

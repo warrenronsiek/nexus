@@ -384,3 +384,93 @@ diesel::allow_tables_to_appear_in_same_query!(
     sos_reports,
     sos_triage_attempts
 );
+
+diesel::table! {
+    analytics_calls (id) {
+        id -> Text,
+        project_id -> Text,
+        agent -> Text,
+        session_key -> Text,
+        invocation_id -> Text,
+        parent_id -> Nullable<Text>,
+        tool_name -> Text,
+        outcome -> Text,
+        observed_at -> Text,
+        completed_at -> Nullable<Text>,
+    }
+}
+diesel::table! {
+    analytics_actions (id) {
+        id -> Text,
+        call_id -> Text,
+        project_id -> Text,
+        session_key -> Text,
+        resource_key -> Text,
+        name -> Text,
+        kind -> Text,
+        origin -> Text,
+        category_id -> Text,
+        description -> Text,
+        pattern_key -> Text,
+        resource_version -> Nullable<Text>,
+        evidence -> Text,
+        model_id -> Nullable<Text>,
+        observed_at -> Text,
+    }
+}
+diesel::table! {
+    analytics_exposures (id) {
+        id -> Text,
+        project_id -> Text,
+        session_key -> Text,
+        scope -> Text,
+        resource_key -> Text,
+        name -> Text,
+        kind -> Text,
+        origin -> Text,
+        exposure -> Text,
+        version -> Nullable<Text>,
+        description -> Text,
+        activities_json -> Text,
+        first_seen -> Text,
+        last_seen -> Text,
+        active -> Bool,
+    }
+}
+diesel::table! {
+    analytics_categories (id) {
+        id -> Text,
+        name -> Text,
+        definition -> Text,
+        replaced_by -> Nullable<Text>,
+        created_at -> Text,
+        updated_at -> Text,
+    }
+}
+diesel::table! {
+    analytics_revisions (id) {
+        id -> Text,
+        action_id -> Text,
+        category_id -> Text,
+        description -> Text,
+        evidence -> Text,
+        model_id -> Nullable<Text>,
+        policy_version -> Text,
+        created_at -> Text,
+    }
+}
+
+diesel::table! {
+    analytics_resources (id) {
+        id -> Text, project_id -> Text, resource_key -> Text, name -> Text, kind -> Text,
+        origin -> Text, description -> Text, activities_json -> Text, version -> Nullable<Text>, first_seen -> Text, last_seen -> Text,
+    }
+}
+diesel::allow_tables_to_appear_in_same_query!(
+    analytics_calls,
+    analytics_actions,
+    analytics_exposures,
+    analytics_categories,
+    analytics_revisions,
+    analytics_resources
+);
