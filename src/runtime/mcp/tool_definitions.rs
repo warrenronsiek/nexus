@@ -66,11 +66,22 @@ fn coordination_tool_definitions() -> Vec<Value> {
 fn papercut_tool_definition() -> Value {
     json!({
         "name":"nexus_papercuts",
-        "description":"List, dump, report, upvote, remove, or respond to project development-environment papercuts. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
+        "description":"List, dump, report, upvote, remove, or respond to project development-environment papercuts. List accepts an optional after cursor for the next older page. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
         "inputSchema":{
             "type":"object",
             "oneOf":[
-                papercut_action_schema("list", &[], json!({"project_id":{"type":"string","maxLength":256}})),
+                papercut_action_schema("list", &[], json!({
+                    "project_id":{"type":"string","maxLength":256},
+                    "after":{
+                        "type":"object",
+                        "required":["updated_at","id"],
+                        "properties":{
+                            "updated_at":{"type":"string","format":"date-time"},
+                            "id":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    }
+                })),
                 papercut_action_schema("dump", &[], json!({
                     "scope":{"type":"string","enum":["project","all"],"default":"project"}
                 })),

@@ -352,6 +352,7 @@ async fn run_papercuts_command(
         PapercutsCommand::List => PapercutCommand::List {
             context,
             project_id: None,
+            after: None,
         },
         PapercutsCommand::Dump { all_projects } => PapercutCommand::Dump {
             context,

@@ -167,7 +167,8 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
 
 function footerHint(tab: DashboardTab, page: Page): string {
   if (tab === "sos" || tab === "papercuts") {
-    return "tab switch · ↑↓ navigate · enter detail · j/k scroll · esc back · r refresh · q close";
+    const older = tab === "papercuts" ? "n load older · " : "";
+    return `tab switch · ↑↓ navigate · ${older}enter detail · j/k scroll · esc back · r refresh · q close`;
   }
   if (tab === "memory") {
     return "tab switch · ↑↓ navigate · enter expand/detail · / search · a add · f invalidate summary · c retry consolidation · r refresh · q close";

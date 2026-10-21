@@ -247,6 +247,6 @@ it("opens papercuts from the shared dashboard tab bar", async () => {
   expect(list).not.toHaveBeenCalled();
   component.handleInput("\u001b[Z");
   await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No open papercuts"));
-  expect(list).toHaveBeenCalledWith(null, expect.any(AbortSignal));
+  expect(list).toHaveBeenCalledWith(null, expect.any(AbortSignal), undefined);
   component.dispose();
 });
