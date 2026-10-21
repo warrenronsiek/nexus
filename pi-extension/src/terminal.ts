@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature papercuts
 // @spec docs/features/papercuts.md
 // @feature observability-ui
@@ -12,7 +14,7 @@
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { matchesKey, ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
-import { fetchSnapshot, fetchUsage } from "./client.ts";
+import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import type { Snapshot } from "./domain.ts";
@@ -54,6 +56,8 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
   const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, {
     loadSnapshot: (projectId, signal) => fetchSnapshot(client, cwd, projectId, signal),
     loadUsage: (projectId, signal) => fetchUsage(client, cwd, projectId, signal),
+    loadAnalyticsUsage: (projectId, signal) => fetchAnalyticsUsage(client, cwd, projectId, signal),
+    analyticsApi: new NexusAnalyticsApi(client, cwd),
     papercutsApi: new NexusPapercutsApi(client, cwd),
     sosApi,
     memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,

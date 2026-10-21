@@ -101,6 +101,8 @@ export interface UsageItem {
 }
 
 export interface UsageSummary {
+  analytics?: import("./analytics-data.ts").AnalyticsBundle;
+  analytics_error?: string;
   ok: true;
   project_id: string | null;
   window_started_at: string;

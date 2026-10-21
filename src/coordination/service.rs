@@ -8,6 +8,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+mod analytics;
 mod dispatch;
 mod feature_ops;
 mod memory;
@@ -175,9 +176,15 @@ impl NexusService {
         }
     }
 
-    fn pre_tool_use(&self, input: ToolHookInput, binding: &ProjectBinding) -> ServiceResponse {
+    fn pre_tool_use(
+        &self,
+        input: ToolHookInput,
+        binding: &ProjectBinding,
+        evidence: Option<ClientDerivedUsage>,
+    ) -> ServiceResponse {
         ServiceResponse::Hook(
-            pre_tool_use_result(self, input, binding).unwrap_or_else(HookResponse::fail_open),
+            pre_tool_use_result(self, input, binding, evidence.as_ref())
+                .unwrap_or_else(HookResponse::fail_open),
         )
     }
 
@@ -190,6 +197,8 @@ impl NexusService {
     ) -> ServiceResponse {
         let result = (|| -> Result<HookResponse> {
             let project = workspace::identify(binding, input.context.project_root.as_deref())?;
+            let client_evidence =
+                analytics::local_evidence(client_evidence, &project, &input, completion);
             let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.touch_session(
                 &project.id,
@@ -204,6 +213,13 @@ impl NexusService {
                 } else {
                     IgnoredAdvisoryPolicy::Omit
                 };
+            let _ = self.observe_activity(
+                &mut store,
+                &project,
+                &input,
+                completion,
+                client_evidence.as_ref(),
+            );
             self.usage.observe_tool_completion(
                 &mut store,
                 &project,
@@ -474,8 +490,19 @@ fn pre_tool_use_result(
     service: &NexusService,
     input: ToolHookInput,
     binding: &ProjectBinding,
+    evidence: Option<&ClientDerivedUsage>,
 ) -> Result<HookResponse> {
     let project = workspace::identify(binding, input.context.project_root.as_deref())?;
+    let inventory = evidence
+        .and_then(|evidence| evidence.repository_inventory.clone())
+        .or_else(|| {
+            project.worktree.as_deref().and_then(|root| {
+                crate::analytics::inventory::capture_once(
+                    std::path::Path::new(root),
+                    &input.context,
+                )
+            })
+        });
     let intents = extract_path_intents(
         &input.tool_name,
         &input.tool_input,
@@ -484,6 +511,16 @@ fn pre_tool_use_result(
     let mut store = service
         .lifecycle_store()
         .context("acquire lifecycle store")?;
+    if let Some(snapshot) = inventory {
+        let _ = store.record_inventory(
+            &project.id,
+            &input.context,
+            "repository",
+            &snapshot.resources,
+            snapshot.complete,
+        );
+    }
+    let _ = store.record_activity_call(&project.id, &input, &[], "started");
     record_tool_start(service, &mut store, &project, &input, &intents)?;
 
     let mut advisories = Vec::new();

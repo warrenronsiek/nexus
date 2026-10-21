@@ -56,6 +56,7 @@ fn coordination_tool_definitions() -> Vec<Value> {
         {"name":"nexus_memory_add","description":"Record one explicit durable memory. Nexus handles background consolidation.","inputSchema":{"type":"object","required":["scope","content"],"properties":{"scope":{"type":"string","enum":["global","project"]},"content":{"type":"string","maxLength":512}},"additionalProperties":false}},
         {"name":"nexus_memory_search","description":"Search authoritative raw memories with a case-insensitive Rust regular expression.","inputSchema":{"type":"object","required":["regex"],"properties":{"scope":{"type":"string","enum":["layered","global","project"],"default":"layered"},"regex":{"type":"string","maxLength":crate::coordination::api::MAX_MEMORY_SEARCH_REGEX_BYTES},"limit":{"type":"integer","minimum":1,"maximum":crate::memory::MAX_MEMORY_SEARCH_RESULTS,"default":50}},"additionalProperties":false}},
         {"name":"nexus_memory_expand","description":"Expand one derived memory summary into its two source children.","inputSchema":{"type":"object","required":["summary_id"],"properties":{"summary_id":{"type":"string"}},"additionalProperties":false}},
+        super::analytics_schema::definition(),
         papercut_tool_definition(),
         sos_tool_definition(),
         {"name":"nexus_config","description":"Return resolved non-secret Nexus configuration and its hash.","inputSchema":{"type":"object"}}

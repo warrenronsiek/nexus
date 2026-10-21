@@ -60,3 +60,5 @@ The architectural-load formula is `LLOC + 3 × arguments + 8 × declarations + 5
 The wrapper analyzes authored Rust, Python, TypeScript, and JavaScript selected through the feature map. Generated dependency and build trees are excluded.
 
 Normalized token similarity is a vibes check. Before abstraction, a reviewer must verify shared ownership, invariants, and reasons to change. Similar implementations with different invariants should remain separate and have that distinction recorded in review findings.
+
+Check mode evaluates only the strict near-copy predicate; normal review mode retains the complete advisory comparison report. Both use the same tokenization, source-span containment rules, sequence ratio, shingle containment, and committed thresholds. Enforcement caches token shingles and rejects a pair before sequence matching when its length-ratio upper bound or shingle containment proves it cannot reach the failure threshold. This preserves every gate violation while avoiding the expensive advisory all-pairs scan in hooks and CI. JSON reports identify `comparison` as `enforce` or `review`; omit `--check` for advisory candidates.

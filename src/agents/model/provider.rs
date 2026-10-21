@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature analyst
 // @feature commit-review
 // @feature agent-memory
@@ -319,4 +321,95 @@ mod tests {
         assert!(vertex.contains("GOOGLE_APPLICATION_CREDENTIALS=/private/google-credentials.json"));
         assert!(!vertex.contains("AWS_ACCESS_KEY_ID="));
     }
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+    #[test]
+    fn classification_profile_excludes_user_configuration_and_child_agents() {
+        let options = classification_options(ModelProvider::Codex);
+        assert!(options.contains(&"--ignore-user-config"));
+        assert!(options
+            .windows(2)
+            .any(|pair| pair == ["--disable", "multi_agent"]));
+    }
+    #[test]
+    fn classification_options_remove_operational_tools() {
+        let codex = classification_options(ModelProvider::Codex);
+        assert!(codex
+            .windows(2)
+            .any(|pair| pair == ["--disable", "shell_tool"]));
+        assert!(codex
+            .windows(2)
+            .any(|pair| pair == ["--disable", "plugins"]));
+        assert!(codex.windows(2).any(|pair| pair == ["--disable", "hooks"]));
+        assert!(codex
+            .windows(2)
+            .any(|pair| pair == ["--disable", "shell_snapshot"]));
+        let claude = classification_options(ModelProvider::Claude);
+        assert!(claude.windows(2).any(|pair| pair == ["--tools", ""]));
+        assert!(claude.contains(&"--strict-mcp-config"));
+    }
+}
+
+pub(super) fn classification_options(provider: ModelProvider) -> Vec<&'static str> {
+    match provider {
+        ModelProvider::Codex => vec![
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--disable",
+            "multi_agent",
+            "--disable",
+            "goals",
+            "--disable",
+            "shell_tool",
+            "--disable",
+            "hooks",
+            "--disable",
+            "shell_snapshot",
+            "--disable",
+            "unified_exec",
+            "--disable",
+            "code_mode_host",
+            "--disable",
+            "apps",
+            "--disable",
+            "plugins",
+            "--disable",
+            "browser_use",
+            "--disable",
+            "computer_use",
+            "--disable",
+            "image_generation",
+            "--disable",
+            "view_image",
+            "--disable",
+            "skill_search",
+            "--disable",
+            "tool_suggest",
+            "--disable",
+            "sleep_tool",
+            "-c",
+            "web_search=\"disabled\"",
+            "-c",
+            "mcp_servers={}",
+        ],
+        ModelProvider::Claude => vec![
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "{\"mcpServers\":{}}",
+            "--setting-sources",
+            "",
+            "--settings",
+            "{\"disableAllHooks\":true}",
+        ],
+    }
+}
+
+pub(super) fn restrict_classification(command: &mut Command, provider: ModelProvider) {
+    command.args(classification_options(provider));
+    command.env("NEXUS_ANALYTICS_INTERNAL", "1");
 }

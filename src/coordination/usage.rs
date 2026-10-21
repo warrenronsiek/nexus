@@ -188,7 +188,7 @@ pub(crate) fn derive_filesystem_evidence(
     completion: ToolCompletion,
     project_root: &Path,
 ) -> ClientDerivedUsage {
-    let scripts = input
+    let scripts: Vec<String> = input
         .tool_input
         .first_string(&["cmd", "command"])
         .map(|command| {
@@ -201,7 +201,18 @@ pub(crate) fn derive_filesystem_evidence(
     let skill = (completion == ToolCompletion::Succeeded)
         .then(|| infer_skill_manifest(input, project_root))
         .flatten();
-    ClientDerivedUsage { scripts, skill }
+    ClientDerivedUsage {
+        script_versions: scripts
+            .iter()
+            .filter_map(|name| {
+                crate::analytics::capture::script_version(project_root, name)
+                    .map(|version| (name.clone(), version))
+            })
+            .collect(),
+        scripts,
+        skill,
+        repository_inventory: None,
+    }
 }
 
 pub(super) enum ExplicitUsageInput {

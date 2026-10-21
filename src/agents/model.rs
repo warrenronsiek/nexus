@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature analyst
 // @feature commit-review
 // @feature agent-memory
@@ -27,10 +29,26 @@ pub(crate) fn invoke(
     timeout: Duration,
 ) -> Result<String> {
     process::Invocation {
+        scope: process::InvocationScope::ReadOnly(working_directory),
         provider,
         model,
         prompt,
-        working_directory,
+        timeout,
+    }
+    .run()
+}
+
+pub(crate) fn invoke_classification(
+    provider: ModelProvider,
+    model: &ModelConfig,
+    prompt: &str,
+    timeout: Duration,
+) -> Result<String> {
+    process::Invocation {
+        scope: process::InvocationScope::Classification,
+        provider,
+        model,
+        prompt,
         timeout,
     }
     .run()

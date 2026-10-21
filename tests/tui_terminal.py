@@ -1,3 +1,5 @@
+# @feature usage-analytics
+# @spec docs/features/usage-analytics.md
 # @feature papercuts
 # @spec docs/features/papercuts.md
 # @feature observability-ui
@@ -144,6 +146,15 @@ def exercise_papercuts(binary: str, config: Path, root: Path, environment: dict[
     wait_for_text(process, master, b"Inspect the complete description")
 
 
+def exercise_analytics(process: subprocess.Popen[bytes], master: int) -> None:
+    os.write(master, b"\t")
+    wait_for_text(process, master, b"1 Activities")
+    os.write(master, b"2")
+    wait_for_text(process, master, b"Page 1")
+    os.write(master, b"4")
+    wait_for_text(process, master, b"No usage observed in this window.")
+
+
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
@@ -167,7 +178,8 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             assert json.loads(added.stdout)["ok"] is True
             os.write(master, b"\t")
             wait_for_text(process, master, b"No current SOS issues")
-            os.write(master, b"\t\t\t")
+            exercise_analytics(process, master)
+            os.write(master, b"\t\t")
             wait_for_text(process, master, b"terminal fixture memory")
             exercise_memory_actions(process, master)
             exercise_papercuts(binary, config, root, environment, (master, process))

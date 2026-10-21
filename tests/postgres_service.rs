@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature persistence
 // @feature runtime
 // @feature coordination
@@ -244,4 +246,61 @@ fn session_status(sessions: &[Value], project_id: &str, session_id: &str) -> Str
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+#[test]
+fn postgres_activity_analytics_preserves_counts_inventory_and_opportunity_scope() {
+    let _guard = POSTGRES_TEST_LOCK.lock().unwrap();
+    let database_url =
+        std::env::var("NEXUS_TEST_DATABASE_URL").expect("PostgreSQL test database required");
+    let service = NexusService::connect(
+        LoadedConfig {
+            config: Config::default(),
+            sources: Vec::new(),
+            hash: "analytics-pg".into(),
+        },
+        &database_url,
+    )
+    .unwrap();
+    let project = format!("analytics-pg-{}", Uuid::new_v4());
+    let result=service.handle_remote(&project,request("analytics",json!({"action":"inventory","session_id":"s","agent":"pi","scope":"host_tools","resources":[{"name":"pg.checks","kind":"tool","origin":"host_tool","exposure":"exposed","activities":["ci.inspect"]}]}))).to_json();
+    assert_eq!(result["ok"], true, "{result}");
+    service.handle_remote(&project,request("post_tool_use",json!({"session_id":"s","agent":"pi","tool_use_id":"t","tool_name":"Bash","tool_input":{"command":"gh pr checks"}})));
+    let summary = service
+        .handle_remote(&project, request("analytics", json!({"action":"summary"})))
+        .to_json();
+    assert_eq!(summary["observed_calls"], 1, "{summary}");
+    assert_eq!(summary["activities"][0]["category_id"], "ci.inspect");
+    let catalog = service
+        .handle_remote(&project, request("analytics", json!({"action":"catalog"})))
+        .to_json();
+    let tool = catalog["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "pg.checks")
+        .unwrap();
+    assert_eq!(tool["calls"], 0);
+    assert_eq!(tool["offered_sessions"], 1);
+    let gaps = service
+        .handle_remote(
+            &project,
+            request("analytics", json!({"action":"opportunities"})),
+        )
+        .to_json();
+    assert_eq!(
+        gaps["opportunities"][0]["supplied_alternatives"],
+        json!(["pg.checks"]),
+        "{gaps}"
+    );
+    let examples = service
+        .handle_remote(
+            &project,
+            request(
+                "analytics",
+                json!({"action":"examples","category_id":"ci.inspect"}),
+            ),
+        )
+        .to_json();
+    assert_eq!(examples["examples"][0]["name"], "gh pr checks");
 }

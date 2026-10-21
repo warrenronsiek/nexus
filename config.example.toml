@@ -1,3 +1,5 @@
+# @feature usage-analytics
+# @spec docs/features/usage-analytics.md
 # @feature configuration
 # @feature agent-memory
 # @feature runtime
@@ -35,6 +37,13 @@ store_full_prompts = false
 refresh_interval_ms = 2000
 recent_event_limit = 64
 recent_record_limit = 100
+
+# Semantic labels run asynchronously in the local companion using the analyst
+# provider/model. Set false to retain deterministic observations only.
+[analytics]
+classification_enabled = true
+classification_timeout_seconds = 30
+max_classifications_per_day = 128
 
 [analyst]
 enabled = false

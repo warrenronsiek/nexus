@@ -91,3 +91,5 @@ Repository validation installs the single locked Pi-extension Node tree, runs it
 Papercut output, including truncation notices, wraps within the host terminal width.
 
 `papercuts.ts` validates the MCP list projection and `papercuts-pane.ts` owns project-scoped read-only list/detail navigation in both terminal hosts.
+
+The shared Tools pane offers Activities (default), Capabilities (including inventoried zero-use resources), Opportunities, and Legacy via keys 1–4. Up/down or j/k selects a row, Enter discloses implementations and provenance, n/p pages capabilities or examples, and Escape returns from detail before leaving Tools. Counts distinguish invocations from identified operations; incomplete availability and unclassified work remain explicit. Skills retain their own tab. All reads use the existing bounded poller and abortable page requests.

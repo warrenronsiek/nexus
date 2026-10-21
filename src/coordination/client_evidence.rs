@@ -37,8 +37,12 @@ pub(crate) struct ClientFilesystemEvidence {
 pub(crate) struct ClientDerivedUsage {
     #[serde(default)]
     pub(crate) scripts: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub(crate) script_versions: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) skill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) repository_inventory: Option<crate::analytics::types::RepositoryInventory>,
 }
 
 pub(crate) struct ClientEvidencePlan {
@@ -55,6 +59,15 @@ impl ClientEvidencePlan {
                 phase: ToolHookPhase::After(completion),
                 input,
             } => (&input.context, *completion, input),
+            ServiceRequest::ToolHook {
+                phase: ToolHookPhase::Before,
+                input,
+            } => {
+                return Self::from_context(
+                    &input.context,
+                    Some((input.clone(), ToolCompletion::Failed)),
+                );
+            }
             _ => return None,
         };
         Self::from_context(context, Some((input.clone(), completion)))
@@ -79,6 +92,10 @@ impl ClientEvidencePlan {
                 completion,
                 Path::new(&self.project_root),
             );
+            evidence.repository_inventory = crate::analytics::inventory::capture_once(
+                Path::new(&self.project_root),
+                &input.context,
+            );
             evidence.scripts.truncate(MAX_DETECTED_SCRIPT_INVOCATIONS);
             evidence.scripts.retain(|script| {
                 validate_identity("derived script", script).is_ok()
@@ -87,7 +104,10 @@ impl ClientEvidencePlan {
             evidence.skill = evidence
                 .skill
                 .filter(|skill| validate_identity("derived skill", skill).is_ok());
-            (!evidence.scripts.is_empty() || evidence.skill.is_some()).then_some(evidence)
+            (!evidence.scripts.is_empty()
+                || evidence.skill.is_some()
+                || evidence.repository_inventory.is_some())
+            .then_some(evidence)
         });
         let evidence = ClientFilesystemEvidence {
             session_id: self.session_id,
@@ -200,11 +220,8 @@ impl ClientFilesystemEvidence {
 
     pub(crate) fn validate_for(&self, request: &ServiceRequest) -> Result<()> {
         let context = match request {
-            ServiceRequest::ToolHook {
-                phase: ToolHookPhase::After(_),
-                input,
-            } => &input.context,
-            _ => bail!("client evidence requires a completed tool lifecycle request"),
+            ServiceRequest::ToolHook { input, .. } => &input.context,
+            _ => bail!("client evidence requires a tool lifecycle request"),
         };
         if self.session_id != context.session_id || self.agent != context.agent {
             bail!("client evidence does not match the lifecycle caller");
@@ -251,8 +268,20 @@ fn validate_changed_paths(paths: &[PathIntent]) -> Result<()> {
 }
 
 fn validate_derived_usage(usage: &ClientDerivedUsage) -> Result<()> {
+    if let Some(inventory) = &usage.repository_inventory {
+        crate::analytics::inventory::validate("repository", &inventory.resources)?;
+    }
     if usage.scripts.len() > MAX_DETECTED_SCRIPT_INVOCATIONS {
         bail!("client evidence contains too many derived scripts");
+    }
+    if usage.script_versions.len() > MAX_DETECTED_SCRIPT_INVOCATIONS
+        || usage.script_versions.iter().any(|(name, version)| {
+            !usage.scripts.contains(name)
+                || version.len() != 64
+                || !version.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        bail!("invalid script version evidence");
     }
     for script in &usage.scripts {
         validate_identity("derived script", script)?;

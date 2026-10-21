@@ -84,7 +84,8 @@ impl NexusService {
             | ServiceRequest::MemoryAdd(_)
             | ServiceRequest::MemoryInvalidate(_)
             | ServiceRequest::MemoryConsolidate
-            | ServiceRequest::Papercuts(_)) => self.handle_command(request, project),
+            | ServiceRequest::Papercuts(_)
+            | ServiceRequest::Analytics(_)) => self.handle_command(request, project),
             ServiceRequest::Sos(_) => self.handle_command(request, project),
         }
     }
@@ -100,7 +101,7 @@ impl NexusService {
             ServiceRequest::ToolHook {
                 phase: ToolHookPhase::Before,
                 input,
-            } => self.pre_tool_use(input, project),
+            } => self.pre_tool_use(input, project, client_evidence),
             ServiceRequest::ToolHook {
                 phase: ToolHookPhase::After(completion),
                 input,
@@ -148,6 +149,7 @@ impl NexusService {
                 self.dispatch_papercuts(command, project).response
             }
             ServiceRequest::Sos(command) => self.dispatch_sos(command, project).response,
+            ServiceRequest::Analytics(command) => self.analytics_command(command, project),
             _ => unreachable!("non-command request routed as command"),
         }
     }

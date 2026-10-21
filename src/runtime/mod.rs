@@ -2,6 +2,7 @@
 // @feature usage-analytics
 // @spec docs/features/runtime.md
 // @spec docs/features/usage-analytics.md
+mod analytics;
 mod bounded_io;
 pub mod client;
 pub mod daemon;

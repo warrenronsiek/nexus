@@ -1,3 +1,5 @@
+// @feature usage-analytics
+// @spec docs/features/usage-analytics.md
 // @feature configuration
 // @feature agent-memory
 // @spec docs/features/configuration.md
@@ -46,6 +48,7 @@ pub struct Config {
     pub coordination: CoordinationConfig,
     pub privacy: PrivacyConfig,
     pub analyst: AnalystConfig,
+    pub analytics: AnalyticsConfig,
     pub memory: MemoryConfig,
     pub review: ReviewConfig,
     pub storage: StorageConfig,
@@ -94,6 +97,35 @@ pub struct AnalystConfig {
     pub timeout_seconds: u64,
     pub codex: ModelConfig,
     pub claude: ModelConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AnalyticsConfig {
+    pub classification_enabled: bool,
+    pub classification_timeout_seconds: u64,
+    pub max_classifications_per_day: u32,
+}
+impl AnalyticsConfig {
+    fn validate(&self) -> Result<()> {
+        validate_positive_bounded_seconds(
+            "analytics.classification_timeout_seconds",
+            self.classification_timeout_seconds,
+        )?;
+        if !(1..=10000).contains(&self.max_classifications_per_day) {
+            bail!("analytics.max_classifications_per_day must be between 1 and 10000");
+        }
+        Ok(())
+    }
+}
+impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self {
+            classification_enabled: true,
+            classification_timeout_seconds: 30,
+            max_classifications_per_day: 128,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +194,7 @@ impl Default for Config {
             coordination: CoordinationConfig::default(),
             privacy: PrivacyConfig::default(),
             analyst: AnalystConfig::default(),
+            analytics: AnalyticsConfig::default(),
             memory: MemoryConfig::default(),
             review: ReviewConfig::default(),
             storage: StorageConfig::default(),
@@ -328,6 +361,16 @@ impl Config {
         })
     }
 
+    fn validate_models(&self) -> Result<()> {
+        validate_positive_bounded_seconds("review.timeout_seconds", self.review.timeout_seconds)?;
+        self.analyst.validate()?;
+        self.analytics.validate()?;
+        if self.review.implementation_provider == self.review.provider {
+            bail!("review.provider must differ from review.implementation_provider");
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.schema_version != 1 {
             bail!(
@@ -346,13 +389,9 @@ impl Config {
         if self.privacy.prompt_synopsis_max_chars == 0 {
             bail!("privacy.prompt_synopsis_max_chars must be positive");
         }
-        validate_positive_bounded_seconds("review.timeout_seconds", self.review.timeout_seconds)?;
-        self.analyst.validate()?;
+        self.validate_models()?;
         self.memory.validate()?;
         self.client.validate()?;
-        if self.review.implementation_provider == self.review.provider {
-            bail!("review.provider must differ from review.implementation_provider");
-        }
         validate_positive_bounded(
             "ui.refresh_interval_ms",
             self.ui.refresh_interval_ms,

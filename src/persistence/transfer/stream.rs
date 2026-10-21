@@ -5,11 +5,12 @@
 // @boundary portable-database-stream
 use super::super::backend::DbConnection;
 use super::super::schema::{
-    advisories, capability_uses, claims, conflicts, database_imports, events, memory_activations,
-    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
-    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
-    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
-    sos_triage_attempts,
+    advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
+    analytics_resources, analytics_revisions, capability_uses, claims, conflicts, database_imports,
+    events, memory_activations, memory_compaction_attempts, memory_compaction_queue,
+    memory_entries, memory_frontier_snapshots, memory_spaces, memory_summaries,
+    papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts, sessions,
+    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts,
 };
 use super::super::Store;
 use super::rows::*;
@@ -66,7 +67,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 2;
+const FORMAT_VERSION: i32 = 3;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -75,9 +76,11 @@ type LoadingMode = diesel::connection::DefaultLoadingMode;
 #[cfg(feature = "postgres")]
 type LoadingMode = diesel::pg::PgRowByRowLoadingMode;
 
-/// Content identity and number of application rows in one complete version-two stream.
+/// Content identity and number of application rows in one complete portable stream.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct SnapshotManifest {
+    #[serde(skip)]
+    format_version: i32,
     pub rows: usize,
     pub digest: String,
 }
@@ -168,6 +171,12 @@ batches! {
     18: SosReports(SosReportTransfer) => sos_reports, sos_reports::id.asc();
     19: SosTriageAttempts(SosTriageAttemptTransfer) => sos_triage_attempts, sos_triage_attempts::id.asc();
     20: SosIssueLifecycle(SosIssueLifecycleTransfer) => sos_issue_lifecycle, sos_issue_lifecycle::id.asc();
+    21: AnalyticsCalls(AnalyticsCallsTransfer) => analytics_calls, analytics_calls::id.asc();
+    22: AnalyticsActions(AnalyticsActionsTransfer) => analytics_actions, analytics_actions::id.asc();
+    23: AnalyticsExposures(AnalyticsExposuresTransfer) => analytics_exposures, analytics_exposures::id.asc();
+    24: AnalyticsCategories(AnalyticsCategoriesTransfer) => analytics_categories, analytics_categories::id.asc();
+    25: AnalyticsRevisions(AnalyticsRevisionsTransfer) => analytics_revisions, analytics_revisions::id.asc();
+    26: AnalyticsResources(AnalyticsResourcesTransfer) => analytics_resources, analytics_resources::id.asc();
 }
 
 #[derive(Serialize, Deserialize)]
@@ -219,6 +228,7 @@ impl<W: Write> StreamWriter<W> {
         self.record(&Record::Complete { rows: self.rows })?;
         self.output.flush()?;
         Ok(SnapshotManifest {
+            format_version: FORMAT_VERSION,
             rows: self.rows,
             digest: self.hash.finalize().to_hex().to_string(),
         })
@@ -299,7 +309,7 @@ fn record_import(
         .values((
             database_imports::source_digest.eq(&digest),
             database_imports::source_kind.eq("sqlite"),
-            database_imports::format_version.eq(FORMAT_VERSION),
+            database_imports::format_version.eq(manifest.format_version),
             database_imports::row_count.eq(row_count),
             database_imports::imported_at.eq(Utc::now().to_rfc3339()),
         ))
@@ -309,6 +319,7 @@ fn record_import(
 
 #[derive(Default)]
 struct ImportProgress {
+    format_version: i32,
     rows: usize,
     seen: u32,
     bytes: u64,
@@ -339,19 +350,24 @@ fn import(connection: &mut DbConnection, mut input: impl BufRead) -> Result<Snap
     let mut hash = blake3::Hasher::new();
     let mut progress = ImportProgress::default();
     let header = read_record(&mut input, &mut hash, &mut progress.bytes)?;
-    if !matches!(
-        header,
+    let tables = match header {
+        Some(Record::Header { format_version: 2 }) => {
+            progress.format_version = 2;
+            21
+        }
         Some(Record::Header {
-            format_version: FORMAT_VERSION
-        })
-    ) {
-        bail!("unsupported or missing portable stream header");
-    }
+            format_version: FORMAT_VERSION,
+        }) => {
+            progress.format_version = FORMAT_VERSION;
+            TABLE_COUNT
+        }
+        _ => bail!("unsupported or missing portable stream header"),
+    };
     loop {
         match read_record(&mut input, &mut hash, &mut progress.bytes)? {
             Some(Record::Batch { data }) => progress.accept_batch(data, connection)?,
             Some(Record::Complete { rows: expected })
-                if expected == progress.rows && progress.seen == (1 << TABLE_COUNT) - 1 =>
+                if expected == progress.rows && progress.seen == (1 << tables) - 1 =>
             {
                 return finish_import(connection, &mut input, hash, progress);
             }
@@ -371,6 +387,7 @@ fn finish_import(
     }
     sync_event_identity(connection, progress.maximum_event_id)?;
     Ok(SnapshotManifest {
+        format_version: progress.format_version,
         rows: progress.rows,
         digest: hash.finalize().to_hex().to_string(),
     })
@@ -452,65 +469,5 @@ fn export_papercut(
 }
 
 #[cfg(all(test, feature = "sqlite"))]
-mod tests {
-    use super::super::rows::PapercutTransfer;
-    use super::*;
-
-    fn papercut(id: &str, consolidated_into: Option<&str>) -> PapercutTransfer {
-        PapercutTransfer {
-            id: id.to_owned(),
-            project_id: "project-a".to_owned(),
-            title: format!("issue {id}"),
-            description: String::new(),
-            fingerprint: "a".repeat(64),
-            reporter_token_hash: "b".repeat(64),
-            status: if consolidated_into.is_some() {
-                "consolidated".to_owned()
-            } else {
-                "open".to_owned()
-            },
-            consolidated_into: consolidated_into.map(str::to_owned),
-            resolution: None,
-            creator_agent: "agent".to_owned(),
-            creator_session_id: "session".to_owned(),
-            creator_model_id: None,
-            creator_config_hash: "config".to_owned(),
-            created_at: "2026-01-01T00:00:00Z".to_owned(),
-            updated_at: "2026-01-01T00:00:00Z".to_owned(),
-            resolved_at: None,
-        }
-    }
-
-    #[test]
-    fn consolidated_papercuts_are_inserted_after_their_canonical_dependencies() {
-        let source = papercut("000-source", Some("zzz-canonical"));
-        let canonical = papercut("zzz-canonical", None);
-
-        let mut store = Store::open_memory().unwrap();
-        for row in [&canonical, &source] {
-            diesel::insert_into(papercuts::table)
-                .values(row)
-                .execute(&mut store.connection)
-                .unwrap();
-        }
-        let snapshot = tempfile::NamedTempFile::new().unwrap();
-        let manifest = store.write_streamed_snapshot(snapshot.as_file()).unwrap();
-        let mut target = Store::open_memory().unwrap();
-        assert!(matches!(
-            target.import_streamed_snapshot(snapshot.path()).unwrap(),
-            ImportOutcome::Imported { rows: 2, .. }
-        ));
-        assert_eq!(manifest.rows, 2);
-        let registry = target.papercut_registry(Some("project-a")).unwrap();
-        assert_eq!(registry.papercuts.len(), 2);
-        let copied_source = registry
-            .papercuts
-            .iter()
-            .find(|row| row.id == "000-source")
-            .unwrap();
-        assert_eq!(
-            copied_source.consolidated_into.as_deref(),
-            Some("zzz-canonical")
-        );
-    }
-}
+#[path = "stream_tests.rs"]
+mod tests;

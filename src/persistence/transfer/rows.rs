@@ -9,11 +9,12 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 use super::super::schema::{
-    advisories, capability_uses, claims, conflicts, events, memory_activations,
-    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
-    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
-    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
-    sos_triage_attempts,
+    advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
+    analytics_resources, analytics_revisions, capability_uses, claims, conflicts, events,
+    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
+    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
+    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
+    sos_issues, sos_reports, sos_triage_attempts,
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -316,4 +317,87 @@ portable_row!(SosIssueLifecycleTransfer, sos_issue_lifecycle, {
     actor_model_id: Option<String>,
     actor_config_hash: String,
     created_at: String,
+});
+
+portable_row!(AnalyticsCallsTransfer, analytics_calls, {
+    id: String,
+    project_id: String,
+    agent: String,
+    session_key: String,
+    invocation_id: String,
+    parent_id: Option<String>,
+    tool_name: String,
+    outcome: String,
+    observed_at: String,
+    completed_at: Option<String>,
+});
+
+portable_row!(AnalyticsActionsTransfer, analytics_actions, {
+    id: String,
+    call_id: String,
+    project_id: String,
+    session_key: String,
+    resource_key: String,
+    name: String,
+    kind: String,
+    origin: String,
+    category_id: String,
+    description: String,
+    pattern_key: String,
+    resource_version: Option<String>,
+    evidence: String,
+    model_id: Option<String>,
+    observed_at: String,
+});
+
+portable_row!(AnalyticsExposuresTransfer, analytics_exposures, {
+    id: String,
+    project_id: String,
+    session_key: String,
+    scope: String,
+    resource_key: String,
+    name: String,
+    kind: String,
+    origin: String,
+    exposure: String,
+    version: Option<String>,
+    description: String,
+    activities_json: String,
+    first_seen: String,
+    last_seen: String,
+    active: bool,
+});
+
+portable_row!(AnalyticsCategoriesTransfer, analytics_categories, {
+    id: String,
+    name: String,
+    definition: String,
+    replaced_by: Option<String>,
+    created_at: String,
+    updated_at: String,
+});
+
+portable_row!(AnalyticsRevisionsTransfer, analytics_revisions, {
+    id: String,
+    action_id: String,
+    category_id: String,
+    description: String,
+    evidence: String,
+    model_id: Option<String>,
+    policy_version: String,
+    created_at: String,
+});
+
+portable_row!(AnalyticsResourcesTransfer, analytics_resources, {
+    id: String,
+    project_id: String,
+    resource_key: String,
+    name: String,
+    kind: String,
+    origin: String,
+    description: String,
+    activities_json: String,
+    version: Option<String>,
+    first_seen: String,
+    last_seen: String,
 });

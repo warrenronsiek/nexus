@@ -91,6 +91,7 @@ impl RunningService {
             }),
             ..Config::default()
         };
+        config.analytics.classification_enabled = false;
         config.coordination.reconcile_seconds = reconcile_seconds;
         LoadedConfig {
             config,
@@ -388,7 +389,7 @@ pub fn remote_client_config(
     project_id: &str,
     secret_file: PathBuf,
 ) -> LoadedConfig {
-    let config = Config {
+    let mut config = Config {
         client: ClientConfig::Remote(RemoteClientConfig {
             endpoint: format!("http://{address}"),
             project_id: project_id.into(),
@@ -396,6 +397,7 @@ pub fn remote_client_config(
         }),
         ..Config::default()
     };
+    config.analytics.classification_enabled = false;
     LoadedConfig {
         config,
         sources: Vec::new(),

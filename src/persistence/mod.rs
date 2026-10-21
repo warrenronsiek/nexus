@@ -8,6 +8,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+mod analytics;
 mod backend;
 mod conflicts;
 mod dashboard;
