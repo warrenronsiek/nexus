@@ -202,13 +202,14 @@ fn nexus_exec_preserves_child_exit_and_records_the_script_once() {
 fn session_end_command_hook_releases_claims_without_hook_output() {
     let mut harness = Harness::start();
     let root = harness.root.to_string_lossy().to_string();
-    harness.hook(
+    let started = harness.hook(
         "nexus_pre_tool_use",
         "codex-session-end",
         "tool-session-end",
         "Write",
         json!({"file_path":"src/lib.rs"}),
     );
+    assert_eq!(started["recorded"], true, "{started}");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_nexus"))
         .args([
@@ -266,7 +267,7 @@ fn mcp_lifecycle_classifies_conflicts_and_persists_projections() {
         json!({"file_path":"src/lib.rs","line_start":10,"line_end":20}),
     );
     assert_eq!(first["permitted"], true);
-    assert_eq!(first["recorded"], true);
+    assert_eq!(first["recorded"], true, "{first}");
     assert!(first["advisories"].as_array().unwrap().is_empty());
 
     let overlap = harness.hook(
