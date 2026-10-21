@@ -4,6 +4,55 @@
 // @spec docs/features/usage-analytics.md
 use super::*;
 use serde_json::json;
+
+#[cfg(feature = "sqlite")]
+#[test]
+fn initial_category_catalog_is_published_atomically() {
+    use diesel::connection::InstrumentationEvent;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("analytics.db");
+    let mut writer = Store::open(&path).unwrap();
+    let mut reader = Store::open(&path).unwrap();
+    let (written, observed) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let mut written = Some(written);
+    writer
+        .connection
+        .set_instrumentation(move |event: InstrumentationEvent<'_>| {
+            if let InstrumentationEvent::FinishQuery {
+                query, error: None, ..
+            } = event
+            {
+                let query = query.to_string();
+                if query.starts_with("INSERT INTO") && query.contains("analytics_categories") {
+                    if let Some(written) = written.take() {
+                        written.send(()).unwrap();
+                        released.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }
+                }
+            }
+        });
+    let seed = std::thread::spawn(move || writer.ensure_activity_categories());
+    observed.recv_timeout(Duration::from_secs(5)).unwrap();
+    let visible = analytics_categories::table
+        .count()
+        .get_result::<i64>(&mut reader.connection);
+    release.send(()).unwrap();
+    seed.join().unwrap().unwrap();
+    assert_eq!(
+        visible.unwrap(),
+        0,
+        "a partial category catalog was visible"
+    );
+    assert_eq!(
+        reader.activity_categories().unwrap().len(),
+        crate::analytics::capture::known_categories().len()
+    );
+}
+
 #[test]
 fn only_one_classification_attempt_is_reserved_for_a_repeated_pattern_each_day() {
     let mut store = Store::open_memory().unwrap();

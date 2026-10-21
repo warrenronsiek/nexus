@@ -50,14 +50,16 @@ impl Store {
                 updated_at: now.clone(),
             })
             .collect();
-        for row in rows {
-            diesel::insert_into(analytics_categories::table)
-                .values(&row)
-                .on_conflict(analytics_categories::id)
-                .do_nothing()
-                .execute(&mut self.connection)?;
-        }
-        Ok(())
+        self.transaction(|connection| {
+            for row in rows {
+                diesel::insert_into(analytics_categories::table)
+                    .values(&row)
+                    .on_conflict(analytics_categories::id)
+                    .do_nothing()
+                    .execute(connection)?;
+            }
+            Ok(())
+        })
     }
     pub(super) fn purpose_for_action(
         &mut self,
