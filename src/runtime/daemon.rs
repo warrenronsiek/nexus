@@ -61,9 +61,11 @@ async fn start_runtime(loaded: LoadedConfig) -> Result<DaemonRuntime> {
     if socket_path.exists() {
         let _ = std::fs::remove_file(&socket_path);
     }
+    // Publish the socket only after migrations and service setup have finished.
+    // Clients must not spend their lifecycle budget waiting on initialization.
+    let service = Arc::new(NexusService::new(loaded)?);
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind {}", socket_path.display()))?;
-    let service = Arc::new(NexusService::new(loaded)?);
     Ok(DaemonRuntime {
         socket_path,
         _lock: lock,
@@ -269,6 +271,29 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{oneshot, Semaphore};
+
+    #[tokio::test]
+    async fn failed_service_initialization_does_not_publish_a_daemon_socket() {
+        let temporary = tempfile::tempdir().unwrap();
+        let socket = temporary.path().join("nexus.sock");
+        let mut config = crate::config::Config::default();
+        config.runtime.socket_path = socket.clone();
+        config.runtime.lock_path = temporary.path().join("nexus.lock");
+        // A directory cannot be opened as the SQLite database. Initialization
+        // must fail before clients can mistake a bound socket for readiness.
+        config.storage.database_path = temporary.path().to_owned();
+        let loaded = LoadedConfig {
+            config,
+            sources: Vec::new(),
+            hash: "startup-readiness-test".into(),
+        };
+
+        assert!(start_runtime(loaded).await.is_err());
+        assert!(
+            !socket.exists(),
+            "daemon socket was published before service initialization succeeded"
+        );
+    }
 
     #[tokio::test]
     async fn oversized_nonterminated_local_request_is_rejected_at_the_sentinel() {
