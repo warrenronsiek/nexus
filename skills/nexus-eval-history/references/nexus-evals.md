@@ -10,7 +10,7 @@ A bundle may refer to records already in the project or other records in that sa
 
 Keep three kinds of history distinct:
 
-- Measurement definitions: why a case, suite, assertion, or grader changed.
+- Measurement definitions: why a case, suite, assertion, grader, or metric changed.
 - System configurations: the repository revision, model settings, prompts, tools, skills, and composed targets being tested.
 - Observations and interpretations: attempts and calls, outputs and usage, separate grading passes, comparisons, and adoption decisions.
 
@@ -86,7 +86,8 @@ Use the canonical schema for the full closed types. The principal links are:
 
 | Record | Links and meaning |
 |---|---|
-| `repository`, `model`, `case`, `suite`, `grader`, `target` | Revisions have `identity`, `parents`, and `change_id`. A suite names exact case/grader IDs, weights, and splits. |
+| `repository`, `model`, `case`, `suite`, `grader`, `metric`, `target` | Revisions have `identity`, `parents`, and `change_id`. A suite names exact case/grader IDs, weights, and splits. |
+| `metric` | Meaning, unit, value format, calculation and its source artifacts, population, aggregation, exclusions, missing-data policy, and optional interpretation. |
 | `target` | Named components each pair a repository revision with a fixed model, a model-selection policy artifact, or an explicit unspecified reason. |
 | `experiment` | Hypothesis, expected effect, baseline/candidate target IDs, suite ID, and a time-stamped plan. |
 | `run` | Target, suite, optional experiment, runner/version, selected cases and selection rule, reported state, capture disclosures. |
@@ -94,13 +95,109 @@ Use the canonical schema for the full closed types. The principal links are:
 | `lifecycle` | Appended caller-reported state for an existing run, trial, or attempt, with an optional previous report for that same subject and evidence artifacts. |
 | `call`, `trace` | Calls name the attempt, component instance, ordered context, model and tool surface. Traces record tool events, handoffs, causal links and end-state evidence. |
 | `grade` | Subject, exact grader, scoring `pass_id`, state, numeric/aspect results, explanation and evidence. `replaces` links a prior interpretation without deleting it. |
-| `comparison`, `decision` | Comparison records population, exclusions, metric, validity, differences and uncertainty. Decision names its subject and supporting comparisons with an acceptance/rejection reason. |
+| `measurement` | Exact metric revision, subject, value representation, explanation, calculation inputs, evidence, and an optional replaced observation. |
+| `comparison`, `decision` | Comparison names metric revisions and measurements, population, exclusions, validity, differences and uncertainty. Decision names its subject and supporting comparisons with an acceptance/rejection reason. |
 | `selection` | Effective-time choice of a revision within a named scope, linked to the previous selection and its change reason. |
 | `artifact`, `verification` | Immutable content identity/backing and a separate availability/verification observation. |
 
 Use `call.context` as an ordered list of `{role,artifact_id}` entries. Each `call.tools` entry has `name`, optional `definition_artifact`, `state`, and `source`. Put skills, request parameters or fixtures into referenced context artifacts where the actual request exposes them. Each capture disclosure has `dimension`, `state`, `producer`, `reason`, and optional `omitted_items`; state is `exact`, `partial`, `redacted`, `unavailable`, `unsupported`, or `unknown`. Do not label an inferred reconstruction `exact`.
 
 For routers, retain the policy artifact in the target and the actual selected `call.model_id`/`served_model` per component instance. Handoff traces retain source, destination, payload and eligible destinations. A route-specific grade uses the routing subject. Component-local grades name the attempt and instance and pin their supporting `call_ids`; every pinned call must belong to that exact attempt and instance. Empty call pins preserve an unknown model association, even if other calls exist in the repository. The pinned evidence keeps component model attribution stable across imports and later arrivals. These preserve component and routing outcomes alongside the overall trial result.
+
+## Define metrics and preserve their values
+
+Record a `metric` revision before using it to interpret results. Its `name` and `description` explain what is measured; `unit` and `value_format` are caller-defined text. `calculation` retains its description, optional formula, source artifact IDs, population, aggregation, exclusions, and missing-data policy. Optional `value_schema` describes the representation, and `interpretation` can explain how the caller uses it. Pin calculation code through Git artifacts where available. These definitions can describe accuracy, money, duration, categories, vectors, distributions, or any other caller-defined result.
+
+For an existing `run-a`, this illustrative MCP bundle records a duration definition and one reported value. Replace the Git coordinates with the actual calculation source:
+
+```json
+{
+  "action": "record",
+  "records": [
+    {
+      "id": "change-duration-v1",
+      "title": "Measure user-visible completion duration",
+      "occurred_at": "2026-10-22T12:00:00Z",
+      "body": {
+        "kind": "change",
+        "motivation": {
+          "state": "recorded",
+          "reason": "user_requirement",
+          "problem": "Task completion accuracy does not describe how long the user waits.",
+          "expected_behavior": "Retain elapsed duration including tool wait for every selected attempt.",
+          "rationale": "Compare responsiveness alongside accuracy using an explicit timing population.",
+          "provenance": "contemporaneous"
+        },
+        "evidence": []
+      }
+    },
+    {
+      "id": "artifact-duration-calculation",
+      "title": "Pinned timing calculation",
+      "occurred_at": "2026-10-22T12:00:00Z",
+      "body": {
+        "kind": "artifact",
+        "media_type": "text/x-python",
+        "byte_size": 120,
+        "backings": [{
+          "kind": "git_file",
+          "repository": "example-repository",
+          "commit": "1111111111111111111111111111111111111111",
+          "object_format": "sha1",
+          "path": "evals/elapsed.py",
+          "entry_mode": "100644"
+        }]
+      }
+    },
+    {
+      "id": "metric-duration-v1",
+      "title": "Mean elapsed duration in seconds",
+      "occurred_at": "2026-10-22T12:00:00Z",
+      "body": {
+        "kind": "metric",
+        "identity": "user-visible-duration",
+        "parents": [],
+        "change_id": "change-duration-v1",
+        "name": "Mean elapsed duration",
+        "description": "Caller-measured time from attempt start to completion, including tool wait.",
+        "unit": "seconds",
+        "value_format": "arbitrary-precision decimal text",
+        "calculation": {
+          "description": "Apply the pinned calculation to the selected attempt timestamps.",
+          "formula": "sum(completed_at - started_at) / count(selected_attempts)",
+          "source_artifacts": ["artifact-duration-calculation"],
+          "population": "All selected completed attempts in this run",
+          "aggregation": "Arithmetic mean; retain individual timing inputs",
+          "exclusions": "Incomplete attempts are disclosed separately",
+          "missing_data": "Report unavailable when a selected completed attempt lacks timestamps"
+        },
+        "interpretation": "The caller considers shorter duration together with accuracy and cost."
+      }
+    },
+    {
+      "id": "measurement-run-a-duration",
+      "title": "Reported run duration",
+      "occurred_at": "2026-10-22T12:30:00Z",
+      "body": {
+        "kind": "measurement",
+        "metric_id": "metric-duration-v1",
+        "subject": {"scope": "run", "id": "run-a"},
+        "value": {"storage": "inline", "text": "7.000000000000000000000000000000000001"},
+        "explanation": "Caller-calculated result under the pinned timing definition.",
+        "inputs": ["run-a"],
+        "evidence": ["artifact-duration-calculation"],
+        "replaces": null
+      }
+    }
+  ]
+}
+```
+
+`measurement.value` is one of `{"storage":"inline","text":"..."}`, `{"storage":"artifact","artifact_id":"..."}`, or `{"storage":"unavailable","reason":"..."}`. Inline text is preserved exactly, including empty values, large integers, decimal precision, and serialized JSON/CSV. JSON or CSV contents belong inside that text or an artifact; do not convert them through a JavaScript number or a floating-point score. Large values use artifacts. Missing evidence is unavailable rather than an invented zero.
+
+Nexus validates typed references and bounds. It does not parse the declared format, validate content against `value_schema`, execute calculation code, normalize units, evaluate an optimization objective, or decide which result is better. Caller preferences, thresholds, and tradeoffs remain recorded interpretation and decision evidence. Historical numeric `grade.score` and inline comparison metrics remain supported; a new measurement does not require that legacy float representation.
+
+Changing meaning, unit, value format, formula, population, aggregation, exclusions, or missing-data policy creates a new metric revision with its own change motivation. A correction under the same definition appends a `measurement` with `replaces`; its subject and metric revision must match the earlier measurement. Measurements under a new definition reference that revision and retain links to the original inputs rather than presenting a definition change as a correction under the old one. Comparisons may name exact `metric_ids`, `measurement_ids`, or both; measurements already resolve their definitions, so no duplicate definition list or legacy numeric metric is required. Disclose any changed basis; Nexus does not infer equivalence from matching names or units. `why` follows the metric definition, calculation sources, inputs, evidence, and later corrections.
 
 ## Report execution progress without replacing history
 
@@ -152,7 +249,7 @@ Record what the capture can establish. A declared tool list is not an observed e
 
 ## Compare and preserve history
 
-Check exact suite/case/grader revisions, splits, aggregation, retry policy, exclusions, and environment before comparing runs. Keep repository and model configuration together; preserve component target links for routers and multi-agent systems. Record effective-time selections separately from receipt order when the question concerns what was selected at a particular time.
+Check exact suite/case/grader/metric revisions, value formats, units, calculation sources, populations, splits, aggregation, retry policy, exclusions, and environment before comparing runs. Keep repository and model configuration together; preserve component target links for routers and multi-agent systems. Record effective-time selections separately from receipt order when the question concerns what was selected at a particular time.
 
 ```sh
 nexus eval export history.ndjson

@@ -70,6 +70,42 @@ fn postgres_eval_history_preserves_bound_project_git_motivations_and_chunked_byt
         .is_null());
     verify_blob(&service, &project);
     verify_lifecycle(&service, &project);
+    verify_metric_meaning(&service, &project);
+}
+
+fn verify_metric_meaning(service: &NexusService, project: &str) {
+    let metric = eval_record::record(
+        "metric",
+        json!({"kind":"metric","identity":"caller-counter","change_id":"why","name":"Caller counter","description":"An exact caller-defined quantity","unit":"arbitrary events / interval","value_format":"Exact decimal text","calculation":{"description":"Caller computes the reported quantity","formula":"sum(caller events)","source_artifacts":[],"population":"Caller event stream","aggregation":"Caller sum","exclusions":"None reported","missing_data":"Explicit unavailable report"}}),
+    );
+    let value = "90071992547409931234567890.000000000001";
+    let measurement = eval_record::record(
+        "measurement",
+        json!({"kind":"measurement","metric_id":"metric","subject":{"scope":"run","id":"run"},"value":{"storage":"inline","text":value},"explanation":"Preserve the caller's exact representation"}),
+    );
+    invoke(
+        service,
+        project,
+        json!({"action":"record","records":[measurement,metric]}),
+    );
+    let result = invoke(service, project, json!({"action":"get","id":"measurement"}));
+    assert_eq!(result["record"]["body"]["value"]["text"], value);
+    let history = invoke(
+        service,
+        project,
+        json!({"action":"why","id":"measurement","limit":64}),
+    );
+    let definition = history["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "metric")
+        .unwrap();
+    assert_eq!(definition["body"]["unit"], "arbitrary events / interval");
+    assert_eq!(
+        definition["body"]["calculation"]["formula"],
+        "sum(caller events)"
+    );
 }
 
 fn verify_lifecycle(service: &NexusService, project: &str) {

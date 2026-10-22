@@ -215,3 +215,48 @@ it("includes occurrence time in history rows before opening a record", async () 
   expect(pane.render(100).join("\n")).toContain("2026-10-22 12:00Z");
   pane.dispose();
 });
+
+it("accepts metric definitions and measurements without parsing exact value text", async () => {
+  const headers = ["metric", "measurement"].map(kind => ({ ...header, id: kind, kind }));
+  const call = vi.fn(async () => ({ ok: true, action: "listed", records: headers, next_cursor: null }));
+  const api = new NexusEvalsApi({ call }, "/repo");
+  expect((await api.list(null, {})).records.map(item => item.kind)).toEqual(["metric", "measurement"]);
+  for (const text of ["900719925474099312345678901234567890", "0.123456789012345678901234567890", '{"bins":[1,2],"note":null,"valid":false}']) {
+    const measured = { ...record, body: { kind: "measurement" as const, metric_id: "metric-1", value: { storage: "inline", text } } };
+    expect(evalDetailLines(measured).join("\n")).toContain(text);
+  }
+});
+
+it("preserves literal null, false, and zero in structured evidence previews", () => {
+  const values = { ...record, body: { kind: "change" as const, recorded_value: null, valid: false, count: 0 } };
+  const lines = evalDetailLines(values).join("\n");
+  expect(lines).toContain("recorded value: null");
+  expect(lines).toContain("valid: false");
+  expect(lines).toContain("count: 0");
+});
+
+it("follows a labeled metric-definition link from the value to its meaning and formula", async () => {
+  const measurement = { ...record, id: "measurement-1", title: "Tail latency", links: [{ relation: "metric_definition", target_id: "metric-1" }],
+    body: { kind: "measurement" as const, metric_id: "metric-1", value: { storage: "inline", text: "0.123456789012345678901234567890" } } };
+  const metric = { ...record, id: "metric-1", title: "P95 response latency", links: [], body: {
+    kind: "metric" as const, identity: "latency", change_id: "change-1", name: "P95 response latency", description: "End-to-end response duration",
+    unit: "milliseconds", value_format: "exact decimal text", calculation: { description: "Compute the 95th percentile", formula: "p95(samples)",
+      source_artifacts: [], population: "completed requests", aggregation: "nearest-rank", exclusions: "none", missing_data: "report separately" },
+  } };
+  const get = vi.fn().mockResolvedValueOnce(measurement).mockResolvedValueOnce(metric);
+  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme, {
+    list: async () => ({ records: [{ ...header, id: measurement.id, title: measurement.title, kind: "measurement" as const }], next_cursor: null }), get, why: vi.fn(),
+  }, vi.fn());
+  pane.activate(null);
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
+  pane.handleInput("\r");
+  await vi.waitFor(() => expect(pane.render(120).join("\n")).toContain("0.123456789012345678901234567890"));
+  expect(pane.render(120).join("\n")).toContain("Metric definition: metric-1");
+  pane.handleInput("l");
+  expect(pane.render(120).join("\n")).toContain("metric_definition → metric-1");
+  pane.handleInput("\r");
+  await vi.waitFor(() => expect(pane.render(120).join("\n")).toContain("p95(samples)"));
+  expect(pane.render(120).join("\n")).toContain("unit: milliseconds");
+  expect(get).toHaveBeenLastCalledWith(null, "metric-1", expect.any(AbortSignal));
+  pane.dispose();
+});

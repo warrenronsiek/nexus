@@ -8,24 +8,11 @@ mod eval_record;
 mod support;
 use serde_json::{json, Value};
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 use support::Harness;
 
 fn change() -> Value {
     json!({"id":"change-1","title":"Router regression motivation","occurred_at":"2026-10-22T12:00:00Z","body":{"kind":"change","motivation":{"state":"recorded","reason":"observed_failure","problem":"Router sent extraction to the wrong worker","expected_behavior":"Dispatch to the extraction worker","rationale":"Preserve the production failure as a regression case","provenance":"contemporaneous"},"evidence":[]}})
-}
-
-fn cli(harness: &Harness, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_nexus"))
-        .current_dir(&harness.root)
-        .args([
-            "--config",
-            harness._temp.path().join("config.toml").to_str().unwrap(),
-            "eval",
-        ])
-        .args(args)
-        .output()
-        .unwrap()
 }
 
 fn success(output: Output) -> Value {
@@ -75,14 +62,14 @@ fn eval_reference_export_can_be_reimported_into_its_origin() {
         json!({"action":"record","records":[change()]}),
     );
     let output = harness._temp.path().join("history.jsonl");
-    let exported = cli(&harness, &["export", output.to_str().unwrap()]);
+    let exported = harness.eval_cli(&["export", output.to_str().unwrap()]);
     assert!(
         exported.status.success(),
         "{}",
         String::from_utf8_lossy(&exported.stderr)
     );
-    success(cli(&harness, &["import", output.to_str().unwrap()]));
-    success(cli(&harness, &["import", output.to_str().unwrap()]));
+    success(harness.eval_cli(&["import", output.to_str().unwrap()]));
+    success(harness.eval_cli(&["import", output.to_str().unwrap()]));
     let page = harness.call("nexus_evals", json!({"action":"list"}));
     assert_eq!(page["records"].as_array().unwrap().len(), 1);
 }
@@ -93,7 +80,7 @@ fn chunked_blob_and_reference_bundle_round_trip_preserve_source_and_verify_befor
     let bytes = vec![b'x'; 1_100_000];
     let raw = source._temp.path().join("output.bin");
     std::fs::write(&raw, &bytes).unwrap();
-    let uploaded = success(cli(&source, &["upload", raw.to_str().unwrap()]));
+    let uploaded = success(source.eval_cli(&["upload", raw.to_str().unwrap()]));
     let digest = uploaded["blob"]["digest"].as_str().unwrap();
     assert_eq!(uploaded["blob"]["verified"], true);
     let artifact = json!({"id":"output-1","title":"Generated output","occurred_at":"2026-10-22T12:00:00Z","body":{"kind":"artifact","media_type":"application/octet-stream","byte_size":bytes.len(),"digest":digest,"backings":[{"kind":"stored_blob","digest":digest}]}});
@@ -102,13 +89,15 @@ fn chunked_blob_and_reference_bundle_round_trip_preserve_source_and_verify_befor
         json!({"action":"record","records":[artifact]}),
     );
     let bundle = source._temp.path().join("bundle.jsonl");
-    assert!(cli(&source, &["export", bundle.to_str().unwrap()])
+    assert!(source
+        .eval_cli(&["export", bundle.to_str().unwrap()])
         .status
         .success());
     let mut target = Harness::start();
     let bad = target._temp.path().join("incomplete.jsonl");
     remove_bundle_footer(&bundle, &bad);
-    assert!(!cli(&target, &["import", bad.to_str().unwrap()])
+    assert!(!target
+        .eval_cli(&["import", bad.to_str().unwrap()])
         .status
         .success());
     assert!(
@@ -117,12 +106,12 @@ fn chunked_blob_and_reference_bundle_round_trip_preserve_source_and_verify_befor
             .unwrap()
             .is_empty()
     );
-    success(cli(&target, &["import", bundle.to_str().unwrap()]));
-    success(cli(&target, &["import", bundle.to_str().unwrap()]));
+    success(target.eval_cli(&["import", bundle.to_str().unwrap()]));
+    success(target.eval_cli(&["import", bundle.to_str().unwrap()]));
     let record = target.call("nexus_evals", json!({"action":"get","id":"output-1"}));
     assert!(record["record"]["source"]["recorded_at"].is_string());
     let restored = target._temp.path().join("restored.bin");
-    let result = cli(&target, &["download", digest, restored.to_str().unwrap()]);
+    let result = target.eval_cli(&["download", digest, restored.to_str().unwrap()]);
     assert!(
         result.status.success(),
         "{}",
@@ -141,7 +130,7 @@ fn remove_bundle_footer(source: &Path, output: &Path) {
 #[test]
 fn eval_schema_and_record_file_are_available_to_callers() {
     let harness = Harness::start();
-    let schema = success(cli(&harness, &["schema"]));
+    let schema = success(harness.eval_cli(&["schema"]));
     assert!(schema["oneOf"].is_array());
     let file = harness._temp.path().join("records.json");
     std::fs::write(
@@ -150,15 +139,13 @@ fn eval_schema_and_record_file_are_available_to_callers() {
     )
     .unwrap();
     assert_eq!(
-        success(cli(&harness, &["record", file.to_str().unwrap()]))["inserted"],
+        success(harness.eval_cli(&["record", file.to_str().unwrap()]))["inserted"],
         1
     );
-    assert!(!cli(
-        &harness,
-        &["record", Path::new("missing.json").to_str().unwrap()]
-    )
-    .status
-    .success());
+    assert!(!harness
+        .eval_cli(&["record", Path::new("missing.json").to_str().unwrap()])
+        .status
+        .success());
 }
 
 #[test]
@@ -176,7 +163,7 @@ fn pending_blob_upload_can_be_aborted_without_touching_verified_artifacts() {
         json!({"action":"blob_put","digest":digest,"index":0,"data":STANDARD.encode(b"bad")}),
     );
     assert_eq!(
-        success(cli(&harness, &["abort-upload", &digest]))["removed"],
+        success(harness.eval_cli(&["abort-upload", &digest]))["removed"],
         true
     );
     assert!(
@@ -186,10 +173,13 @@ fn pending_blob_upload_can_be_aborted_without_touching_verified_artifacts() {
     let file = harness._temp.path().join("correct.bin");
     std::fs::write(&file, b"yes").unwrap();
     assert_eq!(
-        success(cli(&harness, &["upload", file.to_str().unwrap()]))["blob"]["verified"],
+        success(harness.eval_cli(&["upload", file.to_str().unwrap()]))["blob"]["verified"],
         true
     );
-    assert!(!cli(&harness, &["abort-upload", &digest]).status.success());
+    assert!(!harness
+        .eval_cli(&["abort-upload", &digest])
+        .status
+        .success());
 }
 
 #[test]
@@ -203,14 +193,14 @@ fn unavailable_materialization_remains_an_exportable_history_gap() {
     );
     assert_eq!(recorded["inserted"], 2, "{recorded}");
     let bundle = source._temp.path().join("gap.jsonl");
-    let exported = cli(&source, &["export", bundle.to_str().unwrap()]);
+    let exported = source.eval_cli(&["export", bundle.to_str().unwrap()]);
     assert!(
         exported.status.success(),
         "{}",
         String::from_utf8_lossy(&exported.stderr)
     );
     let mut target = Harness::start();
-    let imported = success(cli(&target, &["import", bundle.to_str().unwrap()]));
+    let imported = success(target.eval_cli(&["import", bundle.to_str().unwrap()]));
     assert_eq!(imported["blobs"], 0);
     let gap = target.call("nexus_evals", json!({"action":"get","id":"missing-copy"}));
     assert_eq!(gap["record"]["body"]["state"], "unavailable");
@@ -304,14 +294,14 @@ fn reference_exchange_preserves_explicit_component_model_attribution() {
     assert_eq!(recorded["inserted"], 14, "{recorded}");
     assert_eq!(actual_component_grades(&mut source), vec!["a-grade"]);
     let bundle = source._temp.path().join("components.jsonl");
-    let exported = cli(&source, &["export", bundle.to_str().unwrap()]);
+    let exported = source.eval_cli(&["export", bundle.to_str().unwrap()]);
     assert!(
         exported.status.success(),
         "{}",
         String::from_utf8_lossy(&exported.stderr)
     );
     let mut target = Harness::start();
-    success(cli(&target, &["import", bundle.to_str().unwrap()]));
+    success(target.eval_cli(&["import", bundle.to_str().unwrap()]));
     assert_eq!(actual_component_grades(&mut target), vec!["a-grade"]);
     let unknown = target.call("nexus_evals", json!({"action":"get","id":"b-unknown"}));
     assert!(unknown["record"]["source"]["recorded_at"].is_string());

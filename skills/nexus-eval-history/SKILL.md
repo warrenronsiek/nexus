@@ -15,7 +15,7 @@ Trace from the decision or score to the scoring pass, original attempt and outpu
 
 For “what did the model have available,” inspect the call's ordered instructions, tool/skill inventory, file evidence, request parameters, served model, and capture-completeness notes. Distinguish configured, exposed, invoked, and completed capabilities. Absence from a partial capture cannot establish absence at execution time.
 
-For “what worked,” compare only compatible measurements, and identify any differences in cases, grading, filters, retries, environment, or holdout exposure. Keep a candidate's repository revision and model configuration together. For routers or multi-agent systems, follow the composition and actual call lineage.
+For “what worked,” compare only compatible measurements, and identify any differences in cases, grading, metric definitions, units, calculation sources, formats, populations, filters, retries, environment, or holdout exposure. Values may be exact decimal text, categorical labels, JSON/CSV, distributions, or artifacts; inspect their definitions before interpreting them. Nexus preserves results and the caller's comparison claim without computing an objective or deciding which result is better. Keep a candidate's repository revision and model configuration together. For routers or multi-agent systems, follow the composition and actual call lineage.
 
 For “why was this eval added,” retrieve the revision's own rationale and its triggering incident, requirement, gap, or observation. Do not infer intent from a filename, commit message, or a model-written summary when the original motivation is missing. Say what is unknown and preserve the source's uncertainty.
 

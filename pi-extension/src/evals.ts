@@ -5,7 +5,7 @@
 // @boundary dynamic-json: validate the history envelope and JSON values; the service owns typed eval body validation.
 import type { NexusMcpClient } from "./mcp-client.ts";
 
-export const EVAL_KINDS = ["change", "repository", "model", "case", "suite", "grader", "target", "experiment", "run", "trial", "attempt", "call", "trace", "grade", "comparison", "decision", "selection", "artifact", "verification", "lifecycle"] as const;
+export const EVAL_KINDS = ["change", "repository", "model", "case", "suite", "grader", "target", "experiment", "run", "trial", "attempt", "call", "trace", "grade", "comparison", "decision", "selection", "artifact", "verification", "lifecycle", "metric", "measurement"] as const;
 export type EvalKind = typeof EVAL_KINDS[number];
 const REPORTED_STATES = ["planned", "running", "completed", "failed", "canceled", "skipped", "interrupted", "abandoned", "unknown"] as const;
 type ReportedState = typeof REPORTED_STATES[number];
@@ -30,9 +30,6 @@ export interface EvalQuery { kind?: EvalKind; repository?: string; model?: strin
 export interface EvalPage { records: EvalHeader[]; next_cursor: string | null }
 export interface EvalHistory { records: EvalRecord[]; truncated: boolean }
 export const EVAL_DETAIL_ROWS = 18;
-export function evalLinks(record: EvalRecord): string[] {
-  return [...new Set(record.links.map(link => link.target_id).filter(id => id !== record.id))];
-}
 export interface EvalsApi {
   list(project: string | null, query: EvalQuery, signal?: AbortSignal): Promise<EvalPage>;
   get(project: string | null, id: string, signal?: AbortSignal): Promise<EvalRecord | null>;

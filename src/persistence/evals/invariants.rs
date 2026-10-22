@@ -12,6 +12,7 @@ enum Scope<'a> {
     Trial(&'a str),
     Attempt(&'a str),
     Assessment(&'a AssessmentSubject),
+    Measurement(&'a str, &'a AssessmentSubject),
     Selection(&'a str),
     Lifecycle(&'a LifecycleSubject),
 }
@@ -35,6 +36,10 @@ impl<'a> Lineage<'a> {
             EvalBody::Grade(value) => Some(Self {
                 parent: value.replaces.as_deref(),
                 scope: Scope::Assessment(&value.subject),
+            }),
+            EvalBody::Measurement(value) => Some(Self {
+                parent: value.replaces.as_deref(),
+                scope: Scope::Measurement(&value.metric_id, &value.subject),
             }),
             EvalBody::Selection(value) => Some(Self {
                 parent: value.previous_id.as_deref(),
@@ -181,14 +186,14 @@ pub(super) fn validate_links(
 }
 
 fn validate_component_assessment(graph: &mut RecordedGraph<'_, '_>, body: &EvalBody) -> Result<()> {
-    let EvalBody::Grade(grade) = body else {
+    let Some(subject) = body.assessment_subject() else {
         return Ok(());
     };
     let AssessmentSubject::Component {
         attempt_id,
         instance,
         call_ids,
-    } = &grade.subject
+    } = subject
     else {
         return Ok(());
     };

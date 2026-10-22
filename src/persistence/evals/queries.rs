@@ -113,6 +113,8 @@ fn corrections(
             "regrades",
             "verified_artifact",
             "lifecycle_subject",
+            "measured_subject",
+            "remeasures",
         ]))
         .order(eval_links::source_id.asc())
         .select(eval_links::source_id)

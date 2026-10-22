@@ -4,7 +4,7 @@
 // @spec docs/features/observability-ui.md
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { centeredWindowStart, sanitizeDisplayText } from "./display.ts";
-import { EVAL_DETAIL_ROWS, evalLinks, type EvalHeader, type EvalLifecycle, type EvalRecord, type EvalValue } from "./evals.ts";
+import { EVAL_DETAIL_ROWS, type EvalHeader, type EvalLifecycle, type EvalRecord, type EvalValue } from "./evals.ts";
 import type { EvalsState, EvalView } from "./evals-state.ts";
 import type { DashboardTheme } from "./theme.ts";
 
@@ -17,7 +17,7 @@ function preview(text: string): string {
 function appendValue(output: Preview, key: string, value: EvalValue, depth = 0): void {
   if (output.lines.length >= 240) { output.omitted = true; return; }
   const heading = `${"  ".repeat(Math.min(depth, 8))}${key.replaceAll("_", " ")}`;
-  if (value === null || typeof value !== "object") output.lines.push(`${heading}: ${preview(String(value ?? "unknown"))}`);
+  if (value === null || typeof value !== "object") output.lines.push(`${heading}: ${preview(String(value))}`);
   else if (Array.isArray(value)) {
     output.lines.push(`${heading}: ${value.length} items`);
     value.slice(0, 24).forEach((item, index) => appendValue(output, String(index + 1), item, depth + 1));
@@ -27,7 +27,7 @@ function appendValue(output: Preview, key: string, value: EvalValue, depth = 0):
     Object.entries(value).forEach(([field, item]) => appendValue(output, field, item, depth + 1));
   }
 }
-const PRIORITY = ["motivation", "reason", "rationale", "intended_behavior", "expected_behavior"];
+const PRIORITY = ["motivation", "reason", "rationale", "intended_behavior", "expected_behavior", "metric_id", "value", "name", "description", "unit", "value_format", "calculation", "interpretation"];
 function fieldPriority(key: string): number { return PRIORITY.indexOf(key) + 1 || 100; }
 function lifecycleLines(lifecycle: EvalLifecycle | null | undefined): string[] {
   if (!lifecycle) return [];
@@ -41,8 +41,10 @@ function lifecycleLines(lifecycle: EvalLifecycle | null | undefined): string[] {
   return [...lines, ""];
 }
 export function evalDetailLines(record: EvalRecord): string[] {
+  const metric = record.links.find(link => link.relation === "metric_definition");
   const output: Preview = { omitted: false, lines: [record.title, `${record.body.kind} · ${record.id}`, `Project: ${record.project_id}`,
-    `Occurred: ${record.occurred_at}`, `Recorded: ${record.recorded_at}`, "", ...lifecycleLines(record.lifecycle)] };
+    `Occurred: ${record.occurred_at}`, `Recorded: ${record.recorded_at}`, "", ...lifecycleLines(record.lifecycle),
+    ...(metric ? [`Metric definition: ${metric.target_id} · l links for meaning/formula`, ""] : [])] };
   Object.entries(record.body).filter(([key]) => key !== "kind")
     .sort(([left], [right]) => fieldPriority(left) - fieldPriority(right))
     .forEach(([key, value]) => appendValue(output, key, value));
@@ -77,7 +79,7 @@ function renderList(state: EvalsState, width: number): string[] {
     ...(page.records.length === 0 ? ["No matching eval history. Record/import through nexus eval."] : [])];
 }
 function renderDetail(view: Extract<EvalView, { kind: "detail" }>, width: number): Presentation {
-  const lines = [...evalDetailLines(view.record), "", `${evalLinks(view.record).length} linked records · l browse links · w why/history`]
+  const lines = [...evalDetailLines(view.record), "", `${view.record.links.length} recorded links · l browse links · w why/history`]
     .flatMap(line => wrapTextWithAnsi(line, width));
   const start = Math.min(view.scroll, Math.max(0, lines.length - EVAL_DETAIL_ROWS));
   return { detailLength: lines.length, lines: [...lines.slice(start, start + EVAL_DETAIL_ROWS),
@@ -90,10 +92,10 @@ function renderHistory(view: Extract<EvalView, { kind: "why" }>, width: number):
     view.history.records.length === 0 ? "No linked rationale reported." : "Enter opens the selected historical record"];
 }
 function renderLinks(view: Extract<EvalView, { kind: "links" }>, width: number): string[] {
-  const links = evalLinks(view.record);
+  const links = view.record.links;
   const start = centeredWindowStart(links.length, view.selected, 12);
-  return ["Linked evidence and definitions · Enter follows · Escape back", ...links.slice(start, start + 12).map((id, offset) =>
-    truncateToWidth(`${start + offset === view.selected ? "›" : " "} ${id}`, width)), ...(links.length === 0 ? ["No linked records reported."] : [])];
+  return ["Linked evidence and definitions · Enter follows · Escape back", ...links.slice(start, start + 12).map((link, offset) =>
+    truncateToWidth(`${start + offset === view.selected ? "›" : " "} ${link.relation} → ${link.target_id}`, width)), ...(links.length === 0 ? ["No linked records reported."] : [])];
 }
 function renderView(state: EvalsState, width: number): Presentation {
   const view = state.view;

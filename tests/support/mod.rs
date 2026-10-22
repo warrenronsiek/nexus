@@ -7,6 +7,7 @@
 // @feature installation
 // @feature observability-ui
 // @feature agent-memory
+// @feature evals
 // @spec docs/features/coordination.md
 // @spec docs/features/persistence.md
 // @spec docs/features/runtime.md
@@ -14,6 +15,7 @@
 // @spec docs/features/installation.md
 // @spec docs/features/observability-ui.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/evals.md
 // @boundary dynamic-json
 // Each integration-test crate uses a different subset of these shared helpers.
 #![allow(dead_code)]
@@ -141,6 +143,19 @@ impl Harness {
         std::fs::write(self.root.join("tracked.txt"), "initial\n").unwrap();
         run_git(&self.root, &["add", "tracked.txt"]);
         run_git(&self.root, &["commit", "-m", "initial"]);
+    }
+
+    pub fn eval_cli(&self, args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_nexus"))
+            .current_dir(&self.root)
+            .args([
+                "--config",
+                self._temp.path().join("config.toml").to_str().unwrap(),
+                "eval",
+            ])
+            .args(args)
+            .output()
+            .unwrap()
     }
 
     pub fn wait_for_reconciled_claim(&mut self, session_id: &str) {

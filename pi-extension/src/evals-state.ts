@@ -3,7 +3,7 @@
 // @spec docs/features/evals.md
 // @spec docs/features/observability-ui.md
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { EVAL_DETAIL_ROWS, EVAL_KINDS, evalLinks, type EvalHistory, type EvalPage, type EvalQuery, type EvalRecord } from "./evals.ts";
+import { EVAL_DETAIL_ROWS, EVAL_KINDS, type EvalHistory, type EvalPage, type EvalQuery, type EvalRecord } from "./evals.ts";
 
 export interface EvalContext { record: EvalRecord; trail: EvalRecord[] }
 export type EvalView = { kind: "list" } |
@@ -72,7 +72,7 @@ function back(state: EvalsState): void {
 function selectedRecord(state: EvalsState): string | undefined {
   const view = state.view;
   if (view.kind === "list") return state.page?.records[state.selected]?.id;
-  if (view.kind === "links") return evalLinks(view.record)[view.selected];
+  if (view.kind === "links") return view.record.links[view.selected]?.target_id;
   if (view.kind === "why") return view.history.records[view.selected]?.id;
   return undefined;
 }
@@ -96,7 +96,7 @@ function move(state: EvalsState, direction: number): EvalInput {
   switch (view.kind) {
     case "detail": view.scroll = clamp(view.scroll + direction, state.detailLength - EVAL_DETAIL_ROWS); break;
     case "why": view.selected = clamp(view.selected + direction, view.history.records.length - 1); break;
-    case "links": view.selected = clamp(view.selected + direction, evalLinks(view.record).length - 1); break;
+    case "links": view.selected = clamp(view.selected + direction, view.record.links.length - 1); break;
     case "list": {
       const last = (state.page?.records.length ?? 1) - 1;
       if (direction === 1 && state.selected === last && state.page?.next_cursor) intent = { action: "list", after: state.page.next_cursor };
