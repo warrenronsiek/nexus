@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
@@ -10,11 +12,13 @@
 // @spec docs/features/sos.md
 // @boundary dynamic-json
 mod analytics;
+mod evals;
 mod memory;
 mod papercuts;
 mod responses;
 mod sos;
 
+pub use evals::*;
 pub use memory::*;
 pub use papercuts::*;
 pub use responses::*;
@@ -75,6 +79,7 @@ pub enum ServiceRequest {
     MemoryConsolidate,
     Papercuts(PapercutCommand),
     Sos(SosCommand),
+    Evals(EvalCommand),
     Analytics(crate::analytics::types::AnalyticsCommand),
     Config,
 }
@@ -226,6 +231,7 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
 
 fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
     match method {
+        "evals" => evals::decode_command(params),
         "analytics" => analytics::decode_analytics(params),
         "resolve" => decode(params).map(ServiceRequest::Resolve),
         "release" => decode(params).map(ServiceRequest::Release),
@@ -313,6 +319,7 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::MemoryConsolidate
         | ServiceRequest::Papercuts(_)
         | ServiceRequest::Sos(_)
+        | ServiceRequest::Evals(_)
         | ServiceRequest::Analytics(_) => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
@@ -357,6 +364,7 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::MemoryConsolidate => Ok(empty("memory_consolidate")),
         ServiceRequest::Papercuts(command) => encode("papercuts", command),
         ServiceRequest::Sos(command) => encode("sos", command),
+        ServiceRequest::Evals(command) => encode("evals", command),
         ServiceRequest::Analytics(command) => encode("analytics", command),
         _ => unreachable!("request family was selected before encoding"),
     }
@@ -402,6 +410,7 @@ const COMMAND_METHODS: &[&str] = &[
     "memory_consolidate",
     "papercuts",
     "sos",
+    "evals",
 ];
 const REPORT_METHODS: &[&str] = &["projects", "dashboard", "usage", "config"];
 

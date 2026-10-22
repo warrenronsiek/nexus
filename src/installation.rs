@@ -1,9 +1,11 @@
 // @feature installation
 // @feature sos
 // @feature usage-analytics
+// @feature evals
 // @spec docs/features/installation.md
 // @spec docs/features/sos.md
 // @spec docs/features/usage-analytics.md
+// @spec docs/features/evals.md
 // @entrypoint setup_machine
 // @entrypoint install_repository
 // @boundary dynamic-json
@@ -18,8 +20,16 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const PROJECT_CONFIG: &str = "schema_version = 1\n";
-const SKILL_NAMES: [&str; 3] = ["code-architect", "code-deletion", "tdd"];
-const SKILL_FILES: [(&str, &str); 4] = [
+const SKILL_NAMES: [&str; 7] = [
+    "code-architect",
+    "code-deletion",
+    "tdd",
+    "nexus-build-eval",
+    "nexus-eval-audit",
+    "nexus-hillclimb",
+    "nexus-eval-history",
+];
+const SKILL_FILES: [(&str, &str); 9] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -33,8 +43,28 @@ const SKILL_FILES: [(&str, &str); 4] = [
         include_str!("../skills/code-deletion/SKILL.md"),
     ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
+    (
+        "nexus-build-eval/SKILL.md",
+        include_str!("../skills/nexus-build-eval/SKILL.md"),
+    ),
+    (
+        "nexus-eval-audit/SKILL.md",
+        include_str!("../skills/nexus-eval-audit/SKILL.md"),
+    ),
+    (
+        "nexus-hillclimb/SKILL.md",
+        include_str!("../skills/nexus-hillclimb/SKILL.md"),
+    ),
+    (
+        "nexus-eval-history/SKILL.md",
+        include_str!("../skills/nexus-eval-history/SKILL.md"),
+    ),
+    (
+        "nexus-eval-history/references/nexus-evals.md",
+        include_str!("../skills/nexus-eval-history/references/nexus-evals.md"),
+    ),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 19] = [
+const PI_EXTENSION_FILES: [(&str, &str); 24] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
     ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
     ("client.ts", include_str!("../pi-extension/src/client.ts")),
@@ -44,6 +74,23 @@ const PI_EXTENSION_FILES: [(&str, &str); 19] = [
     ),
     ("display.ts", include_str!("../pi-extension/src/display.ts")),
     ("domain.ts", include_str!("../pi-extension/src/domain.ts")),
+    ("evals.ts", include_str!("../pi-extension/src/evals.ts")),
+    (
+        "evals-pane.ts",
+        include_str!("../pi-extension/src/evals-pane.ts"),
+    ),
+    (
+        "evals-view.ts",
+        include_str!("../pi-extension/src/evals-view.ts"),
+    ),
+    (
+        "evals-state.ts",
+        include_str!("../pi-extension/src/evals-state.ts"),
+    ),
+    (
+        "evals-requests.ts",
+        include_str!("../pi-extension/src/evals-requests.ts"),
+    ),
     (
         "host-context.ts",
         include_str!("../pi-extension/src/host-context.ts"),

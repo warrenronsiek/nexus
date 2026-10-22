@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature runtime
 // @feature commit-review
 // @feature usage-analytics
@@ -12,6 +14,8 @@
 // @spec docs/features/sos.md
 // @entrypoint main
 // @boundary cli-and-json
+#[path = "main/evals.rs"]
+mod evals_cli;
 #[path = "main/sos.rs"]
 mod sos_cli;
 
@@ -133,6 +137,11 @@ enum Command {
     Sos {
         #[command(subcommand)]
         command: SosCliCommand,
+    },
+    /// Record and inspect caller-owned evaluation history.
+    Eval {
+        #[command(subcommand)]
+        command: evals_cli::EvalCliCommand,
     },
     /// Run parallel cross-model architecture and deletion review on the staged diff.
     ReviewCommit,
@@ -317,6 +326,7 @@ async fn main() -> Result<()> {
         Command::Memory { command } => run_memory_command(command, &root, &loaded).await,
         Command::Papercuts { command } => run_papercuts_command(command, &root, &loaded).await,
         Command::Sos { command } => sos_cli::run(command, &root, &loaded).await,
+        Command::Eval { command } => evals_cli::run(command, &root, &loaded).await,
         query @ (Command::Status
         | Command::Events { .. }
         | Command::Sessions { .. }

@@ -8,13 +8,16 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature evals
+// @spec docs/features/evals.md
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
-    analytics_resources, analytics_revisions, capability_uses, claims, conflicts, events,
-    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
-    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
-    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
-    sos_issues, sos_reports, sos_triage_attempts,
+    analytics_resources, analytics_revisions, capability_uses, claims, conflicts, eval_blob_chunks,
+    eval_blobs, eval_dimensions, eval_links, eval_records, events, memory_activations,
+    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
+    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
+    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
+    sos_triage_attempts,
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -401,3 +404,43 @@ portable_row!(AnalyticsResourcesTransfer, analytics_resources, {
     first_seen: String,
     last_seen: String,
 });
+
+portable_row!(EvalRecordTransfer, eval_records, {
+    project_id: String, id: String, kind: String, title: String, occurred_at: String,
+    recorded_at: String, payload_json: String, content_hash: String, provenance_json: String, search_text: String,
+});
+portable_row!(EvalLinkTransfer, eval_links, {
+    project_id: String, source_id: String, target_id: String, relation: String,
+});
+portable_row!(EvalDimensionTransfer, eval_dimensions, {
+    project_id: String, record_id: String, dimension: String, value: String,
+});
+portable_row!(EvalBlobTransfer, eval_blobs, {
+    project_id: String, digest: String, upload_id: String, byte_size: i64, chunk_count: i32, verified: bool, created_at: String,
+});
+
+#[derive(Deserialize, Insertable, Queryable, Selectable, Serialize)]
+#[diesel(table_name = eval_blob_chunks)]
+pub(super) struct EvalBlobChunkTransfer {
+    pub(super) project_id: String,
+    pub(super) digest: String,
+    pub(super) chunk_index: i32,
+    #[serde(with = "base64_bytes")]
+    pub(super) bytes: Vec<u8>,
+}
+
+mod base64_bytes {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub(super) fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<u8>, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(value)
+            .map_err(serde::de::Error::custom)
+    }
+}

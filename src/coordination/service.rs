@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
@@ -10,6 +12,7 @@
 // @spec docs/features/sos.md
 mod analytics;
 mod dispatch;
+mod evals;
 mod feature_ops;
 mod memory;
 mod papercuts;

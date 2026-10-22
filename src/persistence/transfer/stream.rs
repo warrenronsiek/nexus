@@ -1,5 +1,7 @@
 // @feature persistence
 // @spec docs/features/persistence.md
+// @feature evals
+// @spec docs/features/evals.md
 // @entrypoint Store::write_streamed_snapshot
 // @entrypoint Store::import_streamed_snapshot
 // @boundary portable-database-stream
@@ -7,10 +9,11 @@ use super::super::backend::DbConnection;
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
     analytics_resources, analytics_revisions, capability_uses, claims, conflicts, database_imports,
-    events, memory_activations, memory_compaction_attempts, memory_compaction_queue,
-    memory_entries, memory_frontier_snapshots, memory_spaces, memory_summaries,
-    papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts, sessions,
-    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts,
+    eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records, events,
+    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
+    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
+    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
+    sos_issues, sos_reports, sos_triage_attempts,
 };
 use super::super::Store;
 use super::rows::*;
@@ -67,7 +70,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 3;
+const FORMAT_VERSION: i32 = 4;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -94,6 +97,12 @@ macro_rules! batches {
         impl Batch {
             fn ordinal(&self) -> usize { match self { $(Self::$variant(_) => $ordinal,)+ } }
             fn len(&self) -> usize { match self { $(Self::$variant(rows) => rows.len(),)+ } }
+            fn split(self) -> (Self, Self) {
+                match self { $(Self::$variant(mut rows) => {
+                    let right = rows.split_off(rows.len()/2);
+                    (Self::$variant(rows),Self::$variant(right))
+                },)+ }
+            }
             fn insert(&self, connection: &mut DbConnection) -> Result<()> {
                 match self { $(Self::$variant(rows) => {
                     for chunk in rows.chunks(INSERT_CHUNK_ROWS) {
@@ -177,6 +186,11 @@ batches! {
     24: AnalyticsCategories(AnalyticsCategoriesTransfer) => analytics_categories, analytics_categories::id.asc();
     25: AnalyticsRevisions(AnalyticsRevisionsTransfer) => analytics_revisions, analytics_revisions::id.asc();
     26: AnalyticsResources(AnalyticsResourcesTransfer) => analytics_resources, analytics_resources::id.asc();
+    27: EvalRecords(EvalRecordTransfer) => eval_records, (eval_records::project_id.asc(),eval_records::id.asc());
+    28: EvalLinks(EvalLinkTransfer) => eval_links, (eval_links::project_id.asc(),eval_links::source_id.asc(),eval_links::target_id.asc(),eval_links::relation.asc());
+    29: EvalDimensions(EvalDimensionTransfer) => eval_dimensions, (eval_dimensions::project_id.asc(),eval_dimensions::record_id.asc(),eval_dimensions::dimension.asc(),eval_dimensions::value.asc());
+    30: EvalBlobs(EvalBlobTransfer) => eval_blobs, (eval_blobs::project_id.asc(),eval_blobs::digest.asc());
+    31: EvalBlobChunks(EvalBlobChunkTransfer) => eval_blob_chunks, (eval_blob_chunks::project_id.asc(),eval_blob_chunks::digest.asc(),eval_blob_chunks::chunk_index.asc());
 }
 
 #[derive(Serialize, Deserialize)]
@@ -220,8 +234,24 @@ impl<W: Write> StreamWriter<W> {
     }
 
     fn batch(&mut self, data: Batch) -> Result<()> {
-        self.rows += data.len();
-        self.record(&Record::Batch { data })
+        let record = Record::Batch { data };
+        if serde_json::to_vec(&record)?.len() + 1 > MAX_RECORD_BYTES {
+            let Record::Batch { data } = record else {
+                unreachable!()
+            };
+            if data.len() < 2 {
+                bail!("portable row exceeds its encoded byte limit");
+            }
+            let (left, right) = data.split();
+            self.batch(left)?;
+            self.batch(right)
+        } else {
+            let Record::Batch { ref data } = record else {
+                unreachable!()
+            };
+            self.rows += data.len();
+            self.record(&record)
+        }
     }
 
     fn finish(mut self) -> Result<SnapshotManifest> {
@@ -321,7 +351,7 @@ fn record_import(
 struct ImportProgress {
     format_version: i32,
     rows: usize,
-    seen: u32,
+    seen: HashSet<usize>,
     bytes: u64,
     last_table: usize,
     maximum_event_id: i64,
@@ -334,7 +364,7 @@ impl ImportProgress {
             bail!("invalid portable stream batch order or size");
         }
         self.last_table = table;
-        self.seen |= 1 << table;
+        self.seen.insert(table);
         if let Batch::Events(events) = &data {
             self.maximum_event_id = self
                 .maximum_event_id
@@ -355,6 +385,10 @@ fn import(connection: &mut DbConnection, mut input: impl BufRead) -> Result<Snap
             progress.format_version = 2;
             21
         }
+        Some(Record::Header { format_version: 3 }) => {
+            progress.format_version = 3;
+            27
+        }
         Some(Record::Header {
             format_version: FORMAT_VERSION,
         }) => {
@@ -367,7 +401,7 @@ fn import(connection: &mut DbConnection, mut input: impl BufRead) -> Result<Snap
         match read_record(&mut input, &mut hash, &mut progress.bytes)? {
             Some(Record::Batch { data }) => progress.accept_batch(data, connection)?,
             Some(Record::Complete { rows: expected })
-                if expected == progress.rows && progress.seen == (1 << tables) - 1 =>
+                if expected == progress.rows && progress.seen == (0..tables).collect() =>
             {
                 return finish_import(connection, &mut input, hash, progress);
             }
@@ -385,6 +419,7 @@ fn finish_import(
     if read_record(input, &mut hash, &mut progress.bytes)?.is_some() {
         bail!("portable stream has trailing records");
     }
+    super::super::evals::validate_snapshot(connection)?;
     sync_event_identity(connection, progress.maximum_event_id)?;
     Ok(SnapshotManifest {
         format_version: progress.format_version,

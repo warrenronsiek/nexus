@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature papercuts
 // @spec docs/features/papercuts.md
 // @feature observability-ui
@@ -16,7 +18,7 @@ import { UsagePoller, type UsageLoader } from "./polling.ts";
 import { AnalyticsBrowser, type AnalyticsApi } from "./analytics.ts";
 import { renderUsageBars } from "./usage.ts";
 
-export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts";
+export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts" | "evals";
 export type UsageTab = Extract<DashboardTab, "tools" | "skills">;
 
 const DASHBOARD_TABS: readonly DashboardTab[] = [
@@ -26,6 +28,7 @@ const DASHBOARD_TABS: readonly DashboardTab[] = [
   "skills",
   "memory",
   "papercuts",
+  "evals",
 ];
 
 export function nextDashboardTab(

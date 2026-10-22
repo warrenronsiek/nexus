@@ -130,7 +130,7 @@ fn version_two_streams_remain_importable_and_retain_their_source_version() {
     records.retain(|record| {
         !record["data"]["table"]
             .as_str()
-            .is_some_and(|name| name.starts_with("analytics_"))
+            .is_some_and(|name| name.starts_with("analytics_") || name.starts_with("eval_"))
     });
     let snapshot = tempfile::NamedTempFile::new().unwrap();
     for record in records {
@@ -147,6 +147,38 @@ fn version_two_streams_remain_importable_and_retain_their_source_version() {
         .first::<i32>(&mut target.connection)
         .unwrap();
     assert_eq!(version, 2);
+}
+
+#[test]
+fn version_three_streams_remain_importable_without_eval_tables() {
+    let mut source = Store::open_memory().unwrap();
+    let mut bytes = Vec::new();
+    source.write_streamed_snapshot(&mut bytes).unwrap();
+    let mut records: Vec<serde_json::Value> = String::from_utf8(bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    records[0]["format_version"] = serde_json::json!(3);
+    records.retain(|record| {
+        !record["data"]["table"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("eval_"))
+    });
+    let snapshot = tempfile::NamedTempFile::new().unwrap();
+    for record in records {
+        serde_json::to_writer(snapshot.as_file(), &record).unwrap();
+        writeln!(snapshot.as_file()).unwrap();
+    }
+    let mut target = Store::open_memory().unwrap();
+    target.import_streamed_snapshot(snapshot.path()).unwrap();
+    assert_eq!(
+        database_imports::table
+            .select(database_imports::format_version)
+            .first::<i32>(&mut target.connection)
+            .unwrap(),
+        3
+    );
 }
 
 #[test]

@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature papercuts
 // @spec docs/features/papercuts.md
 // @feature observability-ui
@@ -14,6 +16,7 @@ import { registerAnalyticsCapture } from "./capture.ts";
 import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
+import { NexusEvalsApi } from "./evals.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
@@ -50,6 +53,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
               loadAnalyticsUsage: (projectId, signal) => fetchAnalyticsUsage(client, ctx.cwd, projectId, signal),
               analyticsApi: new NexusAnalyticsApi(client, ctx.cwd),
               papercutsApi: new NexusPapercutsApi(client, ctx.cwd),
+              evalsApi: new NexusEvalsApi(client, ctx.cwd),
               sosApi,
               memoryApi,
               memoryPrompts: new MemoryPrompts(ctx.ui),

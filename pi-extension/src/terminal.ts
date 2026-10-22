@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 // @feature papercuts
@@ -17,6 +19,7 @@ import { matchesKey, ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tu
 import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } from "./client.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
+import { NexusEvalsApi } from "./evals.ts";
 import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
@@ -59,6 +62,7 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
     loadAnalyticsUsage: (projectId, signal) => fetchAnalyticsUsage(client, cwd, projectId, signal),
     analyticsApi: new NexusAnalyticsApi(client, cwd),
     papercutsApi: new NexusPapercutsApi(client, cwd),
+    evalsApi: new NexusEvalsApi(client, cwd),
     sosApi,
     memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,
   });

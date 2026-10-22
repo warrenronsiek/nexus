@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature runtime
 // @feature usage-analytics
 // @feature agent-memory
@@ -25,6 +27,7 @@ use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 mod analytics_schema;
+mod evals_schema;
 mod reconciliation;
 mod tool_definitions;
 #[cfg(test)]
@@ -250,6 +253,16 @@ async fn tool_call(
     }
     if method == "sos" {
         enrich_sos_arguments(&mut arguments, invocation_context);
+    }
+    if method == "evals" {
+        arguments = json!({
+            "context": {
+                "session_id":invocation_context.session_id,
+                "project_root":invocation_context.project_root,
+                "agent":invocation_context.agent
+            },
+            "command":arguments
+        });
     }
     let mut result = match ServiceRequest::decode(method, arguments) {
         Ok(request) => invoker
