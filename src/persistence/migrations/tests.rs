@@ -3,7 +3,7 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 11;
+const CURRENT_SCHEMA_VERSION: u64 = 12;
 
 struct ThroughVersion(u64);
 

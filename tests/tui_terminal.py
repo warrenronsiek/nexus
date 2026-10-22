@@ -1,5 +1,7 @@
 # @feature usage-analytics
 # @spec docs/features/usage-analytics.md
+# @feature evals
+# @spec docs/features/evals.md
 # @feature papercuts
 # @spec docs/features/papercuts.md
 # @feature observability-ui
@@ -31,14 +33,15 @@ import termios
 import time
 
 
-def wait_for_text(process: subprocess.Popen[bytes], master: int, expected: bytes, timeout_seconds: float = 15) -> None:
+def wait_for_text(process: subprocess.Popen[bytes], master: int, expected: bytes | tuple[bytes, ...], timeout_seconds: float = 15) -> None:
     output = bytearray()
+    expected_texts = expected if isinstance(expected, tuple) else (expected,)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
         if readable:
             output.extend(os.read(master, 65536))
-            if expected in output:
+            if all(text in output for text in expected_texts):
                 return
         if process.poll() is not None:
             break
@@ -155,6 +158,45 @@ def exercise_analytics(process: subprocess.Popen[bytes], master: int) -> None:
     wait_for_text(process, master, b"No usage observed in this window.")
 
 
+def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str, str], terminal: tuple[int, subprocess.Popen[bytes]]) -> None:
+    master, process = terminal
+    occurred = "2026-10-22T12:00:00Z"
+    records = [
+        {"id": "native-eval-change", "title": "Native evaluation change", "occurred_at": occurred,
+         "body": {"kind": "change", "motivation": {
+             "state": "recorded", "reason": "observed_failure", "problem": "A router ignored a supplied tool.",
+             "expected_behavior": "Select an appropriate supplied tool.",
+             "rationale": "Distinct router regression reason", "provenance": "contemporaneous"},
+             "evidence": [{"kind": "record", "id": "native-git-evidence"}]}},
+        {"id": "native-git-evidence", "title": "Native Git evidence", "occurred_at": occurred,
+         "body": {"kind": "artifact", "media_type": "image/png", "byte_size": 900000, "digest": None,
+                  "backings": [{"kind": "git_file", "repository": "fixture-repository", "commit": "a" * 40,
+                                "object_format": "sha1", "path": "images/router-fixture.png", "blob_oid": None,
+                                "entry_mode": "100644"}]}},
+    ]
+    fixture = root / "native eval records.json"
+    fixture.write_text(json.dumps({"format_version": 1, "records": records}))
+    recorded = subprocess.run(
+        [binary, "--config", str(config), "eval", "record", str(fixture)],
+        cwd=root, env=environment, capture_output=True, check=True, timeout=5,
+    )
+    assert json.loads(recorded.stdout)["ok"] is True
+    os.write(master, b"\t")
+    wait_for_text(process, master, b"Eval history")
+    os.write(master, b"t")
+    wait_for_text(process, master, b"Native evaluation change")
+    os.write(master, b"\r")
+    wait_for_text(process, master, b"Distinct router regression reason")
+    os.write(master, b"l")
+    wait_for_text(process, master, b"native-git-evidence")
+    os.write(master, b"\r")
+    wait_for_text(process, master, (b"image/png", b"fixture-repository", b"a" * 40, b"images/router-fixture.png"))
+    os.write(master, b"\x1b")
+    wait_for_text(process, master, b"Distinct router regression reason")
+    os.write(master, b"w")
+    wait_for_text(process, master, b"Why / reported history")
+
+
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
@@ -183,6 +225,7 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             wait_for_text(process, master, b"terminal fixture memory")
             exercise_memory_actions(process, master)
             exercise_papercuts(binary, config, root, environment, (master, process))
+            exercise_evals(binary, config, root, environment, (master, process))
             close_dashboard(process, master, exit_mode)
             mask = termios.ICANON | termios.ECHO
             assert termios.tcgetattr(slave)[3] & mask == original_settings[3] & mask

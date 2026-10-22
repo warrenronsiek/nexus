@@ -12,6 +12,7 @@ mod analytics;
 mod backend;
 mod conflicts;
 mod dashboard;
+mod evals;
 mod memory;
 mod migrations;
 mod models;

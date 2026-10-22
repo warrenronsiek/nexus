@@ -8,6 +8,8 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature evals
+// @spec docs/features/evals.md
 diesel::table! {
     advisories (id) {
         id -> Text,
@@ -473,4 +475,61 @@ diesel::allow_tables_to_appear_in_same_query!(
     analytics_categories,
     analytics_revisions,
     analytics_resources
+);
+
+diesel::table! {
+    eval_records (project_id, id) {
+        project_id -> Text,
+        id -> Text,
+        kind -> Text,
+        title -> Text,
+        occurred_at -> Text,
+        recorded_at -> Text,
+        payload_json -> Text,
+        content_hash -> Text,
+        provenance_json -> Text,
+        search_text -> Text,
+    }
+}
+diesel::table! {
+    eval_links (project_id, source_id, target_id, relation) {
+        project_id -> Text,
+        source_id -> Text,
+        target_id -> Text,
+        relation -> Text,
+    }
+}
+diesel::table! {
+    eval_dimensions (project_id, record_id, dimension, value) {
+        project_id -> Text,
+        record_id -> Text,
+        dimension -> Text,
+        value -> Text,
+    }
+}
+diesel::table! {
+    eval_blobs (project_id, digest) {
+        project_id -> Text,
+        digest -> Text,
+        upload_id -> Text,
+        byte_size -> BigInt,
+        chunk_count -> Integer,
+        verified -> Bool,
+        created_at -> Text,
+    }
+}
+diesel::table! {
+    eval_blob_chunks (project_id, digest, chunk_index) {
+        project_id -> Text,
+        digest -> Text,
+        chunk_index -> Integer,
+        bytes -> Binary,
+    }
+}
+diesel::allow_tables_to_appear_in_same_query!(
+    eval_records,
+    eval_links,
+    eval_dimensions,
+    eval_blobs,
+    eval_blob_chunks
 );

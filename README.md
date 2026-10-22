@@ -50,6 +50,29 @@ nexus sos dump | rg 'publish|release'
 
 Authenticated agents can use the same workflow through `nexus_sos`, `nexus://sos`, or direct `POST /api/v1/sos`. The direct endpoint accepts exactly `message`, `type`, `environment`, `version`, `model`, `trace`, and an arbitrary bounded metadata object. Reports remain visible as untriaged if no model provider is available; bounded retry later resumes triage without delaying ingestion.
 
+## Eval history
+
+Nexus stores evaluation definitions, execution evidence, grades, comparisons, and improvement decisions with immutable links to their source revisions. Changes retain their motivation: the failure, requirement, or coverage hypothesis behind a case, what behavior it should establish, and why it matters. Regrading appends another assessment of the original output, preserving the earlier result.
+
+```sh
+nexus eval list --kind case --search regression
+nexus eval list --repository example-repository --model example-model
+nexus eval get <record-id>
+nexus eval why <record-id>
+nexus eval schema
+nexus eval record records.json
+nexus eval export history.jsonl
+nexus eval import history.jsonl
+```
+
+The `nexus_evals` MCP tool exposes the same record, list, detail, and rationale workflow. Callers keep their existing runner and provider: Nexus records the evidence they submit without executing an eval. Pinned Git and Git LFS references retain existing repository content; verified content-addressed uploads retain generated or otherwise unavailable bytes. Per-call context can link the prompts, files, tool definitions, skills, model parameters, and outputs that produced a result, with explicit capture gaps where the caller cannot observe everything. Full-content eval evidence is deliberately submitted; normal privacy-safe usage analytics does not begin collecting raw content.
+
+Repository and model filters identify participation in a recorded target or observation. For a composed target they do not assign its overall score to an individual worker. The Evals TUI tab supports those filters, record details, linked evidence, and motivation history.
+
+Use `nexus eval upload FILE` for necessary new bytes and `nexus eval download DIGEST OUTPUT` to retrieve verified content. An interrupted upload can resume; `nexus eval abort-upload DIGEST` discards an unfinished upload with incorrect chunks before retrying. Verified blobs remain immutable. Reference exports include required stored bytes and preserve Git dependencies as pinned external references.
+
+`nexus setup` installs four provider-neutral workflows for Codex and Claude: `nexus-build-eval`, `nexus-eval-audit`, `nexus-hillclimb`, and `nexus-eval-history`. They explain how to construct and improve a measurement, preserve the reasons for changes, and inspect previous attempts before repeating an experiment. See [the eval contract](docs/features/evals.md) and [the skill evidence reference](skills/nexus-eval-history/references/nexus-evals.md).
+
 ## Install
 
 For same-machine development, one command from a Nexus source checkout installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store. Source builds require Rust 1.88 or newer:
@@ -150,7 +173,7 @@ nexus tui
 
 Nexus bundles the Pi terminal renderer and opens the dashboard without installing or starting Pi. It uses an existing Node 22.19+ runtime when available; otherwise it downloads and verifies its own pinned runtime on the first launch, then caches it for offline use. The command starts the daemon in local mode or uses the configured remote endpoint, and honors the current repository and `--config` settings. Press `q` or Ctrl-C to return to your shell.
 
-The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, SOS, Tools, Skills, Memory, and Papercuts. Coordination, SOS, and analytics remain read-only. In SOS, Enter drills from importance-ranked aggregates into retained reports and triage/lifecycle history. In Papercuts, `n` loads the next page of older open reports, Enter shows the full observation, and `r` refreshes or retries a failed read. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
+The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, SOS, Tools, Skills, Memory, Papercuts, and Evals. Coordination, SOS, analytics, and Evals remain read-only. In SOS, Enter drills from importance-ranked aggregates into retained reports and triage/lifecycle history. In Papercuts, `n` loads the next page of older open reports, Enter shows the full observation, and `r` refreshes or retries a failed read. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
 
 For people who already use Pi, `nexus setup` also installs the `/nexus` extension inside Pi. Both entry points use the same dashboard components.
 

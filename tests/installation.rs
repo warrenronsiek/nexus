@@ -2,10 +2,12 @@
 // @feature sos
 // @feature usage-analytics
 // @feature agent-memory
+// @feature evals
 // @spec docs/features/installation.md
 // @spec docs/features/sos.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
+// @spec docs/features/evals.md
 // @boundary child-process-json
 use serde_json::Value;
 use std::fs;
@@ -61,6 +63,20 @@ fn machine_setup_installs_integrations_idempotently() {
             "machine setup did not install {sos_module}"
         );
     }
+    for eval_module in [
+        "evals.ts",
+        "evals-pane.ts",
+        "evals-view.ts",
+        "evals-state.ts",
+        "evals-requests.ts",
+    ] {
+        assert!(
+            home.join(".pi/agent/extensions/nexus")
+                .join(eval_module)
+                .is_file(),
+            "machine setup did not install {eval_module}"
+        );
+    }
     for memory_module in [
         "host-context.ts",
         "mcp-client.ts",
@@ -74,6 +90,62 @@ fn machine_setup_installs_integrations_idempotently() {
                 .join(memory_module)
                 .is_file(),
             "machine setup did not install {memory_module}"
+        );
+    }
+}
+
+#[test]
+fn machine_setup_installs_eval_workflows_and_refreshes_bundled_content() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path().join("home");
+    let codex_home = home.join(".codex");
+    let command_directory = temporary.path().join("commands");
+    let host_log = temporary.path().join("hosts.log");
+    fs::create_dir_all(&command_directory).unwrap();
+    fake_host(&command_directory, "codex");
+    let names = [
+        "nexus-build-eval",
+        "nexus-eval-audit",
+        "nexus-hillclimb",
+        "nexus-eval-history",
+    ];
+    for root in [&codex_home, &home.join(".claude")] {
+        let skill = root.join("skills/nexus-build-eval");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(skill.join("SKILL.md"), "stale bundled content").unwrap();
+        fs::write(skill.join("personal-notes.md"), "keep me").unwrap();
+    }
+
+    for _ in 0..2 {
+        let setup = nexus_command(&home, &codex_home, &command_directory, &host_log)
+            .arg("setup")
+            .output()
+            .unwrap();
+        assert_success(&setup);
+        let report: Value = serde_json::from_slice(&setup.stdout).unwrap();
+        for name in names {
+            assert!(
+                report["skills"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|value| value == name),
+                "setup did not report {name}"
+            );
+        }
+    }
+    for root in [&codex_home, &home.join(".claude")] {
+        for name in names {
+            let path = root.join("skills").join(name).join("SKILL.md");
+            let source = fs::read_to_string(&path).unwrap();
+            assert!(source.starts_with("---\nname: "), "{}", path.display());
+        }
+        assert!(root
+            .join("skills/nexus-eval-history/references/nexus-evals.md")
+            .is_file());
+        assert_eq!(
+            fs::read_to_string(root.join("skills/nexus-build-eval/personal-notes.md")).unwrap(),
+            "keep me"
         );
     }
 }
@@ -162,6 +234,7 @@ fn assert_session_end_works_from_another_directory(home: &Path, codex_home: &Pat
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join(".config"))
         .env("CODEX_HOME", codex_home)
+        .env("CLAUDE_CONFIG_DIR", home.join(".claude"))
         .env("NEXUS_STATE_DIR", home.join(".local/state/nexus"))
         .output()
         .unwrap();
@@ -226,6 +299,7 @@ fn nexus_command(
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join(".config"))
         .env("CODEX_HOME", codex_home)
+        .env("CLAUDE_CONFIG_DIR", home.join(".claude"))
         .env("NEXUS_STATE_DIR", home.join(".local/state/nexus"))
         .env("NEXUS_TEST_HOST_LOG", host_log)
         .env("PATH", std::env::join_paths(path).unwrap());

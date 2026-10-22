@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature runtime
 // @feature usage-analytics
 // @feature agent-memory
@@ -14,6 +16,7 @@ use serde_json::{json, Value};
 pub(super) fn tool_definitions() -> Value {
     let mut definitions = lifecycle_tool_definitions();
     definitions.extend(coordination_tool_definitions());
+    definitions.push(super::evals_schema::definition());
     Value::Array(definitions)
 }
 

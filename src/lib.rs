@@ -10,6 +10,7 @@ pub mod agents;
 pub(crate) mod analytics;
 pub mod config;
 pub mod coordination;
+pub mod evals;
 mod git_process;
 pub mod installation;
 pub mod memory;

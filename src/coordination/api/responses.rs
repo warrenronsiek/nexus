@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
@@ -52,6 +54,7 @@ pub enum ServiceResponse {
     MemoryConsolidation(MemoryConsolidationReport),
     Papercuts(Box<PapercutResponse>),
     Sos(Box<SosResponse>),
+    Evals(Box<super::EvalResponse>),
     Analytics(crate::analytics::types::AnalyticsResponse),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),

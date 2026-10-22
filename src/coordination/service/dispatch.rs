@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
 // @feature agent-memory
@@ -87,6 +89,7 @@ impl NexusService {
             | ServiceRequest::Papercuts(_)
             | ServiceRequest::Analytics(_)) => self.handle_command(request, project),
             ServiceRequest::Sos(_) => self.handle_command(request, project),
+            ServiceRequest::Evals(_) => self.handle_command(request, project),
         }
     }
 
@@ -149,6 +152,7 @@ impl NexusService {
                 self.dispatch_papercuts(command, project).response
             }
             ServiceRequest::Sos(command) => self.dispatch_sos(command, project).response,
+            ServiceRequest::Evals(command) => self.eval_command(command, project),
             ServiceRequest::Analytics(command) => self.analytics_command(command, project),
             _ => unreachable!("non-command request routed as command"),
         }

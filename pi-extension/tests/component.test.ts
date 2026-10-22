@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature observability-ui
 // @feature usage-analytics
 // @feature agent-memory
@@ -128,14 +130,15 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
   };
 }
 
-  it("cycles the six top-level tabs in both directions", () => {
+  it("cycles the seven top-level tabs in both directions", () => {
     expect(nextDashboardTab("coordination", 1)).toBe("sos");
     expect(nextDashboardTab("sos", 1)).toBe("tools");
     expect(nextDashboardTab("tools", 1)).toBe("skills");
     expect(nextDashboardTab("skills", 1)).toBe("memory");
     expect(nextDashboardTab("memory", 1)).toBe("papercuts");
-    expect(nextDashboardTab("papercuts", 1)).toBe("coordination");
-    expect(nextDashboardTab("coordination", -1)).toBe("papercuts");
+    expect(nextDashboardTab("papercuts", 1)).toBe("evals");
+    expect(nextDashboardTab("evals", 1)).toBe("coordination");
+    expect(nextDashboardTab("coordination", -1)).toBe("evals");
   });
 
   it("loads analytics on tab activation rather than dashboard construction", async () => {
@@ -246,7 +249,32 @@ it("opens papercuts from the shared dashboard tab bar", async () => {
   );
   expect(list).not.toHaveBeenCalled();
   component.handleInput("\u001b[Z");
+  component.handleInput("\u001b[Z");
   await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No open papercuts"));
   expect(list).toHaveBeenCalledWith(null, expect.any(AbortSignal), undefined);
+  component.dispose();
+});
+
+it("opens read-only Evals lazily and lets filter typing consume global shortcut letters", async () => {
+  const memory = memoryHarness();
+  const sos = sosHarness();
+  const list = vi.fn(async () => ({ records: [], next_cursor: null }));
+  const done = vi.fn();
+  const component = new NexusDashboardComponent(
+    { requestRender: vi.fn() } as unknown as TUI, theme, snapshot,
+    { loadSnapshot: async () => snapshot, loadUsage: async () => usage,
+      sosApi: sos.api, papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) },
+      memoryApi: memory.api, memoryPrompts: memory.prompts,
+      evalsApi: { list, get: vi.fn(), why: vi.fn() }, done },
+  );
+  expect(list).not.toHaveBeenCalled();
+  component.handleInput("\u001b[Z");
+  await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No matching eval history"));
+  component.handleInput("/");
+  component.handleInput("q");
+  component.handleInput("r");
+  component.handleInput("\r");
+  await vi.waitFor(() => expect(list).toHaveBeenLastCalledWith(null, { search: "qr", limit: 24 }, expect.any(AbortSignal)));
+  expect(done).not.toHaveBeenCalled();
   component.dispose();
 });

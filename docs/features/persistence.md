@@ -68,7 +68,7 @@ The remote deployment has one authoritative `nexus-server` process per PostgreSQ
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
-The CLI transfer uses a version-two newline-delimited JSON record stream. A header fixes the format,
+The CLI transfer uses a version-four newline-delimited JSON record stream. A header fixes the format,
 typed table batches follow in foreign-key dependency order, and a mandatory footer confirms the
 application row count. Each ordinary batch holds at most sixteen rows; PostgreSQL export uses its
 row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated
@@ -107,3 +107,21 @@ Important transactional groupings include session observation plus its event, cl
 Papercut reports atomically create or resolve a canonical record, append one timestamped upvote, refresh the issue's activity time, and append an event. A newly created issue receives a random response token; only its BLAKE3 hash is stored, and duplicate approval compares that hash so authorization survives a caller-process restart without disclosing the token in registry dumps. Resolution is a soft state transition; a later report or upvote reopens the issue. Consolidation retains the source record as a tombstone, redirects its descendants, and moves only the canonical association of its upvotes while retaining each observation's original reported issue. Complete registry reads are deterministic and deliberately unbounded, including typed resolution, reopening, and consolidation history with actor provenance as well as proposals and automated-review outcomes.
 
 Activity analytics V11 stores exact calls, identified operations, supplied/observed resources, session exposure evidence, categories, and classification revisions separately. All reads and writes use the typed Diesel DSL. Portable stream version 3 exports these six projections; the importer continues to accept complete version-2 streams and records the source format version. No raw analytics input or classifier prompt is durable.
+
+Evaluation history V12 adds project-scoped immutable typed records, indexed
+relationships, repository/model filter dimensions, content upload metadata, and
+binary chunks. Git and LFS coordinates normally retain external committed content
+without duplicating repositories. Only explicitly uploaded content occupies blob
+storage. Publication validates all project-local record kinds and references
+before one transaction inserts a complete bundle; an identical replay preserves
+original attribution, and a conflicting identity rolls back the entire bundle.
+Raw typed bodies remain independent from search/filter projections.
+
+Portable stream format 4 adds all five eval tables in dependency order. It uses
+base64 for binary chunks and splits batches by encoded bytes as well as row
+count. Extensible table tracking supports the expanded catalog without a fixed
+integer bitmask. Imports still accept complete formats 2 and 3; the target records
+the actual source version. Before committing, import revalidates eval payload
+hashes, project-local relationships, blob sizes/chunks, and every verified content
+digest. Reference-preserving snapshots retain Git coordinates; they do not claim
+to include the repositories or LFS servers on which those references depend.

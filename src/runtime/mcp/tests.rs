@@ -1,3 +1,5 @@
+// @feature evals
+// @spec docs/features/evals.md
 // @feature agent-memory
 // @feature runtime
 // @feature papercuts
@@ -12,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+mod evals;
 mod papercuts_schema;
 mod sos;
 
