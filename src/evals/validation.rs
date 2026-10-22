@@ -2,6 +2,7 @@
 // @spec docs/features/evals.md
 use super::*;
 use anyhow::{bail, Result};
+mod metrics;
 mod payloads;
 mod relationships;
 
@@ -168,6 +169,7 @@ impl EvalBody {
             Self::Suite(v) => Some(&v.revision),
             Self::Grader(v) => Some(&v.revision),
             Self::Target(v) => Some(&v.revision),
+            Self::Metric(v) => Some(&v.revision),
             _ => None,
         }
     }

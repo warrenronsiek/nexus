@@ -195,22 +195,10 @@ fn execution(body: &EvalBody) -> Vec<Source> {
 }
 
 fn assessments(body: &EvalBody) -> Vec<Source> {
+    if let Some(subject) = body.assessment_subject() {
+        return assessment_sources(subject);
+    }
     match body {
-        EvalBody::Grade(v) => vec![source(match &v.subject {
-            AssessmentSubject::Trial { id }
-            | AssessmentSubject::Attempt { id }
-            | AssessmentSubject::Call { id } => id,
-            AssessmentSubject::Component {
-                attempt_id,
-                call_ids,
-                ..
-            } => {
-                let mut sources = vec![repository(attempt_id)];
-                sources.extend(call_ids.iter().map(|id| source(id)));
-                return sources;
-            }
-            AssessmentSubject::Routing { trace_id } => trace_id,
-        })],
         EvalBody::Comparison(v) => v
             .baseline_ids
             .iter()
@@ -221,5 +209,24 @@ fn assessments(body: &EvalBody) -> Vec<Source> {
         EvalBody::Selection(v) => v.revision_id.iter().map(|id| source(id)).collect(),
         EvalBody::Verification(v) => vec![repository(&v.artifact_id)],
         _ => vec![],
+    }
+}
+
+fn assessment_sources(subject: &AssessmentSubject) -> Vec<Source> {
+    match subject {
+        AssessmentSubject::Run { id }
+        | AssessmentSubject::Trial { id }
+        | AssessmentSubject::Attempt { id }
+        | AssessmentSubject::Call { id } => vec![source(id)],
+        AssessmentSubject::Component {
+            attempt_id,
+            call_ids,
+            ..
+        } => {
+            let mut sources = vec![repository(attempt_id)];
+            sources.extend(call_ids.iter().map(|id| source(id)));
+            sources
+        }
+        AssessmentSubject::Routing { trace_id } => vec![source(trace_id)],
     }
 }

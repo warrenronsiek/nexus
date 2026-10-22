@@ -54,6 +54,8 @@ Authenticated agents can use the same workflow through `nexus_sos`, `nexus://sos
 
 Nexus stores evaluation definitions, execution evidence, grades, comparisons, and improvement decisions with immutable links to their source revisions. Changes retain their motivation: the failure, requirement, or coverage hypothesis behind a case, what behavior it should establish, and why it matters. Regrading appends another assessment of the original output, preserving the earlier result.
 
+Metric revisions retain their meaning, arbitrary units and value format, calculation sources, population, aggregation, exclusions, and missing-data policy. Measurements link those exact definitions to a run or another assessment subject, preserving values as exact text, artifacts, or explicit unavailability. This supports accuracy, cost, speed, categories, distributions, and caller-defined formats without forcing values through floating-point scores. Nexus preserves the caller's calculations and comparison claims; it does not execute them or choose an optimization objective.
+
 ```sh
 nexus eval list --kind case --search regression
 nexus eval list --repository example-repository --model example-model

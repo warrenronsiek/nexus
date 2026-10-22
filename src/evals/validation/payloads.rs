@@ -123,5 +123,9 @@ validate!(Verification, v, {
 validate!(GraderRevision, _v, {});
 validate!(Trial, _v, {});
 validate!(Trace, _v, {});
-validate!(Comparison, _v, {});
+validate!(Comparison, v, {
+    if v.metric.is_none() && v.metric_ids.is_empty() && v.measurement_ids.is_empty() {
+        bail!("comparison requires a metric definition or recorded measurements");
+    }
+});
 validate!(Lifecycle, _v, {});

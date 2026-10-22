@@ -15,7 +15,7 @@ an imported artifact or launches an evaluation.
 ## Why
 
 A score alone cannot explain what it measured or why a case existed. Typed links
-connect immutable case, suite, grader, repository, model, and target revisions to
+connect immutable case, suite, grader, metric, repository, model, and target revisions to
 the changes that motivated them, then to runs and individual calls, grades, and
 decisions. Historical missing rationale remains an explicit gap.
 
@@ -56,6 +56,27 @@ visited set, including incoming superseding explanations/decisions, regrading,
 artifact verifications, and caller-reported lifecycle events. Ordinary incoming
 run references are not expanded.
 A truncated graph is explicitly marked.
+
+Metric revisions retain meaning, arbitrary unit and value-format descriptions,
+optional value-schema and interpretation text, and a calculation definition with
+description, optional formula, pinned source artifacts, population, aggregation,
+exclusions, and missing-data policy. Every revision links its motivating change.
+Measurements name an exact metric revision and assessment subject (including a
+whole run), explanation, input records, and artifact evidence. Their value is
+opaque exact inline text, an artifact reference, or an unavailable reason. Inline
+text preserves empty values, large integers, decimal precision, JSON, CSV, and
+caller-defined representations without numerical coercion. Nexus neither parses
+the declared format nor validates it against the optional schema, executes its
+calculation, normalizes units, or enforces an optimization policy.
+
+Comparisons may name exact metric revisions, measurement records, or both;
+measurement links already resolve their definitions. Historical
+inline numeric grades and comparison metrics remain supported with their original
+wire representation; that float path is optional for new comparisons. Definition
+changes append motivated metric revisions. Correcting a measurement appends a
+replacement with the same metric revision and subject, preserving the original
+value. `why` follows definitions, calculation inputs/sources, and incoming
+measurement corrections. Units or names alone establish no semantic equivalence.
 
 Git is the default backing for committed code, prompts, tool definitions, skills,
 fixtures, and images. Pinned references include repository, full commit, object

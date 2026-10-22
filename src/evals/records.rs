@@ -1,6 +1,8 @@
 // @feature evals
 // @spec docs/features/evals.md
+use super::assessments::AssessmentSubject;
 use super::lifecycle_projection::LifecycleProjection;
+use super::metrics::{Measurement, MetricRevision};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -65,6 +67,7 @@ record_bodies! {
     Attempt(Attempt)=>"attempt", Call(Call)=>"call", Trace(Trace)=>"trace", Grade(Grade)=>"grade",
     Comparison(Comparison)=>"comparison", Decision(Decision)=>"decision", Selection(Selection)=>"selection",
     Artifact(Artifact)=>"artifact", Verification(Verification)=>"verification", Lifecycle(Lifecycle)=>"lifecycle",
+    Metric(MetricRevision)=>"metric", Measurement(Measurement)=>"measurement",
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -433,29 +436,6 @@ pub struct Trace {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "scope", rename_all = "snake_case", deny_unknown_fields)]
-pub enum AssessmentSubject {
-    Trial {
-        id: String,
-    },
-    Attempt {
-        id: String,
-    },
-    Call {
-        id: String,
-    },
-    Component {
-        attempt_id: String,
-        instance: String,
-        #[serde(default)]
-        call_ids: Vec<String>,
-    },
-    Routing {
-        trace_id: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AspectGrade {
     pub name: String,
@@ -488,7 +468,12 @@ pub struct Comparison {
     pub grade_ids: Vec<String>,
     pub population: String,
     pub exclusions: String,
-    pub metric: Metric,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric: Option<Metric>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metric_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_ids: Vec<String>,
     pub validity: ComparisonValidity,
     pub differences: Vec<String>,
     pub result: String,

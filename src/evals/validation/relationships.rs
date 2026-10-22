@@ -188,23 +188,27 @@ relationships!(Trace, v, refs, {
         ),
     }
 });
-relationships!(Grade, v, refs, {
-    match &v.subject {
-        AssessmentSubject::Trial { id } => link(refs, "subject", id, Some(EvalKind::Trial)),
-        AssessmentSubject::Attempt { id } => link(refs, "subject", id, Some(EvalKind::Attempt)),
-        AssessmentSubject::Call { id } => link(refs, "subject", id, Some(EvalKind::Call)),
-        AssessmentSubject::Component {
-            attempt_id,
-            call_ids,
-            ..
-        } => {
-            link(refs, "subject", attempt_id, Some(EvalKind::Attempt));
-            links(refs, "component_call", call_ids, Some(EvalKind::Call));
-        }
-        AssessmentSubject::Routing { trace_id } => {
-            link(refs, "subject", trace_id, Some(EvalKind::Trace))
+impl AssessmentSubject {
+    pub(super) fn append_references(&self, refs: &mut Vec<Reference>, relation: &str) {
+        match self {
+            Self::Run { id } => link(refs, relation, id, Some(EvalKind::Run)),
+            Self::Trial { id } => link(refs, relation, id, Some(EvalKind::Trial)),
+            Self::Attempt { id } => link(refs, relation, id, Some(EvalKind::Attempt)),
+            Self::Call { id } => link(refs, relation, id, Some(EvalKind::Call)),
+            Self::Component {
+                attempt_id,
+                call_ids,
+                ..
+            } => {
+                link(refs, relation, attempt_id, Some(EvalKind::Attempt));
+                links(refs, "component_call", call_ids, Some(EvalKind::Call));
+            }
+            Self::Routing { trace_id } => link(refs, relation, trace_id, Some(EvalKind::Trace)),
         }
     }
+}
+relationships!(Grade, v, refs, {
+    v.subject.append_references(refs, "subject");
     link(refs, "grader", &v.grader_id, Some(EvalKind::Grader));
     links(
         refs,
@@ -218,6 +222,18 @@ relationships!(Comparison, v, refs, {
     links(refs, "baseline", &v.baseline_ids, None);
     links(refs, "candidate", &v.candidate_ids, None);
     links(refs, "grade", &v.grade_ids, Some(EvalKind::Grade));
+    links(
+        refs,
+        "metric_definition",
+        &v.metric_ids,
+        Some(EvalKind::Metric),
+    );
+    links(
+        refs,
+        "measurement",
+        &v.measurement_ids,
+        Some(EvalKind::Measurement),
+    );
 });
 relationships!(Decision, v, refs, {
     link(refs, "subject", &v.subject_id, None);
