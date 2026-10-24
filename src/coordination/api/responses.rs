@@ -1,4 +1,6 @@
 // @feature evals
+// @feature work-history
+// @spec docs/features/work-history.md
 // @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
@@ -55,6 +57,8 @@ pub enum ServiceResponse {
     Papercuts(Box<PapercutResponse>),
     Sos(Box<SosResponse>),
     Evals(Box<super::EvalResponse>),
+    Work(Box<super::WorkEnvelope>),
+    WorkError(super::WorkErrorEnvelope),
     Analytics(crate::analytics::types::AnalyticsResponse),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),

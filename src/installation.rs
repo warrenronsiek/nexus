@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature installation
 // @feature sos
 // @feature usage-analytics
@@ -64,8 +66,69 @@ const SKILL_FILES: [(&str, &str); 9] = [
         include_str!("../skills/nexus-eval-history/references/nexus-evals.md"),
     ),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 24] = [
+const PI_EXTENSION_FILES: [(&str, &str); 40] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
+    (
+        "history-pane.ts",
+        include_str!("../pi-extension/src/history-pane.ts"),
+    ),
+    (
+        "text-filter.ts",
+        include_str!("../pi-extension/src/text-filter.ts"),
+    ),
+    (
+        "wire-values.ts",
+        include_str!("../pi-extension/src/wire-values.ts"),
+    ),
+    (
+        "work-navigation.ts",
+        include_str!("../pi-extension/src/work-navigation.ts"),
+    ),
+    (
+        "work-requests.ts",
+        include_str!("../pi-extension/src/work-requests.ts"),
+    ),
+    (
+        "analytics-data.ts",
+        include_str!("../pi-extension/src/analytics-data.ts"),
+    ),
+    (
+        "analytics-requests.ts",
+        include_str!("../pi-extension/src/analytics-requests.ts"),
+    ),
+    (
+        "analytics-view.ts",
+        include_str!("../pi-extension/src/analytics-view.ts"),
+    ),
+    (
+        "analytics.ts",
+        include_str!("../pi-extension/src/analytics.ts"),
+    ),
+    (
+        "inventory-capture.ts",
+        include_str!("../pi-extension/src/inventory-capture.ts"),
+    ),
+    (
+        "papercuts-pane.ts",
+        include_str!("../pi-extension/src/papercuts-pane.ts"),
+    ),
+    (
+        "papercuts.ts",
+        include_str!("../pi-extension/src/papercuts.ts"),
+    ),
+    (
+        "work-pane.ts",
+        include_str!("../pi-extension/src/work-pane.ts"),
+    ),
+    (
+        "work-state.ts",
+        include_str!("../pi-extension/src/work-state.ts"),
+    ),
+    (
+        "work-view.ts",
+        include_str!("../pi-extension/src/work-view.ts"),
+    ),
+    ("work.ts", include_str!("../pi-extension/src/work.ts")),
     ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
     ("client.ts", include_str!("../pi-extension/src/client.ts")),
     (

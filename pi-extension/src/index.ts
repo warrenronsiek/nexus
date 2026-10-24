@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature papercuts
@@ -17,6 +19,7 @@ import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } fro
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import { NexusEvalsApi } from "./evals.ts";
+import { NexusWorkApi } from "./work.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
@@ -54,6 +57,7 @@ export default function nexusExtension(pi: ExtensionAPI): void {
               analyticsApi: new NexusAnalyticsApi(client, ctx.cwd),
               papercutsApi: new NexusPapercutsApi(client, ctx.cwd),
               evalsApi: new NexusEvalsApi(client, ctx.cwd),
+              workApi: new NexusWorkApi(client, ctx.cwd),
               sosApi,
               memoryApi,
               memoryPrompts: new MemoryPrompts(ctx.ui),

@@ -3,9 +3,11 @@
 // @feature runtime
 // @feature configuration
 // @feature sos
+// @feature work-history
 // @spec docs/features/runtime.md
 // @spec docs/features/configuration.md
 // @spec docs/features/sos.md
+// @spec docs/features/work-history.md
 // @entrypoint NexusClient
 // @boundary authenticated-remote-json
 use super::{daemon, protocol::WireRequest};
@@ -65,6 +67,7 @@ enum LocalServicePolicy {
 
 pub struct NexusClient {
     analytics: Option<super::analytics::ClientAnalytics>,
+    _work_drain: Option<super::work_capture::WorkDrain>,
     loaded: Arc<LoadedConfig>,
     explicit_config: Option<PathBuf>,
     http: reqwest::Client,
@@ -72,6 +75,7 @@ pub struct NexusClient {
     secret: tokio::sync::OnceCell<std::result::Result<Secret, String>>,
     evidence_capture: BlockingCaptureGate,
     secret_capture: BlockingCaptureGate,
+    work_capture: BlockingCaptureGate,
 }
 
 impl NexusClient {
@@ -84,6 +88,8 @@ impl NexusClient {
 
     pub(crate) fn from_shared(loaded: Arc<LoadedConfig>, explicit_config: Option<PathBuf>) -> Self {
         let mut client = Self::without_analytics(loaded.clone(), explicit_config.clone());
+        client._work_drain =
+            super::work_capture::start_drain(loaded.clone(), explicit_config.clone());
         client.analytics = super::analytics::ClientAnalytics::start(loaded, explicit_config);
         client
     }
@@ -94,6 +100,7 @@ impl NexusClient {
     ) -> Self {
         Self {
             analytics: None,
+            _work_drain: None,
             loaded,
             explicit_config,
             http: reqwest::Client::builder()
@@ -104,6 +111,7 @@ impl NexusClient {
             secret: tokio::sync::OnceCell::new(),
             evidence_capture: BlockingCaptureGate::default(),
             secret_capture: BlockingCaptureGate::default(),
+            work_capture: BlockingCaptureGate::default(),
         }
     }
 
@@ -148,10 +156,22 @@ impl NexusClient {
     }
 
     pub async fn lifecycle_request(&self, request: &ServiceRequest) -> Value {
+        if let Some(command) = super::work_capture::prepare_lifecycle(request) {
+            let loaded = self.loaded.clone();
+            self.work_capture
+                .capture(Duration::from_millis(75), move || {
+                    super::work_capture::capture_lifecycle(&loaded, command);
+                })
+                .await;
+        }
         let outcome =
             tokio::time::timeout(LIFECYCLE_RESPONSE_BUDGET, self.ensure_and_request(request)).await;
         let diagnostic = match outcome {
-            Ok(Ok(response)) => return response,
+            Ok(Ok(response)) => {
+                let _ =
+                    super::work_capture::flush(&self.loaded, self.explicit_config.as_deref()).await;
+                return response;
+            }
             Ok(Err(error)) => format!("nexus is unavailable: {error}"),
             Err(_) => format!(
                 "nexus did not respond within {}ms",

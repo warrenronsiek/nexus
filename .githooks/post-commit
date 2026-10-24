@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# @feature work-history
+# @spec docs/features/work-history.md
+set -uo pipefail
+repository_root="$(git rev-parse --show-toplevel)" || exit 0
+source "${repository_root}/scripts/work-capture.sh"
+nexus_work_git_hook post-commit
+exit 0

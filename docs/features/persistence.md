@@ -68,7 +68,7 @@ The remote deployment has one authoritative `nexus-server` process per PostgreSQ
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
-The CLI transfer uses a version-four newline-delimited JSON record stream. A header fixes the format,
+The CLI transfer uses a version-five newline-delimited JSON record stream. A header fixes the format,
 typed table batches follow in foreign-key dependency order, and a mandatory footer confirms the
 application row count. Each ordinary batch holds at most sixteen rows; PostgreSQL export uses its
 row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated
@@ -107,6 +107,18 @@ Important transactional groupings include session observation plus its event, cl
 Papercut reports atomically create or resolve a canonical record, append one timestamped upvote, refresh the issue's activity time, and append an event. A newly created issue receives a random response token; only its BLAKE3 hash is stored, and duplicate approval compares that hash so authorization survives a caller-process restart without disclosing the token in registry dumps. Resolution is a soft state transition; a later report or upvote reopens the issue. Consolidation retains the source record as a tombstone, redirects its descendants, and moves only the canonical association of its upvotes while retaining each observation's original reported issue. Complete registry reads are deterministic and deliberately unbounded, including typed resolution, reopening, and consolidation history with actor provenance as well as proposals and automated-review outcomes.
 
 Activity analytics V11 stores exact calls, identified operations, supplied/observed resources, session exposure evidence, categories, and classification revisions separately. All reads and writes use the typed Diesel DSL. Portable stream version 3 exports these six projections; the importer continues to accept complete version-2 streams and records the source format version. No raw analytics input or classifier prompt is durable.
+
+Primary-key reads of immutable work observations and evaluation blobs share one
+typed lookup operation: callers supply the Diesel table and its complete key,
+and a missing row remains `None`. Domain publication and blob-validation rules
+remain in their respective feature modules.
+
+Work history V13 adds immutable project-scoped observations and rebuildable
+subject/link indexes for nested work-session activity. Portable format 5 includes
+the authoritative observation rows; import validates their original identities,
+hashes, typed input and receipt provenance, then rebuilds the indexes. Versions
+2, 3, and 4 remain supported. Out-of-order observations and unresolved links are
+preserved; no foreign key requires another producer's event to arrive first.
 
 Evaluation history V12 adds project-scoped immutable typed records, indexed
 relationships, repository/model filter dimensions, content upload metadata, and

@@ -4,6 +4,7 @@
 // @spec docs/features/observability-ui.md
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { EVAL_DETAIL_ROWS, EVAL_KINDS, type EvalHistory, type EvalPage, type EvalQuery, type EvalRecord } from "./evals.ts";
+import { editTextFilter } from "./text-filter.ts";
 
 export interface EvalContext { record: EvalRecord; trail: EvalRecord[] }
 export type EvalView = { kind: "list" } |
@@ -34,21 +35,12 @@ export function refreshEvals(state: EvalsState): EvalIntent {
   if (state.view.kind === "why") return { action: "why", context: state.view };
   return { action: "list" };
 }
-function resetFilter(state: EvalsState): EvalIntent {
+export function resetEvalList(state: EvalsState): EvalIntent {
   state.page = undefined; state.selected = 0; state.view = { kind: "list" };
   return { action: "list" };
 }
 function editFilter(state: EvalsState, data: string): EvalInput {
-  const editor = state.editor!;
-  let intent: EvalIntent | undefined;
-  if (matchesKey(data, Key.enter)) {
-    const value = editor.text.trim();
-    if (value) state.query[editor.field] = value; else delete state.query[editor.field];
-    state.editor = undefined; intent = resetFilter(state);
-  } else if (matchesKey(data, Key.escape)) state.editor = undefined;
-  else if (matchesKey(data, Key.backspace)) editor.text = [...editor.text].slice(0, -1).join("");
-  else if (!/[\u0000-\u001f\u007f-\u009f]/u.test(data)) editor.text = (editor.text + data).slice(0, 256);
-  return { handled: true, intent };
+  return { handled: true, intent: editTextFilter(state, data) ? resetEvalList(state) : undefined };
 }
 function filterCommand(state: EvalsState, key: string): EvalInput {
   if (state.view.kind !== "list") return { handled: false };
@@ -60,7 +52,7 @@ function filterCommand(state: EvalsState, key: string): EvalInput {
     const index = state.query.kind ? EVAL_KINDS.indexOf(state.query.kind) + 1 : 0;
     if (index >= EVAL_KINDS.length) delete state.query.kind; else state.query.kind = EVAL_KINDS[index];
   } else return { handled: false };
-  return { handled: true, intent: resetFilter(state) };
+  return { handled: true, intent: resetEvalList(state) };
 }
 function back(state: EvalsState): void {
   const view = state.view;

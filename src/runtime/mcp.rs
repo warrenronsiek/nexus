@@ -30,6 +30,7 @@ mod analytics_schema;
 mod evals_schema;
 mod reconciliation;
 mod tool_definitions;
+mod work_schema;
 #[cfg(test)]
 use reconciliation::MAX_ACTIVE_CLIENT_SESSIONS;
 use reconciliation::{spawn_remote_reconciler, ConfiguredInvoker};
@@ -239,7 +240,7 @@ async fn tool_call(
     let Some(method) = supported_tool_method(name) else {
         return invalid_params(id, format!("unknown tool: {name}"));
     };
-    let mut arguments = params
+    let arguments = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
@@ -247,23 +248,7 @@ async fn tool_call(
     if !arguments.is_object() && !lifecycle {
         return invalid_params(id, "tools/call arguments must be an object");
     }
-    enrich_memory_arguments(method, &mut arguments, invocation_context);
-    if method == "papercuts" {
-        enrich_papercut_arguments(&mut arguments, invocation_context);
-    }
-    if method == "sos" {
-        enrich_sos_arguments(&mut arguments, invocation_context);
-    }
-    if method == "evals" {
-        arguments = json!({
-            "context": {
-                "session_id":invocation_context.session_id,
-                "project_root":invocation_context.project_root,
-                "agent":invocation_context.agent
-            },
-            "command":arguments
-        });
-    }
+    let arguments = bind_tool_context(method, arguments, invocation_context);
     let mut result = match ServiceRequest::decode(method, arguments) {
         Ok(request) => invoker
             .invoke(request, lifecycle)
@@ -276,6 +261,31 @@ async fn tool_call(
     let text = hook_text(method, &result);
     let is_error = tool_result_is_error(&result);
     json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&text).unwrap()}],"structuredContent":result,"isError":is_error}})
+}
+
+fn bind_tool_context(
+    method: &str,
+    mut arguments: Value,
+    invocation_context: &McpInvocationContext,
+) -> Value {
+    enrich_memory_arguments(method, &mut arguments, invocation_context);
+    if method == "papercuts" {
+        enrich_papercut_arguments(&mut arguments, invocation_context);
+    }
+    if method == "sos" {
+        enrich_sos_arguments(&mut arguments, invocation_context);
+    }
+    if matches!(method, "evals" | "work") {
+        arguments = json!({
+            "context": {
+                "session_id":invocation_context.session_id,
+                "project_root":invocation_context.project_root,
+                "agent":invocation_context.agent
+            },
+            "command":arguments
+        });
+    }
+    arguments
 }
 
 fn supported_tool_method(name: &str) -> Option<&str> {

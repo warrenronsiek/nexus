@@ -5,24 +5,13 @@
 use super::rows::{BlobRow, ChunkRow};
 use crate::evals::{digest_is_valid, EvalBlob, MAX_BLOB_BYTES, MAX_CHUNK_BYTES};
 use crate::persistence::backend::DbConnection;
+use crate::persistence::lookup;
 use crate::persistence::schema::{eval_blob_chunks, eval_blobs};
 use crate::persistence::Store;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use diesel::prelude::*;
 use sha2::{Digest, Sha256};
-
-pub(super) fn find_blob(
-    connection: &mut DbConnection,
-    project: &str,
-    digest: &str,
-) -> Result<Option<BlobRow>> {
-    Ok(eval_blobs::table
-        .find((project, digest))
-        .select(BlobRow::as_select())
-        .first(connection)
-        .optional()?)
-}
 
 impl Store {
     pub fn begin_eval_blob(
@@ -32,7 +21,11 @@ impl Store {
         byte_size: u64,
     ) -> Result<EvalBlob> {
         let row = prepare_blob(project, digest, byte_size)?;
-        if let Some(existing) = find_blob(&mut self.connection, project, digest)? {
+        if let Some(existing) = lookup::optional::<BlobRow, _, _>(
+            &mut self.connection,
+            eval_blobs::table,
+            (project, digest),
+        )? {
             return replay_blob(&existing, &row);
         }
         diesel::insert_into(eval_blobs::table)
@@ -55,9 +48,13 @@ impl Store {
     }
 
     pub fn eval_blob(&mut self, project: &str, digest: &str) -> Result<Option<EvalBlob>> {
-        find_blob(&mut self.connection, project, digest)?
-            .map(|r| r.blob())
-            .transpose()
+        lookup::optional::<BlobRow, _, _>(
+            &mut self.connection,
+            eval_blobs::table,
+            (project, digest),
+        )?
+        .map(|r| r.blob())
+        .transpose()
     }
 
     pub fn eval_blob_chunk_for_verification(
@@ -124,7 +121,13 @@ impl Store {
         digest: &str,
         index: u32,
     ) -> Result<Option<Vec<u8>>> {
-        if !find_blob(&mut self.connection, project, digest)?.is_some_and(|r| r.verified) {
+        if !lookup::optional::<BlobRow, _, _>(
+            &mut self.connection,
+            eval_blobs::table,
+            (project, digest),
+        )?
+        .is_some_and(|r| r.verified)
+        {
             return Ok(None);
         }
         self.eval_blob_chunk_for_verification(project, digest, index)
@@ -181,7 +184,8 @@ fn replay_blob(existing: &BlobRow, incoming: &BlobRow) -> Result<EvalBlob> {
 }
 
 fn require_blob(connection: &mut DbConnection, project: &str, digest: &str) -> Result<BlobRow> {
-    find_blob(connection, project, digest)?.context("unknown blob upload")
+    lookup::optional::<BlobRow, _, _>(connection, eval_blobs::table, (project, digest))?
+        .context("unknown blob upload")
 }
 
 fn prepare_chunk(blob: &BlobRow, index: u32, bytes: &[u8]) -> Result<ChunkRow> {
@@ -314,7 +318,9 @@ fn verify_upload_generation(
 }
 
 fn abort_pending(connection: &mut DbConnection, project: &str, digest: &str) -> Result<bool> {
-    let Some(blob) = find_blob(connection, project, digest)? else {
+    let Some(blob) =
+        lookup::optional::<BlobRow, _, _>(connection, eval_blobs::table, (project, digest))?
+    else {
         return Ok(false);
     };
     if blob.verified {

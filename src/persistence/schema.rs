@@ -533,3 +533,30 @@ diesel::allow_tables_to_appear_in_same_query!(
     eval_blobs,
     eval_blob_chunks
 );
+
+diesel::table! {
+    work_observations (project_id, id) {
+        project_id -> Text, id -> Text, subject_scope -> Text, subject_id -> Text,
+        kind -> Text, occurred_at -> Text, recorded_at -> Text, payload_json -> Text,
+        content_hash -> Text, provenance_json -> Text, source_json -> Nullable<Text>,
+    }
+}
+diesel::table! {
+    work_subjects (project_id, scope, id) {
+        project_id -> Text, scope -> Text, id -> Text, title -> Text, kind -> Text,
+        repository -> Nullable<Text>, host_session_id -> Nullable<Text>, environment -> Nullable<Text>,
+        outcome -> Nullable<Text>, occurred_at -> Text, recorded_at -> Text,
+    }
+}
+diesel::table! {
+    work_links (project_id, event_id, relation, target_scope, target_id) {
+        project_id -> Text, event_id -> Text, source_scope -> Text, source_id -> Text,
+        relation -> Text, target_scope -> Text, target_id -> Text, target_json -> Text,
+    }
+}
+diesel::allow_tables_to_appear_in_same_query!(
+    work_observations,
+    work_subjects,
+    work_links,
+    eval_records
+);

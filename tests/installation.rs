@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature installation
 // @feature sos
 // @feature usage-analytics
@@ -359,4 +361,45 @@ fn assert_success(output: &Output) {
 fn run(command: &mut Command) {
     let output = command.output().unwrap();
     assert_success(&output);
+}
+
+#[test]
+fn installed_pi_extension_contains_its_complete_local_module_dependency_closure() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path().join("home");
+    let codex_home = home.join(".codex");
+    let commands = temporary.path().join("commands");
+    fs::create_dir_all(&commands).unwrap();
+    for host in ["codex", "claude", "pi"] {
+        fake_host(&commands, host);
+    }
+    let setup = nexus_command(
+        &home,
+        &codex_home,
+        &commands,
+        &temporary.path().join("hosts.log"),
+    )
+    .arg("setup")
+    .output()
+    .unwrap();
+    assert_success(&setup);
+    let root = home.join(".pi/agent/extensions/nexus");
+    let imports = regex::Regex::new(r#"(?:from\s*|import\s*)["'](\./[^"']+\.ts)["']"#).unwrap();
+    let mut pending = vec![String::from("index.ts")];
+    let mut visited = std::collections::HashSet::new();
+    while let Some(module) = pending.pop() {
+        if !visited.insert(module.clone()) {
+            continue;
+        }
+        let source = fs::read_to_string(root.join(&module)).unwrap_or_else(|error| {
+            panic!("installed Pi extension is missing local dependency {module}: {error}")
+        });
+        for import in imports.captures_iter(&source) {
+            pending.push(import[1].trim_start_matches("./").to_owned());
+        }
+    }
+    assert!(
+        visited.contains("work-pane.ts"),
+        "the installed entry point must reach Work"
+    );
 }

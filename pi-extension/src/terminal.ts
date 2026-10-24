@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature usage-analytics
@@ -20,6 +22,7 @@ import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } fro
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import { NexusEvalsApi } from "./evals.ts";
+import { NexusWorkApi } from "./work.ts";
 import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
@@ -63,6 +66,7 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
     analyticsApi: new NexusAnalyticsApi(client, cwd),
     papercutsApi: new NexusPapercutsApi(client, cwd),
     evalsApi: new NexusEvalsApi(client, cwd),
+    workApi: new NexusWorkApi(client, cwd),
     sosApi,
     memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,
   });

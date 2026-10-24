@@ -1,4 +1,6 @@
 // @feature evals
+// @feature work-history
+// @spec docs/features/work-history.md
 // @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
@@ -90,6 +92,7 @@ impl NexusService {
             | ServiceRequest::Analytics(_)) => self.handle_command(request, project),
             ServiceRequest::Sos(_) => self.handle_command(request, project),
             ServiceRequest::Evals(_) => self.handle_command(request, project),
+            ServiceRequest::Work(_) => self.handle_command(request, project),
         }
     }
 
@@ -153,6 +156,7 @@ impl NexusService {
             }
             ServiceRequest::Sos(command) => self.dispatch_sos(command, project).response,
             ServiceRequest::Evals(command) => self.eval_command(command, project),
+            ServiceRequest::Work(command) => self.work_command(command, project),
             ServiceRequest::Analytics(command) => self.analytics_command(command, project),
             _ => unreachable!("non-command request routed as command"),
         }

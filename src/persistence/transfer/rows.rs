@@ -17,7 +17,7 @@ use super::super::schema::{
     memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
     memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
     papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
-    sos_triage_attempts,
+    sos_triage_attempts, work_observations,
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,12 @@ macro_rules! portable_row {
         }
     };
 }
+
+portable_row!(WorkObservationTransfer,work_observations,{
+    project_id:String,id:String,subject_scope:String,subject_id:String,kind:String,
+    occurred_at:String,recorded_at:String,payload_json:String,content_hash:String,
+    provenance_json:String,source_json:Option<String>,
+});
 
 portable_row!(AdvisoryTransfer, advisories, {
     id: String,

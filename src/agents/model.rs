@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 // @feature analyst
@@ -19,17 +21,17 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
 
-pub(crate) use process::{disable_in_process_provider_execution, is_timeout};
+pub(crate) use process::{disable_in_process_provider_execution, is_timeout, InvocationScope};
 
-pub(crate) fn invoke(
+pub(crate) fn invoke<'a>(
     provider: ModelProvider,
     model: &ModelConfig,
     prompt: &str,
-    working_directory: Option<&Path>,
+    context: impl Into<InvocationScope<'a>>,
     timeout: Duration,
 ) -> Result<String> {
     process::Invocation {
-        scope: process::InvocationScope::ReadOnly(working_directory),
+        scope: context.into(),
         provider,
         model,
         prompt,

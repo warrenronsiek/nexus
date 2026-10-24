@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
 # @feature architecture-tooling
 # @feature commit-review
+# @feature work-history
 # @spec docs/features/architecture-tooling.md
 # @spec docs/features/commit-review.md
+# @spec docs/features/work-history.md
 set -euo pipefail
 
 repository_root="$(git rev-parse --show-toplevel)"
+source "${repository_root}/scripts/work-capture.sh"
+if [[ "${NEXUS_PRE_COMMIT_BODY:-}" != 1 ]]; then
+  NEXUS_PRE_COMMIT_BODY=1 nexus_work_exec git.hook "Git pre-commit" bash "${repository_root}/.githooks/pre-commit" "$@"
+  exit "$?"
+fi
+unset NEXUS_PRE_COMMIT_BODY
+nexus_work_git_hook pre-commit
 (
   # Fixture repositories must resolve from their own cwd, not Git's hook context.
   while IFS= read -r git_variable; do
     unset "${git_variable}"
   done < <(git rev-parse --local-env-vars)
-  "${repository_root}/scripts/check.sh"
+  nexus_work_exec validation "Repository validation" "${repository_root}/scripts/check.sh"
 )
 
 if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" --bin nexus -- review-commit; then

@@ -303,8 +303,12 @@ fn check_backing_bytes(
 ) -> Result<()> {
     match backing {
         ArtifactBacking::StoredBlob { digest } => {
-            let blob = blobs::find_blob(connection, project, digest)?
-                .context("stored artifact blob does not exist")?;
+            let blob = super::lookup::optional::<BlobRow, _, _>(
+                connection,
+                super::schema::eval_blobs::table,
+                (project, digest),
+            )?
+            .context("stored artifact blob does not exist")?;
             if !blob.verified
                 || blob.byte_size as u64 != artifact.byte_size
                 || artifact.digest.as_ref().is_some_and(|d| d != digest)

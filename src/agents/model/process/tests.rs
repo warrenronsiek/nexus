@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature analyst
 // @feature commit-review
 // @feature agent-memory
@@ -30,7 +32,7 @@ fn invoke_claude(
     timeout: Duration,
 ) -> Result<String> {
     Invocation {
-        scope: InvocationScope::ReadOnly(working_directory),
+        scope: InvocationScope::from(working_directory),
         provider: ModelProvider::Claude,
         model,
         prompt,

@@ -13,6 +13,7 @@ mod backend;
 mod conflicts;
 mod dashboard;
 mod evals;
+mod lookup;
 mod memory;
 mod migrations;
 mod models;
@@ -29,6 +30,7 @@ mod transaction;
 mod transfer;
 mod usage;
 mod window;
+mod work_history;
 
 pub(crate) use papercuts::{PapercutDuplicateProposal, PapercutReviewAttemptRecord};
 #[cfg(feature = "postgres")]

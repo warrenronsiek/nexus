@@ -117,68 +117,85 @@ fn activity_facts_inventory_and_classification_history_round_trip() {
 }
 
 #[test]
-fn version_two_streams_remain_importable_and_retain_their_source_version() {
-    let mut source = Store::open_memory().unwrap();
-    let mut bytes = Vec::new();
-    source.write_streamed_snapshot(&mut bytes).unwrap();
-    let mut records: Vec<serde_json::Value> = String::from_utf8(bytes)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
-    records[0]["format_version"] = serde_json::json!(2);
-    records.retain(|record| {
-        !record["data"]["table"]
-            .as_str()
-            .is_some_and(|name| name.starts_with("analytics_") || name.starts_with("eval_"))
-    });
-    let snapshot = tempfile::NamedTempFile::new().unwrap();
-    for record in records {
-        serde_json::to_writer(snapshot.as_file(), &record).unwrap();
-        writeln!(snapshot.as_file()).unwrap();
-    }
-    let mut target = Store::open_memory().unwrap();
-    assert!(matches!(
-        target.import_streamed_snapshot(snapshot.path()).unwrap(),
-        ImportOutcome::Imported { rows: 0, .. }
-    ));
-    let version = database_imports::table
-        .select(database_imports::format_version)
-        .first::<i32>(&mut target.connection)
-        .unwrap();
-    assert_eq!(version, 2);
-}
-
-#[test]
-fn version_three_streams_remain_importable_without_eval_tables() {
-    let mut source = Store::open_memory().unwrap();
-    let mut bytes = Vec::new();
-    source.write_streamed_snapshot(&mut bytes).unwrap();
-    let mut records: Vec<serde_json::Value> = String::from_utf8(bytes)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
-    records[0]["format_version"] = serde_json::json!(3);
-    records.retain(|record| {
-        !record["data"]["table"]
-            .as_str()
-            .is_some_and(|name| name.starts_with("eval_"))
-    });
-    let snapshot = tempfile::NamedTempFile::new().unwrap();
-    for record in records {
-        serde_json::to_writer(snapshot.as_file(), &record).unwrap();
-        writeln!(snapshot.as_file()).unwrap();
-    }
-    let mut target = Store::open_memory().unwrap();
-    target.import_streamed_snapshot(snapshot.path()).unwrap();
-    assert_eq!(
-        database_imports::table
+fn historical_streams_exclude_later_tables_and_retain_their_source_versions() {
+    for (version, tables) in [(2, 21), (3, 27), (4, 32)] {
+        let snapshot = historical_empty_snapshot(version, tables);
+        let mut target = Store::open_memory().unwrap();
+        assert!(matches!(
+            target.import_streamed_snapshot(snapshot.path()).unwrap(),
+            ImportOutcome::Imported { rows: 0, .. }
+        ));
+        let imported_version = database_imports::table
             .select(database_imports::format_version)
             .first::<i32>(&mut target.connection)
-            .unwrap(),
-        3
+            .unwrap();
+        assert_eq!(imported_version, version);
+    }
+}
+
+// This historical catalog is deliberately independent of the current export
+// catalog: adding a new table cannot silently put it into an older fixture.
+const HISTORICAL_TABLES: [&str; 32] = [
+    "sessions",
+    "claims",
+    "conflicts",
+    "advisories",
+    "capability_uses",
+    "events",
+    "memory_spaces",
+    "memory_entries",
+    "memory_summaries",
+    "memory_frontier_snapshots",
+    "memory_compaction_queue",
+    "memory_activations",
+    "memory_compaction_attempts",
+    "papercuts",
+    "papercut_upvotes",
+    "papercut_duplicate_reviews",
+    "papercut_review_attempts",
+    "sos_issues",
+    "sos_reports",
+    "sos_triage_attempts",
+    "sos_issue_lifecycle",
+    "analytics_calls",
+    "analytics_actions",
+    "analytics_exposures",
+    "analytics_categories",
+    "analytics_revisions",
+    "analytics_resources",
+    "eval_records",
+    "eval_links",
+    "eval_dimensions",
+    "eval_blobs",
+    "eval_blob_chunks",
+];
+
+fn historical_empty_snapshot(version: i32, table_count: usize) -> tempfile::NamedTempFile {
+    let mut source = Store::open_memory().unwrap();
+    let mut bytes = Vec::new();
+    source.write_streamed_snapshot(&mut bytes).unwrap();
+    let mut records: Vec<serde_json::Value> = String::from_utf8(bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    records[0]["format_version"] = serde_json::json!(version);
+    records.retain(|record| {
+        record["data"]["table"]
+            .as_str()
+            .is_none_or(|name| HISTORICAL_TABLES[..table_count].contains(&name))
+    });
+    assert_eq!(
+        records.len(),
+        table_count + 2,
+        "one empty batch per historical table plus header/footer"
     );
+    let snapshot = tempfile::NamedTempFile::new().unwrap();
+    for record in records {
+        serde_json::to_writer(snapshot.as_file(), &record).unwrap();
+        writeln!(snapshot.as_file()).unwrap();
+    }
+    snapshot
 }
 
 #[test]

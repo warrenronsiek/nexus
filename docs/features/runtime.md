@@ -88,6 +88,17 @@ flowchart TD
 
 ## Implementation details
 
+Work history uses one closed `WorkAction` contract through `nexus work` and the
+`nexus_work` MCP tool. Explicit history actions share a typed bound caller envelope
+with eval commands. Runtime supplies project and submitter provenance, while
+observation payloads retain attributed initiators, executors, producers, and source
+times. `list`, `get`, `timeline`, and `events` are bounded reads; recording never
+launches the caller's workload. CLI convenience operations construct the same
+typed observations, and work-only JSONL transfer verifies the complete checksum
+and observation/source shape before replaying resumable batches. Rejected work
+records expose `invalid_input` or `conflict` codes; service/storage unavailability
+remains retryable by automatic capture. See [work history](work-history.md).
+
 Evaluation history is an explicit recording/query feature through `nexus eval`
 and the closed `nexus_evals` MCP tool. Its input schema is generated from the
 same typed `EvalAction` and domain records used for decoding. MCP supplies a

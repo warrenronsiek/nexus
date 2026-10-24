@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 // @feature analyst
@@ -99,15 +101,35 @@ fn ensure_in_process_provider_execution_allowed(disabled: bool) -> Result<()> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum InvocationScope<'a> {
-    ReadOnly(Option<&'a Path>),
+pub(crate) enum InvocationScope<'a> {
+    ReadOnly {
+        directory: Option<&'a Path>,
+        capture: Option<&'a crate::runtime::work_capture::CaptureContext>,
+    },
     Classification,
 }
 impl<'a> InvocationScope<'a> {
     fn working_directory(self) -> Option<&'a Path> {
         match self {
-            Self::ReadOnly(directory) => directory,
+            Self::ReadOnly { directory, .. } => directory,
             Self::Classification => None,
+        }
+    }
+}
+
+impl<'a> From<Option<&'a Path>> for InvocationScope<'a> {
+    fn from(directory: Option<&'a Path>) -> Self {
+        Self::ReadOnly {
+            directory,
+            capture: None,
+        }
+    }
+}
+impl<'a> From<&'a crate::runtime::work_capture::CaptureContext> for InvocationScope<'a> {
+    fn from(capture: &'a crate::runtime::work_capture::CaptureContext) -> Self {
+        Self::ReadOnly {
+            directory: capture.hook.project_root.as_deref().map(Path::new),
+            capture: Some(capture),
         }
     }
 }
@@ -148,6 +170,13 @@ impl Invocation<'_> {
             }
         };
         command.current_dir(directory);
+        if let InvocationScope::ReadOnly {
+            capture: Some(context),
+            ..
+        } = self.scope
+        {
+            context.apply(&mut command);
+        }
         let process = ModelProcess::start(command, self.provider, self.model, self.prompt)?;
         process.finish(self.provider, self.timeout, deadline)
     }
