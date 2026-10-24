@@ -97,7 +97,7 @@ fn machine_setup_installs_integrations_idempotently() {
 }
 
 #[test]
-fn machine_setup_installs_history_workflows_and_refreshes_bundled_content() {
+fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path().join("home");
     let codex_home = home.join(".codex");
@@ -106,6 +106,15 @@ fn machine_setup_installs_history_workflows_and_refreshes_bundled_content() {
     fs::create_dir_all(&command_directory).unwrap();
     fake_host(&command_directory, "codex");
     let names = [
+        "nexus",
+        "nexus-setup",
+        "nexus-coordination",
+        "nexus-agent-memory",
+        "nexus-papercuts",
+        "nexus-sos",
+        "nexus-usage-analytics",
+        "nexus-observability",
+        "nexus-development",
         "nexus-build-eval",
         "nexus-eval-audit",
         "nexus-hillclimb",
@@ -113,7 +122,7 @@ fn machine_setup_installs_history_workflows_and_refreshes_bundled_content() {
         "nexus-work-history",
     ];
     for root in [&codex_home, &home.join(".claude")] {
-        for name in ["nexus-build-eval", "nexus-work-history"] {
+        for name in ["nexus", "nexus-build-eval", "nexus-work-history"] {
             let skill = root.join("skills").join(name);
             fs::create_dir_all(&skill).unwrap();
             fs::write(skill.join("SKILL.md"), "stale bundled content").unwrap();
@@ -140,22 +149,46 @@ fn machine_setup_installs_history_workflows_and_refreshes_bundled_content() {
         }
     }
     for root in [&codex_home, &home.join(".claude")] {
-        for name in names {
-            let path = root.join("skills").join(name).join("SKILL.md");
-            let source = fs::read_to_string(&path).unwrap();
-            assert!(source.starts_with("---\nname: "), "{}", path.display());
-        }
-        assert!(root
-            .join("skills/nexus-eval-history/references/nexus-evals.md")
-            .is_file());
-        for name in ["nexus-build-eval", "nexus-work-history"] {
+        assert_installed_skills(root, &names);
+    }
+}
+
+fn assert_installed_skills(root: &Path, names: &[&str]) {
+    for name in names {
+        let path = root.join("skills").join(name).join("SKILL.md");
+        let source = fs::read_to_string(&path).unwrap();
+        assert!(source.starts_with("---\nname: "), "{}", path.display());
+    }
+    assert!(root
+        .join("skills/nexus-eval-history/references/nexus-evals.md")
+        .is_file());
+    for name in ["nexus", "nexus-build-eval", "nexus-work-history"] {
+        assert_eq!(
+            fs::read_to_string(root.join("skills").join(name).join("personal-notes.md")).unwrap(),
+            "keep me"
+        );
+    }
+    assert_installed_skill_tree(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("skills"),
+        &root.join("skills"),
+    );
+    assert_work_history_resources(root);
+}
+
+fn assert_installed_skill_tree(source: &Path, installed: &Path) {
+    for entry in fs::read_dir(source).unwrap() {
+        let source_path = entry.unwrap().path();
+        let target = installed.join(source_path.file_name().unwrap());
+        if source_path.is_dir() {
+            assert_installed_skill_tree(&source_path, &target);
+        } else {
             assert_eq!(
-                fs::read_to_string(root.join("skills").join(name).join("personal-notes.md"))
-                    .unwrap(),
-                "keep me"
+                fs::read(&target).unwrap_or_else(|error| panic!("{}: {error}", target.display())),
+                fs::read(&source_path).unwrap(),
+                "installed resource differs: {}",
+                target.display()
             );
         }
-        assert_work_history_resources(root);
     }
 }
 
