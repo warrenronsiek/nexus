@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const PROJECT_CONFIG: &str = "schema_version = 1\n";
-const SKILL_NAMES: [&str; 7] = [
+const SKILL_NAMES: [&str; 8] = [
     "code-architect",
     "code-deletion",
     "tdd",
@@ -30,8 +30,9 @@ const SKILL_NAMES: [&str; 7] = [
     "nexus-eval-audit",
     "nexus-hillclimb",
     "nexus-eval-history",
+    "nexus-work-history",
 ];
-const SKILL_FILES: [(&str, &str); 9] = [
+const SKILL_FILES: [(&str, &str); 13] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -64,6 +65,22 @@ const SKILL_FILES: [(&str, &str); 9] = [
     (
         "nexus-eval-history/references/nexus-evals.md",
         include_str!("../skills/nexus-eval-history/references/nexus-evals.md"),
+    ),
+    (
+        "nexus-work-history/SKILL.md",
+        include_str!("../skills/nexus-work-history/SKILL.md"),
+    ),
+    (
+        "nexus-work-history/references/integration.md",
+        include_str!("../skills/nexus-work-history/references/integration.md"),
+    ),
+    (
+        "nexus-work-history/scripts/work-capture.sh",
+        include_str!("../scripts/work-capture.sh"),
+    ),
+    (
+        "nexus-work-history/scripts/nexus-work-github.py",
+        include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
 const PI_EXTENSION_FILES: [(&str, &str); 40] = [
