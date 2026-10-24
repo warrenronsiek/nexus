@@ -1,4 +1,6 @@
 // @feature evals
+// @feature work-history
+// @spec docs/features/work-history.md
 // @spec docs/features/evals.md
 // @feature coordination
 // @feature usage-analytics
@@ -17,12 +19,14 @@ mod memory;
 mod papercuts;
 mod responses;
 mod sos;
+mod work;
 
 pub use evals::*;
 pub use memory::*;
 pub use papercuts::*;
 pub use responses::*;
 pub use sos::*;
+pub use work::*;
 
 use super::domain::{
     ClaimRelease, ConflictScope, HookContext, RecordScope, ScriptUseInput, SessionStopInput,
@@ -80,6 +84,7 @@ pub enum ServiceRequest {
     Papercuts(PapercutCommand),
     Sos(SosCommand),
     Evals(EvalCommand),
+    Work(WorkCommand),
     Analytics(crate::analytics::types::AnalyticsCommand),
     Config,
 }
@@ -109,6 +114,20 @@ impl ServiceRequest {
     pub fn is_lifecycle_method(method: &str) -> bool {
         LIFECYCLE_METHODS.contains(&method)
     }
+}
+
+/// Explicit history commands share a bound caller envelope; their actions stay typed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextCommand<T> {
+    pub context: HookContext,
+    pub command: T,
+}
+
+fn decode_context_command<T: DeserializeOwned>(params: Value) -> Result<ContextCommand<T>> {
+    let command: ContextCommand<T> = decode(params)?;
+    validate_hook_context(&command.context)?;
+    Ok(command)
 }
 
 fn decode_lifecycle(method: &str, params: Value) -> Result<ServiceRequest> {
@@ -231,7 +250,8 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
 
 fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
     match method {
-        "evals" => evals::decode_command(params),
+        "evals" => decode_context_command(params).map(ServiceRequest::Evals),
+        "work" => decode_context_command(params).map(ServiceRequest::Work),
         "analytics" => analytics::decode_analytics(params),
         "resolve" => decode(params).map(ServiceRequest::Resolve),
         "release" => decode(params).map(ServiceRequest::Release),
@@ -320,6 +340,7 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Papercuts(_)
         | ServiceRequest::Sos(_)
         | ServiceRequest::Evals(_)
+        | ServiceRequest::Work(_)
         | ServiceRequest::Analytics(_) => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
@@ -365,6 +386,7 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::Papercuts(command) => encode("papercuts", command),
         ServiceRequest::Sos(command) => encode("sos", command),
         ServiceRequest::Evals(command) => encode("evals", command),
+        ServiceRequest::Work(command) => encode("work", command),
         ServiceRequest::Analytics(command) => encode("analytics", command),
         _ => unreachable!("request family was selected before encoding"),
     }
@@ -411,6 +433,7 @@ const COMMAND_METHODS: &[&str] = &[
     "papercuts",
     "sos",
     "evals",
+    "work",
 ];
 const REPORT_METHODS: &[&str] = &["projects", "dashboard", "usage", "config"];
 

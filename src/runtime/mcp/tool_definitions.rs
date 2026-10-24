@@ -17,6 +17,7 @@ pub(super) fn tool_definitions() -> Value {
     let mut definitions = lifecycle_tool_definitions();
     definitions.extend(coordination_tool_definitions());
     definitions.push(super::evals_schema::definition());
+    definitions.push(super::work_schema::definition());
     Value::Array(definitions)
 }
 

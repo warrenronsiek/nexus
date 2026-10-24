@@ -75,6 +75,43 @@ Use `nexus eval upload FILE` for necessary new bytes and `nexus eval download DI
 
 `nexus setup` installs four provider-neutral workflows for Codex and Claude: `nexus-build-eval`, `nexus-eval-audit`, `nexus-hillclimb`, and `nexus-eval-history`. They explain how to construct and improve a measurement, preserve the reasons for changes, and inspect previous attempts before repeating an experiment. See [the eval contract](docs/features/evals.md) and [the skill evidence reference](skills/nexus-eval-history/references/nexus-evals.md).
 
+## Work sessions and timing
+
+Nexus keeps a logical work session across prompts, agents, PRs, and delivery steps.
+Each test, command, review, or subagent task is a separate activity with preserved
+parent/descendant relationships. Repeated attempts retain their outcomes; shared
+CI runs and releases can link to several sessions without duplicating execution.
+The Work TUI tab opens sessions into an expandable tree and relative timeline.
+
+```sh
+nexus work open "Improve router fallback" --id router-change
+nexus work start "Implementation" --id worker --kind agent.task --work-session router-change
+nexus exec --work-session router-change --parent worker --kind test --name "Regression tests" -- ./scripts/check.sh
+nexus work timeline router-change --parent worker
+nexus work activities --kind test --outcome failed
+nexus work milestone router-change "Production verified" --environment production
+nexus work finish router-change --scope session --outcome succeeded
+nexus work export work-history.jsonl
+nexus work import work-history.jsonl
+nexus work health
+nexus work flush
+```
+
+`nexus_work` exposes the same typed recording and read contract over MCP;
+`nexus work schema` prints it. Caller scripts can record starts, finishes,
+milestones, links, or bounded JSON batches without changing their runner.
+Propagate `NEXUS_WORK_SESSION_ID`, `NEXUS_PARENT_ACTIVITY_ID`, and host/agent
+identity across process boundaries. Repositories participating in one resolved
+tree must use the same Nexus project binding; independent project references
+remain external links.
+
+Timing retains source occurrence, server receipt, and exact measured duration
+separately. Missing completions and conflicting reports remain visible. Parallel
+or nested durations are inclusive, so adding every row does not measure total
+effort. Automatic capture keeps metadata only, queues bounded local records when
+delivery fails, and preserves workload results. See [work history](docs/features/work-history.md)
+for capture coverage, script integration, and provenance rules.
+
 ## Install
 
 For same-machine development, one command from a Nexus source checkout installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store. Source builds require Rust 1.88 or newer:
@@ -114,7 +151,7 @@ For the one-command path, use the startup helper instead. It automatically looks
 ./scripts/start-docker-service.sh
 ```
 
-Pass a non-default database explicitly with `./scripts/start-docker-service.sh --sqlite /absolute/path/to/nexus.db`, or use `--no-import` for a deliberately fresh service. Compose mounts the source read-only into a network-isolated one-shot container, which takes a consistent SQLite online backup into a private named volume. The main image upgrades only that staged copy and transfers the logical records into PostgreSQL; neither container migrates or changes the source file. Sessions, claims, event identifiers and timestamps, usage, memory relationships and derived state, papercuts, and SOS source/aggregate history are retained. Backend-specific Flyway history is rebuilt normally rather than copied. Import accepts SQLite sources, consistent backups, and version-two and version-three record streams up to 4 GiB, with bounded batches and an 8 MiB per-record ceiling; it rejects unknown, newer, missing, or checksum-divergent source migrations rather than silently dropping state this binary does not understand.
+Pass a non-default database explicitly with `./scripts/start-docker-service.sh --sqlite /absolute/path/to/nexus.db`, or use `--no-import` for a deliberately fresh service. Compose mounts the source read-only into a network-isolated one-shot container, which takes a consistent SQLite online backup into a private named volume. The main image upgrades only that staged copy and transfers the logical records into PostgreSQL; neither container migrates or changes the source file. Sessions, claims, event identifiers and timestamps, usage, memory relationships and derived state, papercuts, SOS source/aggregate history, eval evidence, and work-history observations are retained. Backend-specific Flyway history is rebuilt normally rather than copied. Import accepts SQLite sources, consistent backups, and version-two through version-five record streams up to 4 GiB, with bounded batches and an 8 MiB per-record ceiling; it rejects unknown, newer, missing, or checksum-divergent source migrations rather than silently dropping state this binary does not understand.
 
 For a maintenance-window migration, run `nexus-server --mode import --import-sqlite PATH` to import and exit without starting HTTP or model schedulers. `nexus-server --mode export` emits the PostgreSQL record stream for independent comparison before serving. Preserve an original archive before migration: historical V7/V8 schema normalizations run on the private copy and may replace oversized legacy values.
 
@@ -175,7 +212,7 @@ nexus tui
 
 Nexus bundles the Pi terminal renderer and opens the dashboard without installing or starting Pi. It uses an existing Node 22.19+ runtime when available; otherwise it downloads and verifies its own pinned runtime on the first launch, then caches it for offline use. The command starts the daemon in local mode or uses the configured remote endpoint, and honors the current repository and `--config` settings. Press `q` or Ctrl-C to return to your shell.
 
-The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, SOS, Tools, Skills, Memory, Papercuts, and Evals. Coordination, SOS, analytics, and Evals remain read-only. In SOS, Enter drills from importance-ranked aggregates into retained reports and triage/lifecycle history. In Papercuts, `n` loads the next page of older open reports, Enter shows the full observation, and `r` refreshes or retries a failed read. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
+The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals, and Work. Coordination, SOS, analytics, Evals, and Work remain read-only. In SOS, Enter drills from importance-ranked aggregates into retained reports and triage/lifecycle history. In Papercuts, `n` loads the next page of older open reports, Enter shows the full observation, and `r` refreshes or retries a failed read. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
 
 For people who already use Pi, `nexus setup` also installs the `/nexus` extension inside Pi. Both entry points use the same dashboard components.
 

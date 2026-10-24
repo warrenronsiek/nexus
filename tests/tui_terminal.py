@@ -1,3 +1,5 @@
+# @feature work-history
+# @spec docs/features/work-history.md
 # @feature usage-analytics
 # @spec docs/features/usage-analytics.md
 # @feature evals
@@ -197,6 +199,74 @@ def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str,
     wait_for_text(process, master, b"Why / reported history")
 
 
+def seed_work(binary: str, config: Path, root: Path, environment: dict[str, str]) -> None:
+    observations: list[dict[str, object]] = []
+
+    def observe(identifier: str, scope: str, subject: str, second: int, body: dict[str, object]) -> None:
+        observations.append({"id": identifier, "subject": {"scope": scope, "id": subject},
+                             "occurred_at": f"2026-10-24T12:00:{second:02d}Z",
+                             "producer": {"name": "terminal-fixture", "version": "1", "instance_id": "native"},
+                             "method": "caller_reported", "body": body})
+
+    def declare(identifier: str, name: str, kind: str, parent: str | None, second: int) -> None:
+        observe(f"{identifier}-declared", "activity", identifier, second,
+                {"event": "activity_declared", "name": name, "kind": kind,
+                 "work_session_id": "native-work", "parent_activity_id": parent, "context": {}})
+        observe(f"{identifier}-started", "activity", identifier, second, {"event": "started"})
+
+    observe("native-work-opened", "session", "native-work", 0,
+            {"event": "session_opened", "title": "Native work fixture", "context": {}})
+    observe("native-request", "session", "native-work", 0, {"event": "milestone", "name": "request_received", "context": {}})
+    declare("native-agent", "Implementation agent", "agent.task", None, 1)
+    declare("native-reviewer", "Delegated reviewer", "review.qa", "native-agent", 2)
+    declare("native-test-1", "Test attempt one", "test", "native-agent", 3)
+    observe("native-test-1-finished", "activity", "native-test-1", 4,
+            {"event": "finished", "outcome": "failed", "elapsed": None})
+    declare("native-test-2", "Test attempt two", "test", "native-agent", 5)
+    observe("native-test-2-finished", "activity", "native-test-2", 6,
+            {"event": "finished", "outcome": "succeeded", "elapsed": None})
+    declare("native-grandchild", "Grandchild test", "test", "native-reviewer", 7)
+    observe("native-grandchild-finished", "activity", "native-grandchild", 8,
+            {"event": "finished", "outcome": "succeeded", "elapsed": {
+                "nanoseconds": "250000000", "method": "monotonic", "clock_id": "fixture-process"}})
+    observe("native-production", "session", "native-work", 9,
+            {"event": "milestone", "name": "production_verified", "context": {"environment": "production"}})
+    fixture = root / "native work observations.json"
+    fixture.write_text(json.dumps({"format_version": 1, "observations": observations}))
+    recorded = subprocess.run([binary, "--config", str(config), "work", "record", str(fixture)],
+                              cwd=root, env=environment, capture_output=True, check=True, timeout=5)
+    assert json.loads(recorded.stdout)["ok"] is True
+
+
+def exercise_work(binary: str, config: Path, root: Path, environment: dict[str, str], terminal: tuple[int, subprocess.Popen[bytes]]) -> None:
+    master, process = terminal
+    seed_work(binary, config, root, environment)
+    os.write(master, b"\t")
+    wait_for_text(process, master, b"Native work fixture")
+    os.write(master, b"\r")
+    wait_for_text(process, master, b"Implementation agent")
+    os.write(master, b"\x1b[C")
+    wait_for_text(process, master, (b"Delegated reviewer", b"Test attempt one", b"Test attempt two"))
+    os.write(master, b"\x1b[B\x1b[C")
+    wait_for_text(process, master, b"Grandchild test")
+    os.write(master, b"t")
+    wait_for_text(process, master, (b"Relative timeline", b"Time axis"))
+    os.write(master, b"\x1b[B\r")
+    wait_for_text(process, master, (b"activity:native-grandchild", b"0.250000000s (monotonic)"))
+    os.write(master, b"\x1b")
+    wait_for_text(process, master, b"Relative timeline")
+    os.write(master, b"\x1b")
+    wait_for_text(process, master, b"work sessions loaded")
+    os.write(master, b"ktest\r")
+    wait_for_text(process, master, (b"Activity search", b"Test attempt two"))
+    os.write(master, b"\r")
+    wait_for_text(process, master, b"w related session hierarchy")
+    os.write(master, b"w")
+    wait_for_text(process, master, b"Related work sessions")
+    os.write(master, b"\r")
+    wait_for_text(process, master, (b"Activity hierarchy", b"Implementation agent"))
+
+
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
@@ -226,6 +296,7 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             exercise_memory_actions(process, master)
             exercise_papercuts(binary, config, root, environment, (master, process))
             exercise_evals(binary, config, root, environment, (master, process))
+            exercise_work(binary, config, root, environment, (master, process))
             close_dashboard(process, master, exit_mode)
             mask = termios.ICANON | termios.ECHO
             assert termios.tcgetattr(slave)[3] & mask == original_settings[3] & mask

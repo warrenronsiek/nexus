@@ -3,19 +3,13 @@
 // @spec docs/features/evals.md
 // @spec docs/features/runtime.md
 // @boundary generated-command-schema-and-service-json
-use crate::coordination::domain::HookContext;
 use crate::evals::{
     EvalBlob, EvalHistory, EvalKind, EvalPage, EvalQuery, EvalReceipt, EvalRecord, EvalRecordInput,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EvalCommand {
-    pub context: HookContext,
-    pub command: EvalAction,
-}
+pub type EvalCommand = super::ContextCommand<EvalAction>;
 
 /// Recording and retrieval only. Workload execution belongs to the producer.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -155,10 +149,4 @@ pub(crate) fn list_query(action: EvalAction) -> Option<EvalQuery> {
     } else {
         None
     }
-}
-
-pub(super) fn decode_command(params: serde_json::Value) -> anyhow::Result<super::ServiceRequest> {
-    let command: EvalCommand = super::decode(params)?;
-    super::validate_hook_context(&command.context)?;
-    Ok(super::ServiceRequest::Evals(command))
 }

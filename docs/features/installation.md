@@ -87,3 +87,10 @@ The source bootstrap entry point is `./scripts/install.sh`. Source builds requir
 `tests/installation.rs` exercises both commands as child processes with isolated homes and provider binaries. The ignored real-agent test exercises the packaged install plus two worktrees using authenticated Codex and Claude clients; it must be requested explicitly because it consumes model resources and requires external credentials.
 
 `src/runtime/terminal.rs` owns the native launcher and embedded dashboard materialization; `terminal_runtime.rs` owns runtime selection and verified installation behind `ensure_node`. Runtime tests use local archive fixtures to prove verification, atomic publication, failed-install cleanup, and reuse. `tests/tui.rs` exercises the real packaged view through a pseudo-terminal with no Pi on `PATH`, then repeats offline with neither Pi nor Node on `PATH`. `tests/tui_terminal.py` also provides an explicit `download` scenario for testing official first-launch provisioning without making the deterministic test suite depend on the network.
+
+
+The installed Pi extension includes the complete local TypeScript import closure
+of its entry point, including analytics, capability inventory, Papercuts, and Work
+modules. Setup tests resolve these imports from the actual isolated installation
+so adding a pane cannot leave an installed extension with a missing dependency.
+The generated launch-context module remains the installation-specific exception.

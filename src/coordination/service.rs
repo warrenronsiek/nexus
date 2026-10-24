@@ -20,6 +20,7 @@ mod prompt;
 mod records;
 mod sos;
 mod store_lock;
+mod work;
 
 pub(crate) use papercuts::{PapercutDispatch, PapercutReviewJob};
 use prompt::synopsis;

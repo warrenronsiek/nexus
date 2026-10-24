@@ -20,6 +20,7 @@ mod process_capture;
 pub mod runtime;
 mod secret_file;
 pub mod sos;
+pub mod work_history;
 
 pub use config::{Config, LoadedConfig};
 pub use coordination::NexusService;

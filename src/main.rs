@@ -1,4 +1,6 @@
 // @feature evals
+// @feature work-history
+// @spec docs/features/work-history.md
 // @spec docs/features/evals.md
 // @feature runtime
 // @feature commit-review
@@ -18,6 +20,8 @@
 mod evals_cli;
 #[path = "main/sos.rs"]
 mod sos_cli;
+#[path = "main/work.rs"]
+mod work_cli;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -32,10 +36,9 @@ use nexus::coordination::api::{
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
 use nexus::papercuts::PapercutReviewDecision;
-use nexus::runtime::{client::NexusClient, daemon, hooks, mcp, script_exec, terminal};
+use nexus::runtime::{client::NexusClient, daemon, hooks, mcp, terminal};
 use nexus::{Config, LoadedConfig};
 use sos_cli::SosCliCommand;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
@@ -75,10 +78,7 @@ enum Command {
     /// Open the bundled interactive terminal dashboard.
     Tui,
     /// Execute a script while recording one privacy-limited usage observation.
-    Exec {
-        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-        command: Vec<OsString>,
-    },
+    Exec(work_cli::ExecArgs),
     /// Show service status and projection counts.
     Status,
     /// Show recent events.
@@ -142,6 +142,11 @@ enum Command {
     Eval {
         #[command(subcommand)]
         command: evals_cli::EvalCliCommand,
+    },
+    /// Record and navigate work sessions and their nested activity history.
+    Work {
+        #[command(subcommand)]
+        command: work_cli::WorkCliCommand,
     },
     /// Run parallel cross-model architecture and deletion review on the staged diff.
     ReviewCommit,
@@ -318,15 +323,13 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Tui => terminal::open(explicit_config.as_deref(), &root).await,
-        Command::Exec { command } => {
-            let code =
-                script_exec::run(&loaded, explicit_config.as_deref(), &root, command).await?;
+        Command::Exec(args) => {
+            let code = args.run(&loaded, explicit_config.as_deref(), &root).await?;
             std::process::exit(code);
         }
         Command::Memory { command } => run_memory_command(command, &root, &loaded).await,
         Command::Papercuts { command } => run_papercuts_command(command, &root, &loaded).await,
         Command::Sos { command } => sos_cli::run(command, &root, &loaded).await,
-        Command::Eval { command } => evals_cli::run(command, &root, &loaded).await,
         query @ (Command::Status
         | Command::Events { .. }
         | Command::Sessions { .. }
@@ -477,6 +480,8 @@ async fn run_admin_command(
     explicit_config: Option<&Path>,
 ) -> Result<()> {
     match command {
+        Command::Eval { command } => evals_cli::run(command, root, loaded).await,
+        Command::Work { command } => work_cli::run(command, root, loaded, explicit_config).await,
         Command::Resolve {
             conflict_id,
             resolution,
@@ -505,7 +510,9 @@ async fn run_admin_command(
             .await
         }
         Command::ReviewCommit => {
-            let report = reviewer::review_staged_commit(&loaded.config.review, root)?;
+            let report = reviewer::review_staged_commit_recorded(loaded, root);
+            let _ = nexus::runtime::work_capture::flush(loaded, explicit_config).await;
+            let report = report?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }

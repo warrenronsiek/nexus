@@ -4,6 +4,7 @@
 // @spec docs/features/observability-ui.md
 // @boundary dynamic-json: validate the history envelope and JSON values; the service owns typed eval body validation.
 import type { NexusMcpClient } from "./mcp-client.ts";
+import { isJsonValue, type JsonValue } from "./wire-values.ts";
 
 export const EVAL_KINDS = ["change", "repository", "model", "case", "suite", "grader", "target", "experiment", "run", "trial", "attempt", "call", "trace", "grade", "comparison", "decision", "selection", "artifact", "verification", "lifecycle", "metric", "measurement"] as const;
 export type EvalKind = typeof EVAL_KINDS[number];
@@ -13,7 +14,7 @@ export interface EvalLifecycle {
   initial_state: ReportedState; truncated: boolean;
   frontiers: { id: string; state: ReportedState; occurred_at: string; recorded_at: string }[];
 }
-export type EvalValue = null | boolean | number | string | EvalValue[] | { [key: string]: EvalValue };
+export type EvalValue = JsonValue;
 export interface EvalHeader {
   id: string; kind: EvalKind; title: string; occurred_at: string; recorded_at: string;
   repository?: string | null; model?: string | null;
@@ -48,22 +49,15 @@ function header(value: unknown): value is EvalHeader {
   return object(value) && texts(value, ["id", "title", "occurred_at", "recorded_at"]) && kind(value.kind) &&
     ["repository", "model"].every(field => value[field] === undefined || value[field] === null || typeof value[field] === "string");
 }
-function json(value: unknown, depth = 0, budget = { remaining: 16384 }): value is EvalValue {
-  if (depth > 32 || --budget.remaining < 0) return false;
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(item => json(item, depth + 1, budget));
-  return object(value) && Object.values(value).every(item => json(item, depth + 1, budget));
-}
 function record(value: unknown): value is EvalRecord {
   return object(value) && texts(value, ["id", "title", "occurred_at", "recorded_at", "project_id"]) &&
-    object(value.provenance) && json(value.provenance) && object(value.body) && kind(value.body.kind) && json(value.body) &&
+    object(value.provenance) && isJsonValue(value.provenance) && object(value.body) && kind(value.body.kind) && isJsonValue(value.body) &&
     Array.isArray(value.links) && value.links.every(link => object(link) && texts(link, ["relation", "target_id"])) &&
     (value.source === undefined || value.source === null || source(value.source)) &&
     (value.lifecycle === undefined || value.lifecycle === null || lifecycle(value.lifecycle));
 }
 function source(value: unknown): boolean {
-  return object(value) && texts(value, ["project_id", "recorded_at"]) && object(value.provenance) && json(value.provenance);
+  return object(value) && texts(value, ["project_id", "recorded_at"]) && object(value.provenance) && isJsonValue(value.provenance);
 }
 function reportedState(value: unknown): value is ReportedState {
   return typeof value === "string" && REPORTED_STATES.some(state => state === value);

@@ -1,3 +1,5 @@
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature papercuts
@@ -18,7 +20,7 @@ import { UsagePoller, type UsageLoader } from "./polling.ts";
 import { AnalyticsBrowser, type AnalyticsApi } from "./analytics.ts";
 import { renderUsageBars } from "./usage.ts";
 
-export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts" | "evals";
+export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts" | "evals" | "work";
 export type UsageTab = Extract<DashboardTab, "tools" | "skills">;
 
 const DASHBOARD_TABS: readonly DashboardTab[] = [
@@ -29,6 +31,7 @@ const DASHBOARD_TABS: readonly DashboardTab[] = [
   "memory",
   "papercuts",
   "evals",
+  "work",
 ];
 
 export function nextDashboardTab(
