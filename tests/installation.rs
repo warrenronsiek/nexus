@@ -97,7 +97,7 @@ fn machine_setup_installs_integrations_idempotently() {
 }
 
 #[test]
-fn machine_setup_installs_eval_workflows_and_refreshes_bundled_content() {
+fn machine_setup_installs_history_workflows_and_refreshes_bundled_content() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path().join("home");
     let codex_home = home.join(".codex");
@@ -110,12 +110,15 @@ fn machine_setup_installs_eval_workflows_and_refreshes_bundled_content() {
         "nexus-eval-audit",
         "nexus-hillclimb",
         "nexus-eval-history",
+        "nexus-work-history",
     ];
     for root in [&codex_home, &home.join(".claude")] {
-        let skill = root.join("skills/nexus-build-eval");
-        fs::create_dir_all(&skill).unwrap();
-        fs::write(skill.join("SKILL.md"), "stale bundled content").unwrap();
-        fs::write(skill.join("personal-notes.md"), "keep me").unwrap();
+        for name in ["nexus-build-eval", "nexus-work-history"] {
+            let skill = root.join("skills").join(name);
+            fs::create_dir_all(&skill).unwrap();
+            fs::write(skill.join("SKILL.md"), "stale bundled content").unwrap();
+            fs::write(skill.join("personal-notes.md"), "keep me").unwrap();
+        }
     }
 
     for _ in 0..2 {
@@ -145,11 +148,49 @@ fn machine_setup_installs_eval_workflows_and_refreshes_bundled_content() {
         assert!(root
             .join("skills/nexus-eval-history/references/nexus-evals.md")
             .is_file());
-        assert_eq!(
-            fs::read_to_string(root.join("skills/nexus-build-eval/personal-notes.md")).unwrap(),
-            "keep me"
-        );
+        for name in ["nexus-build-eval", "nexus-work-history"] {
+            assert_eq!(
+                fs::read_to_string(root.join("skills").join(name).join("personal-notes.md"))
+                    .unwrap(),
+                "keep me"
+            );
+        }
+        assert_work_history_resources(root);
     }
+}
+
+fn assert_work_history_resources(root: &Path) {
+    let skill = root.join("skills/nexus-work-history");
+    assert!(skill.join("references/integration.md").is_file());
+    let workload = root.join("workload.sh");
+    let marker = root.join("executions");
+    fs::write(
+        &workload,
+        "printf 'executed\\n' >> \"$1\"\nprintf 'preserved\\n'\nexit 7\n",
+    )
+    .unwrap();
+    let output = Command::new("/bin/bash")
+        .args([
+            "-uc",
+            "source \"$1\"; nexus_work_exec test fixture /bin/sh \"$2\" \"$3\"",
+            "skill-test",
+        ])
+        .arg(skill.join("scripts/work-capture.sh"))
+        .arg(workload)
+        .arg(&marker)
+        .env("NEXUS_WORK_BINARY", root.join("missing-nexus"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    assert_eq!(output.stdout, b"preserved\n");
+    assert_eq!(fs::read(marker).unwrap(), b"executed\n");
+    assert_success(
+        &Command::new("python3")
+            .arg(skill.join("scripts/nexus-work-github.py"))
+            .arg("--help")
+            .output()
+            .unwrap(),
+    );
 }
 
 #[test]

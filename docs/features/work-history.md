@@ -94,6 +94,14 @@ instrumentation, and terminal behavior.
 
 ## Automatic capture and caller integration
 
+`nexus setup` installs the `nexus-work-history` skill and integration reference
+for Codex and Claude. They explain this feature's intent and caller-owned
+execution boundary, identity/lineage, direct versus automatic recording,
+script/Git-hook wiring, provider import, and inspection of gaps. Setup packages
+the canonical shell and GitHub helpers with that skill, so an integrating repo
+does not need a Nexus source checkout. See
+[the skill source](../../skills/nexus-work-history/SKILL.md).
+
 The companion records prompt, pre/post-tool, and session-end callbacks beside the
 caller. The source method is `companion_callback_wall_clock`: it means when the
 companion received the callback, not an exact model execution boundary. Tool IDs

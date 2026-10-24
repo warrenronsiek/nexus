@@ -112,6 +112,12 @@ effort. Automatic capture keeps metadata only, queues bounded local records when
 delivery fails, and preserves workload results. See [work history](docs/features/work-history.md)
 for capture coverage, script integration, and provenance rules.
 
+`nexus setup` installs the `nexus-work-history` skill for Codex and Claude. It
+explains the intent and recording contract, how to preserve nested work across
+agents and environments, and how to wire caller-owned scripts/hooks. Setup also
+bundles the canonical shell and GitHub helpers with the skill, so integrations
+do not need a Nexus source checkout. See [the skill](skills/nexus-work-history/SKILL.md).
+
 ## Install
 
 For same-machine development, one command from a Nexus source checkout installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store. Source builds require Rust 1.88 or newer:

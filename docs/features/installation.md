@@ -6,7 +6,7 @@ feature: installation
 
 ## What this feature does
 
-Installation reduces Nexus onboarding to one machine command and one repository command. Machine setup installs the review and eval skills, registers the Nexus MCP companion with every supported coordination host already present, merges lifecycle hooks without deleting unrelated settings, installs the Pi terminal extension when Pi is present, and initializes local storage only when local transport is selected. Repository installation creates shared Git-common-directory configuration and runs local migrations or leaves storage to the configured remote service. The installed binary also bundles the standalone terminal dashboard opened by `nexus tui`; opening it never requires a separate Pi installation.
+Installation reduces Nexus onboarding to one machine command and one repository command. Machine setup installs the review, eval, and work-history skills, registers the Nexus MCP companion with every supported coordination host already present, merges lifecycle hooks without deleting unrelated settings, installs the Pi terminal extension when Pi is present, and initializes local storage only when local transport is selected. Repository installation creates shared Git-common-directory configuration and runs local migrations or leaves storage to the configured remote service. The installed binary also bundles the standalone terminal dashboard opened by `nexus tui`; opening it never requires a separate Pi installation.
 
 `scripts/start-docker-service.sh` is the local-to-shared-service cutover entry point. With no arguments it discovers the configured or conventional SQLite database, mounts it read-only into a one-shot staging container, gives long imports an extended startup-health window, and starts the Compose stack. `--sqlite PATH` selects another source and `--no-import` requests a fresh service. The staging container has no network, drops every capability except the read bypass needed for host databases whose permissions are owner-only, and publishes its backup in a private named volume for the unprivileged service. Import safety and backend-neutral snapshot semantics belong to the persistence feature; this script owns only discovery and Compose instantiation.
 
@@ -55,7 +55,7 @@ flowchart TD
 1. **Source bootstrap command** is the only machine-facing command that depends on the source checkout.
 2. **Install nexus binary** uses Cargo's locked dependency graph and places the executable on the user's Cargo path.
 3. **nexus setup** owns all machine-wide Nexus integration after the binary exists.
-4. **Install bundled skills** places the architecture, deletion, TDD, and four Nexus eval workflows where Nexus and supported agents can discover them. Both Codex and Claude skill directories receive `nexus-build-eval`, `nexus-eval-audit`, `nexus-hillclimb`, and `nexus-eval-history`, including their shared evidence reference under `nexus-eval-history/references/`. Setup refreshes bundled contents without deleting user-created files beside them. These original provider-neutral skills guide caller-run evaluations and historical evidence capture; installing them does not execute an eval or call a model.
+4. **Install bundled skills** places the architecture, deletion, TDD, work-history, and four Nexus eval workflows where Nexus and supported agents can discover them. Both Codex and Claude skill directories receive `nexus-build-eval`, `nexus-eval-audit`, `nexus-hillclimb`, and `nexus-eval-history`, including their shared evidence reference under `nexus-eval-history/references/`. Setup refreshes bundled contents without deleting user-created files beside them. These original provider-neutral skills guide caller-run evaluations and historical evidence capture; installing them does not execute an eval or call a model.
 5. **Detect Codex and Claude** configures only hosts whose commands are executable.
 6. **Register Nexus MCP server** replaces the named `nexus` registration with the installed executable path and the host's Codex-or-Claude agent identity. That stdio process remains the host-facing companion in either mode and selects its local or remote transport from configuration. When setup received a configuration path through `--config` or `NEXUS_CONFIG`, Nexus resolves it against the setup working directory and preserves the resulting absolute path as an argv pair rather than relying on the setup process's environment or a later host working directory. Direct endpoint, project, and client-secret-file environment overrides remain process-scoped and must be inherited by every host process when no durable configuration file is selected.
 7. **Merge lifecycle hooks** removes earlier Nexus entries and appends the current generated entries while retaining unrelated settings and hooks. Per-turn events use the registered MCP server; session teardown uses the installed executable as a command hook because hosts no longer expose MCP context then. The command applies the same shell-quoted explicit configuration path as the MCP registration.
@@ -79,6 +79,16 @@ flowchart TD
 25. **Launch terminal dashboard** uses the shared standalone adapter documented in observability-ui and inherits the user's terminal streams.
 
 ## Implementation details
+
+Setup also installs `nexus-work-history` for Codex and Claude, including its
+integration reference and the canonical `work-capture.sh` and
+`nexus-work-github.py` sources under the installed skill's `scripts/` directory.
+The helpers remain maintained in the repository's top-level `scripts/`; setup
+embeds those exact files rather than maintaining another implementation. The
+installed skill therefore works outside a Nexus checkout. Its guidance preserves
+caller-owned execution, nested identity, qualified timing, metadata privacy, and
+fail-open hooks. Isolated installation tests exercise the bundled shell helper's
+exactly-once fallback, preserved output/exit status, and runnable Python adapter.
 
 `setup_machine` and `install_repository` in `src/installation.rs` are the two deep entry points. Setup is idempotent: skill and Pi-extension contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`. Both entry points load typed client configuration before touching persistence: local mode opens and migrates SQLite, while remote mode reports remote storage and creates no local database. The generated host integration is transport-neutral because `nexus mcp` and the session-end command both use the centralized configured client. An explicit setup configuration path is retained in both installed commands and Pi's generated launch context, and every MCP argv names its host so process-bound memory and papercut provenance remains accurate.
 
