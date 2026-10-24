@@ -22,17 +22,26 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const PROJECT_CONFIG: &str = "schema_version = 1\n";
-const SKILL_NAMES: [&str; 8] = [
+const SKILL_NAMES: [&str; 17] = [
     "code-architect",
     "code-deletion",
     "tdd",
+    "nexus",
+    "nexus-setup",
+    "nexus-coordination",
+    "nexus-agent-memory",
+    "nexus-papercuts",
+    "nexus-sos",
+    "nexus-usage-analytics",
+    "nexus-observability",
+    "nexus-development",
     "nexus-build-eval",
     "nexus-eval-audit",
     "nexus-hillclimb",
     "nexus-eval-history",
     "nexus-work-history",
 ];
-const SKILL_FILES: [(&str, &str); 13] = [
+const SKILL_FILES: [(&str, &str); 26] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -45,18 +54,34 @@ const SKILL_FILES: [(&str, &str); 13] = [
         "code-deletion/SKILL.md",
         include_str!("../skills/code-deletion/SKILL.md"),
     ),
-    ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
+    ("nexus/SKILL.md", include_str!("../skills/nexus/SKILL.md")),
+    (
+        "nexus-agent-memory/SKILL.md",
+        include_str!("../skills/nexus-agent-memory/SKILL.md"),
+    ),
     (
         "nexus-build-eval/SKILL.md",
         include_str!("../skills/nexus-build-eval/SKILL.md"),
     ),
     (
-        "nexus-eval-audit/SKILL.md",
-        include_str!("../skills/nexus-eval-audit/SKILL.md"),
+        "nexus-coordination/SKILL.md",
+        include_str!("../skills/nexus-coordination/SKILL.md"),
     ),
     (
-        "nexus-hillclimb/SKILL.md",
-        include_str!("../skills/nexus-hillclimb/SKILL.md"),
+        "nexus-development/SKILL.md",
+        include_str!("../skills/nexus-development/SKILL.md"),
+    ),
+    (
+        "nexus-development/references/persistence-validation.md",
+        include_str!("../skills/nexus-development/references/persistence-validation.md"),
+    ),
+    (
+        "nexus-development/references/source-structure.md",
+        include_str!("../skills/nexus-development/references/source-structure.md"),
+    ),
+    (
+        "nexus-eval-audit/SKILL.md",
+        include_str!("../skills/nexus-eval-audit/SKILL.md"),
     ),
     (
         "nexus-eval-history/SKILL.md",
@@ -67,6 +92,38 @@ const SKILL_FILES: [(&str, &str); 13] = [
         include_str!("../skills/nexus-eval-history/references/nexus-evals.md"),
     ),
     (
+        "nexus-hillclimb/SKILL.md",
+        include_str!("../skills/nexus-hillclimb/SKILL.md"),
+    ),
+    (
+        "nexus-observability/SKILL.md",
+        include_str!("../skills/nexus-observability/SKILL.md"),
+    ),
+    (
+        "nexus-papercuts/SKILL.md",
+        include_str!("../skills/nexus-papercuts/SKILL.md"),
+    ),
+    (
+        "nexus-setup/SKILL.md",
+        include_str!("../skills/nexus-setup/SKILL.md"),
+    ),
+    (
+        "nexus-setup/references/integration.md",
+        include_str!("../skills/nexus-setup/references/integration.md"),
+    ),
+    (
+        "nexus-sos/SKILL.md",
+        include_str!("../skills/nexus-sos/SKILL.md"),
+    ),
+    (
+        "nexus-usage-analytics/SKILL.md",
+        include_str!("../skills/nexus-usage-analytics/SKILL.md"),
+    ),
+    (
+        "nexus-usage-analytics/references/integration.md",
+        include_str!("../skills/nexus-usage-analytics/references/integration.md"),
+    ),
+    (
         "nexus-work-history/SKILL.md",
         include_str!("../skills/nexus-work-history/SKILL.md"),
     ),
@@ -74,6 +131,7 @@ const SKILL_FILES: [(&str, &str); 13] = [
         "nexus-work-history/references/integration.md",
         include_str!("../skills/nexus-work-history/references/integration.md"),
     ),
+    ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
     (
         "nexus-work-history/scripts/work-capture.sh",
         include_str!("../scripts/work-capture.sh"),

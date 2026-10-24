@@ -118,6 +118,17 @@ agents and environments, and how to wire caller-owned scripts/hooks. Setup also
 bundles the canonical shell and GitHub helpers with the skill, so integrations
 do not need a Nexus source checkout. See [the skill](skills/nexus-work-history/SKILL.md).
 
+## Agent feature guides
+
+`nexus setup` installs a [Nexus feature guide](skills/nexus/SKILL.md) and focused
+skills for every feature, for both Codex and Claude. Start with the guide when
+choosing capabilities for an existing workflow. It routes to setup/transport,
+coordination and conflict analysis, memory, papercuts, SOS, usage analytics,
+terminal observability, work history, evals, and Nexus source development.
+Each skill explains the feature's intent, its integration boundaries, and how
+to use it alongside existing scripts, agents, and tools. Related implementation
+features share a guide rather than requiring every agent to read every skill.
+
 ## Install
 
 For same-machine development, one command from a Nexus source checkout installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store. Source builds require Rust 1.88 or newer:

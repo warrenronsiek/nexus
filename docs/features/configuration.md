@@ -16,11 +16,10 @@ Nexus coordinates different agents and installations, so choices such as local o
 
 ```mermaid
 flowchart TD
-    A[Built-in defaults] --> B[Merge user file]
+    A[Built-in defaults] --> B[Merge selected user file]
     B --> C[Merge Git-common-dir nexus.toml]
     C --> D[Apply supported environment overrides]
-    D --> E[Apply explicit CLI config path]
-    E --> F[Deserialize strict Config types]
+    D --> F[Deserialize strict Config types]
     F --> G{Validation}
     G -->|Invalid| H[Actionable startup error]
     G -->|Valid| I[Normalize non-secret representation]
@@ -31,16 +30,15 @@ flowchart TD
 ## Reading the flowchart
 
 1. **Built-in defaults** make a local installation runnable without a file.
-2. **Merge user file** applies durable personal decisions from the default path or `NEXUS_CONFIG`.
+2. **Merge selected user file** applies durable personal decisions from the first selected path: explicit `--config`, then `NEXUS_CONFIG`, then the default user path. Selection replaces the user-file layer; it does not override later project or environment values.
 3. **Merge Git-common-dir nexus.toml** lets all worktrees for one repository share project decisions.
 4. **Apply supported environment overrides** handles process-specific storage, socket, client endpoint/project/secret-file location, analyst-provider, implementation-provider, and review-provider choices.
-5. **Apply explicit CLI config path** gives a command or test deterministic control over its configuration source.
-6. **Deserialize strict Config types** converts the temporary TOML tree into enumerated Rust records with unknown-field rejection.
-7. **Validation** checks positive, safely bounded durations, supported schema versions, a valid HTTP(S) remote endpoint, a nonempty bounded control-free project ID, and internally consistent settings, including the requirement that implementation and review providers differ.
-8. **Actionable startup error** stops explicit startup when configuration cannot be trusted.
-9. **Normalize non-secret representation** excludes bearer and database credentials by design. A remote client's optional `secret_file` path is configuration, but the file contents and `NEXUS_SECRET` are not.
-10. **Compute stable configuration hash** creates provenance for sessions and analyst events.
-11. **LoadedConfig** is the only configuration object passed into runtime and coordination.
+5. **Deserialize strict Config types** converts the temporary TOML tree into enumerated Rust records with unknown-field rejection.
+6. **Validation** checks positive, safely bounded durations, supported schema versions, a valid HTTP(S) remote endpoint, a nonempty bounded control-free project ID, and internally consistent settings, including the requirement that implementation and review providers differ.
+7. **Actionable startup error** stops explicit startup when configuration cannot be trusted.
+8. **Normalize non-secret representation** excludes bearer and database credentials by design. A remote client's optional `secret_file` path is configuration, but the file contents and `NEXUS_SECRET` are not.
+9. **Compute stable configuration hash** creates provenance for sessions and analyst events.
+10. **LoadedConfig** is the only configuration object passed into runtime and coordination.
 
 ## Implementation details
 
