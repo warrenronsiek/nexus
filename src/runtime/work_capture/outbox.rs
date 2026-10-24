@@ -7,10 +7,12 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError};
 
 const MAX_ENTRY_BYTES: usize = 64 * 1024;
 const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
+static WRITER: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Default, Serialize)]
 pub struct CaptureHealth {
@@ -31,40 +33,34 @@ pub(super) struct Pending {
 pub(super) struct Outbox {
     directory: PathBuf,
     _lock: File,
+    _writer: MutexGuard<'static, ()>,
 }
 
 impl Outbox {
     pub fn open(directory: &Path) -> Result<Self> {
-        std::fs::create_dir_all(directory)?;
-        let metadata = std::fs::symlink_metadata(directory)?;
-        if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
-            bail!("work outbox must be a private owned directory");
-        }
-        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(directory.join(".lock"))?;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
-        loop {
-            match lock.try_lock_exclusive() {
-                Ok(()) => break,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::WouldBlock
-                        && std::time::Instant::now() < deadline =>
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-                Err(error) => return Err(error).context("work outbox is busy"),
-            }
-        }
+        let owner = match WRITER.try_lock() {
+            Ok(owner) => owner,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => bail!("work outbox is busy"),
+        };
+        Self::open_owned(directory, owner)
+    }
+
+    pub fn writer(directory: &Path) -> Result<Self> {
+        // Durable file syncs can exceed the external-owner deadline. Queue this
+        // process's producers before starting that deadline; observers never wait
+        // on this lane. The mutex protects ownership only, so poison is recoverable.
+        Self::open_owned(
+            directory,
+            WRITER.lock().unwrap_or_else(PoisonError::into_inner),
+        )
+    }
+
+    fn open_owned(directory: &Path, owner: MutexGuard<'static, ()>) -> Result<Self> {
         Ok(Self {
             directory: directory.into(),
-            _lock: lock,
+            _lock: lock_directory(directory)?,
+            _writer: owner,
         })
     }
 
@@ -230,6 +226,37 @@ impl Outbox {
     }
 }
 
+fn lock_directory(directory: &Path) -> Result<File> {
+    std::fs::create_dir_all(directory)?;
+    let metadata = std::fs::symlink_metadata(directory)?;
+    if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
+        bail!("work outbox must be a private owned directory");
+    }
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(directory.join(".lock"))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
+    loop {
+        match lock.try_lock_exclusive() {
+            Ok(()) => break,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            Err(error) => return Err(error).context("work outbox is busy"),
+        }
+    }
+    Ok(lock)
+}
+
 fn counter(directory: &Path, name: &str) -> u64 {
     read_entry(&directory.join(name))
         .ok()
@@ -276,6 +303,97 @@ fn read_entry(path: &Path) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn concurrent_producers_survive_a_slow_writer_without_losing_boundaries() {
+        let temp = tempfile::tempdir().unwrap();
+        let holder = Outbox::writer(temp.path()).unwrap();
+        let ready = std::sync::Barrier::new(3);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..2)
+                .map(|worker| {
+                    let ready = &ready;
+                    let path = temp.path();
+                    scope.spawn(move || {
+                        ready.wait();
+                        let queue = Outbox::writer(path)?;
+                        for boundary in ["declared", "started", "finished"] {
+                            let identity = format!("worker-{worker}-{boundary}");
+                            queue.enqueue(&identity, identity.as_bytes())?;
+                        }
+                        anyhow::Ok(())
+                    })
+                })
+                .collect();
+            ready.wait();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            drop(holder);
+            for worker in workers {
+                worker.join().unwrap().unwrap();
+            }
+        });
+        let queue = Outbox::open(temp.path()).unwrap();
+        let mut bytes: Vec<_> = queue
+            .pending()
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.bytes)
+            .collect();
+        bytes.sort();
+        assert_eq!(bytes.len(), 6);
+        for (worker, entries) in bytes.as_chunks::<3>().0.iter().enumerate() {
+            let expected: Vec<_> = ["declared", "finished", "started"]
+                .map(|boundary| format!("worker-{worker}-{boundary}").into_bytes())
+                .into();
+            assert_eq!(entries.as_slice(), expected);
+        }
+    }
+
+    #[test]
+    fn observers_do_not_wait_behind_a_slow_process_writer() {
+        let temp = tempfile::tempdir().unwrap();
+        let _holder = Outbox::writer(temp.path()).unwrap();
+        let started = std::time::Instant::now();
+        assert!(Outbox::open(temp.path()).is_err());
+        assert!(started.elapsed() < std::time::Duration::from_millis(100));
+    }
+
+    #[test]
+    fn a_persistent_external_owner_retains_the_bounded_failure_path() {
+        use std::io::BufRead;
+        use std::process::{Command, Stdio};
+        let temp = tempfile::tempdir().unwrap();
+        let mut external = Command::new("python3").args(["-u", "-c",
+            "import fcntl,sys; f=open(sys.argv[1], 'w'); fcntl.flock(f, fcntl.LOCK_EX); print('ready'); sys.stdin.read()"])
+            .arg(temp.path().join(".lock")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut ready = String::new();
+        std::io::BufReader::new(external.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        let started = std::time::Instant::now();
+        let result = Outbox::writer(temp.path());
+        let elapsed = started.elapsed();
+        drop(external.stdin.take());
+        assert!(external.wait().unwrap().success());
+        assert!(result.is_err());
+        assert!(elapsed < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_panicked_writer_does_not_disable_later_capture() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().to_path_buf();
+        assert!(std::thread::spawn(move || {
+            let _holder = Outbox::writer(&path).unwrap();
+            panic!("interrupted producer");
+        })
+        .join()
+        .is_err());
+        let queue = Outbox::writer(temp.path()).unwrap();
+        queue.enqueue("recovered", b"original metadata").unwrap();
+        assert_eq!(queue.pending().unwrap()[0].bytes, b"original metadata");
+    }
 
     #[test]
     fn saturated_quarantine_recovers_valid_delivery_without_discarding_pending() {

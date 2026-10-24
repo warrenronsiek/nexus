@@ -41,7 +41,7 @@ fn directory(loaded: &LoadedConfig) -> Result<PathBuf> {
                 .database_path
                 .parent()
                 .context("database directory unavailable")?
-                .join("work-outbox"))
+                .join("work-outbox"));
         }
         ClientConfig::Remote(remote) => format!("{}:{}", remote.endpoint, remote.project_id),
     };
@@ -66,7 +66,7 @@ pub fn enqueue(
     context: &HookContext,
     observations: Vec<WorkObservationInput>,
 ) -> Result<()> {
-    let outbox = Outbox::open(&directory(loaded)?)?;
+    let outbox = Outbox::writer(&directory(loaded)?)?;
     for observation in observations {
         let key = stable_id(&[&observation.id]);
         let command = WorkCommand {

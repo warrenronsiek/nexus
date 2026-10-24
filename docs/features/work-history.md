@@ -114,7 +114,12 @@ an endpoint/project-keyed directory under the user's local data directory.
 `NEXUS_WORK_OUTBOX_DIR` can explicitly select another directory. Directories and
 files use owner-only permissions. Pending, rejected, and recent acknowledged
 metadata share a 256-entry/8 MiB payload cap; individual entries are at most
-64 KiB. Recent acknowledged boundaries are evicted first, followed by the oldest
+64 KiB. Producers within one process share a writer ownership lane so a slow
+durable file sync cannot make sibling producers exhaust the external lock
+deadline. Flush and health observers return busy instead of waiting for that
+lane; filesystem lock acquisition against another process remains bounded at
+50 ms. The host callback still returns within its foreground capture budget.
+Recent acknowledged boundaries are evicted first, followed by the oldest
 quarantined entries; pending observations are never evicted. Retained quarantine
 entries keep owner-only permissions. The recent acknowledgment journal
 allows duplicate host callbacks without inventing new occurrence timestamps;
