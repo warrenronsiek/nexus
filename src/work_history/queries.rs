@@ -52,6 +52,10 @@ pub enum WorkAction {
         #[serde(default)]
         query: WorkQuery,
     },
+    Dashboard {
+        project_id: Option<String>,
+        work_session_id: Option<String>,
+    },
     Get {
         project_id: Option<String>,
         subject: WorkSubject,
@@ -76,6 +80,7 @@ impl WorkAction {
             Self::Record { .. } | Self::Import { .. } => None,
             Self::List { project_id, .. }
             | Self::Activities { project_id, .. }
+            | Self::Dashboard { project_id, .. }
             | Self::Get { project_id, .. }
             | Self::Timeline { project_id, .. }
             | Self::Events { project_id, .. }
@@ -94,6 +99,10 @@ pub struct WorkReceipt {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkResponse {
+    Dashboard {
+        #[serde(flatten)]
+        dashboard: Box<WorkDashboard>,
+    },
     Recorded {
         inserted: usize,
         replayed: usize,

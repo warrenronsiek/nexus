@@ -102,17 +102,49 @@ Papercut output, including truncation notices, wraps within the host terminal wi
 
 The shared Tools pane offers Activities (default), Capabilities (including inventoried zero-use resources), Opportunities, and Legacy via keys 1–4. Up/down or j/k selects a row, Enter discloses implementations and provenance, n/p pages capabilities or examples, and Escape returns from detail before leaving Tools. Counts distinguish invocations from identified operations; incomplete availability and unclassified work remain explicit. Skills retain their own tab. All reads use the existing bounded poller and abortable page requests.
 
-The read-only Evals tab shares the same component in Pi and the native terminal. Evals uses the selected project or current repository, and its header identifies that actual scope. Activation loads at most 24 history headers; it shows the loaded count, kinds, active filters, and whether another page remains. Enter fetches one immutable record. `w` follows its recorded why/history chain, `l` browses server-derived record links, and Escape backs out through evidence to the list. Git-backed artifacts display repository identity, full commit, path, and backing metadata; stored blobs display their digest and size. Rendering never fetches artifact bytes or launches an evaluation.
+The read-only Evals tab shares the same component in Pi and the native terminal.
+It starts with evaluation sets grouped by suite/target identity, repository, and
+model composition. Enter opens the selected set's metric trends; arrows or
+`[`/`]` select a metric. Definition, units, calculation, current sample counts,
+and the latest literal value accompany the plot. Metric revisions remain
+separate series; changing metric meaning cannot silently splice incompatible
+values together. Scalar chart approximations do not replace exact caller data,
+and opaque/unavailable values remain explicit. Corrections retain history while
+superseded results are excluded from current charts. Time plots place dated
+observations proportionally; missing values have a question marker. Nexus does
+not decide whether an increase or decrease is better.
 
-`evals.ts` validates the MCP `nexus_evals` list/get/why envelopes and recursively checks bounded JSON values before presentation; the service owns validation of the closed domain variants. `evals-pane.ts` configures the shared history component. `evals-state.ts` owns the discriminated list/detail/history/link navigation state and filter commands; `evals-requests.ts` owns single-flight reads, cancellation, stale-response rejection, and page acceptance. `evals-view.ts` formats structured evidence with terminal sanitization, explicit preview limits, and links. `t` cycles record kinds; `/`, `o`, and `m` edit search, repository, and model filters; `c` clears them. Empty filter input clears that filter. `n` or moving past the last loaded row fetches the next page. Filter and scope changes abort old requests, late responses cannot replace the new view, and failed refreshes keep the last successful data with a stale notice. History truncation and display-only omissions are explicit; unknown or partial capture remains visible in record metadata.
+Evals uses the selected project or current repository, and its header identifies
+that actual scope. `b` opens the secondary record browser with at most 24 history
+headers per page. Enter fetches an immutable record; `w` follows recorded
+why/history and `l` browses server-derived links. Git-backed artifacts display
+repository identity, commit, path, and backing metadata; stored blobs display
+digest and size. Rendering never fetches artifact bytes or launches an evaluation.
+
+`evals.ts` validates the MCP `nexus_evals` list/get/why envelopes and recursively checks bounded JSON values before presentation; the service owns validation of the closed domain variants. `evals-pane.ts` configures the shared history component. `evals-state.ts` owns the discriminated set/metric/list/detail/history/link navigation state and filter commands; `evals-requests.ts` owns single-flight reads, cancellation, stale-response rejection, and page acceptance. `evals-view.ts` formats structured evidence with terminal sanitization, explicit preview limits, and links. `t` cycles record kinds; `/`, `o`, and `m` edit search, repository, and model filters; `c` clears them. Empty filter input clears that filter. `n` or moving past the last loaded row fetches the next page. Filter and scope changes abort old requests, late responses cannot replace the new view, and failed refreshes keep the last successful data with a stale notice. History truncation and display-only omissions are explicit; unknown or partial capture remains visible in record metadata.
 
 Evals list rows include occurrence date and time in UTC. Record detail separates the bound receipt from an imported original source receipt. For runs, trials, and attempts, it shows caller-reported lifecycle frontiers above the immutable body, retaining the initial state and exposing unresolved forks or partial history without selecting a winner.
 
 Metric definitions and measurements have their own Evals kind filters. Measurement detail prioritizes the exact stored value and its metric-definition link; labeled relation rows let Enter disclose the definition's meaning, units, value format, calculation, formula, and source evidence. Inline measurement text remains literal, preserving large integers, long decimals, and custom structured formats without numeric parsing or conversions. Structured previews preserve literal null, false, and zero; long previews retain explicit omission notices. Nexus does not execute formulas or choose optimization policy.
 
 
-The read-only Work tab starts with bounded work-session summaries and opens the
-selected session's recorded ownership hierarchy. Each attempt remains a separate
+The read-only Work tab starts with duration analytics: known session totals and
+means, daily duration trends, and means/totals by activity kind. `[`/`]` selects
+an activity-kind trend across UTC days. Enter opens a selected parent session's
+visual descendant breakdown, including grandchildren without manually expanding
+each branch. Its timeline uses a common axis for parallel intervals. Duration
+coverage counts qualify every average; unknown values do not become zeros.
+Inclusive activity sums are labeled separately from session elapsed time and
+cannot be interpreted as non-overlapping effort or delivery lead time.
+
+The service computes summaries independently of the 24-row record browser,
+with explicit source and presentation bounds. Truncated summaries remain partial
+and retain coverage notices. Terminal chart windows also disclose omitted points.
+The shared `charts.ts` renderer owns width-aware, sanitized bars and time plots;
+work/eval adapters retain domain-specific meaning and exact evidence.
+
+`d` opens the secondary Work record browser and the selected session's recorded
+ownership hierarchy. Each attempt remains a separate
 row. Right arrow or Space expands direct children in independently paged branches,
 including grandchildren across host sessions. Enter opens the selected activity;
 `s` opens the session itself, `l` browses attributable links, and `e` pages immutable
@@ -134,7 +166,7 @@ not silently reparented in stored data.
 `work.ts` validates the typed `nexus_work` read envelopes and shares the bounded
 JSON evidence decoder in `wire-values.ts` with Evals before evidence enters UI state. `work-state.ts` traverses only recorded,
 expanded ownership with defensive cycle/depth/row bounds. `work-pane.ts` composes pure keyboard navigation from `work-navigation.ts` and
-the one abortable request lifecycle in `work-requests.ts` for the session list, child pages, detail, and event
+the one abortable request lifecycle in `work-requests.ts` for dashboards, the session list, child pages, detail, and event
 pages; superseded scopes or navigation cannot accept late responses. Failed
 refreshes retain the previous data with a stale notice. Refresh replaces the first
 page of up to 32 expanded branches together; deeper branches can be reopened and

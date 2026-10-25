@@ -4,6 +4,7 @@
 // @spec docs/features/evals.md
 // @entrypoint Store::record_eval_bundle
 mod blobs;
+mod dashboard;
 mod dimensions;
 mod invariants;
 mod lifecycle;

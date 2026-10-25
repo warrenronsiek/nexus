@@ -141,8 +141,29 @@ const SKILL_FILES: [(&str, &str); 26] = [
         include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 40] = [
+const PI_EXTENSION_FILES: [(&str, &str); 46] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
+    ("charts.ts", include_str!("../pi-extension/src/charts.ts")),
+    (
+        "work-interval.ts",
+        include_str!("../pi-extension/src/work-interval.ts"),
+    ),
+    (
+        "work-dashboard.ts",
+        include_str!("../pi-extension/src/work-dashboard.ts"),
+    ),
+    (
+        "work-dashboard-wire.ts",
+        include_str!("../pi-extension/src/work-dashboard-wire.ts"),
+    ),
+    (
+        "evals-dashboard.ts",
+        include_str!("../pi-extension/src/evals-dashboard.ts"),
+    ),
+    (
+        "evals-dashboard-view.ts",
+        include_str!("../pi-extension/src/evals-dashboard-view.ts"),
+    ),
     (
         "history-pane.ts",
         include_str!("../pi-extension/src/history-pane.ts"),

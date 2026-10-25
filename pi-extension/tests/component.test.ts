@@ -261,17 +261,22 @@ it("opens read-only Evals lazily and lets filter typing consume global shortcut 
   const memory = memoryHarness();
   const sos = sosHarness();
   const list = vi.fn(async () => ({ records: [], next_cursor: null }));
+  const dashboard = vi.fn(async () => ({ groups: [], selected_group_id: null, series: [], run_count: 0, result_count: 0, scanned_records: 0, source_limit: 4096, truncated: false, notices: [] }));
   const done = vi.fn();
   const component = new NexusDashboardComponent(
     { requestRender: vi.fn() } as unknown as TUI, theme, snapshot,
     { loadSnapshot: async () => snapshot, loadUsage: async () => usage,
       sosApi: sos.api, papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) },
       memoryApi: memory.api, memoryPrompts: memory.prompts,
-      evalsApi: { list, get: vi.fn(), why: vi.fn() }, done },
+      evalsApi: { dashboard, list, get: vi.fn(), why: vi.fn() }, done },
   );
   expect(list).not.toHaveBeenCalled();
+  expect(dashboard).not.toHaveBeenCalled();
   component.handleInput("\u001b[Z");
   component.handleInput("\u001b[Z");
+  await vi.waitFor(() => expect(dashboard).toHaveBeenCalled());
+  expect(list).not.toHaveBeenCalled();
+  component.handleInput("b");
   await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No matching eval history"));
   component.handleInput("/");
   component.handleInput("q");
@@ -285,12 +290,17 @@ it("opens read-only Evals lazily and lets filter typing consume global shortcut 
 it("opens Work lazily and lets work filters consume global shortcut letters", async () => {
   const memory = memoryHarness(); const sos = sosHarness(); const done = vi.fn();
   const list = vi.fn(async () => ({ items: [], next_cursor: null }));
+  const dashboard = vi.fn(async () => ({ work_session_id: null, selected_session: null, sessions: [], activities: [], session_duration: { count: 0, known_count: 0, total_seconds: 0, average_seconds: null }, activity_kinds: [], daily: [], activity_daily: [], scanned_subjects: 0, source_limit: 4096, truncated: false, notices: [] }));
   const component = new NexusDashboardComponent({ requestRender: vi.fn() } as unknown as TUI, theme, snapshot,
     { loadSnapshot: async () => snapshot, loadUsage: async () => usage, sosApi: sos.api,
       papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) }, memoryApi: memory.api, memoryPrompts: memory.prompts,
-      workApi: { list, get: vi.fn(), timeline: vi.fn(), activities: vi.fn(), events: vi.fn() }, done });
+      workApi: { dashboard, list, get: vi.fn(), timeline: vi.fn(), activities: vi.fn(), events: vi.fn() }, done });
   expect(list).not.toHaveBeenCalled();
+  expect(dashboard).not.toHaveBeenCalled();
   component.handleInput("\u001b[Z");
+  await vi.waitFor(() => expect(dashboard).toHaveBeenCalled());
+  expect(list).not.toHaveBeenCalled();
+  component.handleInput("d");
   await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No matching work sessions"));
   component.handleInput("/"); component.handleInput("q"); component.handleInput("r"); component.handleInput("\r");
   await vi.waitFor(() => expect(list).toHaveBeenLastCalledWith(null, { search: "qr", limit: 24 }, expect.any(AbortSignal)));

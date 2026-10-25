@@ -138,3 +138,45 @@ remain external in these reference-preserving database snapshots; export does
 not claim a self-contained Git archive. Stream tables use extensible visited
 tracking and encoded-byte-aware batches. Existing snapshot size limits remain
 explicit. Equivalent V12 migrations support SQLite and PostgreSQL.
+
+
+## Visual history reads
+
+The `dashboard` action of `nexus_evals` supplies the native/Pi terminal overview
+without client-side record fanout. Groups retain stable suite and target
+identities across revisions, plus the exact indexed repository and model-label
+sets of each result. Stable component/role-to-declared-model and repository
+mappings distinguish compositions even when their aggregate model sets match.
+The labels explicitly distinguish declared assignments from observed call
+attribution.
+Unknown model attribution stays unknown; component assessments use their pinned
+call dimensions. A run can appear in more than one composition group.
+
+Selecting `group_id` returns result series keyed by exact metric/grader revision
+and assessment scope. Points retain the run, suite revision, target revision,
+occurrence time, original value, and correction predecessor. Superseded results
+are counted separately and excluded from plotted frontiers; competing correction
+branches remain separate points. Distinct definition revisions never share a
+series merely because their names or units match. Run status counts use current
+lifecycle frontiers and show `conflicted` for branches instead of choosing one.
+
+Charts optionally approximate values with explicit numeric formats (`number`,
+`decimal`, `integer`, `float`, `numeric`, or `json number`) and legacy numeric
+grades. Arbitrary formats, including numeric-looking category codes, remain
+opaque. A finite scalar is plotted only when its JSON-number text
+roundtrips and its magnitude is within the safe integer range. Precise decimals,
+large integers, structured values, artifacts, and unavailable values retain their
+exact representation and do not become zero. This is a display convenience,
+not a new metric storage type or optimization policy. Metric meaning and the
+caller's calculation description remain alongside the series.
+
+The source read starts with the most recently received run/grade/measurement
+records and caps at 4096 records or 8 MiB of payloads. Dependencies have a
+separate 4096-record/8 MiB bound. Missing context and bounded lifecycle frontiers
+are disclosed. Responses cap groups at 512/192 KiB, series at 64/448 KiB, and
+points per series at 512/256 KiB, keeping recent points and pinning the selected group metadata through display
+bounds. Individual group metadata arrays also have count/byte bounds.
+`truncated` and notices
+distinguish partial source coverage from partial display rows; counts describe
+the captured source population, never an unbounded all-history claim. Ordinary
+paginated immutable history retrieval remains available for complete audit work.

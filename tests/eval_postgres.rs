@@ -71,6 +71,7 @@ fn postgres_eval_history_preserves_bound_project_git_motivations_and_chunked_byt
     verify_blob(&service, &project);
     verify_lifecycle(&service, &project);
     verify_metric_meaning(&service, &project);
+    verify_dashboard(&service, &project);
 }
 
 fn verify_metric_meaning(service: &NexusService, project: &str) {
@@ -177,4 +178,27 @@ fn verify_blob(service: &NexusService, project: &str) {
         STANDARD.decode(chunk["data"].as_str().unwrap()).unwrap(),
         bytes
     );
+}
+
+fn verify_dashboard(service: &NexusService, project: &str) {
+    let overview = invoke(service, project, json!({"action":"dashboard"}));
+    assert_eq!(overview["run_count"], 1);
+    let id = overview["groups"][0]["id"].as_str().unwrap();
+    let selected = invoke(
+        service,
+        project,
+        json!({"action":"dashboard","group_id":id}),
+    );
+    assert_eq!(selected["series"][0]["unit"], "arbitrary events / interval");
+    assert_eq!(
+        selected["series"][0]["points"][0]["value"]["text"],
+        "90071992547409931234567890.000000000001"
+    );
+    assert!(selected["series"][0]["points"][0]["numeric_value"].is_null());
+    let empty = invoke(
+        service,
+        "unrelated-eval-project",
+        json!({"action":"dashboard"}),
+    );
+    assert!(empty["groups"].as_array().unwrap().is_empty());
 }

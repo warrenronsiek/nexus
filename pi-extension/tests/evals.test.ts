@@ -4,9 +4,17 @@
 // @spec docs/features/observability-ui.md
 import { expect, it, vi } from "vitest";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
-import { NexusEvalsApi } from "../src/evals.ts";
+import { NexusEvalsApi, type EvalsApi } from "../src/evals.ts";
 import { EvalsPane } from "../src/evals-pane.ts";
+import type { DashboardTheme } from "../src/theme.ts";
 import { evalDetailLines } from "../src/evals-view.ts";
+
+class BrowserEvalsPane extends EvalsPane {
+  constructor(tui: TUI, theme: DashboardTheme, api: Omit<EvalsApi, "dashboard">, changed: () => void) {
+    super(tui, theme, { ...api, dashboard: async () => ({ groups: [], selected_group_id: null, series: [], run_count: 0, result_count: 0, scanned_records: 0, source_limit: 4096, truncated: false, notices: [] }) }, changed);
+  }
+  override activate(project: string | null): void { super.activate(project); this.handleInput("b"); }
+}
 
 const header = {
   id: "change-1", kind: "change" as const, title: "Tool discovery regression",
@@ -43,7 +51,7 @@ it("progressively opens rationale and linked evidence without loading artifacts"
   const list = vi.fn(async () => ({ records: [header], next_cursor: "older" }));
   const get = vi.fn(async () => record);
   const why = vi.fn(async () => ({ records: [record], truncated: true }));
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme, { list, get, why }, vi.fn());
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme, { list, get, why }, vi.fn());
   expect(list).not.toHaveBeenCalled();
   pane.activate("project-1");
   await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -74,7 +82,7 @@ it("aborts superseded eval scope reads and retains successful data on refresh fa
   const list = vi.fn().mockReturnValueOnce(delayed)
     .mockResolvedValueOnce({ records: [{ ...header, title: "New project history" }], next_cursor: null })
     .mockRejectedValue(new Error("offline"));
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
     { list, get: vi.fn(), why: vi.fn() }, vi.fn());
   pane.activate("old");
   const signal = list.mock.calls[0][2] as AbortSignal;
@@ -99,7 +107,7 @@ it("loads bounded next pages and displays exact Git coordinates without fetching
     backings: [{ kind: "git_file", repository: "repo-identity", commit: "a".repeat(40), path: "images/example.png", object_format: "sha1", entry_mode: "100644", blob_oid: null }],
   } };
   const get = vi.fn(async () => artifact);
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
     { list, get, why: vi.fn() }, vi.fn());
   pane.activate("project-1");
   await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -116,7 +124,7 @@ it("loads bounded next pages and displays exact Git coordinates without fetching
 
 it("applies repository/model/search/kind filters through bounded reads", async () => {
   const list = vi.fn(async () => ({ records: [], next_cursor: null }));
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
     { list, get: vi.fn(), why: vi.fn() }, vi.fn());
   pane.activate(null);
   await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -134,7 +142,7 @@ it("applies repository/model/search/kind filters through bounded reads", async (
 
 it("labels display truncation without altering the retained response", async () => {
   const long = { ...record, body: { kind: "change" as const, motivation: "evidence ".repeat(500) } };
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
     { list: async () => ({ records: [header], next_cursor: null }), get: async () => long, why: vi.fn() }, vi.fn());
   pane.activate(null);
   await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -148,7 +156,7 @@ it("labels display truncation without altering the retained response", async () 
 
 it("cancels an unfinished detail read when returning to the retained list", async () => {
   const get = vi.fn((_project: string | null, _id: string, _signal?: AbortSignal) => new Promise<never>(() => {}));
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
     { list: async () => ({ records: [header], next_cursor: null }), get, why: vi.fn() }, vi.fn());
   pane.activate(null);
   await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -208,7 +216,7 @@ it("shows unresolved lifecycle frontiers and partial history without choosing a 
 });
 
 it("includes occurrence time in history rows before opening a record", async () => {
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme,
     { list: async () => ({ records: [header], next_cursor: null }), get: vi.fn(), why: vi.fn() }, vi.fn());
   pane.activate(null);
   await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -244,7 +252,7 @@ it("follows a labeled metric-definition link from the value to its meaning and f
       source_artifacts: [], population: "completed requests", aggregation: "nearest-rank", exclusions: "none", missing_data: "report separately" },
   } };
   const get = vi.fn().mockResolvedValueOnce(measurement).mockResolvedValueOnce(metric);
-  const pane = new EvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme, {
+  const pane = new BrowserEvalsPane({ requestRender: vi.fn() } as unknown as TUI, theme, {
     list: async () => ({ records: [{ ...header, id: measurement.id, title: measurement.title, kind: "measurement" as const }], next_cursor: null }), get, why: vi.fn(),
   }, vi.fn());
   pane.activate(null);

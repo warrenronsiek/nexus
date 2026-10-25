@@ -5,21 +5,20 @@
 // @boundary postgres-work: the integration database is an explicit disposable test service.
 #![cfg(feature = "postgres")]
 use nexus::persistence::Store;
-use nexus::work_history::{WorkAction, WorkActor};
+use nexus::work_history::WorkActor;
 use serde_json::{json, Value};
 #[path = "support/work_record.rs"]
 mod work_record;
 use work_record::event;
 
 fn command(store: &mut Store, project: &str, value: Value) -> Value {
-    let action: WorkAction = serde_json::from_value(value).unwrap();
     let actor = WorkActor {
         agent: "pg-test".into(),
         session_id: "pg-host".into(),
         model_id: None,
         config_hash: "pg-config".into(),
     };
-    serde_json::to_value(store.work_command(project, &actor, &action).unwrap()).unwrap()
+    work_record::command(store, project, &actor, value)
 }
 
 #[test]
@@ -76,6 +75,7 @@ fn postgres_work_history_preserves_hierarchy_receipts_exact_duration_and_scoped_
         children["items"][0]["elapsed"]["nanoseconds"],
         "900719925474099312345"
     );
+    verify_dashboard(&mut store, &project);
     let export = command(&mut store, &project, json!({"action":"export"}));
     let target = format!("{project}-import");
     command(
@@ -98,4 +98,20 @@ fn postgres_work_history_preserves_hierarchy_receipts_exact_duration_and_scoped_
         json!({"action":"get","subject":{"scope":"activity","id":"test"}}),
     );
     assert!(hidden["record"].is_null());
+}
+
+fn verify_dashboard(store: &mut Store, project: &str) {
+    let overview = command(store, project, json!({"action":"dashboard"}));
+    assert_eq!(overview["session_duration"]["count"], 1);
+    let selected = command(
+        store,
+        project,
+        json!({"action":"dashboard","work_session_id":"work"}),
+    );
+    assert_eq!(selected["activities"].as_array().unwrap().len(), 2);
+    assert_eq!(selected["activity_kinds"][1]["known_count"], 1);
+    assert_eq!(
+        selected["activities"][1]["elapsed"]["nanoseconds"],
+        "900719925474099312345"
+    );
 }

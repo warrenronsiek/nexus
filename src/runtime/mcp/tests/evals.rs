@@ -16,6 +16,8 @@ fn eval_history_tool_exposes_recording_and_queries_without_execution() {
     let schema = &tool["inputSchema"];
     for input in [
         json!({"action":"list"}),
+        json!({"action":"dashboard"}),
+        json!({"action":"dashboard","group_id":"chosen-group"}),
         json!({"action":"get","id":"run-1"}),
         json!({"action":"why","id":"case-1"}),
     ] {

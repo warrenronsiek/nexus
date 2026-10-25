@@ -3,6 +3,7 @@
 // @feature observability-ui
 // @spec docs/features/observability-ui.md
 // @boundary dynamic-json: validate the history envelope and JSON values; the service owns typed eval body validation.
+import { decodeEvalDashboard, type EvalDashboard } from "./evals-dashboard.ts";
 import type { NexusMcpClient } from "./mcp-client.ts";
 import { isJsonValue, type JsonValue } from "./wire-values.ts";
 
@@ -32,6 +33,7 @@ export interface EvalPage { records: EvalHeader[]; next_cursor: string | null }
 export interface EvalHistory { records: EvalRecord[]; truncated: boolean }
 export const EVAL_DETAIL_ROWS = 18;
 export interface EvalsApi {
+  dashboard(project: string | null, groupId?: string, signal?: AbortSignal): Promise<EvalDashboard>;
   list(project: string | null, query: EvalQuery, signal?: AbortSignal): Promise<EvalPage>;
   get(project: string | null, id: string, signal?: AbortSignal): Promise<EvalRecord | null>;
   why(project: string | null, id: string, signal?: AbortSignal): Promise<EvalHistory>;
@@ -76,6 +78,9 @@ export class NexusEvalsApi implements EvalsApi {
   constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
   private call(project: string | null, fields: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     return this.client.call("nexus_evals", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
+  }
+  async dashboard(project: string | null, groupId?: string, signal?: AbortSignal): Promise<EvalDashboard> {
+    return decodeEvalDashboard(await this.call(project, { action: "dashboard", ...(groupId ? { group_id: groupId } : {}) }, signal), groupId);
   }
   async list(project: string | null, query: EvalQuery, signal?: AbortSignal): Promise<EvalPage> {
     const value = await this.call(project, { action: "list", ...query }, signal);

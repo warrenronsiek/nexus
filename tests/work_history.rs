@@ -3,7 +3,7 @@
 // @boundary fixture-json: closed work commands are decoded from explicit test fixture values.
 #![cfg(feature = "sqlite")]
 use nexus::persistence::Store;
-use nexus::work_history::{WorkAction, WorkActor};
+use nexus::work_history::WorkActor;
 use serde_json::{json, Value};
 #[path = "support/work_record.rs"]
 mod work_record;
@@ -17,9 +17,8 @@ fn actor() -> WorkActor {
         config_hash: "fixture".into(),
     }
 }
-fn command(store: &mut Store, action: Value) -> Value {
-    let action: WorkAction = serde_json::from_value(action).unwrap();
-    serde_json::to_value(store.work_command("project", &actor(), &action).unwrap()).unwrap()
+fn command(store: &mut Store, value: Value) -> Value {
+    work_record::command(store, "project", &actor(), value)
 }
 
 #[test]

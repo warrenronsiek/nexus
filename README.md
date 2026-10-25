@@ -69,7 +69,7 @@ nexus eval import history.jsonl
 
 The `nexus_evals` MCP tool exposes the same record, list, detail, and rationale workflow. Callers keep their existing runner and provider: Nexus records the evidence they submit without executing an eval. Pinned Git and Git LFS references retain existing repository content; verified content-addressed uploads retain generated or otherwise unavailable bytes. Per-call context can link the prompts, files, tool definitions, skills, model parameters, and outputs that produced a result, with explicit capture gaps where the caller cannot observe everything. Full-content eval evidence is deliberately submitted; normal privacy-safe usage analytics does not begin collecting raw content.
 
-Repository and model filters identify participation in a recorded target or observation. For a composed target they do not assign its overall score to an individual worker. The Evals TUI tab supports those filters, record details, linked evidence, and motivation history.
+Repository and model filters identify participation in a recorded target or observation. For a composed target they do not assign its overall score to an individual worker. The Evals TUI starts with evaluation sets and metric trends over time, grouped by suite/target identity, repository, and model composition. Each series shows its definition, unit, calculation, and latest exact value. `b` opens the secondary record browser for linked evidence and motivation history.
 
 Use `nexus eval upload FILE` for necessary new bytes and `nexus eval download DIGEST OUTPUT` to retrieve verified content. An interrupted upload can resume; `nexus eval abort-upload DIGEST` discards an unfinished upload with incorrect chunks before retrying. Verified blobs remain immutable. Reference exports include required stored bytes and preserve Git dependencies as pinned external references.
 
@@ -81,7 +81,7 @@ Nexus keeps a logical work session across prompts, agents, PRs, and delivery ste
 Each test, command, review, or subagent task is a separate activity with preserved
 parent/descendant relationships. Repeated attempts retain their outcomes; shared
 CI runs and releases can link to several sessions without duplicating execution.
-The Work TUI tab opens sessions into an expandable tree and relative timeline.
+The Work TUI tab starts with session duration totals, averages, daily trends, and activity-kind duration charts. Select a parent session and Enter for its complete recorded descendant breakdown on a shared timeline. Unknown/conflicted timing and bounded coverage remain explicit; nested activity sums can overlap and are not session wall time. `d` opens the secondary record browser with its expandable tree and source observations.
 
 ```sh
 nexus work open "Improve router fallback" --id router-change

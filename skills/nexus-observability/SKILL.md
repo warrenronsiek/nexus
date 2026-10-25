@@ -7,7 +7,8 @@ description: Inspect Nexus coordination, tools, skills, memory, papercuts, SOS, 
 
 Nexus provides one progressive-disclosure interface through installed
 `nexus tui` and Pi `/nexus`. Start with the relevant summary and scope, select a
-row, then inspect evidence and links. The terminal reflects retained observations;
+chart or session, then inspect evidence and links when needed. Work and Evals
+start with visual summaries for humans. The terminal reflects retained observations;
 it does not run evaluations, fetch artifact bytes, or advance a delivery pipeline.
 
 `nexus tui` needs an interactive terminal and the installed binary, with no Pi,
@@ -36,8 +37,9 @@ history tabs use the selected project or the invoking repository.
 | What durable context exists? | Memory → search, raw note, summary children, health |
 | Which friction keeps recurring? | Papercuts → description, encounters, timestamps |
 | What complex problem needs help? | SOS → source reports, triage, lifecycle |
-| What was evaluated and why? | Evals → immutable record → why/history and links |
-| Where did task time go? | Work → nested ownership tree → relative timeline and events |
+| How are eval results changing? | Evals → suite/target/repository/model set → metric trend |
+| What was evaluated and why? | Evals → `b` records → immutable record → why/history and links |
+| Where did task time go? | Work → duration trends and activity averages → session breakdown |
 
 Coordination, SOS, Tools, Skills, Papercuts, Evals, and Work are read-only.
 Memory has explicit add, invalidate-summary, and consolidation actions in
@@ -54,18 +56,31 @@ unused resources differ from unknown availability. Legacy includes `nexus exec`
 fallback observations. Use [usage analytics](../nexus-usage-analytics/SKILL.md)
 for interpretation and capture.
 
-**Evals:** Enter opens one record, `w` follows recorded why/history, and `l`
-browses record links. `t` cycles kinds, `/` searches, `o` filters repository,
-`m` filters model, and `c` clears filters. `n` or moving past the last loaded
-row fetches another page. Metrics expose literal values and linked definitions,
-including units, format, calculation, and evidence. Git artifacts show repository,
-full commit and path; blobs show digest and size. Rendering loads metadata only.
+**Evals:** select an evaluation set and Enter to see its result trends. Sets
+distinguish suite and target identities, repository, and model composition.
+Arrows or `[`/`]` choose a metric; its units, definition, calculation, and latest
+literal value accompany the chart. Definition revisions remain separate series.
+Charts approximate compatible scalar values only; opaque values stay visible
+without conversion. Superseded results remain in history and do not become extra
+independent samples. `o`, `m`, and `/` filter repository, model, and search.
+Use `b` for the secondary record browser; Enter opens a record, `w` follows
+why/history, and `l` browses links. `t` cycles record kinds and `n` loads more.
+Git artifacts show repository, full commit and path; blobs show digest and size.
+Rendering loads metadata only.
 Use [eval history](../nexus-eval-history/SKILL.md) to attach caller-run results,
 motivation, and artifacts.
 
-**Work:** Enter opens a work session's tree or the selected activity. Right/Space
-expands direct children, Left collapses, and `t` toggles the relative timeline.
-Each retry remains separate and parallel siblings overlap on a common axis.
+**Work:** start with session duration trends, totals, activity-kind means, and
+the count of durations actually known. `[`/`]` changes the activity trend.
+Select a parent session and Enter for its descendant duration breakdown and
+timeline, including nested tasks and retries. Parallel intervals overlap on the
+same axis. The total of inclusive activity durations can double-count nested
+work and is not session wall time or agent effort. Unknown durations do not
+become zeros. Daily buckets use UTC; coverage and truncation notices qualify
+every summary.
+
+Use `d` for the secondary record browser. Enter opens a session's tree or an
+activity; Right/Space expands children, Left collapses, and `t` toggles timeline.
 `s` opens the session, `l` shows links, and `e` pages source observations.
 `f` switches roots/activity search; `/`, `o`, `h`, `k`, `u`, `v`, `a`/`b` filter
 search, repository, host session, kind, outcome, environment, and occurrence

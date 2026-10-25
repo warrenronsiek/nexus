@@ -92,8 +92,15 @@ queued-versus-acknowledged state separately.
 Inspect roots with `work list`, invocations with `work activities`, and immediate
 children with `work timeline`. Follow cursors; use `show` and `events` for source
 observations, conflicts, and gaps. Root filters apply to root attributes; use
-activity search for task-kind filters. Native and Pi Work tabs expose the tree
-and timeline for inspection.
+activity search for task-kind filters. Native and Pi Work tabs open a duration
+dashboard: qualified session totals/means, activity-kind bars, and daily trends.
+Choose a parent session to see every retained descendant on one visual time
+axis, with nested and parallel intervals preserved. Use `m` for mean/total,
+`t` for session/activity trends, and `[` / `]` to choose an activity kind. The
+`d` source browser retains filters, hierarchy, links, and original observations.
+Dashboard samples are capped and explicitly partial when a history or display
+bound applies. A mean uses timed, conflict-free samples; an unknown interval is
+not zero. Inclusive sums are not total effort or prompt-to-production lead time.
 
 Hand over root and important activity IDs, instrumentation locations, covered
 sources, delivery recovery, and what remains unknown. Explain what the evidence

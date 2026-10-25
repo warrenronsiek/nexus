@@ -179,12 +179,39 @@ these differ from the database-wide portable format-five stream. `schema` prints
 the `WorkAction` contract used by the `nexus_work` MCP tool. CLI `show` maps to
 MCP `get`; recording conveniences submit the corresponding typed observations.
 
-The native and Pi Work tab defaults to work-session roots. Enter opens the
-hierarchy; Right/Space expands descendants, `t` toggles the relative time axis,
-and Enter opens an activity. `s` opens session detail, `l` browses attributable
-links, and `e` pages immutable observations. `f` switches to activity search;
-`w` in activity detail lists containing sessions for navigation back to a tree.
-Filters cover title text, repository, host session, environment, outcome, and
-occurrence-time bounds; applying a kind filter selects activity search. Views
-show individual inclusive intervals and known gaps, with no aggregate effort
-or revision/PR filter. See [terminal UI](observability-ui.md) for key bindings.
+The native and Pi Work tab defaults to a visual overview: qualified session
+counts, total/mean observed session durations, activity-kind inclusive-duration
+bars, and UTC-day means/totals across time. Selecting a parent session shows its
+own interval, descendant activity-kind statistics, and a relative timeline of
+all captured descendants. This view emphasizes timing and patterns. The
+secondary record list preserves hierarchy, filters, details, links, and immutable
+observations for audit work. See [terminal UI](observability-ui.md) for keys.
+
+## Visual duration reads
+
+The `dashboard` action of `nexus_work` reads project history without treating the
+first ordinary 64-item page as the population. It returns duration statistics,
+daily session statistics, daily activity-kind statistics, selectable session
+summaries, and optional `work_session_id` descendants. Means divide by
+`known_count`, with all sampled records separately counted. Conflicted or
+unavailable durations do not become zero. Valid reported durations retain their
+source method/clock in the accompanying summaries; UTC-boundary fallback uses
+the existing qualified same-producer timing rules.
+
+Session interval sums and activity inclusive interval sums have different
+meanings. Nested and parallel activity intervals overlap; their sum is neither
+effort nor a reconstructed prompt-to-production duration. Shared activities are
+counted once per identity within the selected scope. Source dates use UTC start,
+or first source occurrence when no start is known. Repository/environment and
+other legacy list filters remain in the secondary audit view.
+
+Project scans select the most recently received 4096 subjects and at most 8 MiB
+of projected summary payloads. Selecting a session separately traverses its
+resolved descendants with the same count/byte bounds and at most 64 candidate
+pages of 64 rows (including stale/corrected links), so unrelated newer work
+does not hide an older session's tasks. Existing 1024-observation/lineage projection
+limits still apply and remain visible as gaps. Display lists cap at 512 sessions
+(192 KiB) and 512 activities (256 KiB); daily/session-kind charts have separate
+encoded-byte bounds. `truncated` and notices disclose source versus display
+limits, and aggregate counts retain the scanned population when rows are
+omitted for display. No bounded read claims complete capture of external work.

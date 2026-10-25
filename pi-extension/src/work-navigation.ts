@@ -4,8 +4,9 @@
 // @spec docs/features/observability-ui.md
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { WORK_OUTCOMES, type WorkSubject, type WorkSummary } from "./work.ts";
-import { WORK_DETAIL_ROWS, clampWork, newWorkTree, pushWorkView, resetWorkList, workRows, type WorkFilter, type WorkState, type WorkTree } from "./work-state.ts";
+import { WORK_DETAIL_ROWS, clampWork, newWorkDashboard, newWorkTree, pushWorkView, resetWorkList, workRows, type WorkFilter, type WorkState, type WorkTree } from "./work-state.ts";
 import type { WorkIntent } from "./work-requests.ts";
+import { dashboardItems } from "./work-dashboard.ts";
 import { editTextFilter } from "./text-filter.ts";
 
 interface WorkInput { handled: boolean; intent?: WorkIntent }
@@ -13,6 +14,7 @@ const FILTERS: Record<string, WorkFilter> = { "/": "search", o: "repository", h:
 const DIRECTIONS: Record<string, number> = { up: -1, down: 1, pageUp: -10, pageDown: 10, j: 1 };
 export function refreshWork(state: WorkState): WorkIntent {
   const view = state.view;
+  if (view.kind === "dashboard") return { action: "dashboard", view };
   if (view.kind === "list") return { action: "list" };
   if (view.kind === "tree") return { action: "refresh_tree", tree: view.tree };
   if (view.kind === "events") return { action: "events", record: view.record };
@@ -26,6 +28,7 @@ function edit(state: WorkState, data: string): WorkInput {
 }
 function selectedSubject(state: WorkState): WorkSubject | undefined {
   const view = state.view;
+  if (view.kind === "dashboard") return dashboardItems(view)[view.selected]?.subject;
   if (view.kind === "list") return state.page?.items[state.selected]?.subject;
   if (view.kind === "tree") { const row = workRows(view.tree)[view.tree.selected]; return row?.kind === "activity" ? row.summary.subject : undefined; }
   return view.record.summary.subject;
@@ -49,25 +52,40 @@ function selectedLink(state: WorkState): WorkIntent | undefined {
   const target = state.view.record.links[state.view.selected]?.target;
   return target?.kind === "activity" || target?.kind === "session" ? { action: "get", subject: { scope: target.kind, id: target.id }, presentation: "detail" } : undefined;
 }
+function enterDashboard(state: WorkState): WorkIntent | undefined {
+  const view = state.view;
+  if (view.kind !== "dashboard") return;
+  const selected = dashboardItems(view)[view.selected];
+  if (!selected) return;
+  if (view.sessionId) return { action: "get", subject: selected.subject, presentation: "detail" };
+  const next = newWorkDashboard(selected.subject.id);
+  pushWorkView(state, next); return { action: "dashboard", view: next };
+}
 function enter(state: WorkState): WorkIntent | undefined {
   const view = state.view;
+  let intent: WorkIntent | undefined;
   switch (view.kind) {
+    case "dashboard": intent = enterDashboard(state); break;
     case "list": {
       const selected = state.page?.items[state.selected];
-      return selected ? selected.subject.scope === "session" ? openSession(state, selected) : { action: "get", subject: selected.subject, presentation: "detail" } : undefined;
+      if (selected) intent = selected.subject.scope === "session" ? openSession(state, selected) : { action: "get", subject: selected.subject, presentation: "detail" };
+      break;
     }
     case "memberships": {
       const id = view.record.summary.work_session_ids[view.selected];
-      return id ? { action: "get", subject: { scope: "session", id }, presentation: "session" } : undefined;
+      if (id) intent = { action: "get", subject: { scope: "session", id }, presentation: "session" };
+      break;
     }
     case "tree": {
       const row = workRows(view.tree)[view.tree.selected];
-      return row?.kind === "more" ? more(state) : row ? { action: "get", subject: row.summary.subject, presentation: "detail" } : undefined;
+      intent = row?.kind === "more" ? more(state) : row ? { action: "get", subject: row.summary.subject, presentation: "detail" } : undefined;
+      break;
     }
-    case "links": return selectedLink(state);
-    default: return undefined;
+    case "links": intent = selectedLink(state); break;
   }
+  return intent;
 }
+
 function expand(state: WorkState, mode: "expand" | "collapse"): WorkIntent | undefined {
   const view = state.view;
   if (view.kind !== "tree") return;
@@ -85,7 +103,8 @@ function expand(state: WorkState, mode: "expand" | "collapse"): WorkIntent | und
 }
 function move(state: WorkState, direction: number): WorkIntent | undefined {
   const view = state.view;
-  if (view.kind === "list") {
+  if (view.kind === "dashboard") view.selected = clampWork(view.selected + direction, dashboardItems(view).length);
+  else if (view.kind === "list") {
     const length = state.page?.items.length ?? 0;
     state.selectionRevision += 1;
     if (direction === 1 && state.selected === length - 1 && state.page?.next_cursor) return more(state);
@@ -127,7 +146,7 @@ function evidence(state: WorkState, key: string): WorkIntent | undefined {
   let intent: WorkIntent | undefined;
   switch (key) {
     case "w": if ("record" in view) { pushWorkView(state, { kind: "memberships", record: view.record, selected: 0 }); intent = { action: "cancel" }; } break;
-    case "s": if (view.kind === "tree") intent = { action: "get", subject: view.tree.session.subject, presentation: "detail" }; break;
+    case "s": if (view.kind === "dashboard") { const subject = view.data?.selected_session?.subject ?? selectedSubject(state); if (subject) intent = { action: "get", subject, presentation: "detail" }; } else if (view.kind === "tree") intent = { action: "get", subject: view.tree.session.subject, presentation: "detail" }; break;
     case "e": if (view.kind === "detail" || view.kind === "links") intent = { action: "events", record: view.record }; break;
     case "l": intent = browseLinks(state); break;
   }
@@ -135,7 +154,24 @@ function evidence(state: WorkState, key: string): WorkIntent | undefined {
 }
 function back(state: WorkState): WorkIntent {
   state.status = state.page ? "retained data" : "not loaded";
-  state.view = state.history.pop() ?? { kind: "list" }; return { action: "cancel" };
+  state.view = state.history.pop() ?? newWorkDashboard(); return { action: "cancel" };
+}
+function switchPresentation(state: WorkState): WorkIntent {
+  if (state.view.kind === "dashboard") { pushWorkView(state, { kind: "list" }); return { action: "list" }; }
+  const view = newWorkDashboard(); pushWorkView(state, view); return { action: "dashboard", view };
+}
+function dashboardControl(state: WorkState, key: string): WorkInput {
+  if (key === "d") return { handled: true, intent: switchPresentation(state) };
+  const view = state.view;
+  if (view.kind !== "dashboard") return { handled: false };
+  switch (key) {
+    case "m": view.metric = view.metric === "average" ? "total" : "average"; break;
+    case "t": view.trend = view.trend === "sessions" ? "activities" : "sessions"; break;
+    case "[": view.kindIndex = clampWork(view.kindIndex - 1, view.data?.activity_kinds.length ?? 0); break;
+    case "]": view.kindIndex = clampWork(view.kindIndex + 1, view.data?.activity_kinds.length ?? 0); break;
+    default: return { handled: false };
+  }
+  return { handled: true };
 }
 const NAVIGATION: Record<string, (state: WorkState) => WorkIntent | undefined> = {
   enter, backspace: back, escape: back,
@@ -147,9 +183,11 @@ const NAVIGATION: Record<string, (state: WorkState) => WorkIntent | undefined> =
 export function handleWorkInput(state: WorkState, data: string): WorkInput {
   if (state.editor) return edit(state, data);
   const keys = [Key.enter, Key.escape, Key.backspace, Key.left, Key.right, Key.up, Key.down, Key.pageUp, Key.pageDown,
-    Key.space, "n", "t", "s", "l", "e", "j", "k", "/", "o", "h", "a", "b", "u", "v", "f", "w", "c"] as const;
+    Key.space, "d", "m", "[", "]", "n", "t", "s", "l", "e", "j", "k", "/", "o", "h", "a", "b", "u", "v", "f", "w", "c"] as const;
   const key = keys.find(key => matchesKey(data, key));
   if (key === undefined) return { handled: false };
+  const dashboard = dashboardControl(state, key);
+  if (dashboard.handled) return dashboard;
   if (DIRECTIONS[key]) return { handled: true, intent: move(state, DIRECTIONS[key]) };
   const filtered = filter(state, key);
   return filtered.handled ? filtered : { handled: true, intent: NAVIGATION[key] ? NAVIGATION[key](state) : evidence(state, key) };
