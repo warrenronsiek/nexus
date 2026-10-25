@@ -3,6 +3,8 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { workTimeAxis, workTimeBar, type WorkTimeAxis } from "./work-interval.ts";
+import { renderWorkDashboard } from "./work-dashboard.ts";
 import { centeredWindowStart, sanitizeDisplayText } from "./display.ts";
 import type { DashboardTheme } from "./theme.ts";
 import type { WorkDetail, WorkLink, WorkObservation, WorkReference, WorkSummary, WorkValue } from "./work.ts";
@@ -67,31 +69,18 @@ function relative(timestamp: string | null, origin: number): string {
   const delta = (Date.parse(timestamp) - origin) / 1000;
   return `${delta >= 0 ? "+" : ""}${delta.toFixed(3)}s`;
 }
-interface TimeAxis { start: number; end: number; columns: number }
-function timeAxis(tree: WorkTree, width: number): TimeAxis | undefined {
-  const times = workRows(tree).flatMap(row => row.kind === "activity" ? [row.summary.started_at, row.summary.finished_at] : [])
-    .filter((time): time is string => time !== null).map(Date.parse).filter(Number.isFinite);
-  if (tree.session.started_at !== null) times.push(Date.parse(tree.session.started_at));
-  const known = times.filter(Number.isFinite);
-  if (!known.length) return undefined;
-  return { start: Math.min(...known), end: Math.max(...known), columns: Math.min(20, Math.max(8, Math.floor(width / 6))) };
+function timeAxis(tree: WorkTree, width: number): WorkTimeAxis | undefined {
+  const boundaries = workRows(tree).flatMap(row => row.kind === "activity" ? [row.summary.started_at, row.summary.finished_at] : []);
+  return workTimeAxis([...boundaries, tree.session.started_at], Math.min(20, Math.max(8, Math.floor(width / 6))));
 }
-function timeBar(item: WorkSummary, axis: TimeAxis | undefined): string {
-  if (!axis || item.started_at === null) return "[unknown]";
-  const start = Date.parse(item.started_at); const end = item.finished_at === null ? null : Date.parse(item.finished_at);
-  if (!Number.isFinite(start) || (end !== null && (!Number.isFinite(end) || end < start))) return "[clock anomaly]";
-  const position = (time: number): number => Math.round((time - axis.start) / Math.max(1, axis.end - axis.start) * (axis.columns - 1));
-  const from = position(start); const to = end === null ? from : position(end);
-  return `[${Array.from({ length: axis.columns }, (_, index) => index < from || index > to ? " " : end === null ? "?" : "=").join("")}]`;
-}
-interface TreePresentation { tree: WorkTree; width: number; axis?: TimeAxis }
+interface TreePresentation { tree: WorkTree; width: number; axis?: WorkTimeAxis }
 function treeRow(row: WorkRow, selected: boolean, presentation: TreePresentation): string {
   const { tree, axis, width } = presentation;
   const marker = selected ? "›" : " ";
   const indent = "  ".repeat(Math.min(row.depth, 16));
   if (row.kind === "more") return truncateToWidth(`${marker} ${indent}… load more children · Enter/n`, width);
   const item = row.summary;
-  const bar = tree.timeline ? `${timeBar(item, axis)} ` : "";
+  const bar = tree.timeline ? `${workTimeBar(item, axis)} ` : "";
   const disclosure = item.has_children ? tree.expanded.has(item.subject.id) ? "▾" : "▸" : "·";
   const origin = tree.session.started_at === null ? NaN : Date.parse(tree.session.started_at);
   const time = tree.timeline ? `[${relative(item.started_at, origin)} → ${item.finished_at === null ? "open/unknown" : relative(item.finished_at, origin)}] ` : "";
@@ -136,6 +125,7 @@ function membershipLines(view: Extract<WorkState["view"], { kind: "memberships" 
 }
 function selectableLines(state: WorkState, view: Exclude<WorkState["view"], { kind: "detail" | "events" }>, width: number): string[] {
   switch (view.kind) {
+    case "dashboard": return renderWorkDashboard(view, width, state.status);
     case "list": return listLines(state, width);
     case "tree": return treeLines(view.tree, width);
     case "memberships": return membershipLines(view);

@@ -4,7 +4,7 @@
 // @spec docs/features/observability-ui.md
 import { expect, it, vi } from "vitest";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
-import { NexusWorkApi, type WorkSummary } from "../src/work.ts";
+import { NexusWorkApi, type WorkApi, type WorkSummary } from "../src/work.ts";
 import { WorkPane } from "../src/work-pane.ts";
 
 const context = { host_session_id: "host-1", turn_id: null, agent_instance_id: "agent-a", model_id: null,
@@ -26,6 +26,14 @@ const envelope = (items: WorkSummary[]) => ({ ok: true, response: "page", items,
 const timeline = (items: WorkSummary[], parent: string | null = null) => ({ work_session_id: "work-1", parent_activity_id: parent,
   items, next_cursor: null, unresolved_links: [], truncated: false });
 const detail = (summary = activity("test-1", "agent-b")) => ({ summary, observations: [], links: [], truncated: false });
+
+// These regressions exercise the explicitly secondary record browser.
+function lineItemPane(tui: TUI, theme: ConstructorParameters<typeof WorkPane>[1], api: Omit<WorkApi, "dashboard">, updated: () => void): WorkPane {
+  const pane = new WorkPane(tui, theme, { ...api, dashboard: vi.fn() }, updated);
+  const activate = pane.activate.bind(pane);
+  pane.activate = project => { activate(project); pane.handleInput("d"); };
+  return pane;
+}
 
 async function openWorkSession(pane: WorkPane, project: string | null = null): Promise<void> {
   pane.activate(project); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -54,7 +62,7 @@ it("opens descendants and repeated attempts in an expandable relative timeline",
   const children = [activity("test-1", "agent-a", "Test run 1"), activity("test-2", "agent-a", "Test run 2"), activity("agent-b", "agent-a", "Delegated reviewer")];
   const load = vi.fn(async (_project, _session, parent) => timeline(parent === null ? roots : parent === "agent-a" ? children : [activity("grandchild", "agent-b", "Grandchild test")], parent));
   const get = vi.fn(async (_project, subject) => detail(activity(subject.id, "agent-b", "Grandchild test")));
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, timeline: load, get, activities: vi.fn(), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, timeline: load, get, activities: vi.fn(), events: vi.fn() }, vi.fn());
   await openWorkSession(pane, "project-1");
   expect(screen(pane)).toContain("Implementation agent");
   pane.handleInput("\u001b[C");
@@ -76,7 +84,7 @@ it("cancels stale scope reads and retains prior data on failed refresh", async (
   let complete!: (value: { items: WorkSummary[]; next_cursor: null }) => void;
   const delayed = new Promise<{ items: WorkSummary[]; next_cursor: null }>(resolve => { complete = resolve; });
   const list = vi.fn().mockReturnValueOnce(delayed).mockResolvedValueOnce({ items: [{ ...session, title: "New scope" }], next_cursor: null }).mockRejectedValue(new Error("offline"));
-  const pane = new WorkPane(tui(), theme, { list, timeline: vi.fn(), get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list, timeline: vi.fn(), get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
   pane.activate("old"); const signal = list.mock.calls[0][2] as AbortSignal;
   pane.activate("new"); expect(signal.aborted).toBe(true);
   await vi.waitFor(() => expect(screen(pane, 100)).toContain("New scope"));
@@ -89,7 +97,7 @@ it("cancels stale scope reads and retains prior data on failed refresh", async (
 it("refreshes expanded branches without presenting old descendants as current", async () => {
   let title = "Previous nested test";
   const load = vi.fn(async (_project, _session, parent) => timeline(parent === null ? [activity("agent-a", null, "Agent")] : [activity("test-1", "agent-a", title)], parent));
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, timeline: load, get: async () => detail(session), activities: vi.fn(), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, timeline: load, get: async () => detail(session), activities: vi.fn(), events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   pane.handleInput("\r"); await vi.waitFor(() => expect(screen(pane, 120)).toContain("Agent"));
   pane.handleInput("\u001b[C"); await vi.waitFor(() => expect(screen(pane, 120)).toContain(title));
@@ -100,13 +108,13 @@ it("refreshes expanded branches without presenting old descendants as current", 
 
 it("puts parallel siblings on one time axis without adding their inclusive durations", async () => {
   const parallel = [activity("review-a", null, "Architecture review"), activity("review-b", null, "QA review")];
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, timeline: async () => timeline(parallel), get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, timeline: async () => timeline(parallel), get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   pane.handleInput("\r"); await vi.waitFor(() => expect(screen(pane, 180)).toContain("QA review"));
   pane.handleInput("t");
   const rendered = pane.render(180);
   expect(rendered.join("\n")).toContain("Time axis");
-  const bars = rendered.filter(line => /Architecture review|QA review/u.test(line)).map(line => line.match(/\[([ =?]+)\]/u)?.[0]);
+  const bars = rendered.filter(line => /Architecture review|QA review/u.test(line)).join("\n").match(/\[[ =?]+\]/gu) ?? [];
   expect(bars[0]).toBeDefined(); expect(bars[0]).toBe(bars[1]);
   expect(rendered.join("\n")).not.toContain("4.000000000s"); pane.dispose();
 });
@@ -116,7 +124,7 @@ it("pages independent child branches, preserves repeated IDs only once, and expo
     .mockResolvedValueOnce({ ...timeline([activity("run-1", "agent-a", "Run one")], "agent-a"), next_cursor: "child-next", truncated: true,
       unresolved_links: [{ event_id: "link-1", source: { scope: "activity", id: "agent-a" }, relation: "depends_on", target: { kind: "activity", id: "missing" }, state: "unresolved" }] })
     .mockResolvedValueOnce(timeline([activity("run-1", "agent-a", "Run one"), activity("run-2", "agent-a", "Run two")], "agent-a"));
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, timeline: load, get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, timeline: load, get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   pane.handleInput("\r"); await vi.waitFor(() => expect(screen(pane, 180)).toContain("Agent"));
   pane.handleInput(" "); await vi.waitFor(() => expect(screen(pane, 180)).toContain("Run one"));
@@ -130,7 +138,7 @@ it("pages independent child branches, preserves repeated IDs only once, and expo
 it("follows a shared canonical activity link and preserves source receipts and capture gaps", async () => {
   const { observation, sessionDetail, sharedDetail } = sharedFixture();
   const get = vi.fn(async (_project, subject) => subject.id === "work-1" ? sessionDetail : sharedDetail);
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, timeline: async () => timeline([]), get, activities: vi.fn(), events: async () => ({ observations: [observation], next_cursor: null }) }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, timeline: async () => timeline([]), get, activities: vi.fn(), events: async () => ({ observations: [observation], next_cursor: null }) }, vi.fn());
   await openWorkSession(pane);
   pane.handleInput("s"); await vi.waitFor(() => expect(screen(pane, 160)).toContain("1 recorded links"));
   pane.handleInput("l"); await vi.waitFor(() => expect(screen(pane, 160)).toContain("member_of → activity:release-1"));
@@ -150,7 +158,7 @@ it("applies all root filters through bounded queries and cancels unfinished navi
   const list = vi.fn(sessionPage);
   const activities = vi.fn(async () => ({ items: [activity("test-search", null)], next_cursor: null }));
   const load = vi.fn((_project, _session, _parent, _query, _signal) => new Promise<never>(() => {}));
-  const pane = new WorkPane(tui(), theme, { list, timeline: load, get: vi.fn(), activities, events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list, timeline: load, get: vi.fn(), activities, events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   for (const [key, value] of [["o", "nexus"], ["h", "host-1"], ["k", "test"], ["v", "beta"], ["/", "router"], ["a", "2026-10-20T00:00:00Z"], ["b", "2026-10-24T23:59:59Z"]]) {
     press(pane, key, value, "\r"); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
@@ -174,7 +182,7 @@ it("cancels an unfinished branch expansion when the user collapses it", async ()
   let complete!: (value: ReturnType<typeof timeline>) => void;
   const delayed = new Promise<ReturnType<typeof timeline>>(resolve => { complete = resolve; });
   const load = vi.fn().mockResolvedValueOnce(timeline([activity("agent-a", null, "Agent")])).mockReturnValueOnce(delayed);
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, timeline: load, get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, timeline: load, get: vi.fn(), activities: vi.fn(), events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   pane.handleInput("\r"); await vi.waitFor(() => expect(screen(pane, 120)).toContain("Agent"));
   pane.handleInput("\u001b[C"); const signal = load.mock.calls[1][4] as AbortSignal;
@@ -207,7 +215,7 @@ it("routes activity-kind searches to activity pages and follows their work-sessi
   const activities = vi.fn(async () => ({ items: [child], next_cursor: null }));
   const list = vi.fn(sessionPage);
   const get = vi.fn(async (_project, subject) => detail(subject.scope === "session" ? session : child));
-  const pane = new WorkPane(tui(), theme, { list, activities, get, timeline: async () => timeline([child]), events: vi.fn() }, vi.fn());
+  const pane = lineItemPane(tui(), theme, { list, activities, get, timeline: async () => timeline([child]), events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   press(pane, "k", "test", "\r");
   await vi.waitFor(() => expect(activities).toHaveBeenCalledWith(null, { kind: "test", limit: 24 }, expect.any(AbortSignal)));
@@ -234,7 +242,7 @@ it("sends typed activity-search queries and rejects session rows in that respons
 
 it("keeps unlinked activities readable and discloses missing work-session membership", async () => {
   const unlinked = { ...activity("unlinked", null, "Unlinked captured command"), work_session_ids: [] };
-  const pane = new WorkPane(tui(), theme, { list: sessionPage, activities: async () => ({ items: [unlinked], next_cursor: null }),
+  const pane = lineItemPane(tui(), theme, { list: sessionPage, activities: async () => ({ items: [unlinked], next_cursor: null }),
     get: async () => detail(unlinked), timeline: vi.fn(), events: vi.fn() }, vi.fn());
   pane.activate(null); await vi.waitFor(() => expect(pane.statusLine()).toContain("live"));
   press(pane, "f"); await vi.waitFor(() => expect(screen(pane)).toContain("Unlinked captured command"));

@@ -136,8 +136,8 @@ const TAB_TITLES: Record<Exclude<DashboardTab, "coordination">, string> = {
   tools: "Tool usage",
   skills: "Skill usage",
   memory: "Memory",
-  evals: "Eval history",
-  work: "Work history",
+  evals: "Eval results",
+  work: "Work durations",
 };
 
 function dashboardTitle(tab: DashboardTab, page: Page): string {
@@ -174,8 +174,8 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
 }
 
 const TAB_HINTS: Record<Exclude<DashboardTab, "coordination">, string> = {
-  work: "tab switch · ↑↓ select · enter tree/detail · →/space expand · ← collapse · t timeline · f activity search · s session · w related work · l links · e events · n next · / search · o repo · h host · k kind · u outcome · v env · a/b time · c clear · esc back · r refresh · q close",
-  evals: "tab switch · ↑↓ select/scroll · enter detail · w why · l links · n next · t kind · / search · o repo · m model · c clear · esc back · r refresh · q close",
+  work: "tab switch · ↑↓ session · enter duration breakdown · [/] activity trend · d records · esc back · r refresh · q close",
+  evals: "tab switch · ↑↓ eval set/metric · enter results · [/] metric · b records · d evidence · o repo · m model · / search · esc back · r refresh · q close",
   sos: "tab switch · ↑↓ navigate · enter detail · j/k scroll · esc back · r refresh · q close",
   papercuts: "tab switch · ↑↓ navigate · n load older · enter detail · j/k scroll · esc back · r refresh · q close",
   memory: "tab switch · ↑↓ navigate · enter expand/detail · / search · a add · f invalidate summary · c retry consolidation · r refresh · q close",
@@ -352,9 +352,9 @@ export class NexusDashboardComponent implements Component {
     this.papercutsPane = new PapercutsPane(tui, theme, options.papercutsApi, () => this.rebuild());
     this.sosPane = new SosPane(tui, theme, options.sosApi, () => this.rebuild());
     const unavailable = async (): Promise<never> => { throw new Error("Eval history API is unavailable in this host"); };
-    this.evalsPane = new EvalsPane(tui, theme, options.evalsApi ?? { list: unavailable, get: unavailable, why: unavailable }, () => this.rebuild());
+    this.evalsPane = new EvalsPane(tui, theme, options.evalsApi ?? { dashboard: unavailable, list: unavailable, get: unavailable, why: unavailable }, () => this.rebuild());
     const workUnavailable = async (): Promise<never> => { throw new Error("Work history API is unavailable in this host"); };
-    this.workPane = new WorkPane(tui, theme, options.workApi ?? { list: workUnavailable, activities: workUnavailable, get: workUnavailable, timeline: workUnavailable, events: workUnavailable }, () => this.rebuild());
+    this.workPane = new WorkPane(tui, theme, options.workApi ?? { dashboard: workUnavailable, list: workUnavailable, activities: workUnavailable, get: workUnavailable, timeline: workUnavailable, events: workUnavailable }, () => this.rebuild());
     this.rebuild();
     this.poller.start();
   }

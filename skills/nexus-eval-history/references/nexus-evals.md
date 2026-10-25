@@ -32,6 +32,43 @@ For MCP, these are `{"action":"list","kind":"case","search":"regression","limit"
 
 `nexus eval schema` prints the canonical record schema without calling a model. For `nexus eval record records.json`, the file is a versioned bundle: `{"format_version":1,"records":[...]}`. Use `-` as the path to read that JSON from standard input. The MCP action does not include `format_version`.
 
+## See the overall result history
+
+The Evals tab in `nexus tui` and Pi `/nexus` starts with evaluation sets grouped
+by stable suite and target identities and exact observed repository/model
+compositions. This keeps a router and its agents visible together. Select a set
+with Up/Down and Enter; change metrics with `[ ]` or Up/Down. Each metric view
+shows its exact definition, unit, assessment scope, calculation, occurrence-time
+trend and latest exact value. Overview repository/model/search filters narrow the
+set list; the totals labeled “All captured history” retain the full captured
+population. Suite revisions remain linked from every result.
+A common suite identity is a browsing aid, not proof that its evolving population
+is comparable.
+
+For a script or agent, `nexus_evals` accepts `{"action":"dashboard"}` and
+`{"action":"dashboard","group_id":"<returned-id>"}` with the usual project
+scope. Use returned IDs rather than reconstructing group hashes. This read is a
+bounded summary, with `scanned_records`, `source_limit`, `truncated` and notices;
+use paginated `list`, `get`, `why` or export when complete evidence is required.
+
+Series separate exact metric or grader revisions and assessment scopes. The
+numeric plot is a presentation aid for conservative finite scalar values. It
+recognizes declared `number`, `decimal`, `integer`, `float`, `numeric`, and
+`json number` formats (case-insensitive, trimmed), plus legacy typed numeric
+grades. Other formats remain opaque even when the text looks like a number;
+this does not restrict which formats callers may store. Exact
+large integers, precise decimals, labels, JSON and artifacts retain their
+original representation; opaque values get exact-value frequency summaries
+rather than invented numeric scores. Replaced results remain in immutable
+history and are counted separately from current frontiers. Conflicting branches
+remain evidence, without choosing a winner. The interface defines no preferred
+optimization direction and does not execute a metric calculation.
+
+Press `b` for records and `d` for a metric's latest source record. Record detail
+still supports `w` why/history and `l` typed links. These secondary views retain
+motivations, evidence and artifact coordinates without automatically retrieving
+blob contents.
+
 ## Explain changes before recording definitions
 
 A recorded change's motivation includes a reason, the problem, expected behavior, rationale, and provenance. Its evidence links the observation, incident, requirement, or prior result that made the change useful. For historical imports with missing reasons, use the explicit missing state. Do not invent a contemporaneous explanation from a later guess.

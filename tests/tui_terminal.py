@@ -160,6 +160,38 @@ def exercise_analytics(process: subprocess.Popen[bytes], master: int) -> None:
     wait_for_text(process, master, b"No usage observed in this window.")
 
 
+def eval_chart_records() -> list[dict[str, object]]:
+    """A caller's latency metric with three independent completed runs."""
+    occurred = "2026-10-22T12:00:00Z"
+    records: list[dict[str, object]] = []
+
+    def revision(identifier: str, kind: str, body: dict[str, object]) -> None:
+        records.append({"id": identifier, "title": identifier, "occurred_at": occurred,
+                        "body": {"kind": kind, "identity": identifier, "parents": [],
+                                 "change_id": "native-eval-change", **body}})
+
+    revision("native-repo", "repository", {"repository": "fixture-repository", "commit": "a" * 40, "object_format": "sha1"})
+    revision("native-model", "model", {"label": "Router model", "provider": "fixture", "requested_model": "router-v1"})
+    revision("native-case", "case", {"expected_behavior": "Route the input"})
+    revision("native-suite", "suite", {"cases": [{"case_id": "native-case", "grader_ids": [], "weight": 1,
+                                                  "split": "development"}], "aggregation": "Caller defined"})
+    revision("native-target", "target", {"components": [{"id": "router", "role": "dispatch", "repository_id": "native-repo",
+                                                         "model": {"assignment": "fixed", "model_id": "native-model"}}]})
+    revision("native-latency", "metric", {"name": "Router latency", "description": "Elapsed request time", "unit": "seconds",
+             "value_format": "decimal", "calculation": {"description": "Caller monotonic elapsed time",
+             "population": "one run", "aggregation": "none", "exclusions": "none", "missing_data": "unavailable"}})
+    for index, value in enumerate(("10", "8", "7")):
+        run = f"native-run-{index}"
+        timestamp = f"2026-10-{22 + index}T12:00:00Z"
+        records.append({"id": run, "title": run, "occurred_at": timestamp, "body": {"kind": "run",
+                        "target_id": "native-target", "suite_id": "native-suite", "runner": "fixture",
+                        "runner_version": "1", "state": "completed", "selection_rule": "all"}})
+        records.append({"id": f"native-result-{index}", "title": f"Result {index}", "occurred_at": timestamp,
+                        "body": {"kind": "measurement", "metric_id": "native-latency", "subject": {"scope": "run", "id": run},
+                                 "value": {"storage": "inline", "text": value}, "explanation": "Caller result"}})
+    return records
+
+
 def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str, str], terminal: tuple[int, subprocess.Popen[bytes]]) -> None:
     master, process = terminal
     occurred = "2026-10-22T12:00:00Z"
@@ -176,6 +208,7 @@ def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str,
                                 "object_format": "sha1", "path": "images/router-fixture.png", "blob_oid": None,
                                 "entry_mode": "100644"}]}},
     ]
+    records.extend(eval_chart_records())
     fixture = root / "native eval records.json"
     fixture.write_text(json.dumps({"format_version": 1, "records": records}))
     recorded = subprocess.run(
@@ -184,7 +217,11 @@ def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str,
     )
     assert json.loads(recorded.stdout)["ok"] is True
     os.write(master, b"\t")
-    wait_for_text(process, master, b"Eval history")
+    wait_for_text(process, master, (b"Evaluation sets", b"native-suite"))
+    os.write(master, b"\r")
+    wait_for_text(process, master, (b"Router latency", b"seconds", "●".encode()))
+    os.write(master, b"b")
+    wait_for_text(process, master, b"records loaded")
     os.write(master, b"t")
     wait_for_text(process, master, b"Native evaluation change")
     os.write(master, b"\r")
@@ -231,6 +268,8 @@ def seed_work(binary: str, config: Path, root: Path, environment: dict[str, str]
                 "nanoseconds": "250000000", "method": "monotonic", "clock_id": "fixture-process"}})
     observe("native-production", "session", "native-work", 9,
             {"event": "milestone", "name": "production_verified", "context": {"environment": "production"}})
+    observe("native-work-finished", "session", "native-work", 9,
+            {"event": "finished", "outcome": "succeeded", "elapsed": None})
     fixture = root / "native work observations.json"
     fixture.write_text(json.dumps({"format_version": 1, "observations": observations}))
     recorded = subprocess.run([binary, "--config", str(config), "work", "record", str(fixture)],
@@ -243,6 +282,10 @@ def exercise_work(binary: str, config: Path, root: Path, environment: dict[str, 
     seed_work(binary, config, root, environment)
     os.write(master, b"\t")
     wait_for_text(process, master, b"Native work fixture")
+    os.write(master, b"\r")
+    wait_for_text(process, master, (b"Session duration breakdown", b"Grandchild test", "█".encode()))
+    os.write(master, b"d")
+    wait_for_text(process, master, b"work sessions loaded")
     os.write(master, b"\r")
     wait_for_text(process, master, b"Implementation agent")
     os.write(master, b"\x1b[C")

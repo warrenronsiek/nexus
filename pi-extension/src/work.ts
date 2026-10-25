@@ -3,6 +3,7 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 // @boundary work-wire: validate typed projections and bounded observation evidence; the service validates lifecycle bodies.
+import { decodeWorkDashboard, type WorkDashboard } from "./work-dashboard-wire.ts";
 import type { NexusMcpClient } from "./mcp-client.ts";
 import { isJsonValue, type JsonValue } from "./wire-values.ts";
 
@@ -42,6 +43,7 @@ export interface WorkTimeline extends WorkPage { work_session_id: string; parent
 export interface WorkDetail { summary: WorkSummary; observations: WorkObservation[]; links: WorkLink[]; truncated: boolean }
 export interface WorkEvents { observations: WorkObservation[]; next_cursor: string | null }
 export interface WorkApi {
+  dashboard(project: string | null, sessionId?: string, signal?: AbortSignal): Promise<WorkDashboard>;
   activities(project: string | null, query: WorkQuery, signal?: AbortSignal): Promise<WorkPage>;
   list(project: string | null, query: WorkQuery, signal?: AbortSignal): Promise<WorkPage>;
   get(project: string | null, subject: WorkSubject, signal?: AbortSignal): Promise<WorkDetail | null>;
@@ -107,6 +109,10 @@ export class NexusWorkApi implements WorkApi {
   }
   activities(project: string | null, query: WorkQuery, signal?: AbortSignal): Promise<WorkPage> {
     return this.subjects("activity", project, query, signal);
+  }
+  async dashboard(project: string | null, sessionId?: string, signal?: AbortSignal): Promise<WorkDashboard> {
+    const value = await this.read(project, { action: "dashboard", ...(sessionId ? { work_session_id: sessionId } : {}) }, "dashboard", signal);
+    return decodeWorkDashboard(value, sessionId, summary) ?? invalid();
   }
   async get(project: string | null, wanted: WorkSubject, signal?: AbortSignal): Promise<WorkDetail | null> {
     const value = await this.read(project, { action: "get", subject: wanted }, "detail", signal);

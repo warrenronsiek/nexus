@@ -3,9 +3,9 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 import type { WorkApi, WorkDetail, WorkPage, WorkSubject } from "./work.ts";
-import { clampWork, newWorkTree, pushWorkView, workRows, type WorkState, type WorkTree } from "./work-state.ts";
+import { clampWork, newWorkTree, pushWorkView, workRows, type WorkState, type WorkTree, type WorkDashboardView } from "./work-state.ts";
 
-export type WorkIntent = { action: "list"; after?: string } |
+export type WorkIntent = { action: "dashboard"; view: WorkDashboardView } | { action: "list"; after?: string } |
   { action: "children"; tree: WorkTree; parent: string | null; after?: string } |
   { action: "get"; subject: WorkSubject; presentation: "detail" | "links" | "refresh" | "session" } |
   { action: "events"; record: WorkDetail; after?: string } | { action: "refresh_tree"; tree: WorkTree } | { action: "cancel" };
@@ -74,14 +74,21 @@ async function refreshTree(api: WorkApi, state: WorkState, tree: WorkTree, signa
     tree.expanded = new Set(keys.filter(Boolean)); tree.selected = clampWork(tree.selected, workRows(tree).length);
   };
 }
+async function dashboard(api: WorkApi, state: WorkState, view: WorkDashboardView, signal: AbortSignal): Promise<Change> {
+  const data = await api.dashboard(state.project, view.sessionId, signal);
+  return () => { view.data = data; view.selected = clampWork(view.selected, view.sessionId ? data.activities.length : data.sessions.length); view.kindIndex = clampWork(view.kindIndex, data.activity_kinds.length); };
+}
 function fetchChange(api: WorkApi, state: WorkState, intent: ReadIntent, signal: AbortSignal): Promise<Change> {
+  let change: Promise<Change>;
   switch (intent.action) {
-    case "list": return list(api, state, intent, signal);
-    case "children": return children(api, state, intent, signal);
-    case "get": return detail(api, state, intent, signal);
-    case "events": return events(api, state, intent, signal);
-    case "refresh_tree": return refreshTree(api, state, intent.tree, signal);
+    case "dashboard": change = dashboard(api, state, intent.view, signal); break;
+    case "list": change = list(api, state, intent, signal); break;
+    case "children": change = children(api, state, intent, signal); break;
+    case "get": change = detail(api, state, intent, signal); break;
+    case "events": change = events(api, state, intent, signal); break;
+    case "refresh_tree": change = refreshTree(api, state, intent.tree, signal); break;
   }
+  return change;
 }
 export class WorkRequests {
   private pending?: AbortController;
@@ -99,7 +106,7 @@ export class WorkRequests {
       if (this.pending !== request || !this.state.active) return;
       accept(); this.state.status = "live";
     } catch (error) {
-      if (this.pending === request) this.state.status = `${this.state.page ? "stale" : "unavailable"} · ${error instanceof Error ? error.message : String(error)} · r retry`;
+      if (this.pending === request) this.state.status = `${this.state.page || this.state.view.kind === "dashboard" && this.state.view.data ? "stale" : "unavailable"} · ${error instanceof Error ? error.message : String(error)} · r retry`;
     } finally {
       if (this.pending === request) { this.pending = undefined; this.changed(); }
     }

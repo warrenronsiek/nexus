@@ -3,6 +3,7 @@
 // @spec docs/features/evals.md
 // @spec docs/features/observability-ui.md
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { renderEvalGroup, renderEvalSets } from "./evals-dashboard-view.ts";
 import { centeredWindowStart, sanitizeDisplayText } from "./display.ts";
 import { EVAL_DETAIL_ROWS, type EvalHeader, type EvalLifecycle, type EvalRecord, type EvalValue } from "./evals.ts";
 import type { EvalsState, EvalView } from "./evals-state.ts";
@@ -99,12 +100,16 @@ function renderLinks(view: Extract<EvalView, { kind: "links" }>, width: number):
 }
 function renderView(state: EvalsState, width: number): Presentation {
   const view = state.view;
+  let presentation: Presentation;
   switch (view.kind) {
-    case "detail": return renderDetail(view, width);
-    case "why": return { lines: renderHistory(view, width), detailLength: 0 };
-    case "links": return { lines: renderLinks(view, width), detailLength: 0 };
-    case "list": return { lines: renderList(state, width), detailLength: 0 };
+    case "dashboard": presentation = { lines: renderEvalSets(state, width), detailLength: 0 }; break;
+    case "group": presentation = { lines: renderEvalGroup(state, width), detailLength: 0 }; break;
+    case "detail": presentation = renderDetail(view, width); break;
+    case "why": presentation = { lines: renderHistory(view, width), detailLength: 0 }; break;
+    case "links": presentation = { lines: renderLinks(view, width), detailLength: 0 }; break;
+    case "list": presentation = { lines: renderList(state, width), detailLength: 0 }; break;
   }
+  return presentation;
 }
 export function renderEvals(state: EvalsState, width: number, theme: DashboardTheme): Presentation {
   const presented = state.editor ? { lines: [`Filter ${state.editor.field}: ${state.editor.text}▏`, "Enter applies · Escape cancels · empty clears"], detailLength: 0 }

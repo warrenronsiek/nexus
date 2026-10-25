@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 pub(super) fn definition() -> Value {
     json!({
         "name":"nexus_evals",
-        "description":"Record and retrieve immutable evaluation history: motivations, repository/model revisions, caller-owned runs, assessments and decisions. Prefer pinned Git artifacts. Nexus does not execute evaluations or graders. list is paginated; get and why expand evidence. Caller identity is supplied by Nexus.",
+        "description":"Record and retrieve immutable evaluation history: motivations, repository/model revisions, caller-owned runs, assessments and decisions. Prefer pinned Git artifacts. Nexus does not execute evaluations or graders. dashboard groups evaluation sets and current result series with metric definitions, units and coverage; dashboard groups suite/target/model compositions and returns exact-definition result series with explicit coverage bounds; list is paginated; get and why expand evidence. Caller identity is supplied by Nexus.",
         "inputSchema":schema()
     })
 }

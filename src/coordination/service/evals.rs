@@ -98,6 +98,7 @@ fn apply_stored_action(
     match action {
         action @ (EvalAction::Record { .. }
         | EvalAction::List { .. }
+        | EvalAction::Dashboard { .. }
         | EvalAction::Get { .. }
         | EvalAction::Why { .. }) => apply_history_action(store, project, action, actor),
         action => apply_blob_action(store, project, action),
@@ -117,6 +118,12 @@ fn apply_history_action(
         action @ EvalAction::List { .. } => store
             .list_eval_records(project, &list_query(action).expect("list variant"))
             .map(|page| EvalResponse::Listed { ok: true, page }),
+        EvalAction::Dashboard { group_id, .. } => store
+            .eval_dashboard(project, group_id.as_deref())
+            .map(|dashboard| EvalResponse::Dashboard {
+                ok: true,
+                dashboard: Box::new(dashboard),
+            }),
         EvalAction::Get { id, .. } => {
             store
                 .get_eval_record(project, &id)

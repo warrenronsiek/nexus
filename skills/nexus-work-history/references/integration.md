@@ -227,6 +227,23 @@ receipt cutoff. Preserve truncation/conflict/gap notices.
 
 Exercise descendants, repeated tests, shared membership where relevant, and
 unavailable capture. Verify workload output/status and exactly one execution
-alongside delivery. The Work tab in native `nexus tui` and Pi `/nexus` exposes
-the tree and relative timeline. Inclusive nested/parallel intervals are not
-additive effort; unsupported child internals remain unknown.
+alongside delivery. The Work tab in native `nexus tui` and Pi `/nexus` defaults to session
+wall-duration summaries, activity-kind duration bars, and daily history charts.
+`m` switches means/totals; `t` switches session/activity trends; `[` / `]`
+selects an activity-kind series. Enter on a parent session opens a visual
+breakdown of retained descendants without requiring manual tree expansion.
+Nested and parallel bars share the same UTC source-boundary axis. Their
+inclusive intervals overlap and are not additive effort. Missing or conflicted
+elapsed measurements remain unknown and are excluded from means; displayed
+sample counts explain that denominator. Daily buckets use UTC start, falling
+back to the subject's first source occurrence if no start was captured.
+
+The dashboard uses a bounded server projection of recent retained subjects,
+not the first page of the record browser. Source-population, byte, chart-row,
+and selectable-session caps produce explicit partial-history notices. These
+limits and unsupported child internals prevent a completeness claim. Press `d`
+for the secondary record browser, filters, expandable hierarchy, exact elapsed
+text, links, and immutable observations. The MCP read shape is
+`{"action":"dashboard"}` or
+`{"action":"dashboard","work_session_id":"router-change-42"}` on `nexus_work`;
+it never executes or retries the caller's work.

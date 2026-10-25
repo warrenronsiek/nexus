@@ -34,6 +34,10 @@ pub enum EvalAction {
         #[serde(default)]
         limit: Option<u32>,
     },
+    Dashboard {
+        project_id: Option<String>,
+        group_id: Option<String>,
+    },
     Get {
         id: String,
         #[serde(default)]
@@ -78,6 +82,7 @@ impl EvalAction {
     pub(crate) fn read_project(&self) -> Option<&str> {
         match self {
             Self::List { project_id, .. }
+            | Self::Dashboard { project_id, .. }
             | Self::Get { project_id, .. }
             | Self::Why { project_id, .. }
             | Self::BlobGet { project_id, .. }
@@ -90,6 +95,11 @@ impl EvalAction {
 #[derive(Debug, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum EvalResponse {
+    Dashboard {
+        ok: bool,
+        #[serde(flatten)]
+        dashboard: Box<crate::evals::EvalDashboard>,
+    },
     Recorded {
         ok: bool,
         #[serde(flatten)]
