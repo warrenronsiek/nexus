@@ -3,10 +3,7 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/persistence.md
 // @boundary persisted-event-json
-use super::models::{
-    claim_from_row, conflict_from_row, parse_time, session_from_row, ClaimRow, ConflictRow,
-    SessionRow,
-};
+use super::models::{conflict_from_row, parse_time, ConflictRow, SessionRow};
 use super::schema::{claims, conflicts, events, sessions};
 use super::Store;
 use crate::coordination::domain::{
@@ -80,10 +77,11 @@ impl Store {
         project_key: Option<&str>,
         event_limit: usize,
         record_limit: usize,
+        activity_window_seconds: i64,
     ) -> Result<DashboardRecords> {
         let event_limit = event_limit.min(crate::coordination::api::MAX_DASHBOARD_EVENT_RESULTS);
         let record_limit = record_limit.min(crate::coordination::api::MAX_DASHBOARD_RECORD_RESULTS);
-        let counts = self.dashboard_counts(project_key)?;
+        let counts = self.dashboard_counts(project_key, activity_window_seconds)?;
 
         let (event_items, events_truncated) = self.load_event_window(project_key, event_limit)?;
         let events = RecordWindow {
@@ -91,44 +89,22 @@ impl Store {
             truncated: events_truncated,
         };
 
-        let mut session_query = sessions::table.into_boxed();
-        if let Some(project_key) = project_key {
-            session_query = session_query.filter(sessions::project_id.eq(project_key));
-        }
-        let session_rows = session_query
-            .order((sessions::last_seen_at.desc(), sessions::session_id.asc()))
-            .limit(query_window_limit(record_limit))
-            .select(SessionRow::as_select())
-            .load(&mut self.connection)?;
-        let sessions = RecordWindow::bounded(
-            session_rows
-                .into_iter()
-                .map(session_from_row)
-                .collect::<Result<Vec<_>>>()?,
+        let sessions = self.list_sessions_window(
+            project_key,
+            crate::coordination::domain::RecordScope::Active,
+            activity_window_seconds,
             record_limit,
-        );
+        )?;
+        let claims = self.list_claims_window(
+            project_key,
+            crate::coordination::domain::RecordScope::Active,
+            record_limit,
+        )?;
 
-        let mut claim_query = claims::table
-            .filter(claims::state.eq_any(["claimed", "modified"]))
-            .filter(claims::expires_at.gt(Utc::now().to_rfc3339()))
+        // The dashboard prioritizes recently changed conflicts; history lists use creation order.
+        let mut conflict_query = conflicts::table
+            .filter(super::liveness::live_conflict())
             .into_boxed();
-        if let Some(project_key) = project_key {
-            claim_query = claim_query.filter(claims::project_id.eq(project_key));
-        }
-        let claim_rows = claim_query
-            .order((claims::updated_at.desc(), claims::id.asc()))
-            .limit(query_window_limit(record_limit))
-            .select(ClaimRow::as_select())
-            .load(&mut self.connection)?;
-        let claims = RecordWindow::bounded(
-            claim_rows
-                .into_iter()
-                .map(claim_from_row)
-                .collect::<Result<Vec<_>>>()?,
-            record_limit,
-        );
-
-        let mut conflict_query = conflicts::table.into_boxed();
         if let Some(project_key) = project_key {
             conflict_query = conflict_query.filter(conflicts::project_id.eq(project_key));
         }
@@ -154,10 +130,18 @@ impl Store {
         })
     }
 
-    fn dashboard_counts(&mut self, project_key: Option<&str>) -> Result<StatusCounts> {
-        let mut session_query = sessions::table.into_boxed();
+    pub(super) fn dashboard_counts(
+        &mut self,
+        project_key: Option<&str>,
+        activity_window_seconds: i64,
+    ) -> Result<StatusCounts> {
+        let mut session_query = sessions::table
+            .filter(super::liveness::recent_session(activity_window_seconds))
+            .into_boxed();
         let mut claim_query = claims::table.into_boxed();
-        let mut conflict_query = conflicts::table.into_boxed();
+        let mut conflict_query = conflicts::table
+            .filter(super::liveness::live_conflict())
+            .into_boxed();
         let mut event_query = events::table.into_boxed();
         if let Some(project_key) = project_key {
             session_query = session_query.filter(sessions::project_id.eq(project_key));
@@ -167,7 +151,6 @@ impl Store {
         }
         Ok(StatusCounts {
             active_sessions: session_query
-                .filter(sessions::status.eq("active"))
                 .select(count_star())
                 .first(&mut self.connection)?,
             active_claims: claim_query
@@ -176,7 +159,6 @@ impl Store {
                 .select(count_star())
                 .first(&mut self.connection)?,
             open_conflicts: conflict_query
-                .filter(conflicts::status.eq("open"))
                 .select(count_star())
                 .first(&mut self.connection)?,
             events: event_query

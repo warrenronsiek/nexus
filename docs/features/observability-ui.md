@@ -181,3 +181,8 @@ an activity's source detail; `w` lists its recorded or derived containing work
 sessions and follows a selected session back to its canonical hierarchy. Missing
 membership remains explicit. Empty filter input clears the selected filter, and the header identifies
 the actual project scope.
+
+Coordination overview counters and records show recent sessions, live claims, and
+live unresolved conflicts using the shared persistence liveness predicates. They
+do not present accumulated historical open conflicts as current collisions.
+Historical records remain available through explicit CLI/MCP all-scope queries.

@@ -263,7 +263,7 @@ impl NexusService {
             .store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))
-            .and_then(|mut store| store.counts())
+            .and_then(|mut store| store.counts(self.loaded.config.coordination.claim_ttl_seconds))
         {
             Ok(counts) => ServiceResponse::Status(StatusResponse {
                 ok: true,
@@ -303,7 +303,7 @@ impl NexusService {
             }
             ServiceReadiness::SharedStore => match self.store.try_lock() {
                 Ok(mut store) => {
-                    store.counts()?;
+                    store.counts(self.loaded.config.coordination.claim_ttl_seconds)?;
                     Ok("ready")
                 }
                 Err(TryLockError::WouldBlock) => Ok("busy"),
@@ -400,6 +400,7 @@ impl NexusService {
                     query.project_id.as_deref(),
                     self.loaded.config.ui.recent_event_limit,
                     self.loaded.config.ui.recent_record_limit,
+                    self.loaded.config.coordination.claim_ttl_seconds,
                 )
             }) {
             Ok(records) => ServiceResponse::Dashboard(DashboardResponse {

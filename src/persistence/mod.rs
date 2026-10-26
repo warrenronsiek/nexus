@@ -13,6 +13,7 @@ mod backend;
 mod conflicts;
 mod dashboard;
 mod evals;
+mod liveness;
 mod lookup;
 mod memory;
 mod migrations;

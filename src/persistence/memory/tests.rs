@@ -201,8 +201,8 @@ fn failed_session_commit_does_not_poison_memory_writes() {
         )
         .unwrap();
     assert!(written.inserted);
-    assert_eq!(reader.counts().unwrap().active_sessions, 0);
-    assert_eq!(reader.counts().unwrap().events, 0);
+    assert_eq!(reader.counts(120).unwrap().active_sessions, 0);
+    assert_eq!(reader.counts(120).unwrap().events, 0);
     let persisted = reader
         .search_memories(&MemoryReadScope::Global, ".*", 10)
         .unwrap();

@@ -58,7 +58,7 @@ pub fn hook_configuration(host: Host, executable: &Path, explicit_config: Option
     );
     hooks.insert(
         "PostToolUse".into(),
-        json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_use", agent, turn_id, Some(("tool_output", "${tool_response}")))]}]),
+        json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_use", agent, turn_id, None)]}]),
     );
     hooks.insert(
         "SessionEnd".into(),

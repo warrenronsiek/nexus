@@ -304,6 +304,15 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
+    // Ordering tests supply distinct times instead of relying on filesystem clock precision.
+    fn set_fixture_time(queue: &Outbox, id: &str, seconds: u64) {
+        let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds);
+        File::open(queue.directory.join(format!("{id}.json")))
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+    }
+
     #[test]
     fn concurrent_producers_survive_a_slow_writer_without_losing_boundaries() {
         let temp = tempfile::tempdir().unwrap();
@@ -404,6 +413,8 @@ mod tests {
         let queue = Outbox::open(temp.path()).unwrap();
         queue.enqueue("valid-one", b"valid one").unwrap();
         queue.enqueue("valid-two", b"valid two").unwrap();
+        set_fixture_time(&queue, "valid-one", 1);
+        set_fixture_time(&queue, "valid-two", 2);
         let pending = queue.pending().unwrap();
         assert_eq!(pending.len(), 2);
         assert_eq!(pending[0].bytes, b"valid one");
@@ -511,6 +522,8 @@ mod tests {
         let queue = Outbox::open(&path).unwrap();
         queue.enqueue("first", b"first-observation").unwrap();
         queue.enqueue("second", b"second-observation").unwrap();
+        set_fixture_time(&queue, "first", 1);
+        set_fixture_time(&queue, "second", 2);
         drop(queue);
 
         let queue = Outbox::open(&path).unwrap();
