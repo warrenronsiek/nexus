@@ -45,8 +45,8 @@ function overviewEntries(snapshot: Snapshot): Entry[] {
   const scope = projectId === null ? "All projects" : shortId(projectId);
   return [
     { value: "section:projects", label: "Project scope", description: scope },
-    { value: "section:conflicts", label: `Conflicts  ${counts.open_conflicts}`, description: "Open overlaps" },
-    { value: "section:sessions", label: `Sessions   ${counts.active_sessions}`, description: "Active agents" },
+    { value: "section:conflicts", label: `Conflicts  ${counts.open_conflicts}`, description: "Live unresolved overlaps" },
+    { value: "section:sessions", label: `Sessions   ${counts.active_sessions}`, description: "Recent coordination activity" },
     { value: "section:claims", label: `Claims     ${counts.active_claims}`, description: "Advisory path ownership" },
     { value: "section:events", label: `Events     ${counts.events}`, description: "Recent activity" },
   ];

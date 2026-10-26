@@ -56,7 +56,7 @@ flowchart TD
 7. **Classify overlap** deterministically assigns informational, warning, or critical severity based on operations and line ranges. Nexus first selects at most the advisory cap of distinct other sessions, then returns each selected session's strongest active claim on the path, so a session with many recent edits can neither flood the caller nor hide another session or its own older, stronger overlap.
 8. **Persist claim, conflict, and advisory** records both history and queryable projections before returning context. A project, path, and unordered session pair identify one conflict projection. Its severity is monotonic: weaker observations cannot hide an active stronger overlap. Resolution remains stable until a later observation is strictly more severe, which reopens the projection with an explicit event. Each advisory occurrence remains in history.
 9. **Permissive HookResponse with context** always reports `permitted: true`. Advisories are information for the calling agent.
-10. **Record completion state** records success or failure. Successful tool calls move matching claims to `modified` only inside the resolved project; configured history can note that an advisory was knowingly crossed.
+10. **Record completion state** records success or failure. Successful tool calls move matching claims to `modified` only inside the resolved project; configured history can note successful completion after an advisory. This records continuation, not proof that the host delivered the warning or that the agent read it.
 11. **Release session claims** ends a session's active coordination footprint without deleting history. Session stop and explicit release are project-qualified, so equal host-assigned session IDs in different project namespaces cannot affect one another.
 12. **Read or update projections** covers status, event, session, claim, conflict, usage, memory, papercut, resolution, release, and explicit analysis commands. Capability observations, agent memory, and papercuts share the typed service boundary but remain separate features and projections from coordination history.
 13. **Persistence** is a separate capability. Coordination asks for domain operations and receives typed records rather than Diesel rows or JSON maps.
@@ -69,6 +69,23 @@ flowchart TD
 The primary entry point is `NexusService::handle` in `src/coordination/service.rs`. `ServiceRequest` and response records live in `api.rs`; domain states such as `RecordScope`, `ConflictScope`, `ToolCompletion`, `ClaimState`, and `Severity` live in `domain.rs`. Memory and papercut request handling are delegated to feature-scoped service modules and return typed feature-domain values. Memory consolidation and papercut duplicate review never run in a lifecycle request.
 
 `classifier.rs` owns deterministic tool-payload extraction and overlap classification. One tool call can yield at most 256 distinct path intents, 256 KiB of aggregate canonical path text, and 4 KiB per path. Patch and shell parsing accepts at most 1 MiB of source text, and patch scanning stops after 8,192 lines. Inputs beyond those observation bounds contribute no additional claims rather than extending store-mutex work without limit; the underlying tool remains permitted. `usage_detection.rs` separately identifies conservative script invocations inside observed shell commands; analytics normalization and fail-open recording live in `usage.rs`. Open-ended tool input is isolated behind `ToolPayload`; these extractors may inspect that boundary value, but storage and service interfaces do not accept anonymous maps. `workspace.rs` isolates local Git process execution and the distinction between a durable project ID, an optional lexical claim root, and an optional server-readable worktree.
+
+Live coordination is a derived view, not the persisted session status. A session is
+visible in active queries and dashboard records only when its stored status is
+active and either it was observed within `coordination.claim_ttl_seconds` or it
+still owns an unexpired claimed/modified lease. Idle sessions disappear without a
+stop hook and reappear on their next lifecycle observation; Nexus does not infer
+process death or rewrite history. A stopped session is never live.
+
+The `open` conflict query, dashboard conflict records, and `open_conflicts` count
+show unresolved overlaps only while **both original sessions** own a current live
+claim on the same project/path. Replacement claim IDs do not hide an overlap.
+Release, stop, or lease expiry removes it from the live view immediately. The
+stored resolution and audit history remain unchanged; `conflicts --all` and
+`sessions --all` retain historical observations. Live session counts describe
+recent coordination evidence, not OS processes or connected MCP clients. Git
+reconciliation reports a dirty-worktree footprint; its claim count is not the
+number of files an agent deliberately selected for editing.
 
 Ordinary projection reads are server-bounded before Diesel materializes them: sessions and claims return at most 64 rows, conflicts at most 32, and each response adds a `truncated` flag without changing its existing array field. These three reads share one typed `BoundedRecordQuery` lifecycle for project binding, store access, truncation-preserving response construction, and error translation, while their record and scope types remain explicit variants. Visible session synopses are capped at 1 KiB, including historical rows. One lifecycle request queries, persists, and returns at most 32 overlap advisories across all extracted intents; active-claim selection groups by other session before applying that remaining cap and uses a constant number of bounded lookups per selected session to preserve the exact classifier priority. Later intents still receive claims but cannot amplify conflict transactions after that global budget is exhausted. Recording remains advisory and fail open.
 

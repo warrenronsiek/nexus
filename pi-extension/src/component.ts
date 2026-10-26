@@ -230,7 +230,7 @@ function addOverviewCounts(container: Container, snapshot: Snapshot, theme: Them
   const counts = snapshot.dashboard.counts;
   container.addChild(
     new Text(
-      `${theme.fg("success", String(counts.active_sessions))} sessions   ${theme.fg("accent", String(counts.active_claims))} claims   ${theme.fg(counts.open_conflicts > 0 ? "error" : "muted", String(counts.open_conflicts))} conflicts`,
+      `${theme.fg("success", String(counts.active_sessions))} recent sessions   ${theme.fg("accent", String(counts.active_claims))} live claims   ${theme.fg(counts.open_conflicts > 0 ? "error" : "muted", String(counts.open_conflicts))} live conflicts`,
       1,
       1,
     ),

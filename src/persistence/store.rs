@@ -7,7 +7,7 @@ use super::models::{
     claim_from_row, encode_line, parse_time, session_from_row, ClaimRow, EventRow, NewClaim,
     NewEvent, NewSession, SessionRow,
 };
-use super::schema::{advisories, claims, conflicts, events, sessions};
+use super::schema::{advisories, claims, events, sessions};
 use super::window::bounded_projection_reader;
 use crate::coordination::domain::{
     Claim, ClaimState, EventRecord, IgnoredAdvisoryPolicy, PathIntent, RecordScope, SessionRecord,
@@ -521,29 +521,8 @@ impl Store {
         Ok((records, truncated))
     }
 
-    pub fn counts(&mut self) -> Result<StatusCounts> {
-        let session_count = sessions::table
-            .filter(sessions::status.eq("active"))
-            .select(count_star())
-            .first::<i64>(&mut self.connection)?;
-        let claim_count = claims::table
-            .filter(claims::state.eq_any(["claimed", "modified"]))
-            .filter(claims::expires_at.gt(Utc::now().to_rfc3339()))
-            .select(count_star())
-            .first::<i64>(&mut self.connection)?;
-        let conflict_count = conflicts::table
-            .filter(conflicts::status.eq("open"))
-            .select(count_star())
-            .first::<i64>(&mut self.connection)?;
-        let event_count = events::table
-            .select(count_star())
-            .first::<i64>(&mut self.connection)?;
-        Ok(StatusCounts {
-            active_sessions: session_count,
-            active_claims: claim_count,
-            open_conflicts: conflict_count,
-            events: event_count,
-        })
+    pub fn counts(&mut self, activity_window_seconds: i64) -> Result<StatusCounts> {
+        self.dashboard_counts(None, activity_window_seconds)
     }
 
     pub(crate) fn reconcilable_sessions(
@@ -568,16 +547,22 @@ impl Store {
             .collect()
     }
 
-    pub fn list_sessions(&mut self, scope: RecordScope) -> Result<Vec<SessionRecord>> {
-        Ok(self.list_sessions_window(None, scope)?.items)
+    pub fn list_sessions(
+        &mut self,
+        scope: RecordScope,
+        activity_window_seconds: i64,
+    ) -> Result<Vec<SessionRecord>> {
+        Ok(self
+            .list_sessions_window(None, scope, activity_window_seconds)?
+            .items)
     }
 
     bounded_projection_reader! {
-        pub(crate) fn list_sessions_window(project_key, scope: RecordScope) -> SessionRecord {
+        pub(crate) fn list_sessions_window(project_key, scope: RecordScope, activity_window_seconds: i64) -> SessionRecord {
             table: sessions::table,
             project_column: sessions::project_id,
             scoped_when: scope == RecordScope::Active,
-            scoped_filter: sessions::status.eq("active"),
+            scoped_filter: super::liveness::recent_session(activity_window_seconds),
             order: (
                 sessions::last_seen_at.desc(),
                 sessions::project_id.asc(),

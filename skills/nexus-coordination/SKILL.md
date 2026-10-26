@@ -55,6 +55,14 @@ nexus conflicts
 nexus events --limit 32
 ```
 
+Active lists and dashboard counters describe recent coordination evidence: sessions
+age out after the claim TTL unless they retain a live lease, and open conflicts
+require current claims from both original sessions on the path. Stop, release, or
+expiry removes the live overlap without resolving or deleting its history. Use
+`nexus sessions --all` and `nexus conflicts --all` for history. An
+`advisory_ignored` event means successful continuation after an advisory; it does
+not verify host delivery or agent acknowledgement.
+
 The matching MCP tools are `nexus_sessions`, `nexus_claims`, `nexus_conflicts`,
 and `nexus_events`. Read schemas for their optional project and scope filters;
 CLI `--all` and MCP `scope: "all"` select historical states, but responses remain

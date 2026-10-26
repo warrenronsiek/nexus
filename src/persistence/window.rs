@@ -11,7 +11,7 @@ macro_rules! bounded_projection_reader {
     (
         $visibility:vis fn $name:ident(
             $project_key:ident,
-            $scope:ident: $scope_type:ty
+            $scope:ident: $scope_type:ty $(, $argument:ident: $argument_type:ty)*
         ) -> $record:ty {
             table: $table:expr,
             project_column: $project_column:expr,
@@ -27,6 +27,7 @@ macro_rules! bounded_projection_reader {
             &mut self,
             $project_key: Option<&str>,
             $scope: $scope_type,
+            $($argument: $argument_type,)*
         ) -> anyhow::Result<$crate::coordination::domain::RecordWindow<$record>> {
             let mut query = ($table).into_boxed();
             if let Some($project_key) = $project_key {
