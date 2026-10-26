@@ -59,6 +59,9 @@ conflicts. Counts, active lists, and dashboard records apply those predicates
 before database windows, without mutating historical statuses or resolutions.
 Session activity uses the configured claim TTL and any remaining live leases;
 conflict liveness follows the original session pair through replacement leases.
+The service passes the activity window explicitly. Dashboard and list session/claim
+windows share their capped readers; dashboard conflicts intentionally prioritize
+recent updates while conflict history lists retain creation ordering.
 
 Ordinary projection queries apply deterministic database windows before materialization: sessions and claims expose at most 64 rows, conflicts at most 32, dashboard events at most 32, and each dashboard projection class at most 16. Overlap lookup first selects at most 32 distinct active sessions by their most recent claim, then performs a constant number of single-row typed queries per selected session to retain its strongest relevant claim; repeated claims from one session therefore cannot consume another session's advisory slot. Project discovery exposes at most 16 project identities with four recent member sessions per summary. Usage selects at most 64 top dimensions before bounded detail and distinct-session reads. Every affected response reports truncation without changing its established array field.
 

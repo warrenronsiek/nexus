@@ -46,8 +46,11 @@ impl BoundedRecordQuery {
     fn load(self, store: &mut Store, activity_window_seconds: i64) -> Result<ServiceResponse> {
         match self {
             Self::Claims(query) => {
-                let window =
-                    store.list_claims_window(query.project_id.as_deref(), query.scope())?;
+                let window = store.list_claims_window(
+                    query.project_id.as_deref(),
+                    query.scope(),
+                    crate::coordination::api::MAX_CLAIM_RESULTS,
+                )?;
                 Ok(ServiceResponse::Claims(ClaimsResponse {
                     ok: true,
                     claims: window.items,
@@ -59,6 +62,7 @@ impl BoundedRecordQuery {
                     query.project_id.as_deref(),
                     query.scope(),
                     activity_window_seconds,
+                    crate::coordination::api::MAX_SESSION_RESULTS,
                 )?;
                 Ok(ServiceResponse::Sessions(SessionsResponse {
                     ok: true,

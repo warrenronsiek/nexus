@@ -553,12 +553,17 @@ impl Store {
         activity_window_seconds: i64,
     ) -> Result<Vec<SessionRecord>> {
         Ok(self
-            .list_sessions_window(None, scope, activity_window_seconds)?
+            .list_sessions_window(
+                None,
+                scope,
+                activity_window_seconds,
+                crate::coordination::api::MAX_SESSION_RESULTS,
+            )?
             .items)
     }
 
     bounded_projection_reader! {
-        pub(crate) fn list_sessions_window(project_key, scope: RecordScope, activity_window_seconds: i64) -> SessionRecord {
+        pub(crate) fn list_sessions_window(project_key, scope: RecordScope, activity_window_seconds: i64, limit: usize) -> SessionRecord {
             table: sessions::table,
             project_column: sessions::project_id,
             scoped_when: scope == RecordScope::Active,
@@ -570,7 +575,7 @@ impl Store {
             ),
             row: SessionRow,
             decode: session_from_row,
-            maximum: crate::coordination::api::MAX_SESSION_RESULTS,
+            maximum: limit.min(crate::coordination::api::MAX_SESSION_RESULTS),
         }
     }
 
@@ -579,11 +584,17 @@ impl Store {
         project_key: Option<&str>,
         scope: RecordScope,
     ) -> Result<Vec<Claim>> {
-        Ok(self.list_claims_window(project_key, scope)?.items)
+        Ok(self
+            .list_claims_window(
+                project_key,
+                scope,
+                crate::coordination::api::MAX_CLAIM_RESULTS,
+            )?
+            .items)
     }
 
     bounded_projection_reader! {
-        pub(crate) fn list_claims_window(project_key, scope: RecordScope) -> Claim {
+        pub(crate) fn list_claims_window(project_key, scope: RecordScope, limit: usize) -> Claim {
             table: claims::table,
             project_column: claims::project_id,
             scoped_when: scope == RecordScope::Active,
@@ -593,7 +604,7 @@ impl Store {
             order: (claims::updated_at.desc(), claims::id.asc()),
             row: ClaimRow,
             decode: claim_from_row,
-            maximum: crate::coordination::api::MAX_CLAIM_RESULTS,
+            maximum: limit.min(crate::coordination::api::MAX_CLAIM_RESULTS),
         }
     }
 }

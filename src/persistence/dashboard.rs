@@ -3,14 +3,11 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/persistence.md
 // @boundary persisted-event-json
-use super::models::{
-    claim_from_row, conflict_from_row, parse_time, session_from_row, ClaimRow, ConflictRow,
-    SessionRow,
-};
+use super::models::{conflict_from_row, parse_time, ConflictRow, SessionRow};
 use super::schema::{claims, conflicts, events, sessions};
 use super::Store;
 use crate::coordination::domain::{
-    query_window_limit, DashboardRecords, ProjectSummary, RecordWindow, SessionRecord, StatusCounts,
+    query_window_limit, DashboardRecords, ProjectSummary, RecordWindow, StatusCounts,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -92,29 +89,19 @@ impl Store {
             truncated: events_truncated,
         };
 
-        let sessions =
-            self.dashboard_sessions(project_key, record_limit, activity_window_seconds)?;
-
-        let mut claim_query = claims::table
-            .filter(claims::state.eq_any(["claimed", "modified"]))
-            .filter(claims::expires_at.gt(Utc::now().to_rfc3339()))
-            .into_boxed();
-        if let Some(project_key) = project_key {
-            claim_query = claim_query.filter(claims::project_id.eq(project_key));
-        }
-        let claim_rows = claim_query
-            .order((claims::updated_at.desc(), claims::id.asc()))
-            .limit(query_window_limit(record_limit))
-            .select(ClaimRow::as_select())
-            .load(&mut self.connection)?;
-        let claims = RecordWindow::bounded(
-            claim_rows
-                .into_iter()
-                .map(claim_from_row)
-                .collect::<Result<Vec<_>>>()?,
+        let sessions = self.list_sessions_window(
+            project_key,
+            crate::coordination::domain::RecordScope::Active,
+            activity_window_seconds,
             record_limit,
-        );
+        )?;
+        let claims = self.list_claims_window(
+            project_key,
+            crate::coordination::domain::RecordScope::Active,
+            record_limit,
+        )?;
 
+        // The dashboard prioritizes recently changed conflicts; history lists use creation order.
         let mut conflict_query = conflicts::table
             .filter(super::liveness::live_conflict())
             .into_boxed();
@@ -141,32 +128,6 @@ impl Store {
             claims,
             conflicts,
         })
-    }
-
-    fn dashboard_sessions(
-        &mut self,
-        project_key: Option<&str>,
-        record_limit: usize,
-        activity_window_seconds: i64,
-    ) -> Result<RecordWindow<SessionRecord>> {
-        let mut session_query = sessions::table
-            .filter(super::liveness::recent_session(activity_window_seconds))
-            .into_boxed();
-        if let Some(project_key) = project_key {
-            session_query = session_query.filter(sessions::project_id.eq(project_key));
-        }
-        let session_rows = session_query
-            .order((sessions::last_seen_at.desc(), sessions::session_id.asc()))
-            .limit(query_window_limit(record_limit))
-            .select(SessionRow::as_select())
-            .load(&mut self.connection)?;
-        Ok(RecordWindow::bounded(
-            session_rows
-                .into_iter()
-                .map(session_from_row)
-                .collect::<Result<Vec<_>>>()?,
-            record_limit,
-        ))
     }
 
     pub(super) fn dashboard_counts(

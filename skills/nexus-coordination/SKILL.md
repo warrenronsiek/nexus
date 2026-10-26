@@ -39,6 +39,10 @@ evidence. Neither path proves complete coverage of all edits.
 
 Keep lifecycle delivery bounded and advisory. Malformed input, an unavailable
 service, or failed persistence must not deny or repeat the underlying tool call.
+Preserve structured tool inputs when the host can do so. Nexus also accepts the
+single JSON-string object layer emitted by Claude MCP hook templates; opaque or
+malformed inputs remain fail open and do not create guessed path claims.
+
 Match completion to execution, and send session stop even when a task failed.
 Do not equate a stopped host session with successful logical work; use
 [nexus-work-history](../nexus-work-history/SKILL.md) for nested tasks, repeated
