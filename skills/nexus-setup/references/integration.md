@@ -85,3 +85,9 @@ the relevant feature; a service health response alone cannot prove capture.
 Repeat an event delivery with its original identity to check idempotency, then
 simulate unavailable capture without rerunning the workload. Report observable
 gaps and leave the caller's execution policy intact.
+
+Generated successful-completion hooks omit tool results. They retain the original
+tool identity and input for completion and claim accounting without forwarding
+large images or text through the bounded MCP transport. Keep that metadata-only
+boundary when composing native host hooks; explicit diagnostic adapters remain
+responsible for bounding any optional output they submit.
