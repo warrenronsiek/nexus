@@ -5,17 +5,20 @@
 // @feature agent-memory
 // @feature papercuts
 // @feature sos
+// @feature work-history
 // @spec docs/features/runtime.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @spec docs/features/work-history.md
 // @entrypoint serve_stdio
 // @boundary dynamic-json
 use super::bounded_io;
 use crate::config::LoadedConfig;
 use crate::coordination::api::ServiceRequest;
 use crate::coordination::domain::HookResponse;
+use crate::runtime::work_capture::CaptureReceipt;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -81,6 +84,14 @@ impl McpInvocationContext {
 #[async_trait]
 pub(crate) trait ServiceInvoker: Send + Sync {
     async fn invoke(&self, request: ServiceRequest, lifecycle: bool) -> Result<Value>;
+    async fn reject_lifecycle(&self, _agent: &str) -> Option<CaptureReceipt> {
+        None
+    }
+    async fn capture_health(&self) -> Result<Value> {
+        Ok(
+            json!({"ok":true,"scope":"unavailable","available":false,"reason":"local_capture_not_exposed"}),
+        )
+    }
 }
 
 /// Answers each request on its own task. Hosts multiplex hooks from many threads and
@@ -249,18 +260,42 @@ async fn tool_call(
         return invalid_params(id, "tools/call arguments must be an object");
     }
     let arguments = bind_tool_context(method, arguments, invocation_context);
-    let mut result = match ServiceRequest::decode(method, arguments) {
-        Ok(request) => invoker
-            .invoke(request, lifecycle)
-            .await
-            .unwrap_or_else(|error| json!({"ok":false,"error":error.to_string()})),
-        Err(error) if lifecycle => serde_json::to_value(HookResponse::fail_open(error)).unwrap(),
-        Err(error) => return invalid_params(id, error.to_string()),
+    let mut result = if method == "capture_health" {
+        if !arguments
+            .as_object()
+            .is_some_and(|object| object.is_empty())
+        {
+            return invalid_params(id, "capture health takes no arguments");
+        }
+        invoker.capture_health().await.unwrap_or_else(|_| json!({"ok":true,"scope":"local_companion","available":false,"reason":"busy_or_unavailable"}))
+    } else {
+        match ServiceRequest::decode(method, arguments) {
+            Ok(request) => invoker
+                .invoke(request, lifecycle)
+                .await
+                .unwrap_or_else(|error| json!({"ok":false,"error":error.to_string()})),
+            Err(error) if lifecycle => {
+                rejected_lifecycle(invoker, &invocation_context.agent, error).await
+            }
+            Err(error) => return invalid_params(id, error.to_string()),
+        }
     };
     add_hook_context(method, &mut result);
     let text = hook_text(method, &result);
     let is_error = tool_result_is_error(&result);
     json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&text).unwrap()}],"structuredContent":result,"isError":is_error}})
+}
+
+async fn rejected_lifecycle(
+    invoker: &dyn ServiceInvoker,
+    agent: &str,
+    error: anyhow::Error,
+) -> Value {
+    let mut result = serde_json::to_value(HookResponse::fail_open(error)).unwrap();
+    if let Some(receipt) = invoker.reject_lifecycle(agent).await {
+        result["work_capture"] = json!(receipt);
+    }
+    result
 }
 
 fn bind_tool_context(

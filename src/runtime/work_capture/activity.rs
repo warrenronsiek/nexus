@@ -3,7 +3,9 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/runtime.md
 use super::*;
-use crate::work_history::{Elapsed, WorkContext, WorkEvent, WorkOutcome, WorkSubject};
+use crate::work_history::{
+    Elapsed, WorkAccountingRole, WorkContext, WorkEvent, WorkOutcome, WorkSubject,
+};
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -13,6 +15,8 @@ pub struct CaptureContext {
     pub parent_activity_id: Option<String>,
     pub executor: Option<WorkExecutor>,
     pub environment: Option<String>,
+    pub accounting_role: WorkAccountingRole,
+    context_gap: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,29 +28,77 @@ pub struct WorkExecutor {
 
 impl CaptureContext {
     pub fn from_environment(root: &Path) -> Self {
-        Self::from_hook(HookContext {
+        let mut context = Self::from_hook(HookContext {
             session_id: std::env::var("NEXUS_HOST_SESSION_ID")
                 .unwrap_or_else(|_| format!("command-{}", process_instance_id())),
             agent: std::env::var("NEXUS_AGENT").unwrap_or_else(|_| "nexus-cli".into()),
             project_root: Some(root.to_string_lossy().into_owned()),
             turn_id: std::env::var("NEXUS_TURN_ID").ok(),
             model: std::env::var("NEXUS_MODEL").ok(),
-        })
+        });
+        if let Ok(value) = std::env::var("NEXUS_WORK_CONTEXT") {
+            if let Ok(handoff) = super::WorkHandoff::decode(value.as_bytes()) {
+                handoff.apply_defaults(&mut context);
+            }
+        }
+        context
     }
 
     pub fn from_hook(hook: HookContext) -> Self {
-        Self {
+        let mut context = Self {
             hook,
             work_session_id: std::env::var("NEXUS_WORK_SESSION_ID").ok(),
             parent_activity_id: std::env::var("NEXUS_PARENT_ACTIVITY_ID").ok(),
             executor: None,
             environment: std::env::var("NEXUS_WORK_ENVIRONMENT").ok(),
+            accounting_role: WorkAccountingRole::Execution,
+            context_gap: None,
+        };
+        if let Ok(value) = std::env::var("NEXUS_WORK_CONTEXT") {
+            match super::WorkHandoff::decode(value.as_bytes()) {
+                Ok(handoff) => {
+                    context.work_session_id =
+                        context.work_session_id.or(Some(handoff.work_session_id));
+                    context.parent_activity_id =
+                        context.parent_activity_id.or(handoff.parent_activity_id);
+                }
+                Err(_) => context.context_gap = Some("invalid_context_handoff".into()),
+            }
         }
+        context
+    }
+
+    pub fn with_active_host(mut self, loaded: &LoadedConfig) -> Self {
+        // Only an exact caller-supplied host identity can consult this project bridge.
+        if std::env::var_os("NEXUS_HOST_SESSION_ID").is_some()
+            && std::env::var_os("NEXUS_AGENT").is_some()
+        {
+            if let Ok(active) =
+                super::active_host_context(loaded, &self.hook.agent, &self.hook.session_id)
+            {
+                active.apply_defaults(&mut self);
+            }
+        }
+        self
     }
 
     pub(super) fn work_context(&self) -> WorkContext {
         let mut context = lifecycle::context_from_hook(&self.hook);
         context.environment = self.environment.clone();
+        let role = match self.accounting_role {
+            WorkAccountingRole::Container => "container",
+            WorkAccountingRole::Execution => "execution",
+            WorkAccountingRole::Wait => "wait",
+            WorkAccountingRole::Unknown => "unknown",
+        };
+        context
+            .labels
+            .insert("nexus.accounting.role".into(), role.into());
+        if let Some(gap) = &self.context_gap {
+            context
+                .labels
+                .insert("nexus.capture.gap".into(), gap.clone());
+        }
         if let Some(executor) = &self.executor {
             context.model_id = executor.model_id.clone();
             context.agent_instance_id = Some(executor.instance_id.clone());
@@ -110,18 +162,23 @@ impl ActivityCapture {
         let mut observations = Vec::new();
         if context.work_session_id.is_none() {
             let work_id = stable_id(&["work", &context.hook.agent, &context.hook.session_id]);
-            observations.push(lifecycle::event(
-                WorkSubject::Session {
-                    id: work_id.clone(),
-                },
-                "opened",
-                WorkEvent::SessionOpened {
-                    title: "Observed agent work".into(),
-                    context: context.work_context(),
-                },
-            ));
+            observations.push(lifecycle::opened_root(&context, &work_id));
             context.work_session_id = Some(work_id);
         }
+        let executor = context
+            .executor
+            .as_ref()
+            .map(|executor| executor.instance_id.clone())
+            .unwrap_or_else(|| id.clone());
+        let mut activity_context = context.work_context();
+        let executor_name = context
+            .executor
+            .as_ref()
+            .map(|executor| executor.name.as_str())
+            .unwrap_or(&context.hook.agent);
+        activity_context
+            .labels
+            .insert("nexus.executor.name".into(), executor_name.into());
         observations.extend([
             lifecycle::event(
                 subject.clone(),
@@ -132,14 +189,8 @@ impl ActivityCapture {
                     work_session_id: context.work_session_id.clone(),
                     parent_activity_id: context.parent_activity_id.clone(),
                     initiator: Some(context.hook.agent.clone()),
-                    executor: Some(
-                        context
-                            .executor
-                            .as_ref()
-                            .map(|executor| executor.name.clone())
-                            .unwrap_or_else(|| context.hook.agent.clone()),
-                    ),
-                    context: context.work_context(),
+                    executor: Some(executor),
+                    context: activity_context,
                 },
             ),
             lifecycle::event(subject, "started", WorkEvent::Started),
@@ -161,6 +212,7 @@ impl ActivityCapture {
 
     pub fn child_with_executor(&self, kind: &str, name: &str, executor: WorkExecutor) -> Self {
         let mut context = self.child_context();
+        context.accounting_role = WorkAccountingRole::Execution;
         context.executor = Some(executor);
         Self::begin(&self.loaded, context, kind, name)
     }

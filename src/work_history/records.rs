@@ -250,12 +250,23 @@ pub struct WorkCorrection {
     pub reason: String,
 }
 
+/// An observed OS or provider clock domain. Independent producers may report the same
+/// source clock; this is never a Rust Instant borrowed from another process.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkSourceClock {
+    pub clock_id: String,
+    pub nanoseconds: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkObservationInput {
     pub id: String,
     pub subject: WorkSubject,
     pub occurred_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_clock: Option<WorkSourceClock>,
     pub producer: WorkProducer,
     pub method: String,
     pub body: WorkEvent,
@@ -302,8 +313,11 @@ pub struct WorkSummary {
     pub work_session_ids: Vec<String>,
     pub parent_activity_id: Option<String>,
     pub has_children: bool,
+    pub executor: Option<String>,
     pub state: String,
     pub outcome: Option<WorkOutcome>,
+    pub queued_at: Option<DateTime<Utc>>,
+    pub queue_elapsed: Option<Elapsed>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub elapsed: Option<Elapsed>,
@@ -330,8 +344,11 @@ impl WorkSummary {
             work_session_ids: vec![],
             parent_activity_id: None,
             has_children: false,
+            executor: None,
             state: "unknown".into(),
             outcome: None,
+            queued_at: None,
+            queue_elapsed: None,
             started_at: None,
             finished_at: None,
             elapsed: None,
@@ -344,6 +361,8 @@ impl WorkSummary {
         self.gaps.push("projection_limit".into());
         self.state = "unknown".into();
         self.outcome = None;
+        self.queued_at = None;
+        self.queue_elapsed = None;
         self.started_at = None;
         self.finished_at = None;
         self.elapsed = None;

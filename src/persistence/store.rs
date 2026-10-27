@@ -563,7 +563,7 @@ impl Store {
     }
 
     bounded_projection_reader! {
-        pub(crate) fn list_sessions_window(project_key, scope: RecordScope, activity_window_seconds: i64, limit: usize) -> SessionRecord {
+        pub(super) fn read_sessions_window(project_key, scope: RecordScope, activity_window_seconds: i64, limit: usize) -> SessionRecord {
             table: sessions::table,
             project_column: sessions::project_id,
             scoped_when: scope == RecordScope::Active,

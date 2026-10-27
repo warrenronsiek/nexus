@@ -81,7 +81,7 @@ Nexus keeps a logical work session across prompts, agents, PRs, and delivery ste
 Each test, command, review, or subagent task is a separate activity with preserved
 parent/descendant relationships. Repeated attempts retain their outcomes; shared
 CI runs and releases can link to several sessions without duplicating execution.
-The Work TUI tab starts with session duration totals, averages, daily trends, and activity-kind duration charts. Select a parent session and Enter for its complete recorded descendant breakdown on a shared timeline. Unknown/conflicted timing and bounded coverage remain explicit; nested activity sums can overlap and are not session wall time. `d` opens the secondary record browser with its expandable tree and source observations.
+The Work TUI tab starts with session totals, averages, daily trends, and activity-kind charts. Select a session and Enter for a vertical waterfall: time runs down, child tasks branch right at their start, and parallel spans retain separate lanes. Arrows and Page Up/Down pan time, `+`/`-` zoom, Left/Right pan lanes, and `j`/`k` selects a task for Enter to open its evidence. Host session names follow recorded Codex/Claude names. Attributed execution/wait time, unobserved time, missing boundaries, and local capture losses remain visible. `d` opens source records; `g` opens the same waterfall for a session found there.
 
 ```sh
 nexus work open "Improve router fallback" --id router-change

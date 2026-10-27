@@ -13,6 +13,27 @@ use crate::work_history::*;
 use anyhow::{bail, Result};
 use diesel::prelude::*;
 
+pub(super) fn observation(
+    connection: &mut DbConnection,
+    project: &str,
+    id: &str,
+) -> Result<WorkResponse> {
+    if id.is_empty() || id.len() > 1024 {
+        return Err(
+            WorkRejection::Invalid("observation identity is empty or oversized".into()).into(),
+        );
+    }
+    let row = work_observations::table
+        .filter(work_observations::project_id.eq(project))
+        .filter(work_observations::id.eq(id))
+        .select(ObservationRow::as_select())
+        .first::<ObservationRow>(connection)
+        .optional()?;
+    Ok(WorkResponse::Observation {
+        observation: row.map(|row| row.observation().map(Box::new)).transpose()?,
+    })
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum SubjectScope {
     Sessions,

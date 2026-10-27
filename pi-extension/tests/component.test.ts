@@ -294,7 +294,7 @@ it("opens Work lazily and lets work filters consume global shortcut letters", as
   const component = new NexusDashboardComponent({ requestRender: vi.fn() } as unknown as TUI, theme, snapshot,
     { loadSnapshot: async () => snapshot, loadUsage: async () => usage, sosApi: sos.api,
       papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) }, memoryApi: memory.api, memoryPrompts: memory.prompts,
-      workApi: { dashboard, list, get: vi.fn(), timeline: vi.fn(), activities: vi.fn(), events: vi.fn() }, done });
+      workApi: { dashboard, health: vi.fn(async () => ({ available: false })), list, get: vi.fn(), timeline: vi.fn(), activities: vi.fn(), events: vi.fn() }, done });
   expect(list).not.toHaveBeenCalled();
   expect(dashboard).not.toHaveBeenCalled();
   component.handleInput("\u001b[Z");

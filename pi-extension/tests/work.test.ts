@@ -6,6 +6,7 @@ import { expect, it, vi } from "vitest";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { NexusWorkApi, type WorkApi, type WorkSummary } from "../src/work.ts";
 import { WorkPane } from "../src/work-pane.ts";
+import { workDetailLines } from "../src/work-view.ts";
 
 const context = { host_session_id: "host-1", turn_id: null, agent_instance_id: "agent-a", model_id: null,
   repository: "nexus", worktree: "/repo", environment: null, revision: null, external: [], labels: {} };
@@ -27,9 +28,19 @@ const timeline = (items: WorkSummary[], parent: string | null = null) => ({ work
   items, next_cursor: null, unresolved_links: [], truncated: false });
 const detail = (summary = activity("test-1", "agent-b")) => ({ summary, observations: [], links: [], truncated: false });
 
+it("shows exact source clock evidence alongside callback receipt and producer identity", () => {
+  const observation = { id: "source-clock", subject: session.subject, occurred_at: "2026-10-24T12:00:00Z", recorded_at: "2026-10-24T12:00:01Z",
+    project_id: "project", method: "companion_callback_wall_clock", producer: { name: "nexus-companion", version: "1", instance_id: "process-1" },
+    source_clock: { clock_id: "os-boot:test", nanoseconds: "900719925474099300000" }, body: { event: "started" },
+    provenance: { agent: "codex", session_id: "host-1", model_id: null, config_hash: "test" } };
+  const text = workDetailLines({ ...detail(), observations: [observation] }).join("\n");
+  expect(text).toContain("Source clock: os-boot:test · 900719925474099300000ns");
+  expect(text).toContain("instance process-1");
+});
+
 // These regressions exercise the explicitly secondary record browser.
-function lineItemPane(tui: TUI, theme: ConstructorParameters<typeof WorkPane>[1], api: Omit<WorkApi, "dashboard">, updated: () => void): WorkPane {
-  const pane = new WorkPane(tui, theme, { ...api, dashboard: vi.fn() }, updated);
+function lineItemPane(tui: TUI, theme: ConstructorParameters<typeof WorkPane>[1], api: Omit<WorkApi, "dashboard" | "health">, updated: () => void): WorkPane {
+  const pane = new WorkPane(tui, theme, { ...api, dashboard: vi.fn(), health: vi.fn(async () => ({ available: false })) }, updated);
   const activate = pane.activate.bind(pane);
   pane.activate = project => { activate(project); pane.handleInput("d"); };
   return pane;

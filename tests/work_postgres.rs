@@ -65,6 +65,7 @@ fn postgres_work_history_preserves_hierarchy_receipts_exact_duration_and_scoped_
     );
     assert_eq!(first["receipts"], replay["receipts"]);
     assert_eq!(replay["replayed"], 4);
+    verify_observation_lookup(&mut store, &project);
     let children = command(
         &mut store,
         &project,
@@ -100,6 +101,18 @@ fn postgres_work_history_preserves_hierarchy_receipts_exact_duration_and_scoped_
     assert!(hidden["record"].is_null());
 }
 
+fn verify_observation_lookup(store: &mut Store, project: &str) {
+    let found = command(store, project, json!({"action":"observation","id":"root"}));
+    assert_eq!(found["observation"]["id"], "root");
+    assert_eq!(found["observation"]["body"]["title"], "Deliver change");
+    let hidden = command(
+        store,
+        "unrelated-observation-project",
+        json!({"action":"observation","id":"root"}),
+    );
+    assert!(hidden["observation"].is_null());
+}
+
 fn verify_dashboard(store: &mut Store, project: &str) {
     let overview = command(store, project, json!({"action":"dashboard"}));
     assert_eq!(overview["session_duration"]["count"], 1);
@@ -110,6 +123,17 @@ fn verify_dashboard(store: &mut Store, project: &str) {
     );
     assert_eq!(selected["activities"].as_array().unwrap().len(), 2);
     assert_eq!(selected["activity_kinds"][1]["known_count"], 1);
+    assert_eq!(selected["intervals"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        selected["accounting"]["inclusive_execution"]["nanoseconds"],
+        "900719925474099312345"
+    );
+    assert_eq!(selected["accounting"]["coverage"]["missing_start_count"], 2);
+    assert_eq!(selected["accounting"]["coverage"]["unknown_role_count"], 2);
+    assert_eq!(
+        selected["accounting"]["coverage"]["capability_inventory"],
+        "unavailable"
+    );
     assert_eq!(
         selected["activities"][1]["elapsed"]["nanoseconds"],
         "900719925474099312345"

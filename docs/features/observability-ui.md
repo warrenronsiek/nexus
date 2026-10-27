@@ -131,10 +131,16 @@ Metric definitions and measurements have their own Evals kind filters. Measureme
 The read-only Work tab starts with duration analytics: known session totals and
 means, daily duration trends, and means/totals by activity kind. `[`/`]` selects
 an activity-kind trend across UTC days. Enter opens a selected parent session's
-visual descendant breakdown, including grandchildren without manually expanding
-each branch. Its timeline uses a common axis for parallel intervals. Duration
+vertical waterfall, including grandchildren without manually expanding
+each branch. Time runs downward, child tasks branch right at their start, and
+parallel spans have separate lanes. Arrows and Page Up/Down pan time; `+`/`-`
+zoom; Left/Right pan lanes; Home/End jump to source bounds; `j`/`k` select tasks
+and Enter opens their immutable evidence. Duration
 coverage counts qualify every average; unknown values do not become zeros.
-Inclusive activity sums are labeled separately from session elapsed time and
+Attributed execution/wait union, unobserved time, and worker occupancy accompany
+the graph with missing-boundary and clock/source qualifications. Container
+lifetimes do not establish attributed execution. Local capture backlog/loss is
+separate from project history. Inclusive activity sums are labeled separately from session elapsed time and
 cannot be interpreted as non-overlapping effort or delivery lead time.
 
 The service computes summaries independently of the 24-row record browser,
@@ -142,6 +148,11 @@ with explicit source and presentation bounds. Truncated summaries remain partial
 and retain coverage notices. Terminal chart windows also disclose omitted points.
 The shared `charts.ts` renderer owns width-aware, sanitized bars and time plots;
 work/eval adapters retain domain-specific meaning and exact evidence.
+
+`g` opens the same waterfall for any selected session in the paginated source
+browser, hierarchy, or session detail. Session names follow recorded host names,
+including source-ordered renames; missing names remain explicit host/ID labels.
+Coordination session rows use the same authoritative names.
 
 `d` opens the secondary Work record browser and the selected session's recorded
 ownership hierarchy. Each attempt remains a separate

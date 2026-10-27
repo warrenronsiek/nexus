@@ -22,6 +22,7 @@ export interface WorkSummary {
   subject: WorkSubject; title: string; kind: string; work_session_ids: string[]; parent_activity_id: string | null;
   has_children: boolean; state: string; outcome: WorkOutcome | null; started_at: string | null; finished_at: string | null;
   elapsed: { nanoseconds: string; method: string; clock_id: string | null } | null;
+  queued_at?: string | null; queue_elapsed?: { nanoseconds: string; method: string; clock_id: string | null } | null;
   conflicts: string[]; gaps: string[]; context: WorkContext;
 }
 export type WorkReference = { kind: "session" | "activity" | "eval"; id: string } |
@@ -33,6 +34,7 @@ export interface WorkObservation {
   producer: { name: string; version: string; instance_id: string };
   body: { [key: string]: WorkValue; event: string };
   correction?: { replaces: string; reason: string } | null;
+  source_clock?: { clock_id: string; nanoseconds: string } | null;
   provenance: WorkActor;
   source?: { project_id: string; recorded_at: string; provenance: WorkActor } | null;
 }
@@ -42,7 +44,9 @@ export interface WorkPage { items: WorkSummary[]; next_cursor: string | null }
 export interface WorkTimeline extends WorkPage { work_session_id: string; parent_activity_id: string | null; unresolved_links: WorkLink[]; truncated: boolean }
 export interface WorkDetail { summary: WorkSummary; observations: WorkObservation[]; links: WorkLink[]; truncated: boolean }
 export interface WorkEvents { observations: WorkObservation[]; next_cursor: string | null }
+export interface WorkCaptureHealth { available: boolean; queued?: number; rejected?: number; transport_rejected?: number; rejected_callbacks?: number; lost?: number; process_losses?: number; health_failures?: number; last_captured_at?: string | null; last_delivered_at?: string | null; legacy_capacity_losses?: number; rejected_evicted?: number; pending_callbacks?: number }
 export interface WorkApi {
+  health(signal?: AbortSignal): Promise<WorkCaptureHealth>;
   dashboard(project: string | null, sessionId?: string, signal?: AbortSignal): Promise<WorkDashboard>;
   activities(project: string | null, query: WorkQuery, signal?: AbortSignal): Promise<WorkPage>;
   list(project: string | null, query: WorkQuery, signal?: AbortSignal): Promise<WorkPage>;
@@ -70,7 +74,7 @@ function summary(value: unknown): value is WorkSummary {
   return object(value) && subject(value.subject) && texts(value, ["title", "kind", "state"]) && strings(value.work_session_ids) &&
     ["parent_activity_id", "started_at", "finished_at"].every(field => nullableText(value[field])) && typeof value.has_children === "boolean" && (value.outcome === null || WORK_OUTCOMES.some(item => item === value.outcome)) &&
     strings(value.conflicts) && strings(value.gaps) && context(value.context) &&
-    elapsed(value.elapsed);
+    elapsed(value.elapsed) && optional(value.queued_at, nullableText) && optional(value.queue_elapsed, elapsed);
 }
 function reference(value: unknown): value is WorkReference {
   if (!object(value)) return false;
@@ -82,18 +86,44 @@ function actor(value: unknown): value is WorkActor { return object(value) && tex
 function optional(value: unknown, check: (value: unknown) => boolean): boolean { return value === undefined || value === null || check(value); }
 function correction(value: unknown): boolean { return object(value) && texts(value, ["replaces", "reason"]); }
 function sourceReceipt(value: unknown): boolean { return object(value) && texts(value, ["project_id", "recorded_at"]) && actor(value.provenance); }
+function sourceClock(value: unknown): boolean { return object(value) && texts(value, ["clock_id", "nanoseconds"]) && /^\d+$/u.test(value.nanoseconds as string); }
 function observation(value: unknown): value is WorkObservation {
   return object(value) && texts(value, ["id", "occurred_at", "recorded_at", "project_id", "method"]) && subject(value.subject) &&
     object(value.producer) && texts(value.producer, ["name", "version", "instance_id"]) && object(value.body) && typeof value.body.event === "string" && isJsonValue(value.body) &&
-    optional(value.correction, correction) && actor(value.provenance) && optional(value.source, sourceReceipt);
+    optional(value.correction, correction) && actor(value.provenance) && optional(value.source, sourceReceipt) && optional(value.source_clock, sourceClock);
 }
 function array<T>(value: unknown, check: (value: unknown) => value is T, maximum = 128): value is T[] { return Array.isArray(value) && value.length <= maximum && value.every(check); }
 function page(value: Record<string, unknown>): value is Record<string, unknown> & WorkPage { return array(value.items, summary, 64) && nullableText(value.next_cursor); }
 function detail(value: unknown): value is WorkDetail { return object(value) && summary(value.summary) && array(value.observations, observation, 64) && array(value.links, link) && typeof value.truncated === "boolean"; }
 function invalid(): never { throw new Error("Nexus work history returned an unexpected response"); }
+function nonnegativeCount(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+function captureCounters(value: unknown): Pick<WorkCaptureHealth, "lost" | "transport_rejected" | "rejected_callbacks" | "last_captured_at" | "last_delivered_at"> | undefined {
+  if (value === null) return { lost: undefined };
+  if (!object(value) || !nonnegativeCount(value.lost) || ![value.last_captured_at, value.last_delivered_at].every(nullableText)) return;
+  if (![value.transport_rejected, value.rejected_replays].every(item => item === undefined || nonnegativeCount(item))) return;
+  return { lost: value.lost, transport_rejected: value.transport_rejected as number | undefined, rejected_callbacks: value.rejected_replays as number | undefined, last_captured_at: value.last_captured_at as string | null, last_delivered_at: value.last_delivered_at as string | null };
+}
+function captureRetention(health: Record<string, unknown>): Pick<WorkCaptureHealth, "legacy_capacity_losses" | "rejected_evicted" | "pending_callbacks"> | undefined {
+  if (![health.dropped, health.rejected_evicted, health.pending_callbacks_process].every(value => value === undefined || nonnegativeCount(value))) return;
+  return { legacy_capacity_losses: health.dropped as number | undefined, rejected_evicted: health.rejected_evicted as number | undefined, pending_callbacks: health.pending_callbacks_process as number | undefined };
+}
+function localCaptureHealth(value: unknown): WorkCaptureHealth | undefined {
+  if (!object(value) || value.ok !== true || value.scope !== "local_companion" || typeof value.available !== "boolean") return;
+  if (!value.available) return { available: false };
+  const health = value.work_capture;
+  if (!object(health) || ![health.queued, health.rejected, health.admission_lost_process, health.worker_failed_process, health.health_persistence_failed_process].every(nonnegativeCount)) return;
+  const counters = captureCounters(health.capture), retention = captureRetention(health);
+  if (!counters || !retention) return;
+  return { available: true, queued: health.queued as number, rejected: health.rejected as number, ...counters, ...retention,
+    process_losses: (health.admission_lost_process as number) + (health.worker_failed_process as number), health_failures: health.health_persistence_failed_process as number };
+}
 
 export class NexusWorkApi implements WorkApi {
   constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
+  async health(signal?: AbortSignal): Promise<WorkCaptureHealth> {
+    const value = await this.client.call("nexus_capture_health", {}, this.cwd, signal);
+    return localCaptureHealth(value) ?? invalid();
+  }
   private async read(project: string | null, fields: Record<string, unknown>, response: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const value = await this.client.call("nexus_work", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
     if (!object(value) || value.ok !== true || value.response !== response) return invalid();

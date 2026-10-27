@@ -67,3 +67,32 @@ fn render_hook_input(template: &Value, event: &Value) -> Value {
             .collect(),
     )
 }
+
+#[test]
+fn generated_work_hooks_cover_supported_response_and_child_sources() {
+    for host in [Host::Codex, Host::Claude] {
+        let configuration = hook_configuration(host, Path::new("/opt/nexus"), None);
+        for event in ["SessionStart", "Stop", "SubagentStart", "SubagentStop"] {
+            let groups = configuration["hooks"][event]
+                .as_array()
+                .unwrap_or_else(|| panic!("missing {host:?} {event}"));
+            assert!(groups
+                .iter()
+                .flat_map(|group| group["hooks"].as_array().unwrap())
+                .any(|hook| hook["command"]
+                    .as_str()
+                    .is_some_and(|command| command.contains("work host-event"))));
+        }
+        let terminal = if host == Host::Codex {
+            "Interrupt"
+        } else {
+            "StopFailure"
+        };
+        assert!(configuration["hooks"][terminal].is_array());
+    }
+    let claude = hook_configuration(Host::Claude, Path::new("/opt/nexus"), None);
+    assert!(
+        claude["hooks"]["Interrupt"].is_null(),
+        "do not install unsupported events"
+    );
+}

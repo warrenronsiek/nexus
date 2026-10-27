@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+mod capture_health;
 mod evals;
 mod papercuts_schema;
 mod sos;

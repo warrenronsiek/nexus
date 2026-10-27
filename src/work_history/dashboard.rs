@@ -1,6 +1,6 @@
 // @feature work-history
 // @spec docs/features/work-history.md
-use super::WorkSummary;
+use super::{WorkIntervalNode, WorkSessionAccounting, WorkSummary};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +44,9 @@ pub struct WorkDashboard {
     pub selected_session: Option<WorkSummary>,
     pub sessions: Vec<WorkSummary>,
     pub activities: Vec<WorkSummary>,
+    pub intervals: Vec<WorkIntervalNode>,
+    pub accounting: Option<WorkSessionAccounting>,
+    pub unlinked_activity_count: usize,
     pub session_duration: DurationStatistics,
     pub activity_kinds: Vec<ActivityDurationStatistics>,
     pub daily: Vec<DailyDurationStatistics>,

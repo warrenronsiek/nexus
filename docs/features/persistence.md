@@ -128,6 +128,14 @@ the authoritative observation rows; import validates their original identities,
 hashes, typed input and receipt provenance, then rebuilds the indexes. Versions
 2, 3, and 4 remain supported. Out-of-order observations and unresolved links are
 preserved; no foreign key requires another producer's event to arrive first.
+Optional source-clock evidence remains inside the typed immutable observation
+payload, preserving existing schema and portable stream compatibility. The
+shared timing projection qualifies reported elapsed time, matching OS monotonic
+clock evidence, and same-producer wall time in that order. Queue durations use
+the same policy. Accounting projections retain explicit missing or conflicting
+evidence; they never repair the authoritative observations by inference.
+Session display names are read from exact project/agent/host-session work-title
+evidence without changing coordination session identity.
 
 Evaluation history V12 adds project-scoped immutable typed records, indexed
 relationships, repository/model filter dimensions, content upload metadata, and

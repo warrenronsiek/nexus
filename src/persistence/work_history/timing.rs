@@ -6,6 +6,7 @@ use crate::work_history::*;
 
 pub(super) fn project_events(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     declaration(summary, events);
+    super::metadata::project(summary, events);
     let starts = events
         .iter()
         .copied()
@@ -18,7 +19,8 @@ pub(super) fn project_events(summary: &mut WorkSummary, events: &[&WorkObservati
         .collect::<Vec<_>>();
     start(summary, &starts);
     finish(summary, &finishes);
-    wall_clock_fallback(summary, &starts, &finishes);
+    wall_clock_fallback(summary, &starts, &finishes, events);
+    queue(summary, events, &starts);
     disclose_gaps(summary, finishes.is_empty());
     summary.state = state(summary, events).into();
 }
@@ -42,11 +44,13 @@ fn declaration(summary: &mut WorkSummary, events: &[&WorkObservation]) {
             WorkEvent::ActivityDeclared {
                 name,
                 kind,
+                executor,
                 context,
                 ..
             } => {
                 summary.title = name.clone();
                 summary.kind = kind.clone();
+                summary.executor = executor.clone();
                 summary.context = context.clone();
             }
             _ => {}
@@ -69,10 +73,7 @@ fn declaration(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     }
 }
 fn start(summary: &mut WorkSummary, starts: &[&WorkObservation]) {
-    if starts
-        .windows(2)
-        .any(|pair| pair[0].input.occurred_at != pair[1].input.occurred_at)
-    {
+    if super::clock::competing_boundaries(starts) {
         summary.conflicts.push("conflicting_starts".into());
         summary.started_at = None;
     } else if let Some(start) = starts.first() {
@@ -81,8 +82,7 @@ fn start(summary: &mut WorkSummary, starts: &[&WorkObservation]) {
 }
 fn finish(summary: &mut WorkSummary, finishes: &[&WorkObservation]) {
     if finishes.windows(2).any(|pair| {
-        pair[0].input.body != pair[1].input.body
-            || pair[0].input.occurred_at != pair[1].input.occurred_at
+        pair[0].input.body != pair[1].input.body || !super::clock::same_boundary(pair[0], pair[1])
     }) {
         summary.conflicts.push("conflicting_finishes".into());
     } else if let Some(finish) = finishes.first() {
@@ -116,32 +116,34 @@ fn wall_clock_fallback(
     summary: &mut WorkSummary,
     starts: &[&WorkObservation],
     finishes: &[&WorkObservation],
+    events: &[&WorkObservation],
 ) {
     if summary.elapsed.is_some() {
         return;
     }
-    let (Some(start), Some(finish)) = (summary.started_at, summary.finished_at) else {
+    let (Some(_), Some(_)) = (summary.started_at, summary.finished_at) else {
         return;
     };
-    let (Some(start_source), Some(finish_source)) = (starts.first(), finishes.first()) else {
+    let start_source = starts.first().copied().or_else(|| {
+        events
+            .iter()
+            .copied()
+            .find(|item| matches!(item.input.body, WorkEvent::SessionOpened { .. }))
+    });
+    let (Some(start_source), Some(finish_source)) = (start_source, finishes.first()) else {
         return;
     };
-    if start_source.input.producer != finish_source.input.producer {
-        summary.gaps.push("clock_domain_mismatch".into());
-        return;
-    }
-    if let Some(nanoseconds) = finish
-        .signed_duration_since(start)
-        .num_nanoseconds()
-        .filter(|duration| *duration >= 0)
-    {
-        summary.elapsed = Some(Elapsed {
-            nanoseconds: nanoseconds.to_string(),
-            method: "wall_clock".into(),
-            clock_id: Some(start_source.input.producer.instance_id.clone()),
-        });
+    match super::clock::elapsed(start_source, finish_source) {
+        Ok(elapsed) => summary.elapsed = Some(elapsed),
+        Err(gap) => {
+            summary.gaps.push(gap.code().into());
+            if let Some(conflict) = gap.conflict() {
+                summary.conflicts.push(conflict.into());
+            }
+        }
     }
 }
+
 fn state(summary: &WorkSummary, events: &[&WorkObservation]) -> &'static str {
     if !summary.conflicts.is_empty() {
         "conflicted"
@@ -156,5 +158,31 @@ fn state(summary: &WorkSummary, events: &[&WorkObservation]) -> &'static str {
         "queued"
     } else {
         "unknown"
+    }
+}
+
+fn queue(summary: &mut WorkSummary, events: &[&WorkObservation], starts: &[&WorkObservation]) {
+    let queued = events
+        .iter()
+        .copied()
+        .filter(|item| matches!(item.input.body, WorkEvent::Queued))
+        .collect::<Vec<_>>();
+    if super::clock::competing_boundaries(&queued) {
+        summary.conflicts.push("conflicting_queues".into());
+        return;
+    }
+    let Some(source) = queued.first() else {
+        return;
+    };
+    summary.queued_at = Some(source.input.occurred_at);
+    let Some(start) = starts.first().filter(|_| summary.started_at.is_some()) else {
+        return;
+    };
+    match super::clock::elapsed(source, start) {
+        Ok(elapsed) => summary.queue_elapsed = Some(elapsed),
+        Err(gap) => summary.gaps.push(format!("queue_{}", gap.code())),
+    }
+    if start.input.occurred_at < source.input.occurred_at {
+        summary.gaps.push("queue_wall_clock_anomaly".into());
     }
 }

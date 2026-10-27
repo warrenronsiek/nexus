@@ -63,8 +63,8 @@ function conflictEntry(record: ConflictRecord): Entry {
 function sessionEntry(record: SessionRecord): Entry {
   return {
     value: `record:${record.session_id}`,
-    label: `${record.agent}  ${shortId(record.session_id)}`,
-    description: record.task_summary ?? record.worktree ?? record.status,
+    label: record.display_name ?? `${record.agent}  ${shortId(record.session_id)}`,
+    description: `${record.agent} · ${shortId(record.session_id)} · ${record.task_summary ?? record.worktree ?? record.status}`,
   };
 }
 

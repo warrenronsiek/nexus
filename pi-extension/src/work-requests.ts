@@ -75,8 +75,8 @@ async function refreshTree(api: WorkApi, state: WorkState, tree: WorkTree, signa
   };
 }
 async function dashboard(api: WorkApi, state: WorkState, view: WorkDashboardView, signal: AbortSignal): Promise<Change> {
-  const data = await api.dashboard(state.project, view.sessionId, signal);
-  return () => { view.data = data; view.selected = clampWork(view.selected, view.sessionId ? data.activities.length : data.sessions.length); view.kindIndex = clampWork(view.kindIndex, data.activity_kinds.length); };
+  const [data, captureHealth] = await Promise.all([api.dashboard(state.project, view.sessionId, signal), api.health(signal).catch(() => ({ available: false }))]);
+  return () => { view.data = data; view.captureHealth = captureHealth; view.selected = clampWork(view.selected, view.sessionId ? (data.intervals ?? data.activities).length : data.sessions.length); view.kindIndex = clampWork(view.kindIndex, data.activity_kinds.length); };
 }
 function fetchChange(api: WorkApi, state: WorkState, intent: ReadIntent, signal: AbortSignal): Promise<Change> {
   let change: Promise<Change>;

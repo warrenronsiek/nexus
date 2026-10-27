@@ -69,7 +69,7 @@ pub async fn run_with_options(
         }
         Err(error) => Err(error),
     };
-    let _ = work_capture::flush(loaded, explicit_config).await;
+    let _ = work_capture::flush_before_exit(loaded, explicit_config).await;
     result
 }
 
@@ -88,7 +88,7 @@ impl ObservedCommand {
         arguments: &[OsString],
         options: ExecOptions,
     ) -> Self {
-        let mut context = CaptureContext::from_environment(root);
+        let mut context = CaptureContext::from_environment(root).with_active_host(loaded);
         context.work_session_id = options.work_session_id.or(context.work_session_id);
         context.parent_activity_id = options.parent_activity_id.or(context.parent_activity_id);
         let identity = script_identity(program, arguments, root);

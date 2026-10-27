@@ -16,6 +16,8 @@ use serde_json::Value;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+#[path = "work/capture.rs"]
+mod capture;
 #[path = "work/recording.rs"]
 mod recording;
 #[path = "work/transfer.rs"]
@@ -75,6 +77,10 @@ impl Scope {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum WorkCliCommand {
+    /// Print the captured identity handoff for an exact host session and optional turn.
+    Context(capture::ContextArgs),
+    /// Capture a native host or caller execution event from a bounded file.
+    HostEvent(capture::HostEventArgs),
     /// Open a logical work session. The returned subject ID can be propagated to callers.
     Open {
         title: String,
@@ -217,33 +223,32 @@ pub(super) async fn run(
     loaded: &LoadedConfig,
     explicit: Option<&Path>,
 ) -> Result<()> {
-    let context = HookContext {
-        session_id: std::env::var("NEXUS_HOST_SESSION_ID").unwrap_or_else(|_| "cli".into()),
-        project_root: Some(root.to_string_lossy().into_owned()),
-        agent: std::env::var("NEXUS_AGENT").unwrap_or_else(|_| "user".into()),
-        turn_id: None,
-        model: std::env::var("NEXUS_MODEL").ok(),
-    };
-    let client = WorkClient {
-        client: NexusClient::new(loaded, explicit),
-        context,
-    };
-    let response = execute(&client, command, loaded, explicit, root).await?;
+    let advisory = matches!(&command, WorkCliCommand::HostEvent(args) if args.advisory);
+    let result = execute(command, loaded, explicit, root).await;
+    if advisory {
+        return Ok(());
+    }
+    let response = result?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
 async fn execute(
-    client: &WorkClient,
     command: WorkCliCommand,
     loaded: &LoadedConfig,
     explicit: Option<&Path>,
     root: &Path,
 ) -> Result<Value> {
     match command {
+        WorkCliCommand::Context(args) => capture::context(args, loaded),
+        WorkCliCommand::HostEvent(args) => capture::host_event(args, loaded, explicit).await,
         WorkCliCommand::Schema => json_result(Ok(schemars::schema_for!(WorkAction))),
-        WorkCliCommand::Export { output } => transfer::export(client, &output).await,
-        WorkCliCommand::Import { file } => transfer::import(client, &file).await,
+        WorkCliCommand::Export { output } => {
+            transfer::export(&work_client(root, loaded, explicit), &output).await
+        }
+        WorkCliCommand::Import { file } => {
+            transfer::import(&work_client(root, loaded, explicit), &file).await
+        }
         WorkCliCommand::Health => json_result(nexus::runtime::work_capture::health(loaded)),
         WorkCliCommand::Flush => {
             json_result(nexus::runtime::work_capture::flush(loaded, explicit).await)
@@ -251,7 +256,7 @@ async fn execute(
         WorkCliCommand::Capture { file } => {
             nexus::runtime::work_capture::enqueue(
                 loaded,
-                &client.context,
+                &cli_context(root),
                 recording::read_file(&file)?,
             )?;
             let _ = nexus::runtime::work_capture::flush(loaded, explicit).await;
@@ -262,7 +267,7 @@ async fn execute(
             let _ = nexus::runtime::work_capture::flush(loaded, explicit).await;
             json_result(nexus::runtime::work_capture::health(loaded))
         }
-        command => send_action(client, action(command)?).await,
+        command => send_action(&work_client(root, loaded, explicit), action(command)?).await,
     }
 }
 
@@ -352,5 +357,22 @@ impl ListArgs {
                 query,
             },
         })
+    }
+}
+
+fn cli_context(root: &Path) -> HookContext {
+    HookContext {
+        session_id: std::env::var("NEXUS_HOST_SESSION_ID").unwrap_or_else(|_| "cli".into()),
+        project_root: Some(root.to_string_lossy().into_owned()),
+        agent: std::env::var("NEXUS_AGENT").unwrap_or_else(|_| "user".into()),
+        turn_id: std::env::var("NEXUS_TURN_ID").ok(),
+        model: std::env::var("NEXUS_MODEL").ok(),
+    }
+}
+
+fn work_client(root: &Path, loaded: &LoadedConfig, explicit: Option<&Path>) -> WorkClient {
+    WorkClient {
+        client: NexusClient::new(loaded, explicit),
+        context: cli_context(root),
     }
 }

@@ -1,4 +1,6 @@
 // @feature runtime
+// @feature work-history
+// @spec docs/features/work-history.md
 // @feature agent-memory
 // @spec docs/features/runtime.md
 // @spec docs/features/agent-memory.md
@@ -64,6 +66,30 @@ pub fn hook_configuration(host: Host, executable: &Path, explicit_config: Option
         "SessionEnd".into(),
         json!([{"hooks":[session_end_hook(executable, explicit_config, agent)]}]),
     );
+
+    // Command adapters consume the native event envelope; they never return decisions.
+    for event in [
+        "SessionStart",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        if host == Host::Codex {
+            "Interrupt"
+        } else {
+            "StopFailure"
+        },
+    ] {
+        hooks.insert(
+            event.into(),
+            json!([{"hooks":[work_event_hook(executable, explicit_config, agent)]}]),
+        );
+    }
+    hooks
+        .get_mut("UserPromptSubmit")
+        .expect("prompt hook exists")[0]["hooks"]
+        .as_array_mut()
+        .expect("hook array")
+        .push(work_event_hook(executable, explicit_config, agent));
 
     if host == Host::Claude {
         hooks.insert(
@@ -135,9 +161,12 @@ fn user_prompt_hook(agent: &str, turn_id: &str) -> Value {
 fn tool_hook(tool: &str, agent: &str, turn_id: &str, completion: Option<(&str, &str)>) -> Value {
     let mut input = json!({
         "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
-        "turn_id":turn_id,"model":"${model}","tool_use_id":"${tool_use_id}",
+        "turn_id":turn_id,"model":"${model}","agent_id":"${agent_id}","tool_use_id":"${tool_use_id}",
         "tool_name":"${tool_name}","tool_input":"${tool_input}"
     });
+    if agent == "claude" && completion.is_some() {
+        input["is_interrupt"] = Value::String("${is_interrupt}".into());
+    }
     if let Some((field, value)) = completion {
         input
             .as_object_mut()
@@ -160,6 +189,13 @@ fn session_end_hook(executable: &Path, explicit_config: Option<&Path>, agent: &s
         "timeout":3,
         "statusMessage":"Releasing coordination claims"
     })
+}
+
+fn work_event_hook(executable: &Path, explicit_config: Option<&Path>, agent: &str) -> Value {
+    let mut arguments = nexus_command_arguments(executable, explicit_config);
+    arguments
+        .extend(["work", "host-event", "--host", agent, "--advisory", "-"].map(OsString::from));
+    json!({"type":"command","command":shell_command(&arguments),"timeout":3,"statusMessage":"Recording observed work boundary"})
 }
 
 #[cfg(test)]

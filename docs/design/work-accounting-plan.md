@@ -1,9 +1,23 @@
 # Closing work-time accounting gaps
 
-Status: proposed implementation plan, 2026-10-27. This document describes future
-work, not capture coverage already provided. The current contract is specified in
-[work history](../features/work-history.md); the broader rationale remains in
-[workflow history](workflow-history.md).
+Status: implemented Nexus contracts and deterministic adapters, 2026-10-27.
+The baseline and acceptance criteria below retain the original plan. The current
+contract is specified in [work history](../features/work-history.md); the broader
+rationale remains in [workflow history](workflow-history.md).
+
+The implementation adds bounded capture admission with explicit delivery/loss
+health, restart-safe duplicate reconciliation, request/turn/child/execution
+adapters, exact identity handoff, and qualified accounting. Native and Pi terminal
+views share a vertical branching waterfall with time/lane panning and zoom.
+Session names follow exact host title metadata when available.
+
+Coverage remains source-dependent. The bundled
+[host adapter reference](../../skills/nexus-work-history/references/host-adapters.md)
+defines supported events and an isolated real-host verification procedure.
+Consumer repositories still own instrumentation and rollout. A missing host
+callback, unsupported resume epoch, unavailable capability inventory, or missing
+historical source evidence remains an explicit gap. Deterministic fixtures do
+not establish that every installed host/version emits every supported event.
 
 ## Objective and boundaries
 
@@ -19,14 +33,14 @@ repositories and execution services own their scripts, scheduler stages, labels,
 and deployment procedures. No consumer names, paths, credentials, or machine
 identifiers belong in Nexus source, fixtures, or installation defaults.
 
-## What is implemented and what is missing
+## Baseline before implementation
 
 The typed recording API already supports declarations, queues, starts, finishes,
 exact elapsed measurements, outcomes, parentage, membership, and corrections.
 Automatic coverage falls short of that contract. Adding another generic finish
 endpoint alone will not close the gaps.
 
-| Boundary | Current implementation | Gap to close |
+| Boundary | Baseline implementation | Gap addressed by the plan |
 | --- | --- | --- |
 | Human request / host turn | Prompt callback adds a milestone to the agent activity. | No independently timed request or turn; no installed stop/interruption adapters. |
 | Tool invocation | Pre-tool starts and successful post-tool finishes share a tool identity. Claude also has a failure hook. | Failed, canceled, rejected, or interrupted calls need supported terminal events; partial callbacks remain possible. |
@@ -66,7 +80,9 @@ evidence.
    prove the logical task, child agents, or background processes have finished.
 3. Record source start, finish, outcome, occurrence time, and receipt time.
    Prefer exact monotonic elapsed measurements from the executing process.
-   A different process must not reuse another producer's clock identity.
+   A different process retains its own producer identity. Independent callbacks
+   may share an explicitly identified OS boot clock; a process-local `Instant`
+   cannot be borrowed across processes.
 4. Report inclusive execution totals, overlap-adjusted occupied wall time, and
    parallel worker occupancy as distinct measures. Do not sum parent and child
    intervals as total effort.

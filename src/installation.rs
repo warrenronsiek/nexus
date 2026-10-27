@@ -41,7 +41,7 @@ const SKILL_NAMES: [&str; 17] = [
     "nexus-eval-history",
     "nexus-work-history",
 ];
-const SKILL_FILES: [(&str, &str); 26] = [
+const SKILL_FILES: [(&str, &str); 27] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -131,6 +131,10 @@ const SKILL_FILES: [(&str, &str); 26] = [
         "nexus-work-history/references/integration.md",
         include_str!("../skills/nexus-work-history/references/integration.md"),
     ),
+    (
+        "nexus-work-history/references/host-adapters.md",
+        include_str!("../skills/nexus-work-history/references/host-adapters.md"),
+    ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
     (
         "nexus-work-history/scripts/work-capture.sh",
@@ -141,9 +145,13 @@ const SKILL_FILES: [(&str, &str); 26] = [
         include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 46] = [
+const PI_EXTENSION_FILES: [(&str, &str); 47] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
     ("charts.ts", include_str!("../pi-extension/src/charts.ts")),
+    (
+        "work-waterfall.ts",
+        include_str!("../pi-extension/src/work-waterfall.ts"),
+    ),
     (
         "work-interval.ts",
         include_str!("../pi-extension/src/work-interval.ts"),

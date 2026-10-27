@@ -114,6 +114,7 @@ impl FinishArgs {
 
 fn observation(subject: WorkSubject, body: WorkEvent) -> WorkObservationInput {
     WorkObservationInput {
+        source_clock: None,
         id: Uuid::new_v4().to_string(),
         subject,
         occurred_at: chrono::Utc::now(),

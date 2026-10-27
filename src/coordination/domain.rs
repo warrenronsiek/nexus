@@ -105,6 +105,10 @@ pub struct ToolHookInput {
     pub tool_output: Option<ToolPayload>,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub is_interrupt: Option<bool>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -301,6 +305,8 @@ pub struct SessionRecord {
     pub worktree: Option<String>,
     pub status: SessionStatus,
     pub task_summary: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub last_seen_at: DateTime<Utc>,
 }
 

@@ -152,6 +152,36 @@ Daemon startup acquires its process lock, removes any stale socket, and complete
 
 `terminal.rs` opens the embedded terminal dashboard and delegates runtime preparation to `terminal_runtime.rs`. It requires interactive stdin/stdout, forwards the invoking repository and explicit configuration, and executes the selected runtime with the exact installed Nexus path for its MCP child. The standalone host uses the same MCP transport as Pi, restores the terminal, and closes its polling and MCP lifecycle on quit or interruption. Closing the shared client rejects pending calls, ends stdin, and terminates its dedicated MCP child with a bounded SIGTERM-to-SIGKILL grace period so a stalled daemon response cannot keep either host alive.
 
+Work-history native command hooks additionally observe supported session start,
+request, response stop, interruption/error, and child boundaries. The typed
+`work host-event` adapter discards arbitrary native payload fields, timestamps
+the lifecycle observation before optional title lookup, and preserves explicit
+caller context. `work context` exports a bounded handoff using the exact host
+agent/session identity and retained current request/turn; it never searches by
+checkout, nearby times, or PID. A private bounded context bridge connects
+separately launched commands without pretending a hook can mutate its parent's
+environment. OS monotonic source-clock evidence is separate from each producer's
+process identity. Unsupported source clocks and missing callbacks remain gaps.
+The [host adapter reference](../../skills/nexus-work-history/references/host-adapters.md)
+records capabilities and the real-host verification procedure.
+
+`work_capture` uses one bounded worker for lifecycle and synchronous producer
+handoffs. Receipts distinguish durable local enqueue, pending persistence,
+rejection, and explicit loss; permissive host decisions are independent. The
+`nexus_capture_health` MCP read reports local companion backlog, retained
+rejections, cumulative loss/rejection reasons, last source/capture/delivery,
+and separately scoped process fallbacks. Missing/corrupt counter storage reports
+unknown counters and does not prevent payload persistence. A direct remote MCP
+service cannot report another machine's local outbox. Exact project-scoped
+observation reads let old automatic callbacks reconcile against accepted history
+after the bounded local acknowledgment cache is evicted.
+Malformed native event input and MCP lifecycle argument decoding increment
+bounded metadata-only transport rejection health. They retain no invalid payload
+or raw error text and preserve the host's advisory, permissive behavior.
+Measured commands and commit reviews use one bounded exit finalizer: wait for
+admitted capture jobs, then attempt delivery before the short-lived process exits.
+The workload's measurement and result are complete before this telemetry wait.
+
 The runtime boundary intentionally handles `serde_json::Value`, because JSON-RPC and MCP are open wire protocols. That dynamic data is annotated as a boundary and decoded into typed requests before service execution. The built-in listener is plain HTTP with a private pre-shared bearer secret, not a public identity service or encryption layer. Same-host Compose binds to loopback by default. Cross-host deployments must select only a protected private bind address or terminate TLS and access control at a trusted reverse proxy; clients should use HTTPS whenever traffic leaves the host. Source and image builds require Rust 1.88 or newer. Process-level tests launch the real daemon and MCP binaries, verify auto-start and fail-open behavior, prove first-prompt memory activation is once per session, and inspect the resulting database state. Remote tests also prove bearer enforcement, project binding outside the feature payload, bounded reconciliation and derived usage evidence, strict Streamable HTTP initialization/session teardown, atomic private secret persistence, and rejection of symlinked, non-regular, over-permissive, or differently owned server secret files.
 
 The `nexus_papercuts` MCP list schema accepts an optional bounded `project_id`, allowing the shared terminal dashboard to read its selected project over either transport. Mutating papercut actions remain bound to invocation context.

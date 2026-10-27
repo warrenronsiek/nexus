@@ -1,5 +1,6 @@
 # @feature work-history
 # @spec docs/features/work-history.md
+# @boundary synthetic-provider-snapshot-json
 import importlib.util
 import pathlib
 import unittest
@@ -14,6 +15,17 @@ ADAPTER = pathlib.Path(__file__).resolve().parents[1] / "scripts/nexus-work-gith
 
 
 class GitHubWorkCaptureTests(unittest.TestCase):
+    def test_workflow_parent_attaches_the_same_execution_to_its_initiating_request(self) -> None:
+        module = adapter()
+        snapshot = fixture_snapshot()
+        unlinked = module.convert(snapshot, "work")
+        attached = module.convert(snapshot, "work", "request-17")
+        declarations = lambda events: [item for item in events if item["body"]["event"] == "activity_declared"]
+        self.assertEqual(declarations(unlinked), declarations(attached))
+        parent = next(item for item in attached if item["body"]["event"] == "linked" and item["body"]["relation"] == "parent")
+        self.assertEqual(parent["subject"]["id"], attached[0]["subject"]["id"])
+        self.assertEqual(parent["body"]["target"], {"kind": "activity", "id": "request-17"})
+
     def test_named_shell_steps_preserve_the_child_result(self) -> None:
         helper = ADAPTER.parent / "work-capture.sh"
         with tempfile.TemporaryDirectory() as directory:
@@ -82,6 +94,33 @@ class GitHubWorkCaptureTests(unittest.TestCase):
         second = module.convert(snapshot,"work")
         finished = lambda observations: next(item for item in observations if item["subject"]["id"].endswith(":job:71") and item["body"]["event"] == "finished")
         self.assertEqual(finished(first),finished(second))
+
+    def test_accounting_metadata_qualifies_runner_identity_without_changing_legacy_declarations(self) -> None:
+        module = adapter()
+        snapshot = fixture_snapshot()
+        first = module.convert(snapshot, "work")
+        snapshot["jobs"][0]["runner_id"] = 8123
+        snapshot["observed_at"] = "2026-10-24T12:21:00Z"
+        second = module.convert(snapshot, "work")
+        declarations = lambda values: [value["body"] for value in values if value["body"]["event"] == "activity_declared"]
+        self.assertEqual(declarations(first), declarations(second))
+        self.assertTrue(all(value["executor"] == "github-actions" for value in declarations(second)))
+        self.assertTrue(all(value["context"]["labels"] == {"revision_basis": "workflow_run.head_sha"} for value in declarations(second)))
+        roles = [value["body"]["context"]["labels"]["nexus.accounting.role"] for value in second if value["body"].get("name") == "Accounting role observed"]
+        self.assertEqual(roles, ["container", "container", "execution"])
+        executors = [value["body"]["context"]["labels"] for value in second if value["body"].get("name") == "Executor identity observed"]
+        self.assertEqual([value.get("nexus.executor.id") for value in executors], [None, "github:example/repository:runner:8123", "github:example/repository:runner:8123"])
+        self.assertTrue(all(value["nexus.executor.declaration"] == "unqualified" for value in executors))
+
+    def test_runner_identity_remains_unknown_when_provider_has_not_assigned_a_positive_integer(self) -> None:
+        module = adapter()
+        for value in [None, 0, -1, True, "8123"]:
+            with self.subTest(runner_id=value):
+                snapshot = fixture_snapshot()
+                snapshot["jobs"][0]["runner_id"] = value
+                metadata = [item for item in module.convert(snapshot,"work") if item["body"].get("name") == "Executor identity observed"]
+                self.assertEqual(len(metadata),3)
+                self.assertTrue(all("nexus.executor.id" not in item["body"]["context"]["labels"] for item in metadata))
 
     def test_large_snapshots_write_complete_bounded_record_pages(self) -> None:
         snapshot = large_snapshot()

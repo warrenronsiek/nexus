@@ -174,7 +174,7 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
 }
 
 const TAB_HINTS: Record<Exclude<DashboardTab, "coordination">, string> = {
-  work: "tab switch · ↑↓ session · enter duration breakdown · [/] activity trend · d records · esc back · r refresh · q close",
+  work: "tab switch · enter waterfall/task · ↑↓ time · +/- zoom · ←→ lanes · j/k task · d records · esc back · r refresh · q close",
   evals: "tab switch · ↑↓ eval set/metric · enter results · [/] metric · b records · d evidence · o repo · m model · / search · esc back · r refresh · q close",
   sos: "tab switch · ↑↓ navigate · enter detail · j/k scroll · esc back · r refresh · q close",
   papercuts: "tab switch · ↑↓ navigate · n load older · enter detail · j/k scroll · esc back · r refresh · q close",
@@ -354,7 +354,7 @@ export class NexusDashboardComponent implements Component {
     const unavailable = async (): Promise<never> => { throw new Error("Eval history API is unavailable in this host"); };
     this.evalsPane = new EvalsPane(tui, theme, options.evalsApi ?? { dashboard: unavailable, list: unavailable, get: unavailable, why: unavailable }, () => this.rebuild());
     const workUnavailable = async (): Promise<never> => { throw new Error("Work history API is unavailable in this host"); };
-    this.workPane = new WorkPane(tui, theme, options.workApi ?? { dashboard: workUnavailable, list: workUnavailable, activities: workUnavailable, get: workUnavailable, timeline: workUnavailable, events: workUnavailable }, () => this.rebuild());
+    this.workPane = new WorkPane(tui, theme, options.workApi ?? { dashboard: workUnavailable, health: workUnavailable, list: workUnavailable, activities: workUnavailable, get: workUnavailable, timeline: workUnavailable, events: workUnavailable }, () => this.rebuild());
     this.rebuild();
     this.poller.start();
   }

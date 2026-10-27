@@ -3,10 +3,11 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 import type { WorkDashboard } from "./work-dashboard-wire.ts";
-import type { WorkDetail, WorkEvents, WorkPage, WorkQuery, WorkSummary, WorkTimeline } from "./work.ts";
+import type { WorkCaptureHealth, WorkDetail, WorkEvents, WorkPage, WorkQuery, WorkSummary, WorkTimeline } from "./work.ts";
+import { initialWaterfall, type WaterfallView } from "./work-waterfall.ts";
 
 export interface WorkTree { session: WorkSummary; pages: Map<string, WorkTimeline>; expanded: Set<string>; selected: number; timeline: boolean }
-export interface WorkDashboardView { kind: "dashboard"; sessionId?: string; data?: WorkDashboard; selected: number; kindIndex: number; metric: "average" | "total"; trend: "sessions" | "activities" }
+export interface WorkDashboardView { kind: "dashboard"; sessionId?: string; data?: WorkDashboard; captureHealth?: WorkCaptureHealth; selected: number; kindIndex: number; metric: "average" | "total"; trend: "sessions" | "activities"; waterfall: WaterfallView }
 export type WorkView = WorkDashboardView | { kind: "list" } | { kind: "tree"; tree: WorkTree } |
   { kind: "detail"; record: WorkDetail; scroll: number } | { kind: "links"; record: WorkDetail; selected: number } | { kind: "memberships"; record: WorkDetail; selected: number } |
   { kind: "events"; record: WorkDetail; page: WorkEvents; scroll: number };
@@ -45,5 +46,5 @@ export function clampWork(value: number, length: number): number { return Math.m
 
 export function newWorkTree(session: WorkSummary): WorkTree { return { session, pages: new Map(), expanded: new Set(), selected: 0, timeline: false }; }
 
-export function newWorkDashboard(sessionId?: string): WorkDashboardView { return { kind: "dashboard", sessionId, selected: 0, kindIndex: 0, metric: "average", trend: "sessions" }; }
+export function newWorkDashboard(sessionId?: string): WorkDashboardView { return { kind: "dashboard", sessionId, selected: 0, kindIndex: 0, metric: "average", trend: "sessions", waterfall: initialWaterfall() }; }
 export function resetWorkScope(state: WorkState): void { resetWorkList(state); state.view = newWorkDashboard(); }
