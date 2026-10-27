@@ -187,3 +187,7 @@ The runtime boundary intentionally handles `serde_json::Value`, because JSON-RPC
 The `nexus_papercuts` MCP list schema accepts an optional bounded `project_id`, allowing the shared terminal dashboard to read its selected project over either transport. Mutating papercut actions remain bound to invocation context.
 
 The stdio/local companion performs bounded, fail-open activity enrichment in memory and reports labels through `nexus_analytics`. Its classifier has no operational tools or service secrets and runs outside the shared service. The shared service validates subject fingerprints and daily reservations; it never opens client paths or invokes providers. Queues expire on exit or after two minutes; observed work has priority over tool-catalog enrichment.
+
+Codex native tool-hook templates use fields available on ordinary main-thread
+events; they do not require an optional child `agent_id` to render. Child-agent
+identity remains captured through the dedicated native lifecycle callbacks.

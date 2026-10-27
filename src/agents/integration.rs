@@ -56,11 +56,11 @@ pub fn hook_configuration(host: Host, executable: &Path, explicit_config: Option
     );
     hooks.insert(
         "PreToolUse".into(),
-        json!([{"matcher":"*","hooks":[tool_hook("nexus_pre_tool_use", agent, turn_id, None)]}]),
+        json!([{"matcher":"*","hooks":[tool_hook("nexus_pre_tool_use", host, None)]}]),
     );
     hooks.insert(
         "PostToolUse".into(),
-        json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_use", agent, turn_id, None)]}]),
+        json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_use", host, None)]}]),
     );
     hooks.insert(
         "SessionEnd".into(),
@@ -94,7 +94,7 @@ pub fn hook_configuration(host: Host, executable: &Path, explicit_config: Option
     if host == Host::Claude {
         hooks.insert(
             "PostToolUseFailure".into(),
-            json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_failure", agent, turn_id, Some(("error", "${error}")))]}]),
+            json!([{"matcher":"*","hooks":[tool_hook("nexus_post_tool_failure", host, Some(("error", "${error}")))]}]),
         );
     }
     json!({"hooks":hooks})
@@ -158,14 +158,19 @@ fn user_prompt_hook(agent: &str, turn_id: &str) -> Value {
     )
 }
 
-fn tool_hook(tool: &str, agent: &str, turn_id: &str, completion: Option<(&str, &str)>) -> Value {
+fn tool_hook(tool: &str, host: Host, completion: Option<(&str, &str)>) -> Value {
+    let agent = host.name();
+    let turn_id = turn_id(host);
     let mut input = json!({
         "session_id":"${session_id}","project_root":"${cwd}","agent":agent,
-        "turn_id":turn_id,"model":"${model}","agent_id":"${agent_id}","tool_use_id":"${tool_use_id}",
+        "turn_id":turn_id,"model":"${model}","tool_use_id":"${tool_use_id}",
         "tool_name":"${tool_name}","tool_input":"${tool_input}"
     });
-    if agent == "claude" && completion.is_some() {
-        input["is_interrupt"] = Value::String("${is_interrupt}".into());
+    if host == Host::Claude {
+        input["agent_id"] = Value::String("${agent_id}".into());
+        if completion.is_some() {
+            input["is_interrupt"] = Value::String("${is_interrupt}".into());
+        }
     }
     if let Some((field, value)) = completion {
         input

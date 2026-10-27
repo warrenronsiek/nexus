@@ -7,7 +7,9 @@ Commands and runners retain their own scheduling, retries, and outcomes.
 ## Supported source contracts
 
 The adapter revision is `host-hooks-v1`; compatibility fixtures exercise the
-published Codex CLI 0.162.1 hooks contract and Claude Code 2.1.280 payload shapes. They are
+published Codex CLI 0.162.1 hooks contract and Claude Code 2.1.280 payload shapes. Codex
+native tool-hook inputs omit the optional child `agent_id` so main-thread events
+can render; dedicated child lifecycle callbacks retain child identity. They are
 synthetic contract fixtures, not a claim that live hooks were enabled or emitted
 every callback. Check hook trust and run the verification below after installing.
 
