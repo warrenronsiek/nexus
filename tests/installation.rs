@@ -446,6 +446,7 @@ fn machine_setup_refreshes_waterfall_helper_modules() {
     let installed = home.join(".pi/agent/extensions/nexus");
     fs::create_dir_all(&commands).unwrap();
     fs::create_dir_all(&installed).unwrap();
+    fake_host(&commands, "codex");
     fake_host(&commands, "pi");
     let helpers = [
         (
@@ -467,6 +468,7 @@ fn machine_setup_refreshes_waterfall_helper_modules() {
         &temporary.path().join("hosts.log"),
     )
     .arg("setup")
+    .env("PATH", &commands)
     .output()
     .unwrap();
     assert_success(&setup);
