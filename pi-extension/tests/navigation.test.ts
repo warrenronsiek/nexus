@@ -74,6 +74,12 @@ const snapshot: Snapshot = {
 };
 
 describe("progressive navigation", () => {
+  it("names sessions with their authoritative host display name", () => {
+    const named = structuredClone(snapshot);
+    Object.assign(named.dashboard.sessions.items[0]!, { display_name: "Work accounting implementation" });
+    expect(entriesFor(named, { kind: "list", section: "sessions" })[0]!.label).toBe("Work accounting implementation");
+    expect(entriesFor(named, { kind: "list", section: "sessions" })[0]!.description).toContain("codex");
+  });
   it("reveals summary, list, and detail one level at a time", () => {
     const overview: Page = { kind: "overview" };
     expect(entriesFor(snapshot, overview).map((entry) => entry.label)).toEqual([

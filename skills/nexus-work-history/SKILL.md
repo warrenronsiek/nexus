@@ -25,6 +25,11 @@ Use `nexus work schema` and the installed command's `--help` as the current API
 contract. Prefer existing host capture and named boundaries over adding manual
 recording to every tool call.
 
+For native request/turn/child callbacks, active identity handoff, asynchronous
+execution events, session names, and source capability verification, read
+[host adapters](references/host-adapters.md). A host callback permission response
+and a durable capture acknowledgment answer different questions.
+
 ## Preserve the work graph
 
 - Reuse one logical work-session ID across the prompts, host sessions, agents,
@@ -101,6 +106,15 @@ axis, with nested and parallel intervals preserved. Use `m` for mean/total,
 Dashboard samples are capped and explicitly partial when a history or display
 bound applies. A mean uses timed, conflict-free samples; an unknown interval is
 not zero. Inclusive sums are not total effort or prompt-to-production lead time.
+The selected session is a vertical waterfall: arrows/Page Up/Down pan time,
+`+`/`-` zoom, Left/Right pan lanes, Home/End jump, and `j`/`k` select tasks for
+Enter to inspect. `g` opens that view for a session found in the source browser.
+Qualified queue waits and explicitly labeled execution/wait intervals contribute
+to attributed wall time; label containers `nexus.accounting.role=container` and retain unknown roles
+when their meaning is unavailable. Unobserved time is not inferred idle or model
+reasoning. Worker occupancy is separate from execution totals and CPU time.
+Session titles should come from authoritative host metadata, never a guessed
+summary of prompt content. Preserve logical shared-work titles independently.
 
 Hand over root and important activity IDs, instrumentation locations, covered
 sources, delivery recovery, and what remains unknown. Explain what the evidence

@@ -31,8 +31,7 @@ nexus_work_exec() {
   case "${work_help}" in
     *--work-session*)
       if "${work_binary}" config check >/dev/null 2>&1; then
-        NEXUS_HOST_SESSION_ID="${NEXUS_HOST_SESSION_ID:-script:${BASHPID:-$$}}" \
-          "${work_binary}" exec --kind "${activity_kind}" --name "${activity_name}" -- "$@"
+        "${work_binary}" exec --kind "${activity_kind}" --name "${activity_name}" -- "$@"
       else
         "$@"
       fi

@@ -13,6 +13,7 @@ mod backend;
 mod conflicts;
 mod dashboard;
 mod evals;
+mod liveness;
 mod lookup;
 mod memory;
 mod migrations;
@@ -22,6 +23,7 @@ mod papercuts;
 mod readiness;
 mod releases;
 mod schema;
+mod session_names;
 mod sos;
 mod store;
 #[cfg(test)]

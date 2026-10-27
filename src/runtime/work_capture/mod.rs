@@ -5,9 +5,21 @@
 // @entrypoint capture_lifecycle
 // @boundary work-outbox-wire: decode stored typed recording envelopes and bounded transport acknowledgments, never arbitrary workload inputs.
 mod activity;
+mod context_bridge;
 mod git;
+mod handoff;
+mod health;
+mod host_context;
+mod host_events;
 mod lifecycle;
 mod outbox;
+mod session_title;
+mod source_clock;
+pub use session_title::resolve_session_title;
+#[cfg(test)]
+mod reliability_tests;
+#[cfg(all(test, feature = "sqlite"))]
+mod replay_tests;
 use super::client::NexusClient;
 use crate::config::{ClientConfig, LoadedConfig};
 use crate::coordination::api::{ServiceRequest, WorkCommand};
@@ -15,7 +27,12 @@ use crate::coordination::domain::HookContext;
 use crate::work_history::{WorkAction, WorkObservationInput};
 pub use activity::{ActivityCapture, CaptureContext, WorkExecutor};
 use anyhow::{Context, Result};
+pub use context_bridge::active_host_context;
 pub use git::git_hook;
+pub(crate) use handoff::CaptureHandoff;
+pub use handoff::{CaptureReceipt, CaptureStatus};
+pub use host_context::{host_handoff, WorkHandoff};
+pub use host_events::{host_event, host_event_with_title};
 pub(crate) use lifecycle::lifecycle_command as prepare_lifecycle;
 use lifecycle::stable_id;
 pub use outbox::CaptureHealth;
@@ -51,14 +68,53 @@ fn directory(loaded: &LoadedConfig) -> Result<PathBuf> {
         .join(stable_id(&[&key])))
 }
 
+fn project_id(loaded: &LoadedConfig, root: Option<&str>) -> Result<String> {
+    match &loaded.config.client {
+        ClientConfig::Remote(remote) => Ok(remote.project_id.trim().to_owned()),
+        ClientConfig::Local => crate::coordination::local_project_id(root),
+    }
+}
+
 pub fn health(loaded: &LoadedConfig) -> Result<CaptureHealth> {
     Outbox::open(&directory(loaded)?)?.health()
 }
 
-pub fn capture_lifecycle(loaded: &LoadedConfig, command: WorkCommand) {
+pub fn capture_lifecycle(loaded: &LoadedConfig, command: WorkCommand) -> CaptureReceipt {
+    capture_lifecycle_with_budget(loaded, command, Duration::from_millis(75))
+}
+
+pub fn capture_lifecycle_with_budget(
+    loaded: &LoadedConfig,
+    command: WorkCommand,
+    budget: Duration,
+) -> CaptureReceipt {
+    CaptureHandoff::default().capture_blocking(Arc::new(loaded.clone()), command, budget)
+}
+
+/// Give admitted jobs a bounded persistence window before this producer exits, then deliver.
+/// Jobs still pending after the deadline retain no durability or delivery promise.
+pub async fn flush_before_exit(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+) -> Result<CaptureHealth> {
+    let _ = CaptureHandoff::default().drain_pending(Duration::from_millis(1500));
+    flush(loaded, explicit_config).await
+}
+
+pub fn capture_adapter_rejection(
+    loaded: &LoadedConfig,
+    host: &str,
+    budget: Duration,
+) -> CaptureReceipt {
+    CaptureHandoff::default().reject_adapter(Arc::new(loaded.clone()), host.into(), budget)
+}
+
+fn persist_lifecycle(loaded: &LoadedConfig, mut command: WorkCommand) -> CaptureReceipt {
+    context_bridge::enrich(loaded, &mut command);
     if let WorkAction::Record { observations } = command.command {
-        let _ = enqueue(loaded, &command.context, observations);
+        return enqueue_receipt(loaded, &command.context, observations);
     }
+    CaptureReceipt::lost(0, "unsupported_command")
 }
 
 pub fn enqueue(
@@ -66,18 +122,98 @@ pub fn enqueue(
     context: &HookContext,
     observations: Vec<WorkObservationInput>,
 ) -> Result<()> {
-    let outbox = Outbox::writer(&directory(loaded)?)?;
-    for observation in observations {
-        let key = stable_id(&[&observation.id]);
-        let command = WorkCommand {
+    let receipt = capture_lifecycle(
+        loaded,
+        WorkCommand {
             context: context.clone(),
-            command: WorkAction::Record {
-                observations: vec![observation],
-            },
-        };
-        outbox.enqueue_once(&key, &serde_json::to_vec(&command)?)?;
+            command: WorkAction::Record { observations },
+        },
+    );
+    if receipt.lost > 0 {
+        anyhow::bail!(
+            "work capture lost observations: {}",
+            receipt.reason.unwrap_or("capture_failure")
+        );
     }
     Ok(())
+}
+
+fn enqueue_receipt(
+    loaded: &LoadedConfig,
+    context: &HookContext,
+    observations: Vec<WorkObservationInput>,
+) -> CaptureReceipt {
+    let mut receipt = CaptureReceipt {
+        status: CaptureStatus::Durable,
+        offered: observations.len(),
+        queued: 0,
+        duplicates: 0,
+        rejected: 0,
+        lost: 0,
+        loss_reasons: Default::default(),
+        rejection_reasons: Default::default(),
+        reason: None,
+    };
+    let path = match directory(loaded) {
+        Ok(path) => path,
+        Err(_) => return CaptureReceipt::lost(observations.len(), "directory_unavailable"),
+    };
+    let project = match project_id(loaded, context.project_root.as_deref()) {
+        Ok(project) => project,
+        Err(_) => {
+            let receipt = CaptureReceipt::lost(observations.len(), "project_unavailable");
+            outbox::record_capture(&path, context, &receipt);
+            return receipt;
+        }
+    };
+    let outbox = match Outbox::writer(&path) {
+        Ok(outbox) => outbox,
+        Err(_) => {
+            let receipt = CaptureReceipt::lost(observations.len(), "writer_unavailable");
+            outbox::record_capture(&path, context, &receipt);
+            return receipt;
+        }
+    };
+    for observation in observations {
+        account_enqueue(
+            &mut receipt,
+            persist_observation(&outbox, &project, context, observation),
+        );
+    }
+    outbox::record_capture(&path, context, &receipt);
+    receipt
+}
+
+fn persist_observation(
+    outbox: &Outbox,
+    project: &str,
+    context: &HookContext,
+    observation: WorkObservationInput,
+) -> Result<outbox::Enqueued> {
+    let key = stable_id(&[project, &observation.id]);
+    let command = WorkCommand {
+        context: context.clone(),
+        command: WorkAction::Record {
+            observations: vec![observation],
+        },
+    };
+    outbox.enqueue_once(&key, &serde_json::to_vec(&command)?)
+}
+
+fn account_enqueue(receipt: &mut CaptureReceipt, result: Result<outbox::Enqueued>) {
+    match result {
+        Ok(outbox::Enqueued::New) => receipt.queued += 1,
+        Ok(outbox::Enqueued::Duplicate) => receipt.duplicates += 1,
+        Ok(outbox::Enqueued::Rejected) => receipt.record_rejection("known_rejection"),
+        Ok(outbox::Enqueued::Conflict) => receipt.record_rejection("conflict"),
+        Err(error) => receipt.record_loss(
+            if error.downcast_ref::<outbox::CapacityExceeded>().is_some() {
+                "capacity"
+            } else {
+                "enqueue_io"
+            },
+        ),
+    }
 }
 
 pub async fn flush(loaded: &LoadedConfig, explicit_config: Option<&Path>) -> Result<CaptureHealth> {
@@ -115,20 +251,104 @@ async fn deliver(
     entry: &outbox::Pending,
     budget: Duration,
 ) -> Result<Delivery> {
+    let deadline = Instant::now() + budget;
     let command: WorkCommand = match serde_json::from_slice::<WorkCommand>(&entry.bytes) {
         Ok(command) if matches!(command.command, WorkAction::Record { .. }) => command,
         _ => return settle(path, entry, Delivery::Rejected("corrupt")),
     };
+    if entry.phase() == outbox::PendingPhase::ReconcileCallback {
+        let delivery = reconcile_callback(client, &command, deadline).await;
+        return settle(path, entry, delivery);
+    }
     let result = tokio::time::timeout(
         budget,
-        client.ensure_and_request(&ServiceRequest::Work(command)),
+        client.ensure_and_request(&ServiceRequest::Work(command.clone())),
     )
     .await;
-    let delivery = match result {
+    let mut delivery = match result {
         Ok(Ok(response)) => disposition(&response),
         _ => Delivery::RetryLater,
     };
+    if matches!(delivery, Delivery::Rejected("conflict")) {
+        delivery = reconcile_callback(client, &command, deadline).await;
+        if matches!(delivery, Delivery::RetryLater) && callback_candidate(&command).is_some() {
+            Outbox::open(path)?.defer_callback(entry)?;
+        }
+    }
     settle(path, entry, delivery)
+}
+
+fn callback_replay_matches(
+    accepted: &WorkObservationInput,
+    incoming: &WorkObservationInput,
+) -> bool {
+    same_companion_body(accepted, incoming) && accepted.method == "companion_callback_wall_clock"
+}
+
+fn same_companion_body(accepted: &WorkObservationInput, incoming: &WorkObservationInput) -> bool {
+    accepted.id == incoming.id
+        && accepted.subject == incoming.subject
+        && accepted.body == incoming.body
+        && accepted.correction == incoming.correction
+        && incoming.method == accepted.method
+        && accepted.producer.name == "nexus-companion"
+        && incoming.producer.name == accepted.producer.name
+}
+
+async fn reconcile_callback(
+    client: &NexusClient,
+    command: &WorkCommand,
+    deadline: Instant,
+) -> Delivery {
+    let Some(incoming) = callback_candidate(command) else {
+        return Delivery::Rejected("conflict");
+    };
+    match lookup_callback(client, command, incoming, deadline).await {
+        Ok(Some(accepted)) if callback_replay_matches(&accepted.input, incoming) => {
+            Delivery::Recorded
+        }
+        Ok(_) => Delivery::Rejected("conflict"),
+        Err(_) => Delivery::RetryLater,
+    }
+}
+
+fn callback_candidate(command: &WorkCommand) -> Option<&WorkObservationInput> {
+    let WorkAction::Record { observations } = &command.command else {
+        return None;
+    };
+    let [incoming] = observations.as_slice() else {
+        return None;
+    };
+    (incoming.producer.name == "nexus-companion"
+        && incoming.method == "companion_callback_wall_clock")
+        .then_some(incoming)
+}
+
+async fn lookup_callback(
+    client: &NexusClient,
+    command: &WorkCommand,
+    incoming: &WorkObservationInput,
+    deadline: Instant,
+) -> Result<Option<crate::work_history::WorkObservation>> {
+    let lookup = ServiceRequest::Work(WorkCommand {
+        context: command.context.clone(),
+        command: WorkAction::Observation {
+            project_id: None,
+            id: incoming.id.clone(),
+        },
+    });
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let response = tokio::time::timeout(remaining, client.ensure_and_request(&lookup)).await??;
+    if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        anyhow::bail!("callback lookup unavailable");
+    }
+    response
+        .get("observation")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(Into::into)
 }
 
 fn disposition(response: &serde_json::Value) -> Delivery {
@@ -218,6 +438,8 @@ mod tests {
             model: None,
         };
         let tool = ToolHookInput {
+            is_interrupt: None,
+            agent_id: None,
             context,
             tool_use_id: "child".into(),
             tool_name: "bash".into(),

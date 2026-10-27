@@ -5,11 +5,13 @@
 // @feature agent-memory
 // @feature papercuts
 // @feature sos
+// @feature work-history
 // @spec docs/features/runtime.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @spec docs/features/work-history.md
 // @boundary dynamic-json-schema
 use serde_json::{json, Value};
 
@@ -18,6 +20,7 @@ pub(super) fn tool_definitions() -> Value {
     definitions.extend(coordination_tool_definitions());
     definitions.push(super::evals_schema::definition());
     definitions.push(super::work_schema::definition());
+    definitions.push(super::work_schema::health_definition());
     Value::Array(definitions)
 }
 
@@ -28,7 +31,7 @@ fn lifecycle_tool_definitions() -> Vec<Value> {
         "properties":{
             "session_id":{"type":"string"},"project_root":{"type":"string"},"agent":{"type":"string"},
             "turn_id":{"type":"string"},"model":{"type":"string"},
-            "tool_use_id":{"type":"string"},"parent_tool_use_id":{"type":"string"},"tool_name":{"type":"string"},"tool_input":{},"tool_output":{},"error":{"type":"string"}
+            "tool_use_id":{"type":"string"},"parent_tool_use_id":{"type":"string"},"tool_name":{"type":"string"},"tool_input":{},"tool_output":{},"error":{"type":"string"},"is_interrupt":{"type":"boolean"},"agent_id":{"type":"string"}
         },
         "additionalProperties":true
     });

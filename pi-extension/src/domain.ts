@@ -32,6 +32,7 @@ export interface SessionRecord {
   worktree: string | null;
   status: "active" | "stopped";
   task_summary: string | null;
+  display_name?: string | null;
   last_seen_at: string;
 }
 
@@ -226,7 +227,7 @@ function isEvent(value: unknown): value is EventRecord {
 }
 
 function isSession(value: unknown): value is SessionRecord {
-  return hasShape(value, sessionShape);
+  return hasShape(value, sessionShape) && (value.display_name === undefined || isNullableString(value.display_name));
 }
 
 function isClaim(value: unknown): value is ClaimRecord {

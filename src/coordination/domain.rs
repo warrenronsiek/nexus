@@ -33,7 +33,7 @@ macro_rules! string_enum {
     };
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Default)]
 #[serde(transparent)]
 pub struct ToolPayload(Value);
 
@@ -50,7 +50,20 @@ impl ToolPayload {
 
 impl From<Value> for ToolPayload {
     fn from(value: Value) -> Self {
-        Self(value)
+        // Claude MCP hook templates stringify objects; Codex preserves their JSON type.
+        // Decode one bounded object layer, retaining ordinary text and malformed input.
+        let object = value
+            .as_str()
+            .filter(|text| text.len() <= 1024 * 1024)
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .filter(Value::is_object);
+        Self(object.unwrap_or(value))
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolPayload {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Value::deserialize(deserializer).map(Self::from)
     }
 }
 
@@ -92,6 +105,10 @@ pub struct ToolHookInput {
     pub tool_output: Option<ToolPayload>,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub is_interrupt: Option<bool>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,6 +305,8 @@ pub struct SessionRecord {
     pub worktree: Option<String>,
     pub status: SessionStatus,
     pub task_summary: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub last_seen_at: DateTime<Utc>,
 }
 
@@ -434,6 +453,28 @@ pub struct DashboardRecords {
 #[cfg(test)]
 mod tests {
     use super::RecordWindow;
+
+    #[test]
+    fn tool_payload_accepts_native_and_stringified_objects_without_reinterpreting_text() {
+        use super::ToolPayload;
+        use serde_json::{json, Value};
+        let object = json!({"file_path":"shared.txt","content":"fixture"});
+        for wire in [object.clone(), json!(object.to_string())] {
+            let payload: ToolPayload = serde_json::from_value(wire).unwrap();
+            assert_eq!(payload.as_json(), &object);
+        }
+        for text in ["ordinary output", "{malformed", "[1,2]", "\"text\""] {
+            let payload: ToolPayload = serde_json::from_value(json!(text)).unwrap();
+            assert_eq!(payload.as_json(), &Value::String(text.into()));
+        }
+        let oversized =
+            json!({"file_path":"shared.txt","content":"x".repeat(1024 * 1024)}).to_string();
+        let payload: ToolPayload = serde_json::from_value(json!(oversized)).unwrap();
+        assert_eq!(payload.as_json(), &Value::String(oversized));
+        let twice_encoded = json!(object.to_string()).to_string();
+        let payload: ToolPayload = serde_json::from_value(json!(twice_encoded)).unwrap();
+        assert_eq!(payload.as_json(), &Value::String(twice_encoded));
+    }
 
     #[test]
     fn fallible_record_conversion_preserves_the_bounded_window() {

@@ -68,7 +68,7 @@ impl Store {
             table: conflicts::table,
             project_column: conflicts::project_id,
             scoped_when: scope == ConflictScope::Open,
-            scoped_filter: conflicts::status.eq("open"),
+            scoped_filter: super::liveness::live_conflict(),
             order: (conflicts::created_at.desc(), conflicts::id.asc()),
             row: ConflictRow,
             decode: conflict_from_row,

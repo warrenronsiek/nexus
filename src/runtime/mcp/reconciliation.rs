@@ -1,12 +1,15 @@
 // @feature runtime
 // @feature coordination
+// @feature work-history
 // @spec docs/features/runtime.md
 // @spec docs/features/coordination.md
+// @spec docs/features/work-history.md
 // @boundary configured-service-invoker
 use super::ServiceInvoker;
 use crate::config::LoadedConfig;
 use crate::coordination::api::ServiceRequest;
 use crate::runtime::client::NexusClient;
+use crate::runtime::work_capture::CaptureReceipt;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -96,6 +99,14 @@ impl ConfiguredInvoker {
 
 #[async_trait]
 impl ServiceInvoker for ConfiguredInvoker {
+    async fn reject_lifecycle(&self, agent: &str) -> Option<CaptureReceipt> {
+        Some(self.client.capture_rejection(agent).await)
+    }
+
+    async fn capture_health(&self) -> Result<Value> {
+        Ok(self.client.capture_health().await)
+    }
+
     async fn invoke(&self, request: ServiceRequest, lifecycle: bool) -> Result<Value> {
         if lifecycle {
             self.observe_session(&request);

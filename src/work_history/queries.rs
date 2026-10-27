@@ -60,6 +60,10 @@ pub enum WorkAction {
         project_id: Option<String>,
         subject: WorkSubject,
     },
+    Observation {
+        project_id: Option<String>,
+        id: String,
+    },
     Timeline {
         project_id: Option<String>,
         work_session_id: String,
@@ -82,6 +86,7 @@ impl WorkAction {
             | Self::Activities { project_id, .. }
             | Self::Dashboard { project_id, .. }
             | Self::Get { project_id, .. }
+            | Self::Observation { project_id, .. }
             | Self::Timeline { project_id, .. }
             | Self::Events { project_id, .. }
             | Self::Export { project_id, .. } => project_id.as_deref(),
@@ -114,6 +119,9 @@ pub enum WorkResponse {
     },
     Detail {
         record: Option<Box<WorkDetail>>,
+    },
+    Observation {
+        observation: Option<Box<WorkObservation>>,
     },
     Timeline {
         work_session_id: String,

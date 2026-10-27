@@ -231,7 +231,7 @@ fn upgrades_v5_sessions_to_project_scoped_identity_without_losing_rows() {
             "config",
         )
         .unwrap();
-    let sessions = store.list_sessions(RecordScope::All).unwrap();
+    let sessions = store.list_sessions(RecordScope::All, 120).unwrap();
     assert_eq!(sessions.len(), 2);
     assert!(sessions
         .iter()

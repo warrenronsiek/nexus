@@ -546,6 +546,8 @@ mod tests {
             ),
         };
         let input = ToolHookInput {
+            is_interrupt: None,
+            agent_id: None,
             context: super::super::domain::HookContext {
                 session_id: "skill-test".to_owned(),
                 project_root: None,

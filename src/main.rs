@@ -511,7 +511,7 @@ async fn run_admin_command(
         }
         Command::ReviewCommit => {
             let report = reviewer::review_staged_commit_recorded(loaded, root);
-            let _ = nexus::runtime::work_capture::flush(loaded, explicit_config).await;
+            let _ = nexus::runtime::work_capture::flush_before_exit(loaded, explicit_config).await;
             let report = report?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())

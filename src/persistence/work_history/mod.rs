@@ -3,10 +3,12 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/work-history.md
 // @entrypoint Store::work_command
+mod clock;
 mod corrections;
 mod dashboard;
 mod ingestion;
 mod lineage;
+mod metadata;
 mod paging;
 mod projection;
 mod queries;
@@ -62,6 +64,7 @@ fn read_command(
         WorkAction::Get { subject, .. } => Ok(WorkResponse::Detail {
             record: projection::detail(connection, project, subject)?.map(Box::new),
         }),
+        WorkAction::Observation { id, .. } => queries::observation(connection, project, id),
         WorkAction::Timeline {
             work_session_id,
             parent_activity_id,
@@ -92,3 +95,22 @@ fn read_command(
 }
 
 pub(super) use snapshot::rebuild_snapshot;
+
+pub(super) fn session_title(
+    connection: &mut crate::persistence::backend::DbConnection,
+    project: &str,
+    subject: &WorkSubject,
+) -> Result<Option<WorkSummary>> {
+    let (observations, truncated) = projection::observed(connection, project, subject)?;
+    if truncated || observations.is_empty() {
+        return Ok(None);
+    }
+    let mut diagnostics = corrections::Diagnostics::default();
+    let active = corrections::effective(connection, project, &observations, &mut diagnostics)?;
+    if !diagnostics.conflicts.is_empty() || !diagnostics.gaps.is_empty() {
+        return Ok(None);
+    }
+    let mut summary = WorkSummary::unobserved(subject);
+    timing::project_events(&mut summary, &active);
+    Ok(Some(summary))
+}

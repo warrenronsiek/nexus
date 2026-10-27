@@ -93,7 +93,7 @@ fn stopping_a_shared_raw_session_id_is_scoped_to_its_remote_project() {
         .store
         .lock()
         .unwrap()
-        .list_sessions(RecordScope::All)
+        .list_sessions(RecordScope::All, 120)
         .unwrap();
     assert_eq!(sessions.len(), 2);
     assert_eq!(
@@ -185,7 +185,7 @@ fn stale_reconciliation_cannot_reactivate_a_stopped_session_or_its_claims() {
         .unwrap();
 
     let mut store = service.store.lock().unwrap();
-    let sessions = store.list_sessions(RecordScope::All).unwrap();
+    let sessions = store.list_sessions(RecordScope::All, 120).unwrap();
     assert_eq!(
         session_status(&sessions, "project-a"),
         SessionStatus::Stopped

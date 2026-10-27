@@ -230,7 +230,7 @@ fn remote_clones_share_project_identity_without_persisting_client_worktrees() {
         .store
         .lock()
         .unwrap()
-        .list_sessions(RecordScope::All)
+        .list_sessions(RecordScope::All, 120)
         .unwrap();
     assert_eq!(sessions.len(), 2);
     assert!(sessions

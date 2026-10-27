@@ -33,6 +33,7 @@ function observationLines(observation: WorkObservation): string[] {
     `  Producer: ${observation.producer.name} ${observation.producer.version} · instance ${observation.producer.instance_id} · ${observation.method}`,
     `  Submitter: ${observation.provenance.agent} · host ${observation.provenance.session_id ?? "unknown"}`];
   if (observation.source) lines.push(`  Original receipt: ${observation.source.project_id} · ${observation.source.recorded_at} · ${observation.source.provenance.agent}`);
+  if (observation.source_clock) lines.push(`  Source clock: ${observation.source_clock.clock_id} · ${observation.source_clock.nanoseconds}ns`);
   if (observation.correction) lines.push(`  Corrects: ${observation.correction.replaces} · ${observation.correction.reason}`);
   for (const [key, value] of Object.entries(observation.body)) if (key !== "event") lines.push(`  ${key}: ${preview(value)}`);
   return lines;
@@ -56,7 +57,7 @@ export function workDetailLines(record: WorkDetail): string[] {
 function listLines(state: WorkState, width: number): string[] {
   const query = Object.entries(state.query).filter(([key]) => key !== "after" && key !== "limit").map(([key, value]) => `${key}=${value}`).join(" · ");
   const label = state.listing === "sessions" ? "Work sessions" : "Activity search";
-  const lines = [`${label} · f switch sessions/activity search`, `Filters · ${query || "all recorded work"}`];
+  const lines = [`${label} · g session waterfall · f switch sessions/activity search`, `Filters · ${query || "all recorded work"}`];
   if (!state.page) return [...lines, state.status];
   lines.push(`${state.page.items.length} ${state.listing === "sessions" ? "work sessions" : "activities"} loaded · ${state.page.next_cursor ? "more · n next" : "all matching reported records loaded"}`);
   const start = centeredWindowStart(state.page.items.length, state.selected, 10);

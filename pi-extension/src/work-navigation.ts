@@ -6,7 +6,8 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { WORK_OUTCOMES, type WorkSubject, type WorkSummary } from "./work.ts";
 import { WORK_DETAIL_ROWS, clampWork, newWorkDashboard, newWorkTree, pushWorkView, resetWorkList, workRows, type WorkFilter, type WorkState, type WorkTree } from "./work-state.ts";
 import type { WorkIntent } from "./work-requests.ts";
-import { dashboardItems } from "./work-dashboard.ts";
+import { dashboardItems, sessionWaterfall } from "./work-dashboard.ts";
+import { moveWaterfall, type WaterfallMove } from "./work-waterfall.ts";
 import { editTextFilter } from "./text-filter.ts";
 
 interface WorkInput { handled: boolean; intent?: WorkIntent }
@@ -160,10 +161,17 @@ function switchPresentation(state: WorkState): WorkIntent {
   if (state.view.kind === "dashboard") { pushWorkView(state, { kind: "list" }); return { action: "list" }; }
   const view = newWorkDashboard(); pushWorkView(state, view); return { action: "dashboard", view };
 }
+function waterfall(state: WorkState): WorkIntent | undefined {
+  const subject = state.view.kind === "tree" ? state.view.tree.session.subject : selectedSubject(state);
+  if (subject?.scope !== "session") return;
+  const view = newWorkDashboard(subject.id); pushWorkView(state, view);
+  return { action: "dashboard", view };
+}
 function dashboardControl(state: WorkState, key: string): WorkInput {
   if (key === "d") return { handled: true, intent: switchPresentation(state) };
   const view = state.view;
   if (view.kind !== "dashboard") return { handled: false };
+  if (view.sessionId && waterfallControl(view, key)) return { handled: true };
   switch (key) {
     case "m": view.metric = view.metric === "average" ? "total" : "average"; break;
     case "t": view.trend = view.trend === "sessions" ? "activities" : "sessions"; break;
@@ -173,8 +181,15 @@ function dashboardControl(state: WorkState, key: string): WorkInput {
   }
   return { handled: true };
 }
+function waterfallControl(view: Extract<WorkState["view"], { kind: "dashboard" }>, key: string): boolean {
+  const directions: Record<string, WaterfallMove> = { up: "up", down: "down", pageUp: "page_up", pageDown: "page_down", home: "home", end: "end", left: "left", right: "right", "+": "zoom_in", "=": "zoom_in", "-": "zoom_out" };
+  const direction = directions[key];
+  if (direction) { if (view.data?.selected_session) moveWaterfall(view.waterfall, sessionWaterfall(view.data), direction); return true; }
+  if (key !== "j" && key !== "k") return false;
+  view.selected = clampWork(view.selected + (key === "j" ? 1 : -1), dashboardItems(view).length); return true;
+}
 const NAVIGATION: Record<string, (state: WorkState) => WorkIntent | undefined> = {
-  enter, backspace: back, escape: back,
+  enter, backspace: back, escape: back, g: waterfall,
   right: state => expand(state, "expand"), space: state => expand(state, "expand"),
   left: state => state.view.kind === "tree" ? expand(state, "collapse") : back(state), n: more,
   t: state => { if (state.view.kind === "tree") state.view.tree.timeline = !state.view.tree.timeline; return undefined; },
@@ -182,9 +197,9 @@ const NAVIGATION: Record<string, (state: WorkState) => WorkIntent | undefined> =
 };
 export function handleWorkInput(state: WorkState, data: string): WorkInput {
   if (state.editor) return edit(state, data);
-  const keys = [Key.enter, Key.escape, Key.backspace, Key.left, Key.right, Key.up, Key.down, Key.pageUp, Key.pageDown,
-    Key.space, "d", "m", "[", "]", "n", "t", "s", "l", "e", "j", "k", "/", "o", "h", "a", "b", "u", "v", "f", "w", "c"] as const;
-  const key = keys.find(key => matchesKey(data, key));
+  const keys = [Key.enter, Key.escape, Key.backspace, Key.left, Key.right, Key.up, Key.down, Key.pageUp, Key.pageDown, Key.home, Key.end, "+", "=", "-",
+    Key.space, "d", "g", "m", "[", "]", "n", "t", "s", "l", "e", "j", "k", "/", "o", "h", "a", "b", "u", "v", "f", "w", "c"] as const;
+  const key = data === "+" ? "+" : keys.find(key => matchesKey(data, key));
   if (key === undefined) return { handled: false };
   const dashboard = dashboardControl(state, key);
   if (dashboard.handled) return dashboard;

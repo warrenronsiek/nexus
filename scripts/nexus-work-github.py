@@ -9,7 +9,7 @@ import datetime
 import hashlib
 import json
 import pathlib
-from typing import cast
+from typing import NamedTuple, cast
 
 
 def object_value(value: object) -> dict[str, object]:
@@ -30,6 +30,11 @@ def timestamp(value: object) -> str:
     if parsed.tzinfo is None:
         raise ValueError("source timestamp requires timezone")
     return result
+
+
+class ActivityIdentity(NamedTuple):
+    kind: str
+    executor: str | None = None
 
 
 class GitHubCapture:
@@ -63,7 +68,8 @@ class GitHubCapture:
         encoded = json.dumps(observation, sort_keys=True, separators=(",", ":"))
         self.observations.append(dict(observation,id=hashlib.sha256(encoded.encode()).hexdigest()))
 
-    def activity(self, source: dict[str, object], identity: str, parent: str | None, kind: str) -> None:
+    def activity(self, source: dict[str, object], identity: str, parent: str | None, accounting: ActivityIdentity) -> None:
+        kind = accounting.kind
         boundary = source.get("created_at") or source.get("started_at")
         method = "imported_provider_boundary" if boundary else "imported_metadata_observation"
         self.emit(identity,boundary or self.observed_at,{"event":"activity_declared",
@@ -73,6 +79,7 @@ class GitHubCapture:
         self.emit(identity,self.observed_at,{"event":"linked","relation":"member_of",
                   "target":{"kind":"session","id":self.work_session_id}},"imported_membership_observation")
         self.metadata(source,identity,kind)
+        self.accounting(identity,kind,accounting.executor)
         for field, event in (("created_at", "queued"), ("started_at", "started")):
             if source.get(field) is not None:
                 self.emit(identity, source[field], {"event": event})
@@ -89,6 +96,31 @@ class GitHubCapture:
         self.emit(identity,self.observed_at,{"event":"milestone","name":"Provider metadata observed",
                   "context":context},"imported_metadata_observation")
 
+    def accounting(self, identity: str, kind: str, executor: str | None) -> None:
+        # Keep the version-one declaration unchanged; later source assignments are
+        # additive evidence, not a competing declaration of accepted history.
+        role = "execution" if kind == "ci.step" else "container"
+        for name, labels in (("Accounting role observed", {"nexus.accounting.role": role}),
+                             ("Executor identity observed", self.executor_labels(executor))):
+            context = self.context(kind,identity)
+            context["labels"] = labels
+            self.emit(identity,self.observed_at,{"event":"milestone","name":name,"context":context},
+                      "imported_accounting_observation")
+
+    def executor_labels(self, executor: str | None) -> dict[str, str]:
+        labels = {"nexus.executor.declaration": "unqualified", "nexus.executor.source": "github.runner_id"}
+        if executor is not None:
+            if len(executor.encode()) > 512:
+                raise ValueError("provider executor identity exceeds Nexus's 512-byte bound")
+            labels["nexus.executor.id"] = executor
+        return labels
+
+    def runner(self, job: dict[str, object]) -> str | None:
+        identity = job.get("runner_id")
+        if type(identity) is not int or identity <= 0:
+            return None
+        return f"github:{self.repository}:runner:{identity}"
+
     def finish(self, source: dict[str, object], identity: str) -> None:
         conclusions = {"success": "succeeded", "failure": "failed", "cancelled": "canceled",
                        "timed_out": "timed_out", "skipped": "skipped", "startup_failure": "infrastructure_error"}
@@ -99,7 +131,7 @@ class GitHubCapture:
     def workflow(self) -> None:
         source = dict(self.run)
         source["started_at"] = self.run.get("run_started_at")
-        self.activity(source, self.run_id, None, "ci.workflow")
+        self.activity(source, self.run_id, None, ActivityIdentity("ci.workflow"))
         if self.run.get("conclusion") is not None:
             context = self.context("workflow_run", self.run_id, self.run.get("html_url"))
             context["labels"] = {"conclusion": text(self.run["conclusion"]), "timing": "completion boundary unavailable"}
@@ -110,10 +142,11 @@ class GitHubCapture:
         for raw_job in source_array(self.snapshot, "jobs"):
             job = object_value(raw_job)
             job_id = f"{self.run_id}:job:{text(job['id'])}"
-            self.activity(job, job_id, self.run_id, "ci.job")
+            executor = self.runner(job)
+            self.activity(job, job_id, self.run_id, ActivityIdentity("ci.job", executor))
             for raw_step in source_array(job, "steps"):
                 step = object_value(raw_step)
-                self.activity(step, f"{job_id}:step:{text(step['number'])}", job_id, "ci.step")
+                self.activity(step, f"{job_id}:step:{text(step['number'])}", job_id, ActivityIdentity("ci.step", executor))
 
     def pull_request(self) -> None:
         if self.snapshot.get("pull_request") is None:
@@ -133,9 +166,14 @@ def source_array(source: dict[str, object], field: str) -> list[object]:
     return value
 
 
-def convert(snapshot: dict[str, object], work_session_id: str) -> list[dict[str, object]]:
+def convert(snapshot: dict[str, object], work_session_id: str, parent_activity_id: str | None = None) -> list[dict[str, object]]:
     capture = GitHubCapture(snapshot, work_session_id)
     capture.workflow()
+    if parent_activity_id is not None:
+        if not parent_activity_id or len(parent_activity_id.encode()) > 512:
+            raise ValueError("parent activity identity exceeds Nexus bounds")
+        capture.emit(capture.run_id,capture.observed_at,{"event":"linked","relation":"parent",
+                     "target":{"kind":"activity","id":parent_activity_id}},"imported_parent_observation")
     capture.jobs()
     capture.pull_request()
     return capture.observations
@@ -179,11 +217,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("snapshot", type=pathlib.Path)
     parser.add_argument("--work-session", required=True)
+    parser.add_argument("--parent", help="Exact initiating request or activity ID; adds evidence without redeclaring the run")
     parser.add_argument("--output-directory",type=pathlib.Path,help="Write bounded record files to an empty directory")
     arguments = parser.parse_args()
     try:
         snapshot = object_value(json.loads(arguments.snapshot.read_text(encoding="utf-8")))
-        pages = record_pages(convert(snapshot,arguments.work_session))
+        pages = record_pages(convert(snapshot,arguments.work_session,arguments.parent))
         if arguments.output_directory is not None:
             write_pages(arguments.output_directory,pages)
         elif len(pages) > 1:

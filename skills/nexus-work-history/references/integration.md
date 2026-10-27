@@ -148,7 +148,8 @@ retransmission does not.
     "body": {
       "event": "activity_declared", "name": "Router tests", "kind": "test",
       "work_session_id": "router-change-42", "parent_activity_id": "implementation-42",
-      "context": {"environment": "ci", "labels": {"purpose": "Verify fallback after the motivating routing failure"}}
+      "executor": "runner-17:worker-4",
+      "context": {"environment": "ci", "labels": {"nexus.accounting.role": "execution", "purpose": "Verify fallback after the motivating routing failure"}}
     }
   }]
 }
@@ -161,7 +162,11 @@ duration, exit code/signal, and assessment. Use the live schema for these fields
 typed links, and corrections. Occurrence time describes the source event, not
 the later import. A new producer process needs a distinct clock identity; a
 stable provider execution identity can describe timestamps from that provider.
-Keep unknown boundaries unknown.
+Keep unknown boundaries unknown. Use `context.labels["nexus.accounting.role"]`
+with `container`, `execution`, or `wait` only when the source establishes that
+meaning. Containers describe enclosing lifetimes; they do not explain all time
+inside them. Unknown roles remain unattributed. An `executor` identifies a real
+worker instance; provider/tool names and runner labels are not worker identities.
 
 Each atomic request contains at most 64 observations, each at most 16 KiB;
 CLI files have a 768 KiB limit. Direct recording requires acknowledgment.
@@ -196,7 +201,8 @@ transforms local metadata without network access or service credentials:
 
 ```sh
 python3 "$nexus_skill_dir/scripts/nexus-work-github.py" run-snapshot.json \
-  --work-session router-change-42 --output-directory nexus-observations
+  --work-session router-change-42 --parent implementation-42 \
+  --output-directory nexus-observations
 (
   set -e
   for page in nexus-observations/*.json; do nexus work record "$page"; done
@@ -205,9 +211,30 @@ python3 "$nexus_skill_dir/scripts/nexus-work-github.py" run-snapshot.json \
 
 Use a new or empty output directory and ingest every page. Large snapshots need
 multiple bounded files; stdout mode fails rather than dropping excess records.
+`--parent` attaches the canonical workflow execution to the initiating request or
+activity through relationship evidence. It does not redeclare or duplicate a
+provider run already imported under another work root. Carry the actual parent
+from the [host identity handoff](host-adapters.md), not a nearby session.
 The adapter preserves provider run/attempt/job/step identities and keeps mutable
 metadata separate. `updated_at` is not an observed completion time, and a workflow
 head SHA does not prove what a job actually checked out.
+
+Workflow and job lifetimes are accounting containers; observed steps are
+execution intervals. The adapter uses a positive integer job `runner_id` from
+[GitHub job metadata](https://docs.github.com/en/rest/actions/workflow-jobs) as
+`github:REPOSITORY:runner:ID` for that job and its steps. A missing, unassigned,
+or invalid runner ID keeps worker occupancy unknown. It never substitutes a
+runner name, provider name, checkout path, or neighboring job's identity.
+
+Accounting evidence is additive. `Accounting role observed` milestones carry
+`nexus.accounting.role`; `Executor identity observed` milestones carry
+`nexus.executor.declaration: "unqualified"` and an optional `nexus.executor.id`.
+These mark the adapter's historical `github-actions` declaration value as a
+provider label, preserving existing declarations and event identities. An
+assigned worker arriving later does not redeclare accepted work. Missing later
+metadata does not erase a known worker; competing positive identities remain
+explicit conflicts with unknown worker occupancy. The same generic milestone
+contract lets other caller-owned adapters qualify old categorical executor labels.
 
 Automatic host/wrapper capture uses a private, bounded local outbox. `work health`
 reports queued, retained rejected, recent delivery, bytes, known losses, and
@@ -215,6 +242,9 @@ reports queued, retained rejected, recent delivery, bytes, known losses, and
 once they stop, delivery waits for another client or explicit flush. Queued,
 rejected, and acknowledged are different states. `work export FILE` / `import
 FILE` exchange checksummed work-only JSONL, distinct from database-wide transfer.
+`exec` and `review-commit` use a bounded local capture drain before their final
+flush and exit, after workload measurement. A pending receipt or a timed-out
+drain still does not establish durable capture or server acknowledgment.
 
 ## Verify the resulting view
 
@@ -232,8 +262,13 @@ wall-duration summaries, activity-kind duration bars, and daily history charts.
 `m` switches means/totals; `t` switches session/activity trends; `[` / `]`
 selects an activity-kind series. Enter on a parent session opens a visual
 breakdown of retained descendants without requiring manual tree expansion.
-Nested and parallel bars share the same UTC source-boundary axis. Their
-inclusive intervals overlap and are not additive effort. Missing or conflicted
+Time runs downward on a shared UTC source-boundary axis; child tasks branch
+right at source admission/start, with separate lanes for overlapping work.
+Use arrows/PageUp/PageDown to pan time, `+`/`-` to zoom, left/right to pan lanes,
+and `j`/`k` then Enter to inspect a task. `g` opens this visual for a session
+reached through the paginated record browser. Queued tasks retain a separate
+queue-wait segment on the same lane; queue sums can overlap and never count as
+worker occupancy. Inclusive intervals overlap and are not additive effort. Missing or conflicted
 elapsed measurements remain unknown and are excluded from means; displayed
 sample counts explain that denominator. Daily buckets use UTC start, falling
 back to the subject's first source occurrence if no start was captured.

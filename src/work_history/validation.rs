@@ -111,9 +111,25 @@ impl Elapsed {
             .try_for_each(|id| text("clock ID", id, 512))
     }
 }
+impl WorkSourceClock {
+    fn validate(&self) -> Result<()> {
+        text("source clock ID", &self.clock_id, 512)?;
+        if self.nanoseconds.is_empty()
+            || self.nanoseconds.len() > 39
+            || !self.nanoseconds.bytes().all(|byte| byte.is_ascii_digit())
+            || self.nanoseconds.parse::<u128>().is_err()
+        {
+            bail!("source clock nanoseconds require a bounded nonnegative integer");
+        }
+        Ok(())
+    }
+}
 impl WorkObservationInput {
     pub fn validate(&self) -> Result<()> {
         self.validate_envelope()?;
+        self.source_clock
+            .iter()
+            .try_for_each(WorkSourceClock::validate)?;
         self.body.validate(&self.subject)
     }
     fn validate_envelope(&self) -> Result<()> {

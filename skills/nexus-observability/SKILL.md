@@ -72,16 +72,21 @@ motivation, and artifacts.
 
 **Work:** start with session duration trends, totals, activity-kind means, and
 the count of durations actually known. `[`/`]` changes the activity trend.
-Select a parent session and Enter for its descendant duration breakdown and
-timeline, including nested tasks and retries. Parallel intervals overlap on the
-same axis. The total of inclusive activity durations can double-count nested
+Select a parent session and Enter for its vertical waterfall, including nested
+tasks and retries. Time runs down; children branch right at their source start.
+Arrows/Page Up/Down pan time, `+`/`-` zoom, Left/Right pan lanes, Home/End jump,
+and `j`/`k` select tasks for Enter to inspect. Host names follow captured
+Codex/Claude titles. Attributed execution/wait union, unobserved time, worker
+occupancy, and missing-source coverage stay distinct. Local capture loss/backlog
+belongs to this companion, not all history producers. The total of inclusive activity durations can double-count nested
 work and is not session wall time or agent effort. Unknown durations do not
 become zeros. Daily buckets use UTC; coverage and truncation notices qualify
 every summary.
 
 Use `d` for the secondary record browser. Enter opens a session's tree or an
 activity; Right/Space expands children, Left collapses, and `t` toggles timeline.
-`s` opens the session, `l` shows links, and `e` pages source observations.
+`g` opens the waterfall for any selected session, including older paginated
+records; `s` opens the session, `l` shows links, and `e` pages source observations.
 `f` switches roots/activity search; `/`, `o`, `h`, `k`, `u`, `v`, `a`/`b` filter
 search, repository, host session, kind, outcome, environment, and occurrence
 bounds. A kind filter selects activity search. `w` on an activity follows its

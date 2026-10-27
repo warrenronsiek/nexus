@@ -75,7 +75,8 @@ pub struct NexusClient {
     secret: tokio::sync::OnceCell<std::result::Result<Secret, String>>,
     evidence_capture: BlockingCaptureGate,
     secret_capture: BlockingCaptureGate,
-    work_capture: BlockingCaptureGate,
+    work_capture: super::work_capture::CaptureHandoff,
+    work_health: BlockingCaptureGate,
 }
 
 impl NexusClient {
@@ -111,7 +112,8 @@ impl NexusClient {
             secret: tokio::sync::OnceCell::new(),
             evidence_capture: BlockingCaptureGate::default(),
             secret_capture: BlockingCaptureGate::default(),
-            work_capture: BlockingCaptureGate::default(),
+            work_capture: super::work_capture::CaptureHandoff::default(),
+            work_health: BlockingCaptureGate::default(),
         }
     }
 
@@ -156,21 +158,22 @@ impl NexusClient {
     }
 
     pub async fn lifecycle_request(&self, request: &ServiceRequest) -> Value {
-        if let Some(command) = super::work_capture::prepare_lifecycle(request) {
-            let loaded = self.loaded.clone();
-            self.work_capture
-                .capture(Duration::from_millis(75), move || {
-                    super::work_capture::capture_lifecycle(&loaded, command);
-                })
-                .await;
-        }
+        let capture = if let Some(command) = super::work_capture::prepare_lifecycle(request) {
+            Some(
+                self.work_capture
+                    .capture(self.loaded.clone(), command, Duration::from_millis(75))
+                    .await,
+            )
+        } else {
+            None
+        };
         let outcome =
             tokio::time::timeout(LIFECYCLE_RESPONSE_BUDGET, self.ensure_and_request(request)).await;
         let diagnostic = match outcome {
             Ok(Ok(response)) => {
                 let _ =
                     super::work_capture::flush(&self.loaded, self.explicit_config.as_deref()).await;
-                return response;
+                return with_capture_receipt(response, capture);
             }
             Ok(Err(error)) => format!("nexus is unavailable: {error}"),
             Err(_) => format!(
@@ -178,11 +181,42 @@ impl NexusClient {
                 LIFECYCLE_RESPONSE_BUDGET.as_millis()
             ),
         };
-        serde_json::to_value(HookResponse::fail_open(diagnostic)).expect("hook responses serialize")
+        with_capture_receipt(
+            serde_json::to_value(HookResponse::fail_open(diagnostic))
+                .expect("hook responses serialize"),
+            capture,
+        )
     }
 
     pub(crate) fn is_remote(&self) -> bool {
         matches!(self.loaded.config.client, ClientConfig::Remote(_))
+    }
+
+    pub(crate) async fn capture_health(&self) -> Value {
+        let loaded = self.loaded.clone();
+        match self
+            .work_health
+            .capture(Duration::from_millis(75), move || {
+                super::work_capture::health(&loaded)
+            })
+            .await
+        {
+            Some(Ok(health)) => {
+                serde_json::json!({"ok":true,"scope":"local_companion","available":true,"work_capture":health})
+            }
+            _ => {
+                serde_json::json!({"ok":true,"scope":"local_companion","available":false,"reason":"busy_or_unavailable"})
+            }
+        }
+    }
+
+    pub(crate) async fn capture_rejection(
+        &self,
+        host: &str,
+    ) -> super::work_capture::CaptureReceipt {
+        self.work_capture
+            .reject_adapter_async(self.loaded.clone(), host, Duration::from_millis(75))
+            .await
     }
 
     async fn remote_request(
@@ -279,6 +313,19 @@ impl NexusClient {
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))
     }
+}
+
+fn with_capture_receipt(
+    mut response: Value,
+    capture: Option<super::work_capture::CaptureReceipt>,
+) -> Value {
+    if let (Some(object), Some(capture)) = (response.as_object_mut(), capture) {
+        object.insert(
+            "work_capture".into(),
+            serde_json::to_value(capture).expect("capture receipts serialize"),
+        );
+    }
+    response
 }
 
 async fn decode_bounded_remote_response(mut response: reqwest::Response) -> Result<Value> {

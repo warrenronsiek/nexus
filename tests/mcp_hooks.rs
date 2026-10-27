@@ -352,7 +352,7 @@ fn mcp_lifecycle_classifies_conflicts_and_persists_projections() {
     assert_eq!(resolved["status"], "resolved");
 
     let mut store = harness.store();
-    let counts = store.counts().unwrap();
+    let counts = store.counts(120).unwrap();
     assert_eq!(counts.active_sessions, 5);
     assert_eq!(counts.active_claims, 5);
     assert!(counts.open_conflicts >= 4);

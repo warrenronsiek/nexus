@@ -25,7 +25,7 @@ const selected = { ...overview, work_session_id: "work-1", selected_session: roo
   activities: [child("Implementation", null, 1, 8), child("Nested QA", "Implementation", 2, 5), child("Parallel review", "Implementation", 2, 5)] };
 const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
 function fixture(dashboard: WorkApi["dashboard"] = vi.fn(async (_project: string | null, id?: string) => id ? selected : overview)) {
-  const api = { dashboard, list: vi.fn(async () => ({ items: [root], next_cursor: null })), timeline: vi.fn(), activities: vi.fn(),
+  const api = { dashboard, health: vi.fn<WorkApi["health"]>(async () => ({ available: true, queued: 2, rejected: 1, lost: 3, process_losses: 0, health_failures: 0, last_captured_at: null, last_delivered_at: null })), list: vi.fn(async () => ({ items: [root], next_cursor: null })), timeline: vi.fn(), activities: vi.fn(),
     get: vi.fn(async () => ({ summary: root, observations: [], links: [], truncated: false })), events: vi.fn() };
   const pane = new WorkPane({ requestRender: vi.fn() } as unknown as TUI, theme, api, vi.fn());
   return { pane, api };
@@ -53,13 +53,13 @@ it("opens work with qualified duration charts over history and session selection
 it("opens all descendant intervals as a visual session breakdown without manual expansion", async () => {
   const { pane, api } = fixture(); await ready(pane); pane.handleInput("\r");
   await vi.waitFor(() => expect(api.dashboard).toHaveBeenCalledWith(null, "work-1", expect.any(AbortSignal)));
-  await vi.waitFor(() => expect(screen(pane)).toContain("Session duration breakdown"));
+  await vi.waitFor(() => expect(screen(pane)).toContain("Session duration breakdown · Ship router"));
   const lines = pane.render(150); const text = lines.join("\n");
   expect(text).toContain("10s");
   expect(text).toContain("Nested QA"); expect(text).toContain("Parallel review");
   expect(text).toContain("All recorded descendants");
-  const bars = lines.filter(line => /Nested QA|Parallel review/u.test(line)).join("\n").match(/\[[ =?]+\]/gu) ?? [];
-  expect(bars[0]).toBeDefined(); expect(bars[0]).toBe(bars[1]);
+  expect(lines.find(line => line.includes("Nested QA start"))).toContain("Parallel review start");
+  expect(text).toMatch(/[├┬┼]/u);
   expect(api.timeline).not.toHaveBeenCalled();
   for (const width of [18, 40, 80]) expect(pane.render(width).every(line => visibleWidth(line) <= width)).toBe(true);
   pane.dispose();
@@ -111,5 +111,111 @@ it("keeps the overview and parent picker visible in a compact terminal", async (
   const lines = pane.render(60);
   expect(lines.length).toBeLessThanOrEqual(24);
   expect(lines.join("\n")).toContain("Parent sessions");
+  pane.dispose();
+});
+
+it("opens every selected session as a vertical waterfall and pans time independently from task selection", async () => {
+  const { pane, api } = fixture(); await ready(pane); pane.handleInput("\r");
+  await vi.waitFor(() => expect(screen(pane)).toContain("Time ↓"));
+  expect(screen(pane)).toContain("Ship router");
+  expect(screen(pane)).toContain("● start");
+  expect(screen(pane)).toContain("UTC origin");
+  pane.handleInput("+");
+  const top = screen(pane); pane.handleInput("\u001b[B");
+  expect(screen(pane)).not.toBe(top);
+  pane.handleInput("j"); pane.handleInput("\r");
+  await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+  pane.dispose();
+});
+
+it("labels the common source origin when a descendant queued before its session", async () => {
+  const beforeRoot = { ...selected, activities: [{ ...selected.activities[0]!, queued_at: "2026-10-20T11:59:00Z" }] };
+  const { pane } = fixture(vi.fn(async (_project: string | null, id?: string) => id ? beforeRoot : overview));
+  await ready(pane); pane.handleInput("\r");
+  await vi.waitFor(() => expect(screen(pane, 150)).toContain("UTC origin 2026-10-20T11:59:00.000Z"));
+  expect(screen(pane, 150)).toContain("Implementation queued");
+  pane.dispose();
+});
+
+it("rejects malformed waterfall evidence before it reaches the terminal layout", async () => {
+  const queued = { ...selected.activities[0], id: "bad-queue", executor: null, accounting_role: "execution", queued_at: "not a date" };
+  const lossy = { ...selected.activities[0], id: "lossy", executor: null, accounting_role: "execution", elapsed: { nanoseconds: 9007199254740992, method: "monotonic", clock_id: "boot" } };
+  for (const intervals of [[{ id: "bad" }], [{ ...selected.activities[0], id: "bad", started_at: "not a date", executor: null, accounting_role: "execution" }], [queued], [lossy]]) {
+    const api = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "dashboard", ...selected, intervals })) }, "/repo");
+    await expect(api.dashboard(null, "work-1")).rejects.toThrow("unexpected response");
+  }
+});
+
+it("shows attributed time and missing coverage without equating container lifetime with work", async () => {
+  const measured = (seconds: number) => ({ seconds, nanoseconds: String(seconds * 1e9) });
+  const accounting = { session_wall: measured(10), occupied_wall: measured(6), inclusive_execution: measured(20), worker_occupancy: measured(15),
+    unobserved: measured(4), unobserved_intervals: [], definitions: [], coverage: { activity_count: 3, interval_count: 2, missing_start_count: 0, missing_finish_count: 1,
+      clock_conflict_count: 0, conflicted_count: 0, unlinked_count: 0, unknown_executor_count: 1, unknown_role_count: 1, source_partial: false, display_partial: false,
+      capability_inventory: "unavailable", observed_adapters: ["codex-native-v1"] } };
+  const { pane } = fixture(vi.fn(async (_project: string | null, id?: string) => id ? { ...selected, accounting } : overview));
+  await ready(pane); pane.handleInput("\r");
+  await vi.waitFor(() => expect(screen(pane)).toContain("Attributed 6s"));
+  expect(screen(pane)).toContain("unobserved 4s");
+  expect(screen(pane)).toContain("finish missing 1");
+  expect(screen(pane)).toContain("inventory unavailable");
+  expect(pane.render(60).length).toBeLessThanOrEqual(24);
+  pane.dispose();
+});
+
+it("shows local capture backlog and loss separately from project accounting", async () => {
+  const { pane, api } = fixture(); await ready(pane);
+  expect(api.health).toHaveBeenCalledWith(expect.any(AbortSignal));
+  expect(screen(pane)).toContain("Local capture · queued 2 · retained rejected 1 · lost 3");
+  pane.dispose();
+});
+
+it("qualifies queue sums when source clocks cannot measure every queued task", async () => {
+  const measured = (seconds: number) => ({ seconds, nanoseconds: String(seconds * 1e9) });
+  const accounting = { session_wall: measured(10), occupied_wall: measured(0), inclusive_execution: measured(0), worker_occupancy: measured(0),
+    queue_wait: measured(0), unobserved: measured(10), unobserved_intervals: [], definitions: [], coverage: { activity_count: 1, interval_count: 0,
+      queue_count: 1, known_queue_count: 0, missing_start_count: 0, missing_finish_count: 0, clock_conflict_count: 1, conflicted_count: 0,
+      unlinked_count: 0, unknown_executor_count: 0, unknown_role_count: 0, source_partial: true, display_partial: false,
+      capability_inventory: "unavailable", observed_adapters: [] } };
+  const { pane } = fixture(vi.fn(async (_project: string | null, id?: string) => id ? { ...selected, accounting } : overview));
+  await ready(pane); pane.handleInput("\r");
+  await vi.waitFor(() => expect(screen(pane, 240)).toContain("queue sum unknown · 0/1 timed"));
+  pane.dispose();
+});
+
+it("keeps known delivery backlog while showing unknown losses when the capture ledger is unavailable", async () => {
+  const api = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, scope: "local_companion", available: true, work_capture: {
+    queued: 2, rejected: 1, capture: null, admission_lost_process: 0, worker_failed_process: 0, health_persistence_failed_process: 1,
+  } })) }, "/repo");
+  expect(await api.health()).toMatchObject({ available: true, queued: 2, rejected: 1, lost: undefined, health_failures: 1 });
+});
+
+it("shows historical capacity loss separately from newer capture-ledger losses", async () => {
+  const { pane, api } = fixture();
+  api.health.mockResolvedValue({ available: true, queued: 0, rejected: 0, lost: 0, process_losses: 0, health_failures: 0, last_captured_at: null, last_delivered_at: null, legacy_capacity_losses: 7 } as Awaited<ReturnType<typeof api.health>>);
+  await ready(pane);
+  expect(screen(pane)).toContain("Capacity losses 7");
+  pane.dispose();
+});
+
+it("shows rejected callback transport separately from quarantined observations", async () => {
+  const wire = { ok: true, scope: "local_companion", available: true, work_capture: {
+    queued: 0, rejected: 1, capture: { lost: 0, transport_rejected: 4, rejected_replays: 2, last_captured_at: null, last_delivered_at: null },
+    admission_lost_process: 0, worker_failed_process: 0, health_persistence_failed_process: 0,
+  } };
+  const decoded = await new NexusWorkApi({ call: vi.fn(async () => wire) }, "/repo").health();
+  expect(decoded).toMatchObject({ rejected: 1, transport_rejected: 4 });
+  const { pane, api } = fixture(); api.health.mockResolvedValue(decoded); await ready(pane);
+  expect(screen(pane, 240)).toContain("Transport rejected 4");
+  expect(screen(pane, 240)).toContain("Callback rejected 2");
+  pane.dispose();
+});
+
+it("opens the same waterfall for sessions reached through paginated source browsing", async () => {
+  const { pane, api } = fixture(); await ready(pane);
+  pane.handleInput("d"); await vi.waitFor(() => expect(api.list).toHaveBeenCalled());
+  await vi.waitFor(() => expect(screen(pane)).toContain("work sessions loaded"));
+  pane.handleInput("g");
+  await vi.waitFor(() => expect(api.dashboard).toHaveBeenCalledWith(null, "work-1", expect.any(AbortSignal)));
+  await vi.waitFor(() => expect(screen(pane)).toContain("Time ↓"));
   pane.dispose();
 });

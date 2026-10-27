@@ -153,13 +153,7 @@ fn validate_lifecycle_request(request: &ServiceRequest) -> Result<()> {
     let context = match request {
         ServiceRequest::UserPrompt(input) => &input.context,
         ServiceRequest::ToolHook { input, .. } => {
-            validate_required_field("tool_use_id", &input.tool_use_id, 512)?;
-            validate_required_field("tool_name", &input.tool_name, 256)?;
-            validate_optional_field(
-                "parent_tool_use_id",
-                input.parent_tool_use_id.as_deref(),
-                512,
-            )?;
+            validate_tool_identity(input)?;
             &input.context
         }
         ServiceRequest::SkillUse(input) => {
@@ -177,6 +171,17 @@ fn validate_lifecycle_request(request: &ServiceRequest) -> Result<()> {
         _ => return Ok(()),
     };
     validate_hook_context(context)
+}
+
+fn validate_tool_identity(input: &ToolHookInput) -> Result<()> {
+    validate_required_field("tool_use_id", &input.tool_use_id, 512)?;
+    validate_required_field("tool_name", &input.tool_name, 256)?;
+    validate_optional_field("agent_id", input.agent_id.as_deref(), 512)?;
+    validate_optional_field(
+        "parent_tool_use_id",
+        input.parent_tool_use_id.as_deref(),
+        512,
+    )
 }
 
 fn validate_hook_context(context: &HookContext) -> Result<()> {

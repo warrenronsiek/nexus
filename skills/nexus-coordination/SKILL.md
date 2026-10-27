@@ -39,6 +39,10 @@ evidence. Neither path proves complete coverage of all edits.
 
 Keep lifecycle delivery bounded and advisory. Malformed input, an unavailable
 service, or failed persistence must not deny or repeat the underlying tool call.
+Preserve structured tool inputs when the host can do so. Nexus also accepts the
+single JSON-string object layer emitted by Claude MCP hook templates; opaque or
+malformed inputs remain fail open and do not create guessed path claims.
+
 Match completion to execution, and send session stop even when a task failed.
 Do not equate a stopped host session with successful logical work; use
 [nexus-work-history](../nexus-work-history/SKILL.md) for nested tasks, repeated
@@ -54,6 +58,14 @@ nexus claims
 nexus conflicts
 nexus events --limit 32
 ```
+
+Active lists and dashboard counters describe recent coordination evidence: sessions
+age out after the claim TTL unless they retain a live lease, and open conflicts
+require current claims from both original sessions on the path. Stop, release, or
+expiry removes the live overlap without resolving or deleting its history. Use
+`nexus sessions --all` and `nexus conflicts --all` for history. An
+`advisory_ignored` event means successful continuation after an advisory; it does
+not verify host delivery or agent acknowledgement.
 
 The matching MCP tools are `nexus_sessions`, `nexus_claims`, `nexus_conflicts`,
 and `nexus_events`. Read schemas for their optional project and scope filters;

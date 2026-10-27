@@ -5,6 +5,10 @@ coverage, and terminal behavior are specified in [work history](../features/work
 This document preserves the rationale and broader direction; illustrative
 commands below are not the public API reference.
 
+The proposed [work-time accounting plan](work-accounting-plan.md) identifies
+remaining capture, completion, correlation, and measurement gaps and sequences
+the work to close them.
+
 ## Purpose and agreed scope
 
 Nexus should preserve the structure and timing of a coherent unit of work, from

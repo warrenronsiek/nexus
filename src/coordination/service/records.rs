@@ -43,11 +43,14 @@ impl BoundedRecordQuery {
         *project_id = binding.default_read_project(project_id.take());
     }
 
-    fn load(self, store: &mut Store) -> Result<ServiceResponse> {
+    fn load(self, store: &mut Store, activity_window_seconds: i64) -> Result<ServiceResponse> {
         match self {
             Self::Claims(query) => {
-                let window =
-                    store.list_claims_window(query.project_id.as_deref(), query.scope())?;
+                let window = store.list_claims_window(
+                    query.project_id.as_deref(),
+                    query.scope(),
+                    crate::coordination::api::MAX_CLAIM_RESULTS,
+                )?;
                 Ok(ServiceResponse::Claims(ClaimsResponse {
                     ok: true,
                     claims: window.items,
@@ -55,8 +58,12 @@ impl BoundedRecordQuery {
                 }))
             }
             Self::Sessions(query) => {
-                let window =
-                    store.list_sessions_window(query.project_id.as_deref(), query.scope())?;
+                let window = store.list_sessions_window(
+                    query.project_id.as_deref(),
+                    query.scope(),
+                    activity_window_seconds,
+                    crate::coordination::api::MAX_SESSION_RESULTS,
+                )?;
                 Ok(ServiceResponse::Sessions(SessionsResponse {
                     ok: true,
                     sessions: window.items,
@@ -87,8 +94,12 @@ impl NexusService {
             .store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))
-            .and_then(|mut store| query.load(&mut store))
-        {
+            .and_then(|mut store| {
+                query.load(
+                    &mut store,
+                    self.loaded.config.coordination.claim_ttl_seconds,
+                )
+            }) {
             Ok(response) => response,
             Err(error) => ServiceResponse::error(error),
         }

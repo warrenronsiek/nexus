@@ -12,6 +12,7 @@ pub mod config;
 pub mod coordination;
 pub mod evals;
 mod git_process;
+mod identity;
 pub mod installation;
 pub mod memory;
 pub mod papercuts;

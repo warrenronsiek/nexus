@@ -54,6 +54,15 @@ flowchart TD
 
 ## Implementation details
 
+`liveness.rs` owns shared typed predicates for recent sessions and live unresolved
+conflicts. Counts, active lists, and dashboard records apply those predicates
+before database windows, without mutating historical statuses or resolutions.
+Session activity uses the configured claim TTL and any remaining live leases;
+conflict liveness follows the original session pair through replacement leases.
+The service passes the activity window explicitly. Dashboard and list session/claim
+windows share their capped readers; dashboard conflicts intentionally prioritize
+recent updates while conflict history lists retain creation ordering.
+
 Ordinary projection queries apply deterministic database windows before materialization: sessions and claims expose at most 64 rows, conflicts at most 32, dashboard events at most 32, and each dashboard projection class at most 16. Overlap lookup first selects at most 32 distinct active sessions by their most recent claim, then performs a constant number of single-row typed queries per selected session to retain its strongest relevant claim; repeated claims from one session therefore cannot consume another session's advisory slot. Project discovery exposes at most 16 project identities with four recent member sessions per summary. Usage selects at most 64 top dimensions before bounded detail and distinct-session reads. Every affected response reports truncation without changing its established array field.
 
 `src/persistence/backend.rs` makes the selected Diesel connection and backend explicit compile-time aliases and rejects builds with both or neither feature. `store.rs` owns coordination transactions and shared Diesel queries. `usage.rs` owns idempotent capability-use upserts and typed, time-bounded usage aggregates. The `memory` persistence module owns immutable raw-note streams, disposable summary trees, activations, and provider-attempt metadata described by the agent-memory specification. The `papercuts` persistence module owns timestamped observations and their atomic audit events: `mutations.rs` handles report/upvote/remove transactions, `reviews.rs` owns proposals, responses, consolidation, and attempt history, `registry.rs` builds complete or open projections and decodes append-only resolution/reopen/consolidation events into typed lifecycle history, and `records.rs` confines private Diesel rows and storage conversion. Ordinary open projection loads current papercut rows plus database-side `COUNT` and `MAX(created_at)` metrics scoped by an open-papercut join, so historical upvote payloads are materialized only by the explicitly complete dump projection. `migrations.rs` adapts the public `flyway-rs` state and executor traits to the selected connection model. `models.rs` owns the original coordination row and insert models; feature-scoped persistence modules own their private Diesel rows. `schema.rs` contains Diesel's generated table declarations, including the migration history table. SQL appears only under `migrations/` and `postgres_migrations/`, where it defines equivalent backend-specific schema objects.
@@ -119,6 +128,14 @@ the authoritative observation rows; import validates their original identities,
 hashes, typed input and receipt provenance, then rebuilds the indexes. Versions
 2, 3, and 4 remain supported. Out-of-order observations and unresolved links are
 preserved; no foreign key requires another producer's event to arrive first.
+Optional source-clock evidence remains inside the typed immutable observation
+payload, preserving existing schema and portable stream compatibility. The
+shared timing projection qualifies reported elapsed time, matching OS monotonic
+clock evidence, and same-producer wall time in that order. Queue durations use
+the same policy. Accounting projections retain explicit missing or conflicting
+evidence; they never repair the authoritative observations by inference.
+Session display names are read from exact project/agent/host-session work-title
+evidence without changing coordination session identity.
 
 Evaluation history V12 adds project-scoped immutable typed records, indexed
 relationships, repository/model filter dimensions, content upload metadata, and

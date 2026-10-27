@@ -197,6 +197,7 @@ pub(super) fn session_from_row(row: SessionRow) -> Result<SessionRecord> {
                 crate::coordination::api::MAX_SESSION_SUMMARY_BYTES,
             )
         }),
+        display_name: None,
         last_seen_at: parse_time(&row.last_seen_at)?,
     })
 }

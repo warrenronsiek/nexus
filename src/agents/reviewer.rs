@@ -77,12 +77,9 @@ pub fn review_staged_commit_recorded(
     loaded: &crate::LoadedConfig,
     repository: &Path,
 ) -> Result<CommitReviewReport> {
-    let capture = ActivityCapture::begin(
-        loaded,
-        CaptureContext::from_environment(repository),
-        "review.group",
-        "Commit review",
-    );
+    let mut context = CaptureContext::from_environment(repository).with_active_host(loaded);
+    context.accounting_role = crate::work_history::WorkAccountingRole::Container;
+    let capture = ActivityCapture::begin(loaded, context, "review.group", "Commit review");
     let result = review_staged_commit_inner(&loaded.config.review, repository, Some(&capture));
     capture.finish(
         match &result {
@@ -324,7 +321,7 @@ mod tests {
             None,
             None,
         );
-        let events = captured_events(temp.path());
+        let events = captured_events(&loaded, temp.path());
         let declared: Vec<_> = events
             .iter()
             .filter_map(|(_, body)| match body {
@@ -346,17 +343,33 @@ mod tests {
         assert_eq!(declared.len(), 2);
         assert!(declared.iter().all(|(parent, ..)| *parent == &group));
         assert_ne!(declared[0].1, declared[1].1);
+        assert_ne!(declared[0].3, declared[1].3);
         for (_, _, initiator, executor, context) in &declared {
-            assert_eq!(initiator.as_deref(), Some("implementation-agent"));
-            assert_eq!(executor.as_deref(), Some("claude"));
-            assert_eq!(context.model_id.as_deref(), Some("reviewer-model"));
-            assert!(context
-                .agent_instance_id
-                .as_ref()
-                .unwrap()
-                .starts_with("review-"));
+            assert_review_worker(initiator, executor, context);
         }
         assert_eq!(finished, 3);
+    }
+
+    fn assert_review_worker(
+        initiator: &Option<String>,
+        executor: &Option<String>,
+        context: &crate::work_history::WorkContext,
+    ) {
+        assert_eq!(initiator.as_deref(), Some("implementation-agent"));
+        assert_eq!(executor.as_deref(), context.agent_instance_id.as_deref());
+        assert_eq!(
+            context
+                .labels
+                .get("nexus.executor.name")
+                .map(String::as_str),
+            Some("claude")
+        );
+        assert_eq!(context.model_id.as_deref(), Some("reviewer-model"));
+        assert!(context
+            .agent_instance_id
+            .as_ref()
+            .unwrap()
+            .starts_with("review-"));
     }
 
     #[test]
@@ -374,7 +387,7 @@ mod tests {
             "staged change",
             Some(&capture),
         );
-        let events = captured_events(temp.path());
+        let events = captured_events(&loaded, temp.path());
         for review in report.reviews {
             let text = review.text.unwrap();
             let fields: Vec<_> = text.split('|').collect();
@@ -404,6 +417,7 @@ mod tests {
         context.hook.model = Some("implementation-model".into());
         context.work_session_id = None;
         context.parent_activity_id = None;
+        context.accounting_role = crate::work_history::WorkAccountingRole::Container;
         ActivityCapture::begin(loaded, context, "review.group", "Commit review")
     }
 
@@ -417,7 +431,20 @@ mod tests {
         skills
     }
 
-    fn captured_events(root: &Path) -> Vec<(String, crate::work_history::WorkEvent)> {
+    fn captured_events(
+        loaded: &crate::LoadedConfig,
+        root: &Path,
+    ) -> Vec<(String, crate::work_history::WorkEvent)> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !crate::runtime::work_capture::health(loaded)
+            .is_ok_and(|health| health.pending_callbacks_process == 0)
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "capture did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
         let mut events = Vec::new();
         for entry in std::fs::read_dir(root.join("work-outbox")).unwrap() {
             let path = entry.unwrap().path();

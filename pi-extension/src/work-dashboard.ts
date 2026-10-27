@@ -2,14 +2,23 @@
 // @feature observability-ui
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
-import { workTimeAxis, workTimeBar } from "./work-interval.ts";
+import { layoutWaterfall, renderWaterfall, type WaterfallNode } from "./work-waterfall.ts";
 import { chartBars, chartTrend, formatDurationSeconds } from "./charts.ts";
-import { centeredWindowStart, fitDisplayText, sanitizeDisplayText } from "./display.ts";
+import { centeredWindowStart, fitDisplayText } from "./display.ts";
 import type { WorkDashboard, WorkKindStats } from "./work-dashboard-wire.ts";
 import type { WorkDashboardView } from "./work-state.ts";
 import type { WorkSummary } from "./work.ts";
 
-export function dashboardItems(view: WorkDashboardView): WorkSummary[] { return view.sessionId ? descendantRows(view.data?.activities ?? []).map(row => row.summary) : view.data?.sessions ?? []; }
+export function dashboardItems(view: WorkDashboardView): Pick<WorkSummary, "subject" | "title">[] {
+  return view.sessionId ? waterfallNodes(view.data).map(node => ({ subject: { scope: "activity", id: node.id }, title: node.title })) : view.data?.sessions ?? [];
+}
+export function waterfallNodes(data?: WorkDashboard): WaterfallNode[] {
+  return data?.intervals ?? data?.activities.map(item => ({ ...item, id: item.subject.id, executor: null })) ?? [];
+}
+export function sessionWaterfall(data: WorkDashboard) {
+  const session = data.selected_session!;
+  return layoutWaterfall({ ...session, id: session.subject.id, executor: null }, waterfallNodes(data));
+}
 function duration(value: number | null): string { return value === null ? "unknown" : formatDurationSeconds(value); }
 function elapsed(item: WorkSummary): string {
   const value = item.elapsed ? Number(item.elapsed.nanoseconds) / 1e9 : NaN;
@@ -31,7 +40,7 @@ function trend(view: WorkDashboardView, data: WorkDashboard, width: number): str
   const samples = activities ? data.activity_daily.filter(day => day.kind === kind) : data.daily;
   const points = samples.map(day => ({ label: day.date, at: Date.parse(day.date), value: day.known_count === 0 ? null : view.metric === "average" ? day.average_seconds : day.total_seconds }));
   return [`${activities ? `${kind ?? "Activity"} durations` : "Session durations"} over time · UTC source day · ${view.metric} · t series`,
-    ...chartTrend(points, width, formatDurationSeconds).slice(0, 7)];
+    ...chartTrend(points, width, formatDurationSeconds).slice(0, 6)];
 }
 function notices(data: WorkDashboard): string[] {
   return [...(data.truncated ? ["Partial history · charts summarize retained subjects only"] : []),
@@ -39,56 +48,43 @@ function notices(data: WorkDashboard): string[] {
 }
 function overview(view: WorkDashboardView, data: WorkDashboard, width: number): string[] {
   const stats = data.session_duration;
-  const start = centeredWindowStart(data.sessions.length, view.selected, 4);
+  const start = centeredWindowStart(data.sessions.length, view.selected, 3);
   return ["Work duration dashboard · d source records", `Session wall · avg ${duration(stats.average_seconds)} · total ${duration(stats.known_count ? stats.total_seconds : null)} · ${stats.known_count}/${stats.count} sessions timed`,
     "inclusive intervals; not effort. Unknown/conflicted excluded.",
     ...trend(view, data, width), ...kindChart(view, data, width),
     `Parent sessions · Enter visual breakdown · ↑/↓ select · ${data.sessions.length} retained`,
-    ...data.sessions.slice(start, start + 4).map((item, offset) => fitDisplayText(`${start + offset === view.selected ? "›" : " "} ${item.title} · ${elapsed(item)} · ${item.outcome ?? item.state}`, width)),
-    ...(data.sessions.length ? [] : ["No work sessions recorded. Capture caller-owned session and activity boundaries."]), ...notices(data)];
-}
-interface DescendantRow { summary: WorkSummary; depth: number }
-/** Walk canonical ownership once; missing parents and graph conflicts remain visible at the root. */
-function descendantRows(items: WorkSummary[]): DescendantRow[] {
-  const children = childrenByParent(items), rows: DescendantRow[] = [], visited = new Set<string>();
-  const append = (summary: WorkSummary, depth: number): void => {
-    if (visited.has(summary.subject.id) || depth > 128) return;
-    visited.add(summary.subject.id); rows.push({ summary, depth });
-    for (const child of children.get(summary.subject.id) ?? []) append(child, depth + 1);
-  };
-  for (const item of children.get(null) ?? []) append(item, 0);
-  for (const item of items) if (!visited.has(item.subject.id)) append(item, 0);
-  return rows;
-}
-function childrenByParent(items: WorkSummary[]): Map<string | null, WorkSummary[]> {
-  const ids = new Set(items.map(item => item.subject.id)), children = new Map<string | null, WorkSummary[]>();
-  for (const item of items) {
-    const parent = item.parent_activity_id !== null && ids.has(item.parent_activity_id) ? item.parent_activity_id : null;
-    const siblings = children.get(parent) ?? []; siblings.push(item); children.set(parent, siblings);
-  }
-  return children;
-}
-
-function timeline(view: WorkDashboardView, data: WorkDashboard, session: WorkSummary, width: number): string[] {
-  const rows = descendantRows(data.activities), start = centeredWindowStart(rows.length, view.selected, 8);
-  const boundaries = [session, ...data.activities].flatMap(item => [item.started_at, item.finished_at]);
-  const axis = workTimeAxis(boundaries, Math.min(28, Math.max(5, Math.floor(width / 4))));
-  return [`${data.truncated ? "Retained descendants" : "All recorded descendants"} · ${rows.length} activities · ↑/↓ scroll · Enter source detail`,
-    axis ? `UTC axis ${new Date(axis.start).toISOString()} → ${new Date(axis.end).toISOString()} · = source interval · ? unknown` : "UTC axis unavailable · source boundaries missing",
-    ...rows.slice(start, start + 8).map((row, offset) => fitDisplayText(`${start + offset === view.selected ? "›" : " "} ${row.summary.conflicts.length ? "[? unknown]" : workTimeBar(row.summary, axis)} ${"  ".repeat(Math.min(8, row.depth))}${sanitizeDisplayText(row.summary.title)} · ${elapsed(row.summary)}${row.summary.gaps.length || row.summary.conflicts.length ? " · gaps/conflicts" : ""}`, width)),
-    ...(rows.length > 8 ? [`Activities ${start + 1}–${Math.min(start + 8, rows.length)} of ${rows.length}`] : []),
-    ...(rows.length ? [] : ["No descendant intervals captured; absent child internals remain unknown."])];
+    ...data.sessions.slice(start, start + 3).map((item, offset) => fitDisplayText(`${start + offset === view.selected ? "›" : " "} ${item.title} · ${elapsed(item)} · ${item.outcome ?? item.state}`, width)),
+    ...(data.sessions.length ? [] : ["No work sessions recorded. Capture caller-owned session and activity boundaries."]), ...notices(data).slice(0, 3)];
 }
 function sessionBreakdown(view: WorkDashboardView, data: WorkDashboard, width: number): string[] {
   const session = data.selected_session;
   if (!session) return ["Selected session is unavailable · Escape returns to overview."];
-  return [`Session duration breakdown · ${session.title}`, `Session elapsed ${elapsed(session)} · ${session.outcome ?? session.state} · s detail · Esc back`,
-    `Session gaps: ${session.gaps.join(", ") || "none reported"} · conflicts: ${session.conflicts.join(", ") || "none reported"}`,
-    "Nested/parallel intervals overlap; sums are not elapsed or effort.",
-    ...kindChart(view, data, width), ...timeline(view, data, session, width), ...notices(data)];
+  const nodes = waterfallNodes(data), selected = nodes[view.selected];
+  const layout = sessionWaterfall(data), origin = Number.isFinite(layout.origin) ? new Date(layout.origin).toISOString() : "unknown";
+  return [`Session duration breakdown · ${session.title}`, `Session elapsed ${elapsed(session)} · UTC origin ${origin}`,
+    `${data.truncated ? "Retained descendants" : "All recorded descendants"} · ${nodes.length} tasks · s session · Enter task · Esc back`,
+    ...accountingLines(data),
+    ...renderWaterfall(layout, view.waterfall, width),
+    selected ? `› ${selected.title} · ${selected.kind} · ${selected.outcome ?? selected.state} · ${selected.elapsed?.nanoseconds ?? "unknown"}ns · queue ${selected.queue_elapsed?.nanoseconds ?? "unknown"}ns · ${selected.gaps.join(", ") || "no reported gaps"}` : "No descendant boundaries captured; internal work remains unknown.",
+    ...notices(data).slice(0, 1)];
+}
+function accountingLines(data: WorkDashboard): string[] {
+  const accounting = data.accounting;
+  if (!accounting) return ["Accounting unavailable · missing source inventory prevents complete coverage claims"];
+  const coverage = accounting.coverage;
+  return [`Attributed ${duration(accounting.occupied_wall?.seconds ?? null)} · unobserved ${duration(accounting.unobserved?.seconds ?? null)} · queue sum ${queueDuration(accounting)} · worker occupancy ${duration(accounting.worker_occupancy?.seconds ?? null)} · not effort`,
+    `Coverage · start missing ${coverage.missing_start_count} · finish missing ${coverage.missing_finish_count} · clocks ${coverage.clock_conflict_count} · role? ${coverage.unknown_role_count} · inventory ${coverage.capability_inventory}${coverage.source_partial || coverage.display_partial ? " · PARTIAL" : ""}`];
+}
+function queueDuration(accounting: NonNullable<WorkDashboard["accounting"]>): string {
+  const { queue_count, known_queue_count } = accounting.coverage;
+  const value = queue_count && known_queue_count === 0 ? null : accounting.queue_wait?.seconds ?? null;
+  return `${duration(value)}${queue_count === undefined ? "" : ` · ${known_queue_count}/${queue_count} timed`}`;
 }
 export function renderWorkDashboard(view: WorkDashboardView, width: number, status: string): string[] {
   if (!view.data) return [view.sessionId ? "Session duration breakdown" : "Work duration dashboard", status];
   const lines = view.sessionId ? sessionBreakdown(view, view.data, width) : overview(view, view.data, width);
-  return lines.map(line => fitDisplayText(line, width));
+  const health = view.captureHealth;
+  const capture = health?.available ? `Local capture · queued ${health.queued} · retained rejected ${health.rejected} · lost ${health.lost ?? "unknown"} · process losses ${health.process_losses} · health failures ${health.health_failures}` : "Local capture health unavailable · delivery completeness unknown";
+  const retention = health?.available ? [`Callback rejected ${health.rejected_callbacks ?? "unknown"} · Transport rejected ${health.transport_rejected ?? "unknown"} · Capacity losses ${health.legacy_capacity_losses ?? "unknown"} · rejected history evicted ${health.rejected_evicted ?? "unknown"} · pending callbacks ${health.pending_callbacks ?? "unknown"} · local counters`] : [];
+  return [...lines, capture, ...retention].map(line => fitDisplayText(line, width));
 }

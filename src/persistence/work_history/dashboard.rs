@@ -75,6 +75,9 @@ impl DashboardProjection {
                 selected_session: selected,
                 sessions: vec![],
                 activities: vec![],
+                intervals: vec![],
+                accounting: None,
+                unlinked_activity_count: 0,
                 session_duration: DurationStatistics::default(),
                 activity_kinds: vec![],
                 daily: vec![],
@@ -156,6 +159,12 @@ impl DashboardProjection {
                 .notices
                 .push("selected_activity_limit: selected descendant coverage is partial".into());
         }
+        self.view.intervals = selected.items.iter().map(WorkIntervalNode::from).collect();
+        self.view.accounting = self
+            .view
+            .selected_session
+            .as_ref()
+            .map(|root| session_accounting(root, &selected.items, selected.truncated));
         for summary in selected.items {
             let source_date = work_subjects::table
                 .find((project, "activity", summary.subject.id()))
@@ -195,6 +204,7 @@ impl DashboardProjection {
                 duration,
             })
             .collect();
+        self.view.unlinked_activity_count = self.unlinked;
         if self.unlinked > 0 {
             self.view.notices.push(format!("{} activities have no resolved session membership; overview activity statistics include them",self.unlinked));
         }
@@ -205,16 +215,61 @@ impl DashboardProjection {
         })
     }
     fn bound_output(&mut self) -> Result<()> {
-        let sessions = bound_items(&mut self.view.sessions, 512, 192 * 1024)?;
-        let activities = bound_items(&mut self.view.activities, 512, 256 * 1024)?;
-        let daily = bound_items(&mut self.view.daily, 4096, 64 * 1024)?;
-        let kinds = bound_items(&mut self.view.activity_kinds, 4096, 64 * 1024)?;
-        let activity_daily = bound_items(&mut self.view.activity_daily, 4096, 96 * 1024)?;
-        if sessions || activities || daily || kinds || activity_daily {
+        let sources = self.bound_sources()?;
+        let timeline = self.bound_timeline()?;
+        let charts = self.bound_charts()?;
+        let transport = self.bound_transport()?;
+        if sources || timeline || charts || transport {
             self.view.truncated = true;
             self.view.notices.push("display_limit: chart rows or selectable sessions are partial; duration aggregates retain the scanned population".into());
         }
         Ok(())
+    }
+    fn bound_sources(&mut self) -> Result<bool> {
+        let sessions = bound_items(&mut self.view.sessions, 512, 192 * 1024)?;
+        let activities = bound_items(&mut self.view.activities, 512, 128 * 1024)?;
+        Ok(sessions || activities)
+    }
+    fn bound_timeline(&mut self) -> Result<bool> {
+        let intervals = bound_items(&mut self.view.intervals, SOURCE_LIMIT, 384 * 1024)?;
+        let mut gaps = false;
+        if let Some(accounting) = &mut self.view.accounting {
+            gaps = bound_items(&mut accounting.unobserved_intervals, 4097, 64 * 1024)?;
+            accounting.coverage.display_partial = intervals || gaps;
+        }
+        Ok(intervals || gaps)
+    }
+    fn bound_charts(&mut self) -> Result<bool> {
+        let daily = bound_items(&mut self.view.daily, 4096, 64 * 1024)?;
+        let kinds = bound_items(&mut self.view.activity_kinds, 4096, 64 * 1024)?;
+        let activity_daily = bound_items(&mut self.view.activity_daily, 4096, 96 * 1024)?;
+        Ok(daily || kinds || activity_daily)
+    }
+    fn bound_transport(&mut self) -> Result<bool> {
+        let mut trimmed = false;
+        while serde_json::to_vec(&self.view)?.len() > 896 * 1024 {
+            // Secondary source rows are reconstructible by paginated reads. Preserve
+            // the primary waterfall until those rows no longer consume the budget.
+            if !self.view.sessions.is_empty() {
+                self.view.sessions.truncate(self.view.sessions.len() / 2);
+            } else if !self.view.activities.is_empty() {
+                self.view
+                    .activities
+                    .truncate(self.view.activities.len() / 2);
+            } else if !self.view.intervals.is_empty() {
+                self.view.intervals.truncate(self.view.intervals.len() / 2);
+            } else {
+                anyhow::bail!("bounded work dashboard metadata exceeds transport budget");
+            }
+            trimmed = true;
+        }
+        if trimmed {
+            if let Some(accounting) = &mut self.view.accounting {
+                accounting.coverage.display_partial = true;
+            }
+            self.view.notices.push("transport_limit: display rows are partial; exact aggregates retain the selected source population".into());
+        }
+        Ok(trimmed)
     }
 }
 impl DurationStatistics {
@@ -232,5 +287,84 @@ impl DurationStatistics {
             self.total_seconds += seconds;
             self.average_seconds = Some(self.total_seconds / self.known_count as f64);
         }
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    fn populate_display_rows(
+        projection: &mut DashboardProjection,
+        start: chrono::DateTime<chrono::Utc>,
+    ) {
+        for index in 0..3000 {
+            let mut item = WorkSummary::unobserved(&WorkSubject::Activity {
+                id: format!("task-{index}"),
+            });
+            item.title = "t".repeat(512);
+            item.kind = format!("{index:04}{}", "k".repeat(508));
+            item.context
+                .labels
+                .insert("metadata".into(), "v".repeat(1024));
+            projection
+                .view
+                .intervals
+                .push(WorkIntervalNode::from(&item));
+            projection.view.activities.push(item.clone());
+            projection
+                .view
+                .activity_kinds
+                .push(ActivityDurationStatistics {
+                    kind: item.kind.clone(),
+                    duration: DurationStatistics::default(),
+                });
+            projection
+                .view
+                .activity_daily
+                .push(DailyActivityStatistics {
+                    date: "2026-10-27".into(),
+                    kind: item.kind.clone(),
+                    duration: DurationStatistics::default(),
+                });
+            if index < 512 {
+                item.subject = WorkSubject::Session {
+                    id: format!("session-{index}"),
+                };
+                projection.view.sessions.push(item);
+                projection.view.daily.push(DailyDurationStatistics {
+                    date: (start.date_naive() + chrono::Duration::days(index)).to_string(),
+                    session_count: 1,
+                    known_count: 1,
+                    total_seconds: 1.0,
+                    average_seconds: Some(1.0),
+                });
+            }
+        }
+    }
+    #[test]
+    fn bounded_dashboard_with_escaped_identities_fits_the_remote_response_budget() {
+        let mut root = WorkSummary::unobserved(&WorkSubject::Session { id: "root".into() });
+        root.work_session_ids = (0..64)
+            .map(|index| format!("{index:02}{}", "\u{0001}".repeat(510)))
+            .collect();
+        let mut projection = DashboardProjection::new(Some("root"), Some(root.clone()), false);
+        let start: chrono::DateTime<chrono::Utc> = "2026-10-27T00:00:00Z".parse().unwrap();
+        populate_display_rows(&mut projection, start);
+        let mut accounting = session_accounting(&root, &[], false);
+        accounting.unobserved_intervals = (0..3000)
+            .map(|index| AccountingInterval {
+                started_at: start + chrono::Duration::seconds(index * 2),
+                finished_at: start + chrono::Duration::seconds(index * 2 + 1),
+            })
+            .collect();
+        accounting.coverage.observed_adapters = vec!["adapter".repeat(73); 32];
+        projection.view.accounting = Some(accounting);
+        projection.bound_output().unwrap();
+        let bytes = serde_json::to_vec(&projection.view).unwrap().len();
+        assert!(
+            bytes <= 896 * 1024,
+            "encoded dashboard size {bytes} needs headroom inside the 1MiB remote envelope"
+        );
+        assert!(projection.view.accounting.unwrap().coverage.display_partial);
     }
 }
