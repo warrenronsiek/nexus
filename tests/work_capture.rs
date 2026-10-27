@@ -6,6 +6,7 @@
 mod support;
 use serde_json::json;
 use std::process::Command;
+use std::time::{Duration, Instant};
 use support::Harness;
 
 #[test]
@@ -333,6 +334,15 @@ fn native_callbacks_measure_across_processes_and_context_resolves_the_active_sha
 }
 
 fn capture_native(harness: &Harness, host: &str, value: serde_json::Value) {
+    capture_native_receipt(harness, host, value);
+    wait_for_work_delivery(harness);
+}
+
+fn capture_native_receipt(
+    harness: &Harness,
+    host: &str,
+    value: serde_json::Value,
+) -> serde_json::Value {
     let source = tempfile::NamedTempFile::new_in(harness._temp.path()).unwrap();
     std::fs::write(source.path(), serde_json::to_vec(&value).unwrap()).unwrap();
     let output = cli(harness)
@@ -341,23 +351,92 @@ fn capture_native(harness: &Harness, host: &str, value: serde_json::Value) {
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(receipt["capture"]["status"], "durable", "{receipt}");
+    assert_eq!(receipt["capture"]["lost"], 0, "{receipt}");
+    assert_eq!(receipt["capture"]["rejected"], 0, "{receipt}");
+    receipt
+}
+
+fn wait_for_work_delivery(harness: &Harness) {
+    // Native capture acknowledges local durability; projection assertions need delivery.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let output = cli(harness).args(["work", "flush"]).output().unwrap();
+        if output.status.success() {
+            let health: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(health["rejected"], 0, "{health}");
+            assert_eq!(health["capture"]["lost"], 0, "{health}");
+            if health["queued"] == 0 {
+                return;
+            }
+        }
+        assert!(Instant::now() < deadline, "pending delivery: {output:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+struct PausedDaemon(u32);
+impl PausedDaemon {
+    fn new(id: u32) -> Self {
+        assert_eq!(unsafe { libc::kill(id as i32, libc::SIGSTOP) }, 0);
+        Self(id)
+    }
+}
+impl Drop for PausedDaemon {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::kill(self.0 as i32, libc::SIGCONT) };
+    }
 }
 
 #[test]
 fn successive_authoritative_titles_can_return_to_an_earlier_name() {
     let mut harness = Harness::start();
-    for title in ["First name", "Second name", "First name"] {
+    for title in ["First name", "Second name"] {
         capture_native(
             &harness,
             "codex",
             json!({"session_id":"title-host","hook_event_name":"SessionTitle","session_title":title,"cwd":harness.root}),
         );
     }
+    let paused = PausedDaemon::new(harness.daemon.id());
+    let receipt = capture_native_receipt(
+        &harness,
+        "codex",
+        json!({"session_id":"title-host","hook_event_name":"SessionTitle","session_title":"First name","cwd":harness.root}),
+    );
+    assert!(
+        receipt["health"]["queued"].as_u64().unwrap() > 0,
+        "{receipt}"
+    );
+    let outbox = harness.database.parent().unwrap().join("work-outbox");
+    assert!(std::fs::read_dir(outbox).unwrap().any(|entry| {
+        let path = entry.unwrap().path();
+        path.extension().is_some_and(|ext| ext == "json")
+            && String::from_utf8(std::fs::read(path).unwrap())
+                .unwrap()
+                .contains("First name")
+    }));
+    drop(paused);
+    wait_for_work_delivery(&harness);
     let page = harness.call(
         "nexus_work",
         json!({"action":"list","query":{"host_session_id":"title-host"}}),
     );
     assert_eq!(page["items"][0]["title"], "First name", "{page}");
+    let events = harness.call(
+        "nexus_work",
+        json!({"action":"events","subject":page["items"][0]["subject"]}),
+    );
+    let titles: Vec<_> = events["observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["body"]["name"] == "Host session title updated")
+        .collect();
+    assert_eq!(titles.len(), 3, "{events}");
+    let ids: std::collections::HashSet<_> = titles.iter().map(|event| &event["id"]).collect();
+    assert_eq!(ids.len(), 3, "{events}");
 }
 
 #[test]
