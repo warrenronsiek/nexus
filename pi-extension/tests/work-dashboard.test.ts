@@ -128,6 +128,15 @@ it("opens every selected session as a vertical waterfall and pans time independe
   pane.dispose();
 });
 
+it("labels the common source origin when a descendant queued before its session", async () => {
+  const beforeRoot = { ...selected, activities: [{ ...selected.activities[0]!, queued_at: "2026-10-20T11:59:00Z" }] };
+  const { pane } = fixture(vi.fn(async (_project: string | null, id?: string) => id ? beforeRoot : overview));
+  await ready(pane); pane.handleInput("\r");
+  await vi.waitFor(() => expect(screen(pane, 150)).toContain("UTC origin 2026-10-20T11:59:00.000Z"));
+  expect(screen(pane, 150)).toContain("Implementation queued");
+  pane.dispose();
+});
+
 it("rejects malformed waterfall evidence before it reaches the terminal layout", async () => {
   const queued = { ...selected.activities[0], id: "bad-queue", executor: null, accounting_role: "execution", queued_at: "not a date" };
   const lossy = { ...selected.activities[0], id: "lossy", executor: null, accounting_role: "execution", elapsed: { nanoseconds: 9007199254740992, method: "monotonic", clock_id: "boot" } };

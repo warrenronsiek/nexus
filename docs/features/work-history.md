@@ -218,7 +218,8 @@ counts, total/mean observed session durations, activity-kind inclusive-duration
 bars, and UTC-day means/totals across time. Selecting a parent session shows its
 own interval, qualified accounting, and a vertically scrollable waterfall of
 all retained descendants. Time runs down one proportional axis, and children
-branch to the right at their source start. Parallel siblings occupy separate
+branch to the right at their source start. Its labeled UTC origin is the earliest
+retained source boundary, including tasks queued before the session. Parallel siblings occupy separate
 lanes; completed spans terminate, and unknown finishes use dotted continuations.
 Queue admission and execution start are separate markers on the same task lane;
 dotted queue segments do not create another execution or worker.

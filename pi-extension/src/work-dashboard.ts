@@ -60,10 +60,11 @@ function sessionBreakdown(view: WorkDashboardView, data: WorkDashboard, width: n
   const session = data.selected_session;
   if (!session) return ["Selected session is unavailable · Escape returns to overview."];
   const nodes = waterfallNodes(data), selected = nodes[view.selected];
-  return [`Session duration breakdown · ${session.title}`, `Session elapsed ${elapsed(session)} · UTC origin ${session.started_at ?? "unknown"}`,
+  const layout = sessionWaterfall(data), origin = Number.isFinite(layout.origin) ? new Date(layout.origin).toISOString() : "unknown";
+  return [`Session duration breakdown · ${session.title}`, `Session elapsed ${elapsed(session)} · UTC origin ${origin}`,
     `${data.truncated ? "Retained descendants" : "All recorded descendants"} · ${nodes.length} tasks · s session · Enter task · Esc back`,
     ...accountingLines(data),
-    ...renderWaterfall(sessionWaterfall(data), view.waterfall, width),
+    ...renderWaterfall(layout, view.waterfall, width),
     selected ? `› ${selected.title} · ${selected.kind} · ${selected.outcome ?? selected.state} · ${selected.elapsed?.nanoseconds ?? "unknown"}ns · queue ${selected.queue_elapsed?.nanoseconds ?? "unknown"}ns · ${selected.gaps.join(", ") || "no reported gaps"}` : "No descendant boundaries captured; internal work remains unknown.",
     ...notices(data).slice(0, 1)];
 }

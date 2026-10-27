@@ -133,7 +133,9 @@ means, daily duration trends, and means/totals by activity kind. `[`/`]` selects
 an activity-kind trend across UTC days. Enter opens a selected parent session's
 vertical waterfall, including grandchildren without manually expanding
 each branch. Time runs downward, child tasks branch right at their start, and
-parallel spans have separate lanes. Arrows and Page Up/Down pan time; `+`/`-`
+parallel spans have separate lanes.
+The labeled UTC origin is the earliest retained source boundary, including queue
+admission before a parent's start. Arrows and Page Up/Down pan time; `+`/`-`
 zoom; Left/Right pan lanes; Home/End jump to source bounds; `j`/`k` select tasks
 and Enter opens their immutable evidence. Duration
 coverage counts qualify every average; unknown values do not become zeros.

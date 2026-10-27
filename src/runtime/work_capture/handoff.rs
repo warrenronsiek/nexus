@@ -96,6 +96,24 @@ struct QueueState {
 }
 
 impl QueueState {
+    fn try_admit(&self, capacity: usize) -> bool {
+        let mut count = self.occupied.load(Ordering::Acquire);
+        loop {
+            if count >= capacity {
+                return false;
+            }
+            match self.occupied.compare_exchange_weak(
+                count,
+                count + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(current) => count = current,
+            }
+        }
+    }
+
     fn finish(&self) {
         let _guard = self
             .completion
@@ -324,14 +342,7 @@ impl CaptureHandoff {
         reply: CaptureReply,
     ) -> std::result::Result<(), CaptureReceipt> {
         let offered = request.offered();
-        let admitted =
-            self.queue
-                .state
-                .occupied
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                    (count < self.queue.capacity).then_some(count + 1)
-                });
-        if admitted.is_err() {
+        if !self.queue.state.try_admit(self.queue.capacity) {
             ADMISSION_LOSSES.fetch_add(offered as u64, Ordering::Relaxed);
             if let Ok(path) = directory(&loaded) {
                 let mut losses = self
