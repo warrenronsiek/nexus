@@ -4,7 +4,7 @@
 // @spec docs/features/observability-ui.md
 import { expect, it } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { layoutWaterfall, renderWaterfall, initialWaterfall, moveWaterfall, type WaterfallNode } from "../src/work-waterfall.ts";
+import { layoutWaterfall, renderWaterfall, initialWaterfall, moveWaterfall, revealWaterfall, type WaterfallNode } from "../src/work-waterfall.ts";
 
 const at = (seconds: number) => new Date(Date.UTC(2026, 9, 27) + seconds * 1000).toISOString();
 function node(id: string, parent: string | null, start: number | null, end: number | null): WaterfallNode {
@@ -113,4 +113,34 @@ it("keeps session and activity identities distinct when their raw IDs match", ()
   const child = layout.nodes.find(item => item.node.title === "Child sharing root ID")!;
   expect(child.lane).toBeGreaterThan(0);
   expect(renderWaterfall(layout, initialWaterfall(), 100).join("\n")).toContain("Child sharing root ID");
+});
+
+it("reveals the selected task in both axes and marks its span without replacing its type color", () => {
+  const parallel = Array.from({ length: 12 }, (_, index) => ({ ...node(`task-${index}`, null, 80, 90), kind: index === 11 ? "agent.task" : "test.rust" }));
+  const layout = layoutWaterfall(root, parallel), view = initialWaterfall();
+  const selected = { scope: "activity" as const, id: "task-11" };
+  renderWaterfall(layout, view, 60);
+  moveWaterfall(view, layout, "zoom_in");
+  revealWaterfall(view, layout, selected);
+  const text = renderWaterfall(layout, view, 60, { selected }).join("\n");
+  expect(view.offset).toBeGreaterThan(0);
+  expect(view.laneOffset).toBeGreaterThan(0);
+  expect(text).toContain("›");
+  expect(text).toContain("task-11");
+});
+
+it("colors subagent, test, and script spans by recorded kind while keeping source controls inert", () => {
+  const tasks = [
+    { ...node("Agent\u001b[31m", null, 10, 90), kind: "agent.task" },
+    { ...node("Tests", null, 20, 80), kind: "test.rust" },
+    { ...node("Script", null, 30, 70), kind: "script" },
+  ];
+  const colors = { accent: 36, success: 32, warning: 33, muted: 37, dim: 90, error: 31 };
+  const theme = { fg: (color: keyof typeof colors, text: string) => `\u001b[${colors[color]}m${text}\u001b[39m`, bold: (text: string) => `\u001b[1m${text}\u001b[22m` };
+  const lines = renderWaterfall(layoutWaterfall(root, tasks), initialWaterfall(), 150, { theme });
+  const graph = lines.filter(line => /\+\d.*s /u.test(line)).join("\n");
+  for (const color of [36, 32, 33]) expect(graph).toContain(`\u001b[${color}m`);
+  expect(graph).not.toContain("\u001b[31m");
+  expect(graph).toContain("Agent�[31m");
+  expect(lines.every(line => visibleWidth(line) <= 150)).toBe(true);
 });

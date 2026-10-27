@@ -106,9 +106,16 @@ axis, with nested and parallel intervals preserved. Use `m` for mean/total,
 Dashboard samples are capped and explicitly partial when a history or display
 bound applies. A mean uses timed, conflict-free samples; an unknown interval is
 not zero. Inclusive sums are not total effort or prompt-to-production lead time.
-The selected session is a vertical waterfall: arrows/Page Up/Down pan time,
-`+`/`-` zoom, Left/Right pan lanes, Home/End jump, and `j`/`k` select tasks for
-Enter to inspect. `g` opens that view for a session found in the source browser.
+The selected session is a vertical waterfall. Up/Down or `j`/`k` selects the root or tasks;
+Left selects the recorded parent and Right its first recorded child. Selection
+reveals and highlights the span, with kind/category, state/outcome, source and
+elapsed/queue timing, executor, parent, gaps, and conflicts directly below it.
+Page Up/Down pans time, Shift+Left/Right or `H`/`L` pans lanes, `+`/`-` zooms, Home/End jumps
+to source bounds, and Enter opens source evidence. Colors distinguish recorded
+subagent, test, script, review, tool/command, and generic work/session kind families.
+Custom kinds remain Other; use explicit task kinds rather than relying on titles to imply
+categories. A legend and text preserve meaning with `NO_COLOR`.
+`g` opens that view for a session found in the source browser.
 Qualified queue waits and explicitly labeled execution/wait intervals contribute
 to attributed wall time; label containers `nexus.accounting.role=container` and retain unknown roles
 when their meaning is unavailable. Unobserved time is not inferred idle or model

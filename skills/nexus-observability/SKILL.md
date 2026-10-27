@@ -74,8 +74,16 @@ motivation, and artifacts.
 the count of durations actually known. `[`/`]` changes the activity trend.
 Select a parent session and Enter for its vertical waterfall, including nested
 tasks and retries. Time runs down; children branch right at their source start.
-Arrows/Page Up/Down pan time, `+`/`-` zoom, Left/Right pan lanes, Home/End jump,
-and `j`/`k` select tasks for Enter to inspect. Host names follow captured
+Up/Down or `j`/`k` selects the root or tasks; Left selects the recorded parent and Right its
+first recorded child. Selection reveals and highlights the task's span. Its
+metadata appears immediately below the graph: kind/category, state/outcome,
+source boundaries, elapsed/queue evidence, executor, parent, gaps, and conflicts.
+Page Up/Down pans time, Shift+Left/Right or `H`/`L` pans lanes, `+`/`-` zooms, Home/End jumps
+to source bounds, and Enter opens source evidence. Colors distinguish recorded
+subagent, test, script, review, tool/command, and generic work/session kind families.
+`work.session` and `host.session` are recognized explicitly as Session.
+Custom kinds remain Other; titles and executable names do not drive categories. The legend and labels retain
+meaning with `NO_COLOR`. Host names follow captured
 Codex/Claude titles. Attributed execution/wait union, unobserved time, worker
 occupancy, and missing-source coverage stay distinct. Local capture loss/backlog
 belongs to this companion, not all history producers. The total of inclusive activity durations can double-count nested

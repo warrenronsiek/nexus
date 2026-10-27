@@ -438,6 +438,46 @@ fn run(command: &mut Command) {
 }
 
 #[test]
+fn machine_setup_refreshes_waterfall_helper_modules() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path().join("home");
+    let codex_home = home.join(".codex");
+    let commands = temporary.path().join("commands");
+    let installed = home.join(".pi/agent/extensions/nexus");
+    fs::create_dir_all(&commands).unwrap();
+    fs::create_dir_all(&installed).unwrap();
+    fake_host(&commands, "codex");
+    fake_host(&commands, "pi");
+    let helpers = [
+        (
+            "work-activity-style.ts",
+            include_str!("../pi-extension/src/work-activity-style.ts"),
+        ),
+        (
+            "work-waterfall-metadata.ts",
+            include_str!("../pi-extension/src/work-waterfall-metadata.ts"),
+        ),
+    ];
+    for (module, _) in helpers {
+        fs::write(installed.join(module), "stale installed helper").unwrap();
+    }
+    let setup = nexus_command(
+        &home,
+        &codex_home,
+        &commands,
+        &temporary.path().join("hosts.log"),
+    )
+    .arg("setup")
+    .env("PATH", &commands)
+    .output()
+    .unwrap();
+    assert_success(&setup);
+    for (module, source) in helpers {
+        assert_eq!(fs::read_to_string(installed.join(module)).unwrap(), source);
+    }
+}
+
+#[test]
 fn installed_pi_extension_contains_its_complete_local_module_dependency_closure() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path().join("home");

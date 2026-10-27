@@ -3,11 +3,11 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { WORK_OUTCOMES, type WorkSubject, type WorkSummary } from "./work.ts";
-import { WORK_DETAIL_ROWS, clampWork, newWorkDashboard, newWorkTree, pushWorkView, resetWorkList, workRows, type WorkFilter, type WorkState, type WorkTree } from "./work-state.ts";
+import { WORK_OUTCOMES, sameSubject, type WorkSubject, type WorkSummary } from "./work.ts";
+import { WORK_DETAIL_ROWS, clampWork, newWorkDashboard, newWorkTree, pushWorkView, resetWorkList, workRows, type WorkDashboardView, type WorkFilter, type WorkState, type WorkTree } from "./work-state.ts";
 import type { WorkIntent } from "./work-requests.ts";
-import { dashboardItems, sessionWaterfall } from "./work-dashboard.ts";
-import { moveWaterfall, type WaterfallMove } from "./work-waterfall.ts";
+import { dashboardItems, sessionWaterfall, waterfallNodes } from "./work-dashboard.ts";
+import { moveWaterfall, revealWaterfall, type WaterfallMove } from "./work-waterfall.ts";
 import { editTextFilter } from "./text-filter.ts";
 
 interface WorkInput { handled: boolean; intent?: WorkIntent }
@@ -181,12 +181,41 @@ function dashboardControl(state: WorkState, key: string): WorkInput {
   }
   return { handled: true };
 }
-function waterfallControl(view: Extract<WorkState["view"], { kind: "dashboard" }>, key: string): boolean {
-  const directions: Record<string, WaterfallMove> = { up: "up", down: "down", pageUp: "page_up", pageDown: "page_down", home: "home", end: "end", left: "left", right: "right", "+": "zoom_in", "=": "zoom_in", "-": "zoom_out" };
-  const direction = directions[key];
-  if (direction) { if (view.data?.selected_session) moveWaterfall(view.waterfall, sessionWaterfall(view.data), direction); return true; }
-  if (key !== "j" && key !== "k") return false;
-  view.selected = clampWork(view.selected + (key === "j" ? 1 : -1), dashboardItems(view).length); return true;
+function selectWaterfall(view: WorkDashboardView, index: number): void {
+  const items = dashboardItems(view), next = clampWork(index, items.length);
+  if (next === view.selected) return;
+  view.selected = next;
+  const subject = items[next]?.subject;
+  if (subject && view.data?.selected_session) revealWaterfall(view.waterfall, sessionWaterfall(view.data), subject);
+}
+function followWaterfall(view: WorkDashboardView, direction: "left" | "right"): void {
+  const items = dashboardItems(view), subject = items[view.selected]?.subject;
+  if (!subject) return;
+  const nodes = waterfallNodes(view.data);
+  let target: WorkSubject | undefined;
+  if (direction === "right") {
+    const child = nodes.find(node => node.parent_activity_id === (subject.scope === "session" ? null : subject.id));
+    if (child) target = { scope: "activity", id: child.id };
+  } else if (subject.scope === "activity") {
+    const parent = nodes.find(node => node.id === subject.id)?.parent_activity_id;
+    target = parent === null ? view.data?.selected_session?.subject : parent ? { scope: "activity", id: parent } : undefined;
+  }
+  const index = target ? items.findIndex(item => sameSubject(item.subject, target!)) : -1;
+  if (index >= 0) selectWaterfall(view, index);
+}
+const WATERFALL_SELECTION: Record<string, number> = { up: -1, down: 1, j: 1, k: -1 };
+const WATERFALL_PAN: Record<string, WaterfallMove> = {
+  pageUp: "page_up", pageDown: "page_down", home: "home", end: "end", "+": "zoom_in", "=": "zoom_in", "-": "zoom_out",
+  [Key.shift("left")]: "left", [Key.shift("right")]: "right", [Key.shift("h")]: "left", [Key.shift("l")]: "right",
+};
+function waterfallControl(view: WorkDashboardView, key: string): boolean {
+  const selection = WATERFALL_SELECTION[key];
+  if (selection) { selectWaterfall(view, view.selected + selection); return true; }
+  if (key === "left" || key === "right") { followWaterfall(view, key); return true; }
+  const direction = WATERFALL_PAN[key];
+  if (!direction) return false;
+  if (view.data?.selected_session) moveWaterfall(view.waterfall, sessionWaterfall(view.data), direction);
+  return true;
 }
 const NAVIGATION: Record<string, (state: WorkState) => WorkIntent | undefined> = {
   enter, backspace: back, escape: back, g: waterfall,
@@ -197,7 +226,7 @@ const NAVIGATION: Record<string, (state: WorkState) => WorkIntent | undefined> =
 };
 export function handleWorkInput(state: WorkState, data: string): WorkInput {
   if (state.editor) return edit(state, data);
-  const keys = [Key.enter, Key.escape, Key.backspace, Key.left, Key.right, Key.up, Key.down, Key.pageUp, Key.pageDown, Key.home, Key.end, "+", "=", "-",
+  const keys = [Key.enter, Key.escape, Key.backspace, Key.shift("left"), Key.shift("right"), Key.shift("h"), Key.shift("l"), Key.left, Key.right, Key.up, Key.down, Key.pageUp, Key.pageDown, Key.home, Key.end, "+", "=", "-",
     Key.space, "d", "g", "m", "[", "]", "n", "t", "s", "l", "e", "j", "k", "/", "o", "h", "a", "b", "u", "v", "f", "w", "c"] as const;
   const key = data === "+" ? "+" : keys.find(key => matchesKey(data, key));
   if (key === undefined) return { handled: false };

@@ -3,14 +3,19 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 import { layoutWaterfall, renderWaterfall, type WaterfallNode } from "./work-waterfall.ts";
+import { waterfallMetadata } from "./work-waterfall-metadata.ts";
+import { activityStyle } from "./work-activity-style.ts";
 import { chartBars, chartTrend, formatDurationSeconds } from "./charts.ts";
 import { centeredWindowStart, fitDisplayText } from "./display.ts";
 import type { WorkDashboard, WorkKindStats } from "./work-dashboard-wire.ts";
 import type { WorkDashboardView } from "./work-state.ts";
 import type { WorkSummary } from "./work.ts";
+import type { DashboardTheme } from "./theme.ts";
 
 export function dashboardItems(view: WorkDashboardView): Pick<WorkSummary, "subject" | "title">[] {
-  return view.sessionId ? waterfallNodes(view.data).map(node => ({ subject: { scope: "activity", id: node.id }, title: node.title })) : view.data?.sessions ?? [];
+  if (!view.sessionId) return view.data?.sessions ?? [];
+  const root = view.data?.selected_session;
+  return [...(root ? [root] : []), ...waterfallNodes(view.data).map(node => ({ subject: { scope: "activity" as const, id: node.id }, title: node.title }))];
 }
 export function waterfallNodes(data?: WorkDashboard): WaterfallNode[] {
   return data?.intervals ?? data?.activities.map(item => ({ ...item, id: item.subject.id, executor: null })) ?? [];
@@ -56,17 +61,20 @@ function overview(view: WorkDashboardView, data: WorkDashboard, width: number): 
     ...data.sessions.slice(start, start + 3).map((item, offset) => fitDisplayText(`${start + offset === view.selected ? "›" : " "} ${item.title} · ${elapsed(item)} · ${item.outcome ?? item.state}`, width)),
     ...(data.sessions.length ? [] : ["No work sessions recorded. Capture caller-owned session and activity boundaries."]), ...notices(data).slice(0, 3)];
 }
-function sessionBreakdown(view: WorkDashboardView, data: WorkDashboard, width: number): string[] {
+function sessionBreakdown(view: WorkDashboardView, data: WorkDashboard, width: number, theme?: DashboardTheme): string[] {
   const session = data.selected_session;
   if (!session) return ["Selected session is unavailable · Escape returns to overview."];
-  const nodes = waterfallNodes(data), selected = nodes[view.selected];
+  const nodes = waterfallNodes(data), subject = dashboardItems(view)[view.selected]?.subject;
+  const selected = subject?.scope === "session" ? { ...session, id: session.subject.id, executor: null } : nodes.find(node => node.id === subject?.id);
   const layout = sessionWaterfall(data), origin = Number.isFinite(layout.origin) ? new Date(layout.origin).toISOString() : "unknown";
-  return [`Session duration breakdown · ${session.title}`, `Session elapsed ${elapsed(session)} · UTC origin ${origin}`,
-    `${data.truncated ? "Retained descendants" : "All recorded descendants"} · ${nodes.length} tasks · s session · Enter task · Esc back`,
-    ...accountingLines(data),
-    ...renderWaterfall(layout, view.waterfall, width),
-    selected ? `› ${selected.title} · ${selected.kind} · ${selected.outcome ?? selected.state} · ${selected.elapsed?.nanoseconds ?? "unknown"}ns · queue ${selected.queue_elapsed?.nanoseconds ?? "unknown"}ns · ${selected.gaps.join(", ") || "no reported gaps"}` : "No descendant boundaries captured; internal work remains unknown.",
-    ...notices(data).slice(0, 1)];
+  const metadata = selected && subject ? waterfallMetadata(selected, subject.scope).map(line => fitDisplayText(line, width)) : ["Selected task unavailable · refresh source history."];
+  if (selected && theme) metadata[0] = theme.bold(theme.fg(activityStyle(selected.kind).color, metadata[0]!));
+  return [...[`Session duration breakdown · ${session.title}`, `Session elapsed ${elapsed(session)} · UTC origin ${origin} · ${data.truncated ? "Retained" : "All recorded"} descendants · ${nodes.length} tasks`,
+    ...accountingLines(data)].map(line => fitDisplayText(line, width)),
+    ...renderWaterfall(layout, view.waterfall, width, { selected: subject, theme, rows: Math.max(6, Math.min(24, (process.stdout.rows ?? 32) - 26)) }),
+    ...metadata,
+    ...(data.truncated ? [`Retained descendants · ${nodes.length} tasks · PARTIAL`] : []),
+    ...notices(data).slice(0, 1).map(line => fitDisplayText(line, width))];
 }
 function accountingLines(data: WorkDashboard): string[] {
   const accounting = data.accounting;
@@ -80,11 +88,12 @@ function queueDuration(accounting: NonNullable<WorkDashboard["accounting"]>): st
   const value = queue_count && known_queue_count === 0 ? null : accounting.queue_wait?.seconds ?? null;
   return `${duration(value)}${queue_count === undefined ? "" : ` · ${known_queue_count}/${queue_count} timed`}`;
 }
-export function renderWorkDashboard(view: WorkDashboardView, width: number, status: string): string[] {
-  if (!view.data) return [view.sessionId ? "Session duration breakdown" : "Work duration dashboard", status];
-  const lines = view.sessionId ? sessionBreakdown(view, view.data, width) : overview(view, view.data, width);
+/** Source strings are fitted/sanitized before trusted theme ANSI is applied. */
+export function renderWorkDashboard(view: WorkDashboardView, width: number, status: string, theme?: DashboardTheme): string[] {
+  if (!view.data) return [view.sessionId ? "Session duration breakdown" : "Work duration dashboard", status].map(line => fitDisplayText(line, width));
+  const lines = view.sessionId ? sessionBreakdown(view, view.data, width, theme) : overview(view, view.data, width).map(line => fitDisplayText(line, width));
   const health = view.captureHealth;
   const capture = health?.available ? `Local capture · queued ${health.queued} · retained rejected ${health.rejected} · lost ${health.lost ?? "unknown"} · process losses ${health.process_losses} · health failures ${health.health_failures}` : "Local capture health unavailable · delivery completeness unknown";
   const retention = health?.available ? [`Callback rejected ${health.rejected_callbacks ?? "unknown"} · Transport rejected ${health.transport_rejected ?? "unknown"} · Capacity losses ${health.legacy_capacity_losses ?? "unknown"} · rejected history evicted ${health.rejected_evicted ?? "unknown"} · pending callbacks ${health.pending_callbacks ?? "unknown"} · local counters`] : [];
-  return [...lines, capture, ...retention].map(line => fitDisplayText(line, width));
+  return [...lines, ...[capture, ...retention].map(line => fitDisplayText(line, width))];
 }

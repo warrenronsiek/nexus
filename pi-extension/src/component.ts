@@ -174,7 +174,7 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
 }
 
 const TAB_HINTS: Record<Exclude<DashboardTab, "coordination">, string> = {
-  work: "tab switch · enter waterfall/task · ↑↓ time · +/- zoom · ←→ lanes · j/k task · d records · esc back · r refresh · q close",
+  work: "tab switch · ↑↓ task · ← parent → child · PgUp/PgDn time · H/L lanes · +/- zoom · enter detail · d records · esc back · r/q",
   evals: "tab switch · ↑↓ eval set/metric · enter results · [/] metric · b records · d evidence · o repo · m model · / search · esc back · r refresh · q close",
   sos: "tab switch · ↑↓ navigate · enter detail · j/k scroll · esc back · r refresh · q close",
   papercuts: "tab switch · ↑↓ navigate · n load older · enter detail · j/k scroll · esc back · r refresh · q close",
