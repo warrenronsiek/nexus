@@ -302,6 +302,7 @@ it("opens Work lazily and lets work filters consume global shortcut letters", as
   expect(list).not.toHaveBeenCalled();
   component.handleInput("d");
   await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No matching work sessions"));
+  expect(component.render(160).join("\n")).toContain("↑↓ task · ← parent → child · PgUp/PgDn time · H/L lanes");
   component.handleInput("/"); component.handleInput("q"); component.handleInput("r"); component.handleInput("\r");
   await vi.waitFor(() => expect(list).toHaveBeenLastCalledWith(null, { search: "qr", limit: 24 }, expect.any(AbortSignal)));
   expect(done).not.toHaveBeenCalled(); component.dispose();

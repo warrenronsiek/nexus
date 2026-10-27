@@ -224,7 +224,14 @@ lanes; completed spans terminate, and unknown finishes use dotted continuations.
 Queue admission and execution start are separate markers on the same task lane;
 dotted queue segments do not create another execution or worker.
 Zoom and pan preserve source boundaries. Missing parents stay visibly unresolved,
-including when a child outlives its parent. The same view is available with `g`
+including when a child outlives its parent. Root and task selection follows the recorded
+hierarchy, reveals its span in both axes, and highlights it on the graph. A panel
+immediately below shows kind/category, state/outcome, source and elapsed/queue
+timing, executor, parent, gaps, and conflicts without opening a separate record.
+Colors group recorded kind families as subagents, tests, scripts, reviews,
+tools/commands, or generic work/sessions. Custom kinds remain Other; titles do not
+drive classification. The legend and textual labels also work with `NO_COLOR`.
+The same view is available with `g`
 from a session reached through ordinary paginated source browsing. The
 secondary record list preserves hierarchy, filters, details, links, and immutable
 observations for audit work. See [terminal UI](observability-ui.md) for keys.

@@ -3,7 +3,8 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
 import { expect, it, vi } from "vitest";
-import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { terminalTheme } from "../src/theme.ts";
 import { WorkPane } from "../src/work-pane.ts";
 import { NexusWorkApi, type WorkApi, type WorkSummary } from "../src/work.ts";
 
@@ -63,6 +64,67 @@ it("opens all descendant intervals as a visual session breakdown without manual 
   expect(api.timeline).not.toHaveBeenCalled();
   for (const width of [18, 40, 80]) expect(pane.render(width).every(line => visibleWidth(line) <= width)).toBe(true);
   pane.dispose();
+});
+
+it("keeps selected task metadata below the chart and moves it with keyboard selection", async () => {
+  const { pane, api } = fixture(); await ready(pane); pane.handleInput("\r");
+  await vi.waitFor(() => expect(screen(pane)).toContain("Time ↓"));
+  expect(screen(pane)).toContain("Selected: Ship router");
+  pane.handleInput("\u001b[B");
+  const text = screen(pane, 150);
+  expect(text).toContain("Selected: Implementation");
+  expect(text).toContain("Kind: Test (test)");
+  expect(text).toContain("parent session root");
+  expect(text).toContain("Elapsed:");
+  expect(text.indexOf("Selected: Implementation")).toBeGreaterThan(text.indexOf("Kind: Subagent"));
+  expect(api.get).not.toHaveBeenCalled();
+  pane.dispose();
+});
+
+it("retains trusted type colors through the public pane and neutralizes source terminal controls", async () => {
+  vi.stubEnv("NO_COLOR", undefined);
+  const colored = { ...selected, activities: [{ ...selected.activities[0]!, kind: "test.rust", title: "QA\u001b]52;c;unsafe\u0007" }] };
+  const api = { dashboard: vi.fn(async (_project: string | null, id?: string) => id ? colored : overview), health: vi.fn(async () => ({ available: false })), get: vi.fn(), list: vi.fn(), activities: vi.fn(), timeline: vi.fn(), events: vi.fn() };
+  const pane = new WorkPane({ requestRender: vi.fn() } as unknown as TUI, terminalTheme, api, vi.fn());
+  try {
+    await ready(pane); pane.handleInput("\r");
+    await vi.waitFor(() => expect(screen(pane)).toContain("Time ↓"));
+    const coloredText = screen(pane, 100);
+    expect(coloredText).toContain("\u001b[32m");
+    expect(coloredText).not.toContain("\u001b]52");
+    expect(stripTerminalSequences(coloredText)).toContain("QA�]52;c;unsafe�");
+    vi.stubEnv("NO_COLOR", "1");
+    pane.handleInput("\u001b[B");
+    const plainText = screen(pane, 100);
+    expect(plainText).not.toContain("\u001b");
+    expect(plainText).toContain("Kind: Test (test.rust)");
+    expect(plainText).toContain("› QA");
+  } finally { pane.dispose(); vi.unstubAllEnvs(); }
+});
+
+it("sanitizes unavailable dashboard status before the styled presentation boundary", async () => {
+  const { pane } = fixture(vi.fn(async () => { throw new Error("offline\u001b[2J"); }));
+  pane.activate(null);
+  await vi.waitFor(() => expect(pane.statusLine()).toContain("unavailable"));
+  expect(screen(pane)).not.toContain("\u001b[2J");
+  expect(screen(pane)).toContain("offline�[2J");
+  pane.dispose();
+});
+
+it("reserves terminal height for the selected metadata and the surrounding dashboard", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(process.stdout, "rows");
+  Object.defineProperty(process.stdout, "rows", { configurable: true, value: 36 });
+  const { pane } = fixture();
+  try {
+    await ready(pane); pane.handleInput("\r");
+    await vi.waitFor(() => expect(screen(pane)).toContain("Selected:"));
+    expect(pane.render(120).length).toBeLessThanOrEqual(28);
+    expect(screen(pane)).toContain("Executor:");
+    expect(screen(pane)).toContain("Gaps:");
+  } finally {
+    pane.dispose();
+    if (descriptor) Object.defineProperty(process.stdout, "rows", descriptor); else Reflect.deleteProperty(process.stdout, "rows");
+  }
 });
 
 it("preserves charts on refresh failure, discloses caps, and offers secondary record browsing", async () => {

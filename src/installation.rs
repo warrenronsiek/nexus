@@ -145,12 +145,20 @@ const SKILL_FILES: [(&str, &str); 27] = [
         include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
-const PI_EXTENSION_FILES: [(&str, &str); 47] = [
+const PI_EXTENSION_FILES: [(&str, &str); 49] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
     ("charts.ts", include_str!("../pi-extension/src/charts.ts")),
     (
         "work-waterfall.ts",
         include_str!("../pi-extension/src/work-waterfall.ts"),
+    ),
+    (
+        "work-activity-style.ts",
+        include_str!("../pi-extension/src/work-activity-style.ts"),
+    ),
+    (
+        "work-waterfall-metadata.ts",
+        include_str!("../pi-extension/src/work-waterfall-metadata.ts"),
     ),
     (
         "work-interval.ts",

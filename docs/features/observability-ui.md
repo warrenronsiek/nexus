@@ -135,10 +135,21 @@ vertical waterfall, including grandchildren without manually expanding
 each branch. Time runs downward, child tasks branch right at their start, and
 parallel spans have separate lanes.
 The labeled UTC origin is the earliest retained source boundary, including queue
-admission before a parent's start. Arrows and Page Up/Down pan time; `+`/`-`
-zoom; Left/Right pan lanes; Home/End jump to source bounds; `j`/`k` select tasks
-and Enter opens their immutable evidence. Duration
-coverage counts qualify every average; unknown values do not become zeros.
+admission before a parent's start. Up/Down or `j`/`k` selects the session root or tasks;
+Left selects the recorded parent and Right its first recorded child. Selection
+reveals the task in both time and lane windows and highlights its graph span.
+Page Up/Down pans time, Shift+Left/Right or `H`/`L` pans lanes, `+`/`-` zooms, and Home/End
+jumps to source bounds. The panel immediately below the graph shows the selected
+task's recorded kind and display category, state/outcome, source boundaries,
+elapsed and queue evidence, executor, parent, gaps, and conflicts. Enter opens
+its immutable evidence. Category colors distinguish subagents, tests, scripts,
+reviews, tools/commands, and generic work/session spans from recorded kinds.
+The leading dot-separated kind family determines its display category; `agent`
+and `subagent` both identify subagents. `work.session` and `host.session` are
+also recognized explicitly as Session. Custom kinds remain Other rather than
+being guessed from titles or executable names. A legend and textual
+labels retain these distinctions with `NO_COLOR`. Duration coverage counts
+qualify every average; unknown values do not become zeros.
 Attributed execution/wait union, unobserved time, and worker occupancy accompany
 the graph with missing-boundary and clock/source qualifications. Container
 lifetimes do not establish attributed execution. Local capture backlog/loss is

@@ -124,24 +124,26 @@ function membershipLines(view: Extract<WorkState["view"], { kind: "memberships" 
   return ["Related work sessions · Enter opens the canonical hierarchy", ...ids.slice(start, start + 12).map((id, index) => `${start + index === view.selected ? "›" : " "} session:${id}`),
     ...(ids.length ? [] : ["No work-session association recorded."])];
 }
-function selectableLines(state: WorkState, view: Exclude<WorkState["view"], { kind: "detail" | "events" }>, width: number): string[] {
+function selectableLines(state: WorkState, view: Exclude<WorkState["view"], { kind: "detail" | "events" }>, width: number, theme: DashboardTheme): string[] {
   switch (view.kind) {
-    case "dashboard": return renderWorkDashboard(view, width, state.status);
+    case "dashboard": return renderWorkDashboard(view, width, state.status, theme);
     case "list": return listLines(state, width);
     case "tree": return treeLines(view.tree, width);
     case "memberships": return membershipLines(view);
     case "links": return renderLinks(view);
   }
 }
-function renderView(state: WorkState, width: number): { lines: string[]; detailLength: number } {
+function renderView(state: WorkState, width: number, theme: DashboardTheme): { lines: string[]; detailLength: number } {
   const view = state.view;
   if (view.kind === "detail") return scrollLines(workDetailLines(view.record), view.scroll, width);
   if (view.kind === "events") return scrollLines(["Immutable observations · occurrence and receipt times are separate", `${view.page.observations.length} loaded · ${view.page.next_cursor ? "n more" : "all returned observations loaded"}`,
     ...view.page.observations.flatMap(item => ["", ...observationLines(item)])], view.scroll, width);
-  return { lines: selectableLines(state, view, width), detailLength: 0 };
+  return { lines: selectableLines(state, view, width, theme), detailLength: 0 };
 }
 export function renderWork(state: WorkState, width: number, theme: DashboardTheme): { lines: string[]; detailLength: number } {
   const result = state.editor ? { detailLength: 0, lines: [`Filter ${state.editor.field}: ${state.editor.text}▏`, "Enter applies · Escape cancels · empty clears"] }
-    : renderView(state, Math.max(1, width - 2));
-  return { detailLength: result.detailLength, lines: result.lines.flatMap(line => wrapTextWithAnsi(` ${sanitizeDisplayText(line, "multiline")}`, Math.max(1, width))).map(line => line.startsWith(" ›") ? theme.fg("accent", line) : line) };
+    : renderView(state, Math.max(1, width - 2), theme);
+  // Dashboard sanitizes source fields before styling graph cells; preserve its trusted colors.
+  const styled = !state.editor && state.view.kind === "dashboard";
+  return { detailLength: result.detailLength, lines: result.lines.flatMap(line => wrapTextWithAnsi(` ${styled ? line : sanitizeDisplayText(line, "multiline")}`, Math.max(1, width))).map(line => line.startsWith(" ›") ? theme.fg("accent", line) : line) };
 }

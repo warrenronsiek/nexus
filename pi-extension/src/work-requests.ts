@@ -2,8 +2,10 @@
 // @feature observability-ui
 // @spec docs/features/work-history.md
 // @spec docs/features/observability-ui.md
-import type { WorkApi, WorkDetail, WorkPage, WorkSubject } from "./work.ts";
+import { sameSubject, type WorkApi, type WorkDetail, type WorkPage, type WorkSubject } from "./work.ts";
+import { dashboardItems, sessionWaterfall } from "./work-dashboard.ts";
 import { clampWork, newWorkTree, pushWorkView, workRows, type WorkState, type WorkTree, type WorkDashboardView } from "./work-state.ts";
+import { revealWaterfall, type WaterfallLayout } from "./work-waterfall.ts";
 
 export type WorkIntent = { action: "dashboard"; view: WorkDashboardView } | { action: "list"; after?: string } |
   { action: "children"; tree: WorkTree; parent: string | null; after?: string } |
@@ -74,9 +76,35 @@ async function refreshTree(api: WorkApi, state: WorkState, tree: WorkTree, signa
     tree.expanded = new Set(keys.filter(Boolean)); tree.selected = clampWork(tree.selected, workRows(tree).length);
   };
 }
+interface WaterfallSelection {
+  subject: WorkSubject; layout: WaterfallLayout;
+  placement: readonly [origin: number, horizon: number, lane: number, queued: number | null, started: number | null, finished: number | null];
+}
+function waterfallSelection(view: WorkDashboardView): WaterfallSelection | undefined {
+  if (!view.sessionId || !view.data?.selected_session) return;
+  const subject = dashboardItems(view)[view.selected]?.subject;
+  if (!subject) return;
+  const layout = sessionWaterfall(view.data);
+  const item = subject.scope === "session" ? layout.nodes[0] : layout.nodes.slice(1).find(node => node.node.id === subject.id);
+  return item ? { subject, layout, placement: [layout.origin, layout.end, item.lane, item.queue, item.start, item.end] } : undefined;
+}
+function revealChangedSelection(view: WorkDashboardView, previous?: WaterfallSelection): void {
+  const selected = waterfallSelection(view);
+  if (!selected) return;
+  const changed = !previous || !sameSubject(previous.subject, selected.subject) || selected.placement.some((value, index) => value !== previous.placement[index]);
+  if (changed) revealWaterfall(view.waterfall, selected.layout, selected.subject);
+}
 async function dashboard(api: WorkApi, state: WorkState, view: WorkDashboardView, signal: AbortSignal): Promise<Change> {
   const [data, captureHealth] = await Promise.all([api.dashboard(state.project, view.sessionId, signal), api.health(signal).catch(() => ({ available: false }))]);
-  return () => { view.data = data; view.captureHealth = captureHealth; view.selected = clampWork(view.selected, view.sessionId ? (data.intervals ?? data.activities).length : data.sessions.length); view.kindIndex = clampWork(view.kindIndex, data.activity_kinds.length); };
+  return () => {
+    const selected = dashboardItems(view)[view.selected]?.subject;
+    const previous = waterfallSelection(view);
+    view.data = data; view.captureHealth = captureHealth;
+    const index = selected ? dashboardItems(view).findIndex(item => sameSubject(item.subject, selected)) : 0;
+    view.selected = Math.max(0, index);
+    view.kindIndex = clampWork(view.kindIndex, data.activity_kinds.length);
+    revealChangedSelection(view, previous);
+  };
 }
 function fetchChange(api: WorkApi, state: WorkState, intent: ReadIntent, signal: AbortSignal): Promise<Change> {
   let change: Promise<Change>;
