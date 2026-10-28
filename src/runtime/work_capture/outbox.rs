@@ -14,6 +14,12 @@ const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 static WRITER: Mutex<()> = Mutex::new(());
 
+mod retry;
+pub use retry::RetryInvalidReport;
+
+#[cfg(test)]
+mod retry_tests;
+
 #[derive(Debug, thiserror::Error)]
 #[error("work outbox capacity exceeded")]
 pub(super) struct CapacityExceeded;

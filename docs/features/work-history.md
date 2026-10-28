@@ -300,3 +300,19 @@ health inspection. The health ledger shares private bounded reads and atomic
 publication with the other runtime metadata. Its independent lock name remains
 distinct from the outbox writer lock so accounting can run while that writer is
 held.
+
+Optional model hints can be missing or empty in native host templates. Empty and
+whitespace-only hints decode as unknown at lifecycle, native event, explicit
+handoff and work-context boundaries. Nexus preserves nonempty model names and
+does not choose a replacement. Retained handoffs with an empty model preserve
+their exact session, parent and request identities when read.
+
+Invalid automatic captures remain quarantined by default. After fixing the
+rejection reason, `nexus work retry-invalid --dry-run` previews the configured
+outbox, and `nexus work retry-invalid --limit 128` explicitly requeues a bounded
+selection. The limit is between 1 and 256. Payload bytes, observation identities,
+timestamps and provenance remain unchanged. Other project outboxes, conflicting
+observations and corrupt inputs are not selected. `nexus work flush` then attempts
+normal authenticated delivery; receiver validation and idempotency still apply.
+This recovers retained evidence without rerunning an agent workload. It cannot
+reconstruct evidence that was never captured or was already evicted.

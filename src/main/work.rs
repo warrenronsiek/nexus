@@ -159,6 +159,13 @@ pub(super) enum WorkCliCommand {
     Health,
     /// Attempt bounded delivery of queued automatic observations.
     Flush,
+    /// Requeue retained invalid captures after fixing their rejection reason; payloads remain unchanged.
+    RetryInvalid {
+        #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u32).range(1..=256))]
+        limit: u32,
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Debug, Default, Args)]
@@ -222,6 +229,9 @@ async fn execute(
             transfer::import(&work_client(root, loaded, explicit), &file).await
         }
         WorkCliCommand::Health => json_result(nexus::runtime::work_capture::health(loaded)),
+        WorkCliCommand::RetryInvalid { limit, dry_run } => {
+            capture::retry_invalid(loaded, limit, dry_run)
+        }
         WorkCliCommand::Flush => {
             json_result(nexus::runtime::work_capture::flush(loaded, explicit).await)
         }

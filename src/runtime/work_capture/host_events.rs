@@ -28,7 +28,7 @@ struct HostEventInput {
     turn_id: Option<String>,
     #[serde(default)]
     request_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::model_hint::deserialize")]
     model: Option<String>,
     #[serde(default)]
     agent_id: Option<String>,
