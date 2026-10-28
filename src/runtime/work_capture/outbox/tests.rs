@@ -297,6 +297,7 @@ fn exact_replay_is_idempotent_and_the_total_queue_is_bounded() {
     assert_eq!(queue.health().unwrap().queued, MAX_ENTRIES);
 }
 
+// Guard the queue entry point independently so a future reader substitution cannot reintroduce the stall.
 #[test]
 fn nonregular_pending_metadata_cannot_block_the_outbox() {
     let temporary = tempfile::tempdir().unwrap();

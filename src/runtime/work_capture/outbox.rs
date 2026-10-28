@@ -3,11 +3,9 @@
 // @boundary cached-work-envelopes: compare bounded typed local capture envelopes to preserve canonical callback receipts and reject changed event bodies.
 use crate::coordination::{api::WorkCommand, domain::HookContext};
 use crate::work_history::{WorkAction, WorkEvent, WorkObservationInput};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError};
 
@@ -340,7 +338,8 @@ impl Outbox {
     }
 
     fn publish(&self, destination: &Path, bytes: &[u8]) -> Result<()> {
-        write_temporary(&self.directory, bytes)?.persist_noclobber(destination)?;
+        crate::private_state::temporary_in(&self.directory, bytes)?
+            .persist_noclobber(destination)?;
         File::open(&self.directory)?.sync_all().map_err(Into::into)
     }
 }
@@ -362,48 +361,12 @@ fn counter(directory: &Path, name: &str) -> u64 {
 
 fn increment_counter(directory: &Path, name: &str) -> Result<()> {
     let value = counter(directory, name).saturating_add(1).to_string();
-    write_temporary(directory, value.as_bytes())?.persist(directory.join(name))?;
-    File::open(directory)?.sync_all().map_err(Into::into)
-}
-
-fn write_temporary(directory: &Path, bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
-    let mut file = tempfile::Builder::new()
-        .prefix("pending-")
-        .suffix(".tmp")
-        .tempfile_in(directory)?;
-    file.write_all(bytes)?;
-    file.as_file().sync_all()?;
-    Ok(file)
+    crate::private_state::write(&directory.join(name), value.as_bytes())
 }
 
 fn read_entry(path: &Path) -> Result<Vec<u8>> {
-    read_metadata(path, MAX_ENTRY_BYTES)
-}
-
-fn read_metadata(path: &Path, maximum: usize) -> Result<Vec<u8>> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let metadata = file.metadata()?;
-    validate_metadata(&metadata, maximum)?;
-    read_metadata_bytes(file, maximum)
-}
-
-fn validate_metadata(metadata: &std::fs::Metadata, maximum: usize) -> Result<()> {
-    if !metadata.is_file() || metadata.len() > maximum as u64 {
-        bail!("invalid local metadata entry");
-    }
-    Ok(())
-}
-
-fn read_metadata_bytes(file: File, maximum: usize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    file.take((maximum + 1) as u64).read_to_end(&mut bytes)?;
-    if bytes.len() > maximum {
-        bail!("oversized local metadata entry");
-    }
-    Ok(bytes)
+    crate::private_state::read(path, MAX_ENTRY_BYTES as u64)?
+        .context("missing local metadata entry")
 }
 
 #[cfg(test)]
