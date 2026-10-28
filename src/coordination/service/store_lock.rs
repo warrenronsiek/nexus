@@ -117,3 +117,15 @@ impl Drop for TrackedStoreGuard<'_> {
             .unwrap_or_else(PoisonError::into_inner) = None;
     }
 }
+
+/// A failed acquisition is safe to retry because no lifecycle writes began.
+#[derive(Debug)]
+pub(super) struct LifecycleStoreBusy;
+
+impl std::fmt::Display for LifecycleStoreBusy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("lifecycle store remained busy before acquisition")
+    }
+}
+
+impl std::error::Error for LifecycleStoreBusy {}

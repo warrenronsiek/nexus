@@ -29,7 +29,7 @@ mod work;
 pub(crate) use papercuts::{PapercutDispatch, PapercutReviewJob};
 use prompt::synopsis;
 pub(crate) use sos::{SosDispatch, SosTriageJob};
-use store_lock::{TrackedStoreGuard, TrackedStoreMutex};
+use store_lock::{LifecycleStoreBusy, TrackedStoreGuard, TrackedStoreMutex};
 
 #[cfg(test)]
 use super::api::ServiceRequest;
@@ -182,7 +182,7 @@ impl NexusService {
         })();
         match result {
             Ok(response) => ServiceResponse::Prompt(response),
-            Err(error) => ServiceResponse::Hook(HookResponse::fail_open(error)),
+            Err(error) => ServiceResponse::Hook(lifecycle_failure(error)),
         }
     }
 
@@ -194,7 +194,7 @@ impl NexusService {
     ) -> ServiceResponse {
         ServiceResponse::Hook(
             pre_tool_use_result(self, input, binding, evidence.as_ref())
-                .unwrap_or_else(HookResponse::fail_open),
+                .unwrap_or_else(lifecycle_failure),
         )
     }
 
@@ -251,7 +251,7 @@ impl NexusService {
             )?;
             Ok(HookResponse::allow(Vec::new()))
         })();
-        ServiceResponse::Hook(result.unwrap_or_else(HookResponse::fail_open))
+        ServiceResponse::Hook(result.unwrap_or_else(lifecycle_failure))
     }
 
     fn session_stop(&self, input: SessionStopInput, binding: &ProjectBinding) -> ServiceResponse {
@@ -261,7 +261,7 @@ impl NexusService {
             store.stop_session(&project.id, &input.context.session_id)?;
             Ok(HookResponse::allow(Vec::new()))
         })();
-        ServiceResponse::Hook(result.unwrap_or_else(HookResponse::fail_open))
+        ServiceResponse::Hook(result.unwrap_or_else(lifecycle_failure))
     }
 
     fn status(&self) -> ServiceResponse {
@@ -429,10 +429,7 @@ impl NexusService {
             Err(TryLockError::Poisoned(error)) => {
                 Err(anyhow::anyhow!("lifecycle store unavailable: {error}"))
             }
-            Err(TryLockError::WouldBlock) => Err(anyhow::anyhow!(
-                "lifecycle store remained busy for {}ms",
-                LIFECYCLE_STORE_WAIT.as_millis()
-            )),
+            Err(TryLockError::WouldBlock) => Err(LifecycleStoreBusy.into()),
         }
     }
 
@@ -667,3 +664,10 @@ mod project_isolation_tests;
 mod store_contention_tests;
 #[cfg(test)]
 mod tests;
+
+pub(super) fn lifecycle_failure(error: anyhow::Error) -> HookResponse {
+    let retryable = error.is::<LifecycleStoreBusy>();
+    let mut response = HookResponse::fail_open(error);
+    response.retryable = retryable;
+    response
+}

@@ -246,6 +246,9 @@ pub struct HookResponse {
     /// This is deliberately invariant. Nexus has no execution-control state.
     pub permitted: bool,
     pub recorded: bool,
+    /// True only when the service acquired no lifecycle store and made no writes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub retryable: bool,
     #[serde(default)]
     pub advisories: Vec<Advisory>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,6 +260,7 @@ impl HookResponse {
         Self {
             permitted: true,
             recorded: true,
+            retryable: false,
             advisories,
             diagnostic: None,
         }
@@ -266,6 +270,7 @@ impl HookResponse {
         Self {
             permitted: true,
             recorded: false,
+            retryable: false,
             advisories: Vec::new(),
             diagnostic: Some(format!("nexus could not record this hook: {error}")),
         }

@@ -304,7 +304,7 @@ impl NexusService {
         I: Into<ExplicitUsageInput>,
     {
         let result = self.record_explicit_usage(input.into(), binding);
-        ServiceResponse::Hook(result.unwrap_or_else(HookResponse::fail_open))
+        ServiceResponse::Hook(result.unwrap_or_else(super::service::lifecycle_failure))
     }
 
     fn record_explicit_usage(

@@ -83,6 +83,10 @@ fn lifecycle_contention_remains_bounded_and_fail_open() {
     assert!(started.elapsed() < Duration::from_millis(500));
     assert_eq!(response["permitted"], true);
     assert_eq!(response["recorded"], false, "{response}");
+    assert_eq!(
+        response["retryable"], true,
+        "no store was acquired: {response}"
+    );
     drop(guard);
 }
 
@@ -196,4 +200,40 @@ fn postgres_readiness_rejects_a_poisoned_application_store() {
         error.to_string().contains("store lock poisoned"),
         "{error:#}"
     );
+}
+
+#[test]
+fn poisoned_store_is_not_safe_to_retry() {
+    let service = Arc::new(super::tests::service_with(Config::default()));
+    let poisoning = service.clone();
+    assert!(std::thread::spawn(move || {
+        let _guard = poisoning.store.lock().unwrap();
+        panic!("poison the store for the lifecycle regression");
+    })
+    .join()
+    .is_err());
+    let response = service
+        .handle_remote("contention-project", prompt())
+        .to_json();
+    assert_eq!(response["recorded"], false);
+    assert_ne!(response["retryable"], true, "{response}");
+}
+
+#[test]
+fn script_contention_is_explicitly_safe_to_retry() {
+    let service = super::tests::service_with(Config::default());
+    let _held = service.store.lock().unwrap();
+    let request = ServiceRequest::decode(
+        "script_use",
+        json!({
+            "session_id":"busy-script", "agent":"codex", "project_root":"/repo",
+            "invocation_id":"script-1", "script_name":"scripts/check.sh", "outcome":"succeeded"
+        }),
+    )
+    .unwrap();
+    let response = service
+        .handle_remote("contention-project", request)
+        .to_json();
+    assert_eq!(response["recorded"], false);
+    assert_eq!(response["retryable"], true, "{response}");
 }

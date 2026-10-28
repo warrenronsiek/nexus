@@ -122,7 +122,7 @@ The main invariants are:
 
 Unit tests cover extraction, severity, typed request decoding, local service overlap behavior, bounded recent-session selection, grouped local reconciliation with per-session attribution, and two distinct clone roots sharing one remote project without persisting either root as a worktree. Process tests in `tests/mcp_hooks.rs` exercise the local flows through a real MCP process, daemon socket, and SQLite database. Remote runtime tests prove client-side reconciliation plus derived script/skill evidence, while the PostgreSQL integration test covers the shared project binding.
 
-Store-contention recovery tests release the held lock from the retry callback rather than relying on a 20 ms sleep completing inside the 100 ms lifecycle budget. Production retains the same 100 ms deadline and 1 ms retry interval. Separate deterministic tests cover retry exhaustion, and the real concurrent fail-open test keeps its bounded-response assertion.
+Store-contention recovery tests release the held lock from the retry callback rather than relying on a 20 ms sleep completing inside the 100 ms lifecycle budget. Each service attempt retains the same 100 ms deadline and 1 ms retry interval. A typed acquisition-timeout error produces `recorded: false, retryable: true` only before any store guard or lifecycle write exists; poisoned locks and other failures are not marked retryable. The companion can retry this explicit no-write result inside its existing 2.5-second response budget. Separate deterministic tests cover retry exhaustion, and the real concurrent fail-open test keeps its bounded-response assertion.
 
 ## Cross-checkout coordination
 
