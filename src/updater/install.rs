@@ -9,11 +9,11 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempPath};
 
 pub(super) struct PreparedBinary {
     target: PathBuf,
-    candidate: NamedTempFile,
+    candidate: TempPath,
     lock: File,
 }
 pub(super) struct Replacement {
@@ -31,7 +31,7 @@ impl PreparedBinary {
         let lock = installation_lock(target)?;
         artifact.verify(source)?;
         let candidate = stage_candidate(target, source, artifact)?;
-        let mut command = Command::new(candidate.path());
+        let mut command = Command::new(&candidate);
         command.arg("--version").stdin(Stdio::null());
         let output = crate::git_process::bounded_output(command, Duration::from_secs(5), 4096)
             .context("verify candidate executable identity")?;
@@ -157,14 +157,15 @@ fn open_lock(path: &Path) -> Result<File> {
         .context("another Nexus update owns this installation")?;
     Ok(lock)
 }
-fn stage_candidate(target: &Path, source: &Path, artifact: &Artifact) -> Result<NamedTempFile> {
+fn stage_candidate(target: &Path, source: &Path, artifact: &Artifact) -> Result<TempPath> {
     let candidate = tempfile::Builder::new()
         .prefix(".nexus-candidate-")
         .tempfile_in(target.parent().unwrap())?;
     fs::copy(source, candidate.path())?;
     artifact.verify(candidate.path())?;
     finish_candidate(&candidate)?;
-    Ok(candidate)
+    // Linux refuses to execute a file while any writable handle remains open.
+    Ok(candidate.into_temp_path())
 }
 fn finish_candidate(candidate: &NamedTempFile) -> Result<()> {
     fs::set_permissions(candidate.path(), fs::Permissions::from_mode(0o755))?;
