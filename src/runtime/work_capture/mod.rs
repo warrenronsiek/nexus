@@ -11,9 +11,9 @@ mod handoff;
 mod health;
 mod host_context;
 mod host_events;
-mod lifecycle;
 #[cfg(test)]
-mod model_hint_tests;
+mod host_hint_tests;
+mod lifecycle;
 mod outbox;
 mod session_title;
 mod source_clock;

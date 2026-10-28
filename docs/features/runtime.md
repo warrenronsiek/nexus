@@ -266,3 +266,7 @@ its health and completion evidence as well as coordination responses. The explic
 `nexus work retry-invalid` operation can requeue retained invalid captures in the
 configured namespace after their cause has been fixed, without rewriting payloads
 or retrying agent execution.
+
+Tool-hook adapters treat blank optional child-agent hints as absent, retaining
+the known host executor and ordinary turn parent for root-agent tools. Nonempty
+child hints retain their reported identity and parent relationship.

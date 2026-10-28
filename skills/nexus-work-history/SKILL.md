@@ -136,3 +136,9 @@ requeue a bounded batch with `nexus work retry-invalid --limit 128`, then run
 and preserves source payloads and identities. Conflict/corrupt quarantines and
 other namespaces are excluded. Do not rerun the workload or invent missing times
 to fill historical gaps.
+
+Blank optional child-agent hints are absent, so root-agent tool capture retains
+the known host executor and turn parent. Retained blank executor hints decode as
+unknown during recovery; source identity, time and parentage are preserved.
+Validate tool activities as well as request/turn/session timing when checking a
+host integration. Missing historical executor or parent evidence remains visible.

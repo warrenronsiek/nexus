@@ -316,3 +316,11 @@ observations and corrupt inputs are not selected. `nexus work flush` then attemp
 normal authenticated delivery; receiver validation and idempotency still apply.
 This recovers retained evidence without rerunning an agent workload. It cannot
 reconstruct evidence that was never captured or was already evicted.
+
+Empty optional child-agent hints in tool callbacks mean that no child executor
+was supplied. Those callbacks retain their ordinary turn parent and known host
+executor; they never create an identity for an empty child. Historical work
+records decode blank optional executor hints as unknown, preserving source IDs,
+timestamps and parent references. Required record and parent identities remain
+strict. Explicit recovery can therefore accept retained declarations without
+inventing executor evidence or repairing historical parentage by inference.

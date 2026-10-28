@@ -66,7 +66,7 @@ pub struct WorkContext {
     pub host_session_id: Option<String>,
     pub turn_id: Option<String>,
     pub agent_instance_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::model_hint::deserialize")]
+    #[serde(default, deserialize_with = "crate::optional_hint::deserialize")]
     #[schemars(with = "Option<String>")]
     pub model_id: Option<String>,
     pub repository: Option<String>,
@@ -174,6 +174,8 @@ pub enum WorkEvent {
         work_session_id: Option<String>,
         parent_activity_id: Option<String>,
         initiator: Option<String>,
+        #[serde(default, deserialize_with = "crate::optional_hint::deserialize")]
+        #[schemars(with = "Option<String>")]
         executor: Option<String>,
         #[serde(default)]
         context: WorkContext,
