@@ -49,7 +49,7 @@ impl LiteralGit {
 
     pub(super) fn execution_directory(&self, base: &Path) -> Result<PathBuf> {
         let mut directory = base.to_owned();
-        for pair in self.words[1..self.index].chunks_exact(2) {
+        for pair in self.words[1..self.index].as_chunks::<2>().0 {
             directory = directory.join(&pair[1]);
         }
         directory
