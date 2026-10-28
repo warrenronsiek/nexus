@@ -35,21 +35,31 @@ import sys
 import tempfile
 import termios
 import time
+from weakref import WeakKeyDictionary
+
+if __package__:
+    from .terminal_screen import TerminalScreen
+else:
+    from terminal_screen import TerminalScreen
+
+TERMINAL_ROWS = 36
+TERMINAL_COLUMNS = 120
+_screens: WeakKeyDictionary[subprocess.Popen[bytes], TerminalScreen] = WeakKeyDictionary()
 
 
 def wait_for_text(process: subprocess.Popen[bytes], master: int, expected: bytes | tuple[bytes, ...], timeout_seconds: float = 15) -> None:
-    output = bytearray()
-    expected_texts = expected if isinstance(expected, tuple) else (expected,)
+    screen = _screens.setdefault(process, TerminalScreen(TERMINAL_ROWS, TERMINAL_COLUMNS))
+    expected_texts = tuple(text.decode("utf-8") for text in (expected if isinstance(expected, tuple) else (expected,)))
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
         if readable:
-            output.extend(os.read(master, 65536))
-            if all(text in output for text in expected_texts):
-                return
+            screen.feed(os.read(master, 65536))
+        if all(text in screen.text() for text in expected_texts):
+            return
         if process.poll() is not None:
             break
-    raise AssertionError(f"Missing {expected!r}; exit={process.poll()}; output={output[-6000:]!r}")
+    raise AssertionError(f"Missing {expected!r}; exit={process.poll()}; screen={screen.text()!r}")
 
 
 def isolated_project(temporary: Path) -> tuple[Path, Path, dict[str, str]]:
@@ -225,7 +235,7 @@ def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str,
     os.write(master, b"b")
     wait_for_text(process, master, b"records loaded")
     os.write(master, b"t")
-    wait_for_text(process, master, b"Native evaluation change")
+    wait_for_text(process, master, ("Filters · change".encode(), b"Native evaluation change"))
     os.write(master, b"\r")
     wait_for_text(process, master, b"Distinct router regression reason")
     os.write(master, b"l")
@@ -365,7 +375,7 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             config = remote_config
         select_runtime(environment, runtime_source)
         master, slave = pty.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 120, 0, 0))
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0))
         original_settings = termios.tcgetattr(slave)
         process = subprocess.Popen(
             [binary, "--config", str(config), "tui"],

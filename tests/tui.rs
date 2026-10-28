@@ -27,14 +27,22 @@ fn interrupted_terminal_restores_settings() {
     exercise_terminal("system", "terminate");
 }
 
+#[test]
+fn terminal_assertions_follow_incremental_current_screen_updates() {
+    run_python(&["-m", "unittest", "tests/test_terminal_screen.py"]);
+}
+
 fn exercise_terminal(runtime_source: &str, exit_mode: &str) {
-    let output = Command::new("python3")
-        .arg("tests/tui_terminal.py")
-        .arg(env!("CARGO_BIN_EXE_nexus"))
-        .arg(runtime_source)
-        .arg(exit_mode)
-        .output()
-        .unwrap();
+    run_python(&[
+        "tests/tui_terminal.py",
+        env!("CARGO_BIN_EXE_nexus"),
+        runtime_source,
+        exit_mode,
+    ]);
+}
+
+fn run_python(arguments: &[&str]) {
+    let output = Command::new("python3").args(arguments).output().unwrap();
     assert!(
         output.status.success(),
         "{}\n{}",
