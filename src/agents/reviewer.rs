@@ -321,7 +321,7 @@ mod tests {
             None,
             None,
         );
-        let events = captured_events(&loaded, temp.path());
+        let events = captured_events(temp.path(), 3);
         let declared: Vec<_> = events
             .iter()
             .filter_map(|(_, body)| match body {
@@ -387,7 +387,13 @@ mod tests {
             "staged change",
             Some(&capture),
         );
-        let events = captured_events(&loaded, temp.path());
+        capture.finish(
+            crate::work_history::WorkOutcome::Succeeded,
+            None,
+            None,
+            None,
+        );
+        let events = captured_events(temp.path(), 3);
         for review in report.reviews {
             let text = review.text.unwrap();
             let fields: Vec<_> = text.split('|').collect();
@@ -432,21 +438,37 @@ mod tests {
     }
 
     fn captured_events(
-        loaded: &crate::LoadedConfig,
         root: &Path,
+        expected_finished: usize,
     ) -> Vec<(String, crate::work_history::WorkEvent)> {
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while !crate::runtime::work_capture::health(loaded)
-            .is_ok_and(|health| health.pending_callbacks_process == 0)
-        {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let events = read_captured_events(root);
+            let finished = events
+                .iter()
+                .filter(|(_, event)| {
+                    matches!(event, crate::work_history::WorkEvent::Finished { .. })
+                })
+                .count();
+            if finished == expected_finished {
+                return events;
+            }
             assert!(
                 std::time::Instant::now() < deadline,
-                "capture did not finish"
+                "fixture capture incomplete: {finished}/{expected_finished} finished events"
             );
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    fn read_captured_events(root: &Path) -> Vec<(String, crate::work_history::WorkEvent)> {
         let mut events = Vec::new();
-        for entry in std::fs::read_dir(root.join("work-outbox")).unwrap() {
+        let entries = match std::fs::read_dir(root.join("work-outbox")) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return events,
+            Err(error) => panic!("read fixture capture: {error}"),
+        };
+        for entry in entries {
             let path = entry.unwrap().path();
             if path.extension().is_none_or(|ext| ext != "json") {
                 continue;
