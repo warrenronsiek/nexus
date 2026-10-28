@@ -12,6 +12,8 @@ mod health;
 mod host_context;
 mod host_events;
 mod lifecycle;
+#[cfg(test)]
+mod model_hint_tests;
 mod outbox;
 mod session_title;
 mod source_clock;
@@ -35,8 +37,8 @@ pub use host_context::{host_handoff, WorkHandoff};
 pub use host_events::{host_event, host_event_with_title};
 pub(crate) use lifecycle::lifecycle_command as prepare_lifecycle;
 use lifecycle::stable_id;
-pub use outbox::CaptureHealth;
 use outbox::Outbox;
+pub use outbox::{CaptureHealth, InvalidRetry, RetryInvalidReport};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -77,6 +79,10 @@ fn project_id(loaded: &LoadedConfig, root: Option<&str>) -> Result<String> {
 
 pub fn health(loaded: &LoadedConfig) -> Result<CaptureHealth> {
     Outbox::open(&directory(loaded)?)?.health()
+}
+
+pub fn retry_invalid(loaded: &LoadedConfig, mode: InvalidRetry) -> Result<RetryInvalidReport> {
+    Outbox::writer(&directory(loaded)?)?.retry_invalid(mode)
 }
 
 pub fn capture_lifecycle(loaded: &LoadedConfig, command: WorkCommand) -> CaptureReceipt {

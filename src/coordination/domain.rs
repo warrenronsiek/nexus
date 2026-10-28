@@ -76,7 +76,7 @@ pub struct HookContext {
     pub agent: String,
     #[serde(default)]
     pub turn_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::model_hint::deserialize")]
     pub model: Option<String>,
 }
 

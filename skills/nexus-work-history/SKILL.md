@@ -126,3 +126,13 @@ summary of prompt content. Preserve logical shared-work titles independently.
 Hand over root and important activity IDs, instrumentation locations, covered
 sources, delivery recovery, and what remains unknown. Explain what the evidence
 establishes while leaving the caller in control of its workflow.
+
+Keep an unavailable model unknown; empty optional host model hints normalize to
+absence. A successful advisory hook is not a delivery receipt: inspect
+`nexus work health` and the request's completion and elapsed fields. After fixing
+an invalid-capture cause, preview `nexus work retry-invalid --dry-run`, explicitly
+requeue a bounded batch with `nexus work retry-invalid --limit 128`, then run
+`nexus work flush` and inspect health again. This uses only the configured outbox
+and preserves source payloads and identities. Conflict/corrupt quarantines and
+other namespaces are excluded. Do not rerun the workload or invent missing times
+to fill historical gaps.

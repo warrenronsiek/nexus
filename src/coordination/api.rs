@@ -278,8 +278,7 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
         "sos" => {
             let command: SosCommand = decode(params)?;
             validate_hook_context(command.context())?;
-            if matches!(&command, SosCommand::Report { context, .. } if context.model.as_deref().is_none_or(|model| model.trim().is_empty()))
-            {
+            if matches!(&command, SosCommand::Report { context, .. } if context.model.is_none()) {
                 bail!("SOS model must contain 1 to 256 bytes");
             }
             Ok(ServiceRequest::Sos(command))

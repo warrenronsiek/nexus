@@ -257,3 +257,12 @@ The typed host-state file implementation owns shared directory locking, private
 bounded reads, atomic publication, and the 4,096-file capacity rule for both
 work-context and checkout journals. Each caller retains its own byte and domain
 validation limits. Existing work-context identities and JSON formats are preserved.
+
+An unavailable optional model can arrive as an empty host-template substitution.
+Native event, lifecycle, work-context and handoff decoders preserve that absence
+as unknown rather than emitting an invalid model identity. Advisory command hooks
+continue to return successfully when recording fails; verify work capture through
+its health and completion evidence as well as coordination responses. The explicit
+`nexus work retry-invalid` operation can requeue retained invalid captures in the
+configured namespace after their cause has been fixed, without rewriting payloads
+or retrying agent execution.
