@@ -67,6 +67,7 @@ use std::sync::TryLockError;
 use std::time::Duration;
 
 const LIFECYCLE_STORE_WAIT: Duration = Duration::from_millis(100);
+const RECONCILIATION_BATCH_PATHS: usize = 32;
 const LIFECYCLE_STORE_RETRY: Duration = Duration::from_millis(1);
 const POSTGRES_STORE_STALL_THRESHOLD: Duration = Duration::from_secs(30);
 
@@ -461,9 +462,7 @@ impl NexusService {
             let intents = observe(&worktree);
             observed = observed.saturating_add(intents.len().saturating_mul(session_ids.len()));
             for session_id in session_ids {
-                self.lifecycle_store()
-                    .context("acquire reconciliation store")?
-                    .record_reconciliation(&project_id, &session_id, &intents, ttl_seconds)?;
+                reconcile_chunks(self, &project_id, &session_id, &intents, ttl_seconds)?;
             }
         }
         Ok(observed)
@@ -475,16 +474,18 @@ impl NexusService {
         evidence: &ClientFilesystemEvidence,
         ensure_session: bool,
     ) -> Result<usize> {
-        let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
         if ensure_session {
-            store.ensure_session(
-                project_id,
-                &evidence.session_id,
-                &evidence.agent,
-                &self.loaded.hash,
-            )?;
+            self.lifecycle_store()
+                .context("acquire lifecycle store")?
+                .ensure_session(
+                    project_id,
+                    &evidence.session_id,
+                    &evidence.agent,
+                    &self.loaded.hash,
+                )?;
         }
-        store.record_reconciliation(
+        reconcile_chunks(
+            self,
             project_id,
             &evidence.session_id,
             &evidence.changed_paths,
@@ -670,4 +671,24 @@ pub(super) fn lifecycle_failure(error: anyhow::Error) -> HookResponse {
     let mut response = HookResponse::fail_open(error);
     response.retryable = retryable;
     response
+}
+
+fn reconcile_chunks(
+    service: &NexusService,
+    project_id: &str,
+    session_id: &str,
+    intents: &[PathIntent],
+    ttl_seconds: i64,
+) -> Result<()> {
+    for (index, chunk) in intents.chunks(RECONCILIATION_BATCH_PATHS).enumerate() {
+        if index != 0 {
+            // Give pending foreground hooks a full store-acquisition retry interval.
+            std::thread::sleep(LIFECYCLE_STORE_RETRY);
+        }
+        service
+            .lifecycle_store()
+            .context("acquire reconciliation store")?
+            .record_reconciliation(project_id, session_id, chunk, ttl_seconds)?;
+    }
+    Ok(())
 }

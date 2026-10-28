@@ -168,3 +168,12 @@ stop before closing its companion at shutdown.
 File intent routing canonicalizes existing parent directories and retains any
 uncreated suffix, so directory symlinks and platform path aliases share the same
 repository-relative claims as the physical checkout.
+
+Git reconciliation persists at most 32 paths per store acquisition. Each batch
+commits its lease renewals, new claims and reconciliation event atomically, then
+releases the shared store. Between batches it waits one 1 ms lifecycle acquisition
+retry interval, allowing foreground callbacks to acquire the store. Both local
+worktree scans and remote evidence pages use this path; the 2,048-path observation
+page and attribution stay intact. A stop between batches prevents later batches
+from recreating claims. A failed batch rolls back its claims and events; earlier
+committed batches remain durable and later observations can retry the remainder.

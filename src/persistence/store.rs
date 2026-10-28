@@ -4,13 +4,13 @@
 // @entrypoint Store::connect
 // @boundary dynamic-json
 use super::models::{
-    claim_from_row, encode_line, parse_time, session_from_row, ClaimRow, EventRow, NewClaim,
-    NewEvent, NewSession, SessionRow,
+    claim_from_row, parse_time, session_from_row, ClaimRow, EventRow, NewEvent, NewSession,
+    SessionRow,
 };
 use super::schema::{advisories, claims, events, sessions};
 use super::window::bounded_projection_reader;
 use crate::coordination::domain::{
-    Claim, ClaimState, EventRecord, IgnoredAdvisoryPolicy, PathIntent, RecordScope, SessionRecord,
+    Claim, EventRecord, IgnoredAdvisoryPolicy, PathIntent, RecordScope, SessionRecord,
     StatusCounts, ToolCompletion, ToolResultEvent,
 };
 use crate::persistence::backend::{DbBackend, DbConnection};
@@ -21,7 +21,6 @@ use diesel::prelude::*;
 use serde::Serialize;
 use serde_json::json;
 use std::path::Path;
-use uuid::Uuid;
 
 pub(super) const MAX_EVENT_PAYLOAD_BYTES: usize = 64 * 1024;
 const MAX_VISIBLE_EVENT_PAYLOAD_BYTES: usize = 4 * 1024;
@@ -302,88 +301,6 @@ impl Store {
         Ok(selected)
     }
 
-    pub(crate) fn insert_claim(
-        &mut self,
-        project_key: &str,
-        session_key: &str,
-        tool_key: &str,
-        intent: &PathIntent,
-        ttl_seconds: i64,
-    ) -> Result<Claim> {
-        let new_id = Uuid::new_v4().to_string();
-        let now = Utc::now();
-        let now_text = now.to_rfc3339();
-        let expires = now + Duration::seconds(ttl_seconds);
-        let expires_text = expires.to_rfc3339();
-        let operation_text = intent.operation.to_string();
-        let start = encode_line(intent.line_start);
-        let end = encode_line(intent.line_end);
-        let id = self.transaction(|connection| {
-                let new_claim = NewClaim {
-                    id: &new_id,
-                    project_id: project_key,
-                    session_id: session_key,
-                    tool_use_id: tool_key,
-                    path: &intent.path,
-                    operation: &operation_text,
-                    line_start: start,
-                    line_end: end,
-                    state: "claimed",
-                    expires_at: &expires_text,
-                    updated_at: &now_text,
-                };
-                diesel::insert_into(claims::table)
-                    .values(&new_claim)
-                    .on_conflict((
-                        claims::project_id,
-                        claims::session_id,
-                        claims::tool_use_id,
-                        claims::path,
-                        claims::operation,
-                        claims::line_start,
-                        claims::line_end,
-                    ))
-                    .do_update()
-                    .set((
-                        claims::state.eq("claimed"),
-                        claims::expires_at.eq(&expires_text),
-                        claims::updated_at.eq(&now_text),
-                    ))
-                    .execute(connection)?;
-                let stored_id = claims::table
-                    .filter(claims::project_id.eq(project_key))
-                    .filter(claims::session_id.eq(session_key))
-                    .filter(claims::tool_use_id.eq(tool_key))
-                    .filter(claims::path.eq(&intent.path))
-                    .filter(claims::operation.eq(&operation_text))
-                    .filter(claims::line_start.eq(start))
-                    .filter(claims::line_end.eq(end))
-                    .select(claims::id)
-                    .first::<String>(connection)?;
-                append_event(
-                    connection,
-                    project_key,
-                    Some(session_key),
-                    "claim_created",
-                    json!({"claim_id":stored_id,"tool_use_id":tool_key,"path":intent.path,"operation":intent.operation,"line_start":intent.line_start,"line_end":intent.line_end,"expires_at":expires}),
-                )?;
-                Ok(stored_id)
-            })?;
-        Ok(Claim {
-            id,
-            project_id: project_key.into(),
-            session_id: session_key.into(),
-            tool_use_id: tool_key.into(),
-            path: intent.path.clone(),
-            operation: intent.operation,
-            line_start: intent.line_start,
-            line_end: intent.line_end,
-            state: ClaimState::Claimed,
-            expires_at: expires,
-            updated_at: now,
-        })
-    }
-
     pub(crate) fn record_tool_inspection(
         &mut self,
         project_key: &str,
@@ -609,86 +526,6 @@ impl Store {
     }
 }
 
-impl Store {
-    pub(crate) fn record_reconciliation(
-        &mut self,
-        project_key: &str,
-        session_key: &str,
-        intents: &[PathIntent],
-        ttl_seconds: i64,
-    ) -> Result<()> {
-        if !active_session_exists(&mut self.connection, project_key, session_key)? {
-            return Ok(());
-        }
-        let mut newly_observed = Vec::new();
-        for intent in intents {
-            if self.refresh_reconciled_claim(project_key, session_key, intent, ttl_seconds)? {
-                newly_observed.push(intent);
-            }
-        }
-        if !newly_observed.is_empty() {
-            append_event(
-                &mut self.connection,
-                project_key,
-                Some(session_key),
-                "git_reconciled",
-                json!({"changed_paths":newly_observed}),
-            )?;
-        }
-        Ok(())
-    }
-
-    fn refresh_reconciled_claim(
-        &mut self,
-        project_key: &str,
-        session_key: &str,
-        intent: &PathIntent,
-        ttl_seconds: i64,
-    ) -> Result<bool> {
-        let tool_key = format!(
-            "git-reconcile:{}",
-            blake3::hash(intent.path.as_bytes()).to_hex()
-        );
-        let existing = self.reconciled_claim(project_key, session_key, intent, &tool_key)?;
-        let now = Utc::now();
-        let is_active = existing.as_ref().is_some_and(|claim| {
-            matches!(claim.state.as_str(), "claimed" | "modified")
-                && parse_time(&claim.expires_at).is_ok_and(|expires| expires > now)
-        });
-        if let Some(claim) = existing.filter(|_| is_active) {
-            diesel::update(claims::table.filter(claims::id.eq(claim.id)))
-                .set((
-                    claims::expires_at.eq((now + Duration::seconds(ttl_seconds)).to_rfc3339()),
-                    claims::updated_at.eq(now.to_rfc3339()),
-                ))
-                .execute(&mut self.connection)?;
-            return Ok(false);
-        }
-        self.insert_claim(project_key, session_key, &tool_key, intent, ttl_seconds)?;
-        Ok(true)
-    }
-
-    fn reconciled_claim(
-        &mut self,
-        project_key: &str,
-        session_key: &str,
-        intent: &PathIntent,
-        tool_key: &str,
-    ) -> Result<Option<ClaimRow>> {
-        Ok(claims::table
-            .filter(claims::project_id.eq(project_key))
-            .filter(claims::session_id.eq(session_key))
-            .filter(claims::tool_use_id.eq(tool_key))
-            .filter(claims::path.eq(&intent.path))
-            .filter(claims::operation.eq(intent.operation.to_string()))
-            .filter(claims::line_start.eq(encode_line(intent.line_start)))
-            .filter(claims::line_end.eq(encode_line(intent.line_end)))
-            .select(ClaimRow::as_select())
-            .first::<ClaimRow>(&mut self.connection)
-            .optional()?)
-    }
-}
-
 fn active_session_exists(
     connection: &mut DbConnection,
     project_key: &str,
@@ -768,6 +605,9 @@ fn event_from_row(row: EventRow) -> Result<EventRecord> {
         created_at: parse_time(&row.created_at)?,
     })
 }
+
+mod claim_writes;
+mod reconciliation;
 
 #[cfg(all(test, feature = "sqlite"))]
 mod tests;

@@ -237,3 +237,48 @@ fn script_contention_is_explicitly_safe_to_retry() {
     assert_eq!(response["recorded"], false);
     assert_eq!(response["retryable"], true, "{response}");
 }
+
+#[test]
+fn reconciliation_releases_store_between_bounded_path_batches() {
+    use crate::coordination::client_evidence::ClientFilesystemEvidence;
+    use crate::coordination::domain::{Operation, PathIntent};
+    let service = super::tests::service_with(Config::default());
+    service.handle_remote("contention-project", prompt());
+    let evidence = ClientFilesystemEvidence {
+        session_id: "contended-session".into(),
+        agent: "test".into(),
+        changed_paths: (0..40)
+            .map(|i| PathIntent {
+                path: format!("src/{i}.rs"),
+                operation: Operation::Write,
+                line_start: None,
+                line_end: None,
+            })
+            .collect(),
+        changed_paths_truncated: false,
+        derived_usage: None,
+    };
+    assert_eq!(
+        service
+            .reconcile_remote_evidence("contention-project", &evidence, false)
+            .unwrap(),
+        40
+    );
+    let mut store = service.store.lock().unwrap();
+    let events = store.list_events(Some("contention-project"), 32).unwrap();
+    let batches: Vec<_> = events
+        .iter()
+        .filter(|event| event.kind == "git_reconciled")
+        .map(|event| {
+            serde_json::to_value(&event.payload).unwrap()["changed_paths"]
+                .as_array()
+                .unwrap()
+                .len()
+        })
+        .collect();
+    assert_eq!(batches.iter().sum::<usize>(), 40);
+    assert!(
+        batches.iter().all(|size| *size <= 32),
+        "reconciliation must yield between small store batches: {batches:?}"
+    );
+}
