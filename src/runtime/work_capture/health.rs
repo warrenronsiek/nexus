@@ -38,38 +38,22 @@ pub struct CaptureSource {
 }
 
 pub(super) fn read(directory: &Path) -> Result<CaptureCounters> {
-    let path = directory.join(".capture-health");
-    match super::outbox::read_metadata(&path, 16 * 1024) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-        Err(error)
-            if error
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-        {
-            Ok(CaptureCounters::default())
-        }
-        Err(error) => Err(error),
-    }
+    Ok(
+        crate::private_state::read(&directory.join(".capture-health"), 16 * 1024)?
+            .map(|bytes| serde_json::from_slice(&bytes))
+            .transpose()?
+            .unwrap_or_default(),
+    )
 }
 
 fn update(directory: &Path, change: impl FnOnce(&mut CaptureCounters)) -> Result<()> {
     let _lock = crate::private_state::lock_file(directory, ".capture-health-lock")?;
     let mut health = read(directory)?;
     change(&mut health);
-    publish_counters(directory, &health)
-}
-
-fn publish_counters(directory: &Path, health: &CaptureCounters) -> Result<()> {
-    let file =
-        super::outbox::temporary_metadata(directory, &serde_json::to_vec(&health)?, ".health-")?;
-    file.persist(directory.join(".capture-health"))?;
-    sync_directory(directory)
-}
-
-fn sync_directory(directory: &Path) -> Result<()> {
-    std::fs::File::open(directory)?
-        .sync_all()
-        .map_err(Into::into)
+    crate::private_state::write(
+        &directory.join(".capture-health"),
+        &serde_json::to_vec(&health)?,
+    )
 }
 
 fn retain(result: Result<()>) -> bool {
@@ -152,4 +136,31 @@ fn identity(value: &str) -> String {
 
 pub(super) fn persistence_failures() -> u64 {
     PERSISTENCE_FAILURES.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_nonregular_health_ledger_cannot_block_capture() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().to_owned();
+        let path = std::ffi::CString::new(
+            directory
+                .join(".capture-health")
+                .as_os_str()
+                .as_encoded_bytes(),
+        )
+        .unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let _ = sender.send(read(&directory).is_err());
+        });
+        assert!(receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("a private health ledger read must be bounded"));
+        reader.join().unwrap();
+    }
 }

@@ -367,16 +367,8 @@ fn increment_counter(directory: &Path, name: &str) -> Result<()> {
 }
 
 fn write_temporary(directory: &Path, bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
-    temporary_metadata(directory, bytes, "pending-")
-}
-
-pub(super) fn temporary_metadata(
-    directory: &Path,
-    bytes: &[u8],
-    prefix: &str,
-) -> Result<tempfile::NamedTempFile> {
     let mut file = tempfile::Builder::new()
-        .prefix(prefix)
+        .prefix("pending-")
         .suffix(".tmp")
         .tempfile_in(directory)?;
     file.write_all(bytes)?;
@@ -388,10 +380,10 @@ fn read_entry(path: &Path) -> Result<Vec<u8>> {
     read_metadata(path, MAX_ENTRY_BYTES)
 }
 
-pub(super) fn read_metadata(path: &Path, maximum: usize) -> Result<Vec<u8>> {
+fn read_metadata(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
     let metadata = file.metadata()?;
     validate_metadata(&metadata, maximum)?;

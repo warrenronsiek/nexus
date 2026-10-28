@@ -293,3 +293,10 @@ shared logical work titles remain caller-owned. Coordination session rows resolv
 the same exact project, host agent, and full session ID. Codex title reads use
 metadata-only `thread/read` without resuming; Claude title reads use bounded
 exact-session title metadata. Unavailable names retain an explicit host/ID label.
+
+Private health and outbox metadata reads open without blocking and reject
+nonregular files before decoding, so a named pipe cannot stall capture or its
+health inspection. The health ledger shares private bounded reads and atomic
+publication with the other runtime metadata. Its independent lock name remains
+distinct from the outbox writer lock so accounting can run while that writer is
+held.
