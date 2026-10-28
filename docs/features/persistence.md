@@ -154,3 +154,10 @@ the actual source version. Before committing, import revalidates eval payload
 hashes, project-local relationships, blob sizes/chunks, and every verified content
 digest. Reference-preserving snapshots retain Git coordinates; they do not claim
 to include the repositories or LFS servers on which those references depend.
+
+Coordination reconciliation groups each service-selected batch of at most 32 paths
+into one transaction, including the active-session check, lease refreshes, new
+claims and events. It does not commit once per renewed path. Ordinary claim
+insertion and reconciliation share the same typed transaction-local insertion
+primitive; ordinary insertion still owns its own transaction. A rejected batch
+leaves neither partial claims nor partial event history.

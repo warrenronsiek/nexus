@@ -138,3 +138,9 @@ Companions retry brief store contention only when Nexus explicitly confirms no
 store was acquired and nothing was recorded. Retries share the existing 2.5-second
 lifecycle budget; transport errors and uncertain recording failures are not replayed.
 A missing-coverage notice after that budget still means overlap coverage was unavailable.
+
+Reconciliation submits bounded pages and persists them in small transactional
+batches, releasing the store between batches so large dirty checkouts do not
+occupy the store for the whole page. A stopped session is not resurrected by a
+later batch. Page processing remains best effort; retain the regular reconciliation
+ticks rather than rerunning an agent workload to repair telemetry.

@@ -1,6 +1,7 @@
 // @feature persistence
 // @spec docs/features/persistence.md
 use super::*;
+use uuid::Uuid;
 
 #[test]
 fn flyway_migrations_create_a_queryable_store() {
@@ -378,4 +379,46 @@ fn write_intent(path: &str) -> PathIntent {
         line_start: None,
         line_end: None,
     }
+}
+
+#[test]
+fn reconciliation_batch_failure_rolls_back_claims_and_events() {
+    let mut store = Store::open_memory().unwrap();
+    store
+        .touch_session(
+            "batch-project",
+            "batch-session",
+            "test",
+            None,
+            "test-config",
+        )
+        .unwrap();
+    let before = store.list_events(Some("batch-project"), 32).unwrap().len();
+    let intent = |path: String| PathIntent {
+        path,
+        operation: crate::coordination::domain::Operation::Write,
+        line_start: None,
+        line_end: None,
+    };
+    let result = store.record_reconciliation(
+        "batch-project",
+        "batch-session",
+        &[intent("src/valid.rs".into()), intent("x".repeat(4097))],
+        120,
+    );
+    assert!(
+        result.is_err(),
+        "the invalid second path must reject the batch"
+    );
+    assert!(
+        store
+            .list_claims(Some("batch-project"), RecordScope::All)
+            .unwrap()
+            .is_empty(),
+        "a rejected batch must not retain its first path"
+    );
+    assert_eq!(
+        store.list_events(Some("batch-project"), 32).unwrap().len(),
+        before
+    );
 }
