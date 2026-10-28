@@ -8,17 +8,14 @@ use super::{
     lifecycle::{event, stable_id},
     LoadedConfig, WorkCommand, WorkHandoff,
 };
+use crate::runtime::host_state::HostStateFile;
 use crate::work_history::{WorkAction, WorkEvent, WorkObservationInput, WorkSubject};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fs::{File, OpenOptions};
-use std::io::Read;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 const MAX_BYTES: u64 = 16 * 1024;
-const MAX_HOSTS: usize = 4096;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,18 +115,11 @@ fn update(loaded: &LoadedConfig, command: &mut WorkCommand) -> Result<()> {
         disclose_evicted_request(hook, observations);
     }
     state.revise_title(observations);
-    persist_state(
-        &file.directory,
-        &file.path,
-        &state,
-        file.original.as_deref(),
-    )
+    persist_state(&file.storage, &state, file.original.as_deref())
 }
 
 struct BridgeFile {
-    path: PathBuf,
-    directory: PathBuf,
-    _lock: File,
+    storage: HostStateFile<State>,
     previous: Option<State>,
     original: Option<Vec<u8>>,
 }
@@ -144,17 +134,11 @@ impl BridgeFile {
             &hook.session_id,
             hook.project_root.as_deref(),
         )?;
-        let directory = path
-            .parent()
-            .context("context directory unavailable")?
-            .to_path_buf();
-        let lock = super::outbox::lock_directory(&directory)?;
+        let storage = HostStateFile::open_locked(&path, MAX_BYTES)?;
         let previous = read_state(&path)?;
         let original = previous.as_ref().map(serde_json::to_vec).transpose()?;
         Ok(Self {
-            path,
-            directory,
-            _lock: lock,
+            storage,
             previous,
             original,
         })
@@ -410,8 +394,7 @@ fn title_metadata(observation: &WorkObservationInput) -> Option<(&str, Option<&s
 }
 
 fn persist_state(
-    directory: &Path,
-    path: &Path,
+    storage: &HostStateFile<State>,
     state: &State,
     original: Option<&[u8]>,
 ) -> Result<()> {
@@ -419,33 +402,7 @@ fn persist_state(
     if original == Some(bytes.as_slice()) {
         return Ok(());
     }
-    anyhow::ensure!(
-        bytes.len() as u64 <= MAX_BYTES,
-        "host context exceeds its byte limit"
-    );
-    check_capacity(path)?;
-    let temporary = super::outbox::temporary_metadata(directory, &bytes, "context-")?;
-    temporary.persist(path).map_err(|error| error.error)?;
-    Ok(())
-}
-
-fn check_capacity(path: &Path) -> Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-    let parent = path.parent().context("context directory unavailable")?;
-    let count = std::fs::read_dir(parent)?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|value| value == "json")
-        })
-        .take(MAX_HOSTS)
-        .count();
-    anyhow::ensure!(count < MAX_HOSTS, "host context capacity exhausted");
-    Ok(())
+    storage.publish(state)
 }
 
 fn state_path(
@@ -466,44 +423,11 @@ fn state_path(
         .join(format!("{}.json", stable_id(&[&project, agent, session]))))
 }
 
-fn open_state(path: &Path) -> Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let metadata = file.metadata()?;
-    anyhow::ensure!(
-        metadata.is_file()
-            && metadata.permissions().mode() & 0o077 == 0
-            && metadata.uid() == unsafe { libc::geteuid() },
-        "unsafe host context file"
-    );
-    Ok(file)
-}
-
 fn read_state(path: &Path) -> Result<Option<State>> {
-    let file = match open_state(path) {
-        Ok(file) => file,
-        Err(error)
-            if error
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-        {
-            return Ok(None)
-        }
-        Err(error) => return Err(error),
-    };
-    let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    anyhow::ensure!(
-        bytes.len() as u64 <= MAX_BYTES,
-        "host context exceeds its byte limit"
-    );
-    decode_state(&bytes).map(Some)
-}
-
-fn decode_state(bytes: &[u8]) -> Result<State> {
-    let state: State = serde_json::from_slice(bytes)?;
-    WorkHandoff::decode(&serde_json::to_vec(&state.active)?)?;
-    Ok(state)
+    HostStateFile::<State>::read(path, MAX_BYTES)?
+        .map(|state| {
+            WorkHandoff::decode(&serde_json::to_vec(&state.active)?)?;
+            Ok(state)
+        })
+        .transpose()
 }

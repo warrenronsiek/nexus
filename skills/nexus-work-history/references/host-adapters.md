@@ -135,3 +135,15 @@ confirm distinct identities, starts, terminal outcomes, and unchanged workload
 exit/output. Repeat after companion restart. Check `work health` and explicit
 recording receipts. Keep missing callbacks and unsupported sources visible.
 Provider-backed verification is opt-in and is not part of ordinary CI.
+
+Live Codex CLI 0.165.0 verification found that native Bash hook payloads contain
+`command` but omit the tool's execution `workdir`; the callback `cwd` remains the
+host startup directory. Therefore cross-checkout Git operations must carry their
+target explicitly, for example `git -C /path/to/checkout merge --no-commit topic`,
+even when the native tool also sets `workdir`. Keep integrations in separate
+native calls. The installed prompt hook supplies this guidance. Nexus cannot
+recover a directory the host never reports, and does not guess from another
+agent's checkout or nearby transcript entries. Live verification covered warning
+delivery before an actual cross-checkout Git merge, completed request timing, and
+native session-end claim cleanup. Treat this as version-specific evidence, not a
+promise about all host versions or omitted callback fields.

@@ -296,3 +296,20 @@ fn exact_replay_is_idempotent_and_the_total_queue_is_bounded() {
     assert!(queue.enqueue("overflow", b"metadata").is_err());
     assert_eq!(queue.health().unwrap().queued, MAX_ENTRIES);
 }
+
+// Guard the queue entry point independently so a future reader substitution cannot reintroduce the stall.
+#[test]
+fn nonregular_pending_metadata_cannot_block_the_outbox() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("pending.json");
+    let encoded = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(encoded.as_ptr(), 0o600) }, 0);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let _ = sender.send(read_entry(&path).is_err());
+    });
+    assert!(receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("nonregular pending metadata must not block the outbox"));
+    reader.join().unwrap();
+}

@@ -201,3 +201,20 @@ GitHub transport, atomic executable installation, managed service transitions,
 and Compose evidence have separate typed boundaries. Tests use loopback HTTP,
 private temporary installations, fake Docker commands, and private local daemon
 fixtures; they never update the developer's installed binary or live service.
+
+## Sharing an independent clone
+
+From a new clone, `nexus install --share-project-with /path/to/existing/checkout`
+onboards it into the existing checkout's resolved remote project namespace. Both
+checkouts must resolve to the same remote service. The installer locks and
+atomically updates only `client.project_id` in the target Git-common-directory
+configuration, preserving other settings and never copying endpoint or credential
+configuration. Local transport and different service endpoints are refused.
+Ordinary `install` remains idempotent and preserves an existing binding.
+Environment overrides retain their normal precedence; inspect `nexus config show`
+in both environments. Old records in the previous namespace are retained.
+
+Machine setup removes obsolete Nexus MCP and native work-event handlers individually,
+including within mixed groups, while preserving unrelated handlers. Repeated setup
+leaves one generated handler per supported boundary instead of multiplying timing
+events.

@@ -92,5 +92,10 @@ export function registerAnalyticsCapture(
       context.cwd,
     );
   });
-  pi.on("session_shutdown", () => transport.close());
+  pi.on("session_shutdown", async (_event, context) => {
+    try {
+      await transport.call("nexus_session_stop", { ...lifecycleArguments(context) }, context.cwd);
+    } catch { /* Session teardown is advisory even when the service is unavailable. */ }
+    finally { transport.close(); }
+  });
 }

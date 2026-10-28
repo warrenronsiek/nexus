@@ -194,6 +194,10 @@ impl NexusClient {
         )
     }
 
+    pub(crate) fn configuration_hash(&self) -> &str {
+        &self.loaded.hash
+    }
+
     pub(crate) fn is_remote(&self) -> bool {
         matches!(self.loaded.config.client, ClientConfig::Remote(_))
     }

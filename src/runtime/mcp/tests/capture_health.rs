@@ -60,7 +60,10 @@ async fn malformed_lifecycle_arguments_retain_only_rejection_metadata_and_fail_o
     assert_eq!(hook["permitted"], true);
     assert_eq!(hook["recorded"], false);
     assert_eq!(result["isError"], false);
-    assert_eq!(result["content"][0]["text"], "{}");
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("coverage is unavailable"));
+    assert!(!text.contains(private));
+    assert!(!text.contains("diagnostic"));
     assert_eq!(hook["work_capture"]["offered"], 1);
     assert!(matches!(
         hook["work_capture"]["status"].as_str(),
@@ -85,4 +88,21 @@ async fn malformed_lifecycle_arguments_retain_only_rejection_metadata_and_fail_o
     assert_eq!(health["last_adapter_host"], "codex");
     assert!(health["last_adapter_rejection_at"].is_string());
     assert_eq!(health["durably_queued"], 0);
+}
+
+#[test]
+fn prompt_context_explains_explicit_cross_checkout_git_without_hiding_memory() {
+    let mut result = json!({"recorded":true});
+    add_hook_context("user_prompt", &mut result);
+    assert!(result["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains("git -C"));
+    result = json!({"recorded":true,"memory_context":{"nodes":[{"kind":"raw","scope":"project","content":"Keep the fixture boundary"}]}});
+    add_hook_context("user_prompt", &mut result);
+    let text = result["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("git -C"));
+    assert!(text.contains("<untrusted_nexus_memory>"));
 }

@@ -635,3 +635,6 @@ async fn remote_stdio_companion_reconciles_only_real_lifecycle_sessions() {
     );
     assert_eq!(second_session["advisories"][0]["kind"], "path_overlap");
 }
+
+#[path = "remote_runtime/cross_checkout.rs"]
+mod cross_checkout;

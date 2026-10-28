@@ -93,6 +93,8 @@ pub struct UserPromptInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolHookInput {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub client_path_intents: Vec<PathIntent>,
     #[serde(flatten)]
     pub context: HookContext,
     pub tool_use_id: String,

@@ -77,7 +77,11 @@ enum Command {
         snapshot: PathBuf,
     },
     /// Install Nexus coordination into the current Git repository.
-    Install,
+    Install {
+        /// Explicitly share a remote Nexus project with another checkout, preserving credentials.
+        #[arg(long)]
+        share_project_with: Option<PathBuf>,
+    },
     /// Run the local coordination daemon in the foreground.
     Daemon,
     /// Run the MCP server over stdio, starting the daemon when necessary.
@@ -329,8 +333,12 @@ async fn run_configured(invocation: CliInvocation) -> Result<()> {
     match command {
         Command::Setup(args) => args.run(&loaded, explicit_config.as_deref()),
         Command::Update(args) => update_cli::run(args, &loaded, explicit_config.as_deref()).await,
-        Command::Install => {
-            let report = installation::install_repository(&root, explicit_config.as_deref())?;
+        Command::Install { share_project_with } => {
+            let report = installation::install_repository(
+                &root,
+                explicit_config.as_deref(),
+                share_project_with.as_deref(),
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
@@ -671,14 +679,9 @@ impl From<PapercutReviewDecisionCli> for PapercutReviewDecision {
     }
 }
 
-async fn request_and_print(loaded: &nexus::LoadedConfig, request: ServiceRequest) -> Result<()> {
-    let result = NexusClient::new(loaded, None)
-        .request(&request)
-        .await
-        .context("Nexus is not reachable")?;
-    println!("{}", serde_json::to_string_pretty(&result)?);
-    Ok(())
-}
+#[path = "main/output.rs"]
+mod output;
+use output::request_and_print;
 
 #[cfg(test)]
 #[path = "main/tests.rs"]

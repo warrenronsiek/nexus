@@ -128,3 +128,25 @@ Use [Nexus development](../nexus-development/SKILL.md) when modifying Nexus itse
 Verify one real workflow,
 its scope and attribution, plus behavior when Nexus is unavailable; missing
 optional capture must not change or repeat the workload.
+
+## Onboard another independent clone
+
+From the new clone run:
+
+```sh
+nexus install --share-project-with /path/to/existing/checkout
+nexus config show
+nexus doctor
+```
+
+This atomically copies only the existing checkout's resolved remote project ID.
+Both checkouts must use the same remote service; credentials and other settings
+remain local to each checkout. Worktrees already share their common Git config.
+Inspect both resolved configurations, since environment overrides still win.
+Changing a binding retains old history in its previous namespace. Reconnect
+already-running companions after installation or a binding change.
+
+For cross-checkout tools, verify the actual `workdir`/`cwd` or file path, not just
+the host's startup directory. The companion selects configuration for that target
+checkout and native session end cleans up its recorded visits. Missing coverage
+is advisory and visible; it never blocks the workload.

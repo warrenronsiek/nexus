@@ -546,6 +546,7 @@ mod tests {
             ),
         };
         let input = ToolHookInput {
+            client_path_intents: Vec::new(),
             is_interrupt: None,
             agent_id: None,
             context: super::super::domain::HookContext {

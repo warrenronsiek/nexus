@@ -136,7 +136,9 @@ impl ReplayFixture {
             .acknowledge(&queue.pending().unwrap().pop().unwrap())
             .unwrap();
         for index in 0..255 {
-            std::fs::write(self.path.join(format!("other-{index}.json")), b"metadata").unwrap();
+            let path = self.path.join(format!("other-{index}.json"));
+            std::fs::write(&path, b"metadata").unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
         queue.enqueue("newer", b"metadata").unwrap();
         assert!(!self.path.join(format!("{key}.seen")).exists());
