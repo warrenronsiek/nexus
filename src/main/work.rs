@@ -236,7 +236,7 @@ async fn execute(
         }
         WorkCliCommand::GitHook { phase } => {
             nexus::runtime::work_capture::git_hook(loaded, root, &phase)?;
-            let _ = nexus::runtime::work_capture::flush(loaded, explicit).await;
+            let _ = nexus::runtime::work_capture::flush_before_exit(loaded, explicit).await;
             json_result(nexus::runtime::work_capture::health(loaded))
         }
         command => send_action(&work_client(root, loaded, explicit), action(command)?).await,

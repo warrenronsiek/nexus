@@ -242,9 +242,11 @@ reports queued, retained rejected, recent delivery, bytes, known losses, and
 once they stop, delivery waits for another client or explicit flush. Queued,
 rejected, and acknowledged are different states. `work export FILE` / `import
 FILE` exchange checksummed work-only JSONL, distinct from database-wide transfer.
-`exec` and `review-commit` use a bounded local capture drain before their final
+`exec`, `review-commit`, and `work git-hook` use a bounded local capture drain before their final
 flush and exit, after workload measurement. A pending receipt or a timed-out
 drain still does not establish durable capture or server acknowledgment.
+Call `work git-hook` synchronously and keep hook failures advisory. Do not
+background the command: its process must remain alive to finish admitted capture.
 
 ## Verify the resulting view
 

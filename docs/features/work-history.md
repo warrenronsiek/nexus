@@ -167,7 +167,7 @@ change accepted historical facts or retry an executed workload. `work flush`
 attempts a bounded batch; active clients retry every 30 seconds and cancel that retry worker on client
 close. No background client means no automatic delivery. These health facts
 cannot prove that every external host event reached the companion.
-Short-lived `exec` and `review-commit` producers wait up to 1.5 seconds for their
+Short-lived `exec`, `review-commit`, and Git-hook producers wait up to 1.5 seconds for their
 admitted local capture jobs before final delivery and exit. This prevents normal
 pending jobs from being killed by immediate process teardown. The wait occurs
 after the measured workload finishes, preserves its status/output, and does not
@@ -185,6 +185,8 @@ Git metadata and post-commit attaches the resulting full revision to that exact
 attempt. A bare Git invocation does not provide this enclosing ID, so its hook
 intervals remain observable without fabricating the commit association. Hook
 failures never convert an otherwise successful workload to a telemetry failure.
+Invoke the Git-hook command synchronously so its bounded persistence drain runs
+before the hook process exits; backgrounding it provides no capture guarantee.
 
 The local GitHub snapshot adapter preserves exact run/attempt/job/step identity
 and source timing, with status observations where exact boundaries are absent.
