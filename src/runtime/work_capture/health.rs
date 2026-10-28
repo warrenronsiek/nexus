@@ -2,11 +2,9 @@
 // @spec docs/features/work-history.md
 // @boundary capture-health-state: decode a bounded metadata-only local counter ledger; no prompts, arguments or outputs are retained.
 use super::{CaptureReceipt, HookContext};
-use anyhow::{bail, Result};
-use fs2::FileExt;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -55,8 +53,7 @@ pub(super) fn read(directory: &Path) -> Result<CaptureCounters> {
 }
 
 fn update(directory: &Path, change: impl FnOnce(&mut CaptureCounters)) -> Result<()> {
-    prepare_directory(directory)?;
-    let _lock = lock_health(directory)?;
+    let _lock = crate::private_state::lock_file(directory, ".capture-health-lock")?;
     let mut health = read(directory)?;
     change(&mut health);
     publish_counters(directory, &health)
@@ -67,40 +64,6 @@ fn publish_counters(directory: &Path, health: &CaptureCounters) -> Result<()> {
         super::outbox::temporary_metadata(directory, &serde_json::to_vec(&health)?, ".health-")?;
     file.persist(directory.join(".capture-health"))?;
     sync_directory(directory)
-}
-
-fn prepare_directory(directory: &Path) -> Result<()> {
-    std::fs::create_dir_all(directory)?;
-    let metadata = std::fs::symlink_metadata(directory)?;
-    if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
-        bail!("capture health requires private owned directory");
-    }
-    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).map_err(Into::into)
-}
-
-fn lock_health(directory: &Path) -> Result<std::fs::File> {
-    let lock = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(directory.join(".capture-health-lock"))?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
-    loop {
-        match lock.try_lock_exclusive() {
-            Ok(()) => break,
-            Err(error)
-                if error.kind() == std::io::ErrorKind::WouldBlock
-                    && std::time::Instant::now() < deadline =>
-            {
-                std::thread::sleep(std::time::Duration::from_millis(1))
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(lock)
 }
 
 fn sync_directory(directory: &Path) -> Result<()> {

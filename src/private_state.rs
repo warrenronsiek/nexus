@@ -79,7 +79,7 @@ fn prepare_lock_directory(directory: &Path) -> Result<()> {
     std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).map_err(Into::into)
 }
 
-fn open_directory_lock(directory: &Path) -> Result<File> {
+fn open_directory_lock(directory: &Path, name: &str) -> Result<File> {
     prepare_lock_directory(directory)?;
     let lock = OpenOptions::new()
         .read(true)
@@ -88,7 +88,7 @@ fn open_directory_lock(directory: &Path) -> Result<File> {
         .truncate(false)
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(directory.join(".lock"))?;
+        .open(directory.join(name))?;
     let metadata = lock.metadata()?;
     ensure!(
         metadata.is_file()
@@ -99,8 +99,8 @@ fn open_directory_lock(directory: &Path) -> Result<File> {
     Ok(lock)
 }
 
-pub(crate) fn lock_directory(directory: &Path) -> Result<File> {
-    let lock = open_directory_lock(directory)?;
+pub(crate) fn lock_file(directory: &Path, name: &str) -> Result<File> {
+    let lock = open_directory_lock(directory, name)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
     loop {
         match lock.try_lock_exclusive() {

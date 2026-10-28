@@ -22,7 +22,7 @@ impl<T: Serialize + DeserializeOwned> HostStateFile<T> {
         Ok(Self {
             path: path.to_owned(),
             limit,
-            _lock: crate::private_state::lock_directory(directory)?,
+            _lock: crate::private_state::lock_file(directory, ".lock")?,
             _type: PhantomData,
         })
     }

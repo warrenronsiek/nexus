@@ -164,3 +164,7 @@ failed shutdown delivery still relies on claim expiry. MCP and native session
 stop share one journal reader and cleanup path, and a single private directory
 lock avoids accumulating a lock file for every completed host. Pi sends session
 stop before closing its companion at shutdown.
+
+File intent routing canonicalizes existing parent directories and retains any
+uncreated suffix, so directory symlinks and platform path aliases share the same
+repository-relative claims as the physical checkout.

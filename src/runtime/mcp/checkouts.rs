@@ -176,14 +176,13 @@ fn resolve_file_paths(
     let mut roots = std::collections::BTreeSet::new();
     let mut directories = std::collections::BTreeSet::new();
     for intent in &mut paths {
-        let path = directory.join(&intent.path);
-        let parent = existing_parent(&path)?;
-        if directories.insert(parent.to_path_buf()) {
+        let (path, parent) = resolved_file_path(&directory.join(&intent.path))?;
+        if directories.insert(parent.clone()) {
             anyhow::ensure!(
                 directories.len() <= 16,
                 "tool checkout resolution directory limit exceeded"
             );
-            roots.extend(repository_root(parent));
+            roots.extend(repository_root(&parent));
         }
         intent.path = path.to_string_lossy().into_owned();
     }
@@ -196,6 +195,15 @@ fn resolve_file_paths(
     }
     input.client_path_intents = paths;
     Ok(())
+}
+
+fn resolved_file_path(path: &Path) -> Result<(PathBuf, PathBuf)> {
+    let parent = existing_parent(path)?;
+    let suffix = path.strip_prefix(parent)?;
+    let directory = parent
+        .canonicalize()
+        .context("file directory unavailable")?;
+    Ok((directory.join(suffix), directory))
 }
 
 fn existing_parent(path: &Path) -> Result<&Path> {

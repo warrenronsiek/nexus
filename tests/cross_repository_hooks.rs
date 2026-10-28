@@ -251,15 +251,20 @@ fn unavailable_execution_directory_discloses_missing_coordination_to_the_agent()
 
 #[test]
 fn absolute_file_edits_use_the_target_repository() {
-    assert_file_target(true);
+    assert_file_target(true, false);
 }
 
 #[test]
 fn relative_file_edits_from_subdirectories_keep_their_paths() {
-    assert_file_target(false);
+    assert_file_target(false, false);
 }
 
-fn assert_file_target(absolute: bool) {
+#[test]
+fn absolute_file_edits_through_directory_symlinks_share_claims() {
+    assert_file_target(true, true);
+}
+
+fn assert_file_target(absolute: bool, symlink: bool) {
     let mut harness = Harness::start();
     let target = harness._temp.path().join("file-target");
     std::fs::create_dir_all(target.join("sub")).unwrap();
@@ -274,8 +279,15 @@ fn assert_file_target(absolute: bool) {
         json!({"agent":"codex","session_id":"file-peer","project_root":target,
         "tool_use_id":"peer-file","tool_name":"Write","tool_input":{"file_path":"sub/shared.txt"}}),
     );
+    let reported_target = if symlink {
+        let alias = harness._temp.path().join("checkout-alias");
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        alias
+    } else {
+        target.clone()
+    };
     let (root, file) = if absolute {
-        (harness.root.clone(), target.join("sub/shared.txt"))
+        (harness.root.clone(), reported_target.join("sub/shared.txt"))
     } else {
         (target.join("sub"), std::path::PathBuf::from("shared.txt"))
     };

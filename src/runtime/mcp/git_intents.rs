@@ -190,9 +190,6 @@ fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
 }
 
 fn literal_git(command: &str) -> Option<(Vec<String>, usize)> {
-    if command.len() > 1024 * 1024 {
-        return None;
-    }
     let words = shell_words::split(command).ok()?;
     if !words.first().is_some_and(|word| word == "git") {
         return None;

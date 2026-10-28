@@ -141,7 +141,7 @@ impl Outbox {
     fn open_owned(directory: &Path, owner: MutexGuard<'static, ()>) -> Result<Self> {
         Ok(Self {
             directory: directory.into(),
-            _lock: lock_directory(directory)?,
+            _lock: crate::private_state::lock_file(directory, ".lock")?,
             _writer: owner,
         })
     }
@@ -352,8 +352,6 @@ pub(super) fn record_capture(
 ) {
     super::health::capture(directory, context, receipt);
 }
-
-pub(super) use crate::private_state::lock_directory;
 
 fn counter(directory: &Path, name: &str) -> u64 {
     read_entry(&directory.join(name))
