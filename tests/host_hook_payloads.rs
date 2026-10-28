@@ -15,7 +15,7 @@ fn generated_completion_hooks_record_large_results_without_forwarding_output() {
         let event = json!({
             "session_id":format!("{}-image-result", host.name()),
             "cwd":harness.root,
-            "turn_id":"turn", "prompt_id":"turn", "model":"fixture-model",
+            "turn_id":"turn", "prompt_id":"turn", "model":"fixture-model", "agent_id":null,
             "tool_use_id":"image-call", "tool_name":"view_image",
             "tool_input":{"path":"frame.png"},
             "tool_response":[{"type":"image","mimeType":"image/png",
@@ -61,7 +61,15 @@ fn render_hook_input(template: &Value, event: &Value) -> Value {
                     .and_then(|text| text.strip_suffix('}'));
                 (
                     key.clone(),
-                    field.map_or_else(|| value.clone(), |field| event[field].clone()),
+                    field.map_or_else(
+                        || value.clone(),
+                        |field| {
+                            event
+                                .get(field)
+                                .unwrap_or_else(|| panic!("native event does not supply {field}"))
+                                .clone()
+                        },
+                    ),
                 )
             })
             .collect(),
@@ -95,4 +103,19 @@ fn generated_work_hooks_cover_supported_response_and_child_sources() {
         claude["hooks"]["Interrupt"].is_null(),
         "do not install unsupported events"
     );
+}
+
+#[test]
+fn codex_main_thread_hooks_accept_events_without_agent_identity() {
+    let event = json!({
+        "session_id":"native-main-thread", "cwd":"/checkout",
+        "turn_id":"turn", "model":"fixture-model",
+        "tool_use_id":"read-call", "tool_name":"Read",
+        "tool_input":{"file_path":"example.txt"}
+    });
+    let configuration = hook_configuration(Host::Codex, Path::new("/opt/nexus"), None);
+    for phase in ["PreToolUse", "PostToolUse"] {
+        let hook = &configuration["hooks"][phase][0]["hooks"][0];
+        render_hook_input(&hook["input"], &event);
+    }
 }
