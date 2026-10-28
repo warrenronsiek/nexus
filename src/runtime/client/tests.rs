@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature runtime
 // @feature configuration
 // @feature sos
@@ -282,4 +284,35 @@ fn only_explicit_registry_dumps_select_the_complete_response_policy() {
         RemoteResponsePolicy::for_request(&ServiceRequest::Status),
         RemoteResponsePolicy::Bounded
     );
+}
+
+#[test]
+fn concern_dump_is_complete_but_routine_concern_queries_remain_bounded() {
+    let request = |command| {
+        ServiceRequest::Concerns(crate::coordination::api::ConcernCommand {
+            context: issue_context(),
+            command,
+        })
+    };
+    let dump = request(crate::code_concerns::ConcernAction::Dump { project_id: None });
+    assert_eq!(
+        RemoteResponsePolicy::for_request(&dump),
+        RemoteResponsePolicy::CompleteRegistry
+    );
+    for action in [
+        crate::code_concerns::ConcernAction::Dashboard {
+            project_id: None,
+            query: Default::default(),
+        },
+        crate::code_concerns::ConcernAction::Export {
+            project_id: None,
+            after: None,
+            limit: Some(32),
+        },
+    ] {
+        assert_eq!(
+            RemoteResponsePolicy::for_request(&request(action)),
+            RemoteResponsePolicy::Bounded
+        );
+    }
 }

@@ -6,6 +6,7 @@ mod analytics;
 mod bounded_io;
 pub mod client;
 pub mod daemon;
+pub mod daemon_control;
 mod dispatch;
 pub mod hooks;
 pub mod mcp;

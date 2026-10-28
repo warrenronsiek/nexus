@@ -48,6 +48,18 @@ flowchart TD
     W --> X[Verify checksum and extract]
     X --> Y[Publish runtime atomically]
     Y --> T
+    AD[nexus update] --> AE[Read exact main revision and published manifest]
+    AE --> AF{Installed source relationship}
+    AF -->|current| AG[Report current version]
+    AF -->|behind| AH[Download and verify native executable]
+    AF -->|dirty or unrelated| AI[Require explicit --force]
+    AH --> AJ[Verify candidate source and platform identity]
+    AJ --> AK[Capture managed service configuration]
+    AK --> AL[Atomic executable replacement and setup refresh]
+    AL --> AM{Previous service mode}
+    AM -->|active local| AN[Drain and restart exact daemon configuration]
+    AM -->|managed Compose| AO[Load verified Docker-server-platform image]
+    AM -->|inactive or external| AP[Keep mode and report service scope]
 ```
 
 ## Reading the flowchart
@@ -80,10 +92,10 @@ flowchart TD
 
 ## Implementation details
 
-The installed `nexus` skill maps all sixteen feature IDs to focused guides:
+The installed `nexus` skill maps all seventeen feature IDs to focused guides:
 `nexus-setup` covers installation, configuration, and runtime;
 `nexus-coordination` covers coordination and analyst;
-`nexus-agent-memory`, `nexus-papercuts`, `nexus-sos`,
+`nexus-agent-memory`, `nexus-papercuts`, `nexus-code-concerns`, `nexus-sos`,
 `nexus-usage-analytics`, and `nexus-observability` cover their respective
 capabilities; `nexus-development` covers architecture tooling, complexity,
 commit review, and persistence. Existing eval and work-history guides retain
@@ -102,9 +114,9 @@ caller-owned execution, nested identity, qualified timing, metadata privacy, and
 fail-open hooks. Isolated installation tests exercise the bundled shell helper's
 exactly-once fallback, preserved output/exit status, and runnable Python adapter.
 
-`setup_machine` and `install_repository` in `src/installation.rs` are the two deep entry points. Setup is idempotent: skill and Pi-extension contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`. Both entry points load typed client configuration before touching persistence: local mode opens and migrates SQLite, while remote mode reports remote storage and creates no local database. The generated host integration is transport-neutral because `nexus mcp` and the session-end command both use the centralized configured client. An explicit setup configuration path is retained in both installed commands and Pi's generated launch context, and every MCP argv names its host so process-bound memory and papercut provenance remains accurate.
+`setup_machine` and `install_repository` in `src/installation.rs` are the onboarding entry points. `src/installation_assets.rs` contains the embedded skill and Pi module inventories; setup installs all eighteen named skills and their references. Setup is idempotent: skill and Pi-extension contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`. Both entry points load typed client configuration before touching persistence: local mode opens and migrates SQLite, while remote mode reports remote storage and creates no local database. The generated host integration is transport-neutral because `nexus mcp` and the session-end command both use the centralized configured client. An explicit setup configuration path is retained in both installed commands and Pi's generated launch context, and every MCP argv names its host so process-bound memory and papercut provenance remains accurate.
 
-The source bootstrap entry point is `./scripts/install.sh`. Source builds require Rust 1.88 or newer. The script installs with Cargo's locked dependency graph into `NEXUS_INSTALL_ROOT`, `CARGO_HOME`, or the normal `~/.cargo` prefix in that order, then calls the installed binary's `nexus setup` command. A future hosted installer should delegate to this same boundary rather than duplicate setup policy.
+The source bootstrap entry point is `./scripts/install.sh`. Source builds require Rust 1.88 or newer. The script installs with Cargo's locked dependency graph into `NEXUS_INSTALL_ROOT`, `CARGO_HOME`, or the normal `~/.cargo` prefix in that order, then calls the installed binary's `nexus setup` command. Subsequent updates use verified release assets through `nexus update`; they require neither this checkout nor a Rust build.
 
 `tests/installation.rs` exercises both commands as child processes with isolated homes and provider binaries. The ignored real-agent test exercises the packaged install plus two worktrees using authenticated Codex and Claude clients; it must be requested explicitly because it consumes model resources and requires external credentials.
 
@@ -116,3 +128,76 @@ of its entry point, including analytics, capability inventory, Papercuts, and Wo
 modules. Setup tests resolve these imports from the actual isolated installation
 so adding a pane cannot leave an installed extension with a missing dependency.
 The generated launch-context module remains the installation-specific exception.
+
+## Versioned updates
+
+`nexus --version` identifies the human package version, full source commit, build
+platform, and whether the source checkout was modified. `nexus update --check`
+compares that identity with the repository's exact `main` reference and reports
+`current`, `available`, `release_pending`, or `requires_force`. Check mode does
+not download executable/image assets, write management files, invoke setup, or
+contact the selected service. A dirty, ahead, divergent, or unknown source build
+requires `--force` before replacement. The updater never fetches into or modifies
+the caller's Git repository.
+
+`nexus update` downloads the immutable `main-COMMIT` release from the fixed Nexus
+GitHub repository. A size-bounded manifest binds every platform asset to its
+full commit, semantic package version, byte size, and SHA-256. The updater checks
+the staged executable's own `--version` before touching the live installation,
+serializes updates with a private installation lock, and atomically replaces an
+owned executable in its existing directory. The previous binary remains available
+for rollback until setup refresh and the managed service transition succeed.
+Setup refresh uses `setup --refresh`, which also works on headless machines without changing the ordinary setup requirement for an installed host. It retains the explicit absolute configuration argument and merges
+host settings through the existing setup boundary. Agent applications and their
+already running MCP processes are not restarted; the report asks those hosts to
+reconnect their companions.
+
+Local daemons expose a same-user control operation only on their private Unix
+socket. An exact instance identity binds the resolved configuration, sources,
+configuration hash, executable, and working directory. Once a stop is acknowledged, the updater waits for admitted requests and background work to finish; long drains report progress while the old binary remains installed. A managed update drains
+the running instance before restarting with that same snapshot. An inactive local
+mode remains inactive. A legacy daemon without verifiable control, a daemon
+owned by a different executable, or an external remote service is reported as
+unmanaged: client and setup assets can update, but Nexus does not claim that the
+service changed or guess a process to terminate.
+
+The Compose startup script automatically records management evidence when the
+installed CLI supports updates. Source adoption must match the running
+service's authoritative Compose configuration hash, with declared environment
+values retained from the actual container. Physical mount and network names,
+access modes, and aliases must also match. Changed or unprovable settings are
+refused before the executable or service is replaced. Retained snapshots bind a
+fingerprint of the running configuration; manual runtime changes require fresh,
+verified adoption instead of silently applying a stale snapshot. Legacy stacks can be adopted from the exact
+configured loopback endpoint, running container Compose labels, and the known
+source Compose files. `--compose-file PATH` disambiguates a source file only when
+it matches those recorded container labels; a caller's current directory is never
+ownership evidence. A retained private resolved Compose snapshot permits future
+updates after the original source checkout is gone. It preserves the running
+container's environment, health and security settings, volume names, mounts,
+networks, and project identity. Named resources are retained as exact external references so an update cannot recreate or reconfigure their backing stores. Compose interpolation is escaped when materializing snapshots so dollar characters in existing secrets remain literal. These files can contain secrets: they are owned
+by the current user, live under the per-user `nexus/updates` data directory, use
+private directory/file permissions, and are never printed in reports.
+
+Compose updates inspect the actual local Docker server OS/architecture, verify
+its matching release archive and image ID, load it, and recreate only the `nexus`
+service with `--no-build --no-deps --pull never`. They do not recreate PostgreSQL,
+run the importer, remove volumes, or erase persisted data. A failed setup or
+service transition restores the previous executable and attempts to restore the
+previous managed service image/configuration. Database contents remain in place;
+this mechanism does not promise to reverse migrations or external writes.
+
+`.github/workflows/release.yml` publishes only after the `ci` workflow succeeds
+for an exact push to `main` in this repository. Four native Linux/macOS x64/arm64
+executables and two Linux service-image archives must all be present before a
+size/checksum manifest is generated. Publication uses a draft until the complete
+asset set is uploaded, and a published commit-tagged release is never overwritten
+by a retry. If main has passed CI but its release is still building, update reports
+`release_pending` and leaves the installation untouched. The first release is
+published by this same gate after this implementation reaches main.
+
+The updater entry point is `src/updater/mod.rs::run`. Release identity, bounded
+GitHub transport, atomic executable installation, managed service transitions,
+and Compose evidence have separate typed boundaries. Tests use loopback HTTP,
+private temporary installations, fake Docker commands, and private local daemon
+fixtures; they never update the developer's installed binary or live service.

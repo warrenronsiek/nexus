@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature runtime
@@ -21,6 +23,7 @@ pub(super) fn tool_definitions() -> Value {
     definitions.push(super::evals_schema::definition());
     definitions.push(super::work_schema::definition());
     definitions.push(super::work_schema::health_definition());
+    definitions.push(super::concerns_schema::definition());
     Value::Array(definitions)
 }
 
@@ -122,7 +125,7 @@ fn papercut_tool_definition() -> Value {
 fn sos_tool_definition() -> Value {
     json!({
         "name":"nexus_sos",
-        "description":"Report complex problems that need help, inspect current aggregate issues and their source reports, dump retained SOS history, or resolve and deprecate aggregate issues. Nexus binds caller and project context and triages reports asynchronously.",
+        "description":"Report unusual or out-of-distribution situations encountered by agents in a running application, inspect aggregate issues and source reports, dump retained SOS history, or resolve and deprecate aggregates. Development-environment friction belongs in Papercuts; identified code defects belong in Code concerns. Nexus binds caller/project context and triages reports asynchronously.",
         "inputSchema":{
             "type":"object",
             "oneOf":[

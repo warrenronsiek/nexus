@@ -158,11 +158,12 @@ fn prepare_row(
         .iter()
         .find(|old| old.input.id == input.id)
         .map(|old| {
-            old.source.clone().unwrap_or_else(|| WorkSource {
-                project_id: old.project_id.clone(),
-                recorded_at: old.recorded_at,
-                provenance: old.provenance.clone(),
-            })
+            WorkSource::retained(
+                old.source.as_ref(),
+                &old.project_id,
+                old.recorded_at,
+                &old.provenance,
+            )
         });
     Ok(ObservationRow {
         project_id: project.into(),

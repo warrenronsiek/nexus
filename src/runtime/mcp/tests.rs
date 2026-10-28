@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 mod capture_health;
+mod concerns;
 mod evals;
 mod papercuts_schema;
 mod sos;

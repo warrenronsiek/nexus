@@ -1,6 +1,8 @@
 // @feature work-history
 // @spec docs/features/work-history.md
 // @feature installation
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature sos
 // @feature usage-analytics
 // @feature agent-memory
@@ -112,6 +114,7 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
         "nexus-agent-memory",
         "nexus-papercuts",
         "nexus-sos",
+        "nexus-code-concerns",
         "nexus-usage-analytics",
         "nexus-observability",
         "nexus-development",
@@ -515,5 +518,9 @@ fn installed_pi_extension_contains_its_complete_local_module_dependency_closure(
     assert!(
         visited.contains("work-pane.ts"),
         "the installed entry point must reach Work"
+    );
+    assert!(
+        visited.contains("concerns-pane.ts"),
+        "the installed entry point must reach Code concerns"
     );
 }

@@ -132,7 +132,7 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
   };
 }
 
-  it("cycles the eight top-level tabs in both directions", () => {
+  it("cycles the nine top-level tabs in both directions with Code concerns separate from Papercuts and SOS", () => {
     expect(nextDashboardTab("coordination", 1)).toBe("sos");
     expect(nextDashboardTab("sos", 1)).toBe("tools");
     expect(nextDashboardTab("tools", 1)).toBe("skills");
@@ -140,8 +140,28 @@ function sosHarness(): { api: SosApi; list: ReturnType<typeof vi.fn> } {
     expect(nextDashboardTab("memory", 1)).toBe("papercuts");
     expect(nextDashboardTab("papercuts", 1)).toBe("evals");
     expect(nextDashboardTab("evals", 1)).toBe("work");
-    expect(nextDashboardTab("work", 1)).toBe("coordination");
-    expect(nextDashboardTab("coordination", -1)).toBe("work");
+    expect(nextDashboardTab("work", 1)).toBe("concerns");
+    expect(nextDashboardTab("concerns", 1)).toBe("coordination");
+    expect(nextDashboardTab("coordination", -1)).toBe("concerns");
+  });
+
+  it("loads the separate read-only code concerns pane only when its tab is shown", async () => {
+    const memory = memoryHarness(), sos = sosHarness();
+    const unavailable = vi.fn(async (): Promise<never> => { throw new Error("concern backend offline"); });
+    const component = new NexusDashboardComponent({ requestRender: vi.fn() } as unknown as TUI, theme, snapshot, {
+      loadSnapshot: async () => snapshot, loadUsage: async () => usage,
+      papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) }, sosApi: sos.api,
+      memoryApi: memory.api, memoryPrompts: memory.prompts,
+      concernsApi: { dashboard: unavailable, list: unavailable, get: unavailable, history: unavailable }, done: vi.fn(),
+    });
+    expect(unavailable).not.toHaveBeenCalled();
+    component.handleInput("\u001b[Z");
+    await vi.waitFor(() => expect(unavailable).toHaveBeenCalledWith(null, { sort: "work_sessions", limit: 24 }, expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("concern backend offline"));
+    const rendered = component.render(120).join("\n");
+    expect(rendered).toContain("Code concerns / Problem areas");
+    expect(rendered).toContain("read-only"); expect(rendered).toContain("concern backend offline");
+    component.dispose();
   });
 
   it("loads analytics on tab activation rather than dashboard construction", async () => {
@@ -251,7 +271,7 @@ it("opens papercuts from the shared dashboard tab bar", async () => {
       memoryPrompts: memory.prompts, done: vi.fn() },
   );
   expect(list).not.toHaveBeenCalled();
-  for (let i = 0; i < 3; i++) component.handleInput("\u001b[Z");
+  for (let i = 0; i < 4; i++) component.handleInput("\u001b[Z");
   await vi.waitFor(() => expect(component.render(120).join("\n")).toContain("No open papercuts"));
   expect(list).toHaveBeenCalledWith(null, expect.any(AbortSignal), undefined);
   component.dispose();
@@ -272,6 +292,7 @@ it("opens read-only Evals lazily and lets filter typing consume global shortcut 
   );
   expect(list).not.toHaveBeenCalled();
   expect(dashboard).not.toHaveBeenCalled();
+  component.handleInput("\u001b[Z");
   component.handleInput("\u001b[Z");
   component.handleInput("\u001b[Z");
   await vi.waitFor(() => expect(dashboard).toHaveBeenCalled());
@@ -297,6 +318,7 @@ it("opens Work lazily and lets work filters consume global shortcut letters", as
       workApi: { dashboard, health: vi.fn(async () => ({ available: false })), list, get: vi.fn(), timeline: vi.fn(), activities: vi.fn(), events: vi.fn() }, done });
   expect(list).not.toHaveBeenCalled();
   expect(dashboard).not.toHaveBeenCalled();
+  component.handleInput("\u001b[Z");
   component.handleInput("\u001b[Z");
   await vi.waitFor(() => expect(dashboard).toHaveBeenCalled());
   expect(list).not.toHaveBeenCalled();

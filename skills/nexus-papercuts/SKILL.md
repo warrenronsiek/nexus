@@ -11,9 +11,14 @@ trigger, observed behavior, expected behavior, impact, and a useful bounded
 reproduction. The registry lives in Nexus's configured database; avoid creating
 a second authoritative Markdown issue list.
 
-Use papercuts for a recognizable piece of development friction. For complex
-problems needing model-assisted source aggregation, use
-[nexus-sos](../nexus-sos/SKILL.md). For test/eval results and execution timelines,
+Use papercuts for development/environment friction such as memory pressure,
+orphan test containers, or flaky checks. For an evidenced defect or recurring
+design problem in the code being maintained, use
+[nexus-code-concerns](../nexus-code-concerns/SKILL.md). Use
+[nexus-sos](../nexus-sos/SKILL.md) for unusual situations reported by agents inside
+a running application. Route by what the report describes, not its severity:
+an application race exposed by a flaky check belongs in code concerns, while
+the friction of flaky checks can remain a linked papercut. For test/eval results and execution timelines,
 use [nexus-eval-history](../nexus-eval-history/SKILL.md) and
 [nexus-work-history](../nexus-work-history/SKILL.md).
 

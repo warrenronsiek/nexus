@@ -66,6 +66,7 @@ jobs:
       - run: cargo test --locked --no-default-features --features postgres --test postgres_service
       - run: cargo test --locked --no-default-features --features postgres --test eval_postgres
       - run: cargo test --locked --no-default-features --features postgres --test work_postgres
+      - run: cargo test --locked --no-default-features --features postgres --test code_concerns_postgres
 
   docker-service:
     runs-on: ubuntu-latest

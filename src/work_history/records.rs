@@ -286,13 +286,7 @@ pub struct WorkObservation {
     pub source: Option<WorkSource>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct WorkSource {
-    pub project_id: String,
-    pub recorded_at: DateTime<Utc>,
-    pub provenance: WorkActor,
-}
+pub type WorkSource = crate::record_source::RecordSource<WorkActor>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

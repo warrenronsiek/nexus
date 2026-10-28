@@ -31,7 +31,8 @@ source checkout is required only for source-development commands.
 | `analyst` | Request optional model analysis when an actual coordination conflict needs interpretation. | [nexus-coordination](../nexus-coordination/SKILL.md) |
 | `agent-memory` | Retain bounded, deliberate notes and retrieve relevant knowledge across sessions. | [nexus-agent-memory](../nexus-agent-memory/SKILL.md) |
 | `papercuts` | Record recurring development friction, support existing reports, and retain resolution history. | [nexus-papercuts](../nexus-papercuts/SKILL.md) |
-| `sos` | Record an immediate agent blocker and preserve the evidence and triage history. | [nexus-sos](../nexus-sos/SKILL.md) |
+| `sos` | Record unusual situations encountered by agents inside a running application, retaining evidence and triage. | [nexus-sos](../nexus-sos/SKILL.md) |
+| `code-concerns` | Learn which code problems recur across areas and sessions, what was tried, and why. | [nexus-code-concerns](../nexus-code-concerns/SKILL.md) |
 | `usage-analytics` | Understand available versus used tools, skills, scripts, and semantic activity categories. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
 | `observability-ui` | Inspect current coordination and historical records through the native or Pi terminal interface. | [nexus-observability](../nexus-observability/SKILL.md) |
 | `work-history` | Preserve logical work, nested attempts, agents, timing, CI, and delivery evidence across sessions. | [nexus-work-history](../nexus-work-history/SKILL.md) |
@@ -53,8 +54,10 @@ decision worth retaining, work history for the implementation and its child
 reviews/tests, and eval history for the versioned measurement and result. Usage
 analytics answers which capabilities agents used and what availability was
 observed. Invocation counts alone do not establish availability or task
-duration. Papercuts track friction;
-SOS records an immediate blocker. Link related evidence where the API supports
+duration. Papercuts track ambient development/environment friction; Code concerns
+preserves evidenced problems in the code being maintained; SOS records unusual
+situations inside a running application. An application SOS may motivate a code
+investigation, but the records retain distinct meaning. Link related evidence where the API supports
 it, retaining each record's purpose and source identity.
 
 Bind participants to the intended Nexus project before correlating their

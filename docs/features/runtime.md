@@ -88,6 +88,29 @@ flowchart TD
 
 ## Implementation details
 
+Code concerns uses the dedicated `nexus concerns` CLI and `nexus_concerns` MCP
+tool through a closed `ConcernAction` and bound `ContextCommand` envelope. Its
+identities and lifecycle policy remain independent of development-environment
+Papercuts and application-agent SOS reports. The service binds project and
+submitter provenance, preserves caller-reported source context, and returns
+typed invalid-input or immutable-conflict errors. A single generated schema
+advertises recording, evidence, history, area recurrence, and export queries.
+MCP `report` and `upvote` shortcuts accept concise descriptions/encounters and
+supply fresh observation IDs and reporter timestamps. They normalize to the same
+typed record action; exact retries use a retained immutable record or pin all
+observation metadata. The caller's failure time remains unknown when omitted.
+Recording never runs the caller's tests or performs a proposed fix. See
+[code concerns](code-concerns.md).
+
+Work and code-concern CLI transfers share a typed checksummed JSONL codec,
+atomic export publication, bounded lines/files, and complete validation of a
+private import snapshot before the first ingestion. Each feature owns payload
+validation and replay semantics. Work retains its existing version-one header;
+code concerns adds its own namespace to prevent cross-feature ingestion.
+Interrupted ingestion is resumable through immutable observation IDs. Concern
+exports preserve artifact references and disclose their external dependencies;
+the complete database snapshot separately transfers stored artifact bytes.
+
 Work history uses one closed `WorkAction` contract through `nexus work` and the
 `nexus_work` MCP tool. Explicit history actions share a typed bound caller envelope
 with eval commands. Runtime supplies project and submitter provenance, while
@@ -110,9 +133,20 @@ export/import streams caller-owned history with declared external Git dependenci
 checksums, source attribution, and idempotent incremental ingestion. See the
 [eval specification](evals.md).
 
-`src/runtime/client.rs` is the single companion transport selector used by CLI commands, generated hooks, stdio MCP, and analytics capture. Local requests retain Unix-socket behavior and lifecycle auto-start; remote requests post the same `WireRequest` to `/api/v1/request`, authenticate with a bearer secret, and include the configured project ID outside the feature payload. That envelope project supplies omitted read scopes, while an explicit project query remains available within the service-wide trust domain after the same 256-byte, control-free canonical validation; MCP schemas advertise that limit. Completed remote tool requests may also carry client-derived script/skill evidence; a private `client_reconcile` envelope carries periodic Git evidence. Remote connections have a three-second connect deadline, ordinary requests have a fifteen-second end-to-end deadline, and explicit analysis receives the configured analyst deadline plus a five-second transport margin. Every ordinary companion response is capped at 1 MiB, both by an immediate declared-length check and by bounded chunk collection. Explicit papercut and SOS `dump` actions are the only typed exceptions because their contracts are complete, untruncated registries; no lifecycle hook, routine read, reconciliation request, or other command can select unbounded response collection. Lifecycle hooks retain their stricter 2.5-second outer budget, fail open on timeout, and never fall back to local storage. `src/runtime/protocol.rs` owns that shared envelope.
+`src/runtime/client.rs` is the single companion transport selector used by CLI commands, generated hooks, stdio MCP, and analytics capture. Local requests retain Unix-socket behavior and lifecycle auto-start; remote requests post the same `WireRequest` to `/api/v1/request`, authenticate with a bearer secret, and include the configured project ID outside the feature payload. That envelope project supplies omitted read scopes, while an explicit project query remains available within the service-wide trust domain after the same 256-byte, control-free canonical validation; MCP schemas advertise that limit. Completed remote tool requests may also carry client-derived script/skill evidence; a private `client_reconcile` envelope carries periodic Git evidence. Remote connections have a three-second connect deadline, ordinary requests have a fifteen-second end-to-end deadline, and explicit analysis receives the configured analyst deadline plus a five-second transport margin. Every ordinary companion response is capped at 1 MiB, both by an immediate declared-length check and by bounded chunk collection. Explicit papercut, SOS, and code-concern `dump` actions are the only typed exceptions because their contracts are complete, untruncated registries; no lifecycle hook, routine read, reconciliation request, or other command can select unbounded response collection. Lifecycle hooks retain their stricter 2.5-second outer budget, fail open on timeout, and never fall back to local storage. `src/runtime/protocol.rs` owns that shared envelope.
 
 `nexus doctor` follows the selected transport and verifies remote status when configured. `nexus daemon` refuses to start under remote configuration so an operator cannot accidentally create a second local state authority beside the shared service.
+
+`nexus update` uses a private, same-user Unix-socket handshake to identify a
+managed daemon by its exact process instance and retain its resolved configuration,
+working directory and executable. This control method is absent from the public
+service request and MCP contracts. An accepted stop finishes admitted connections
+and background work before releasing the database lock; the updater waits for
+that release before replacing the executable. It reports continued draining
+instead of timing out while shutdown is still pending. Restart consumes a private
+snapshot and confirms a new instance with the same configuration before reporting
+success. Unverifiable legacy services and other executable paths remain explicitly
+unmanaged. See [installation](installation.md) for release and Compose behavior.
 
 `src/runtime/mcp.rs` is the transport-neutral MCP entry point and tool catalog. Alongside coordination hooks it exposes typed skill observations, seven-day usage queries, the single action-tagged `nexus_papercuts` tool, the complete `nexus://papercuts` project resource, and only the caller-facing memory operations: add, search, and expand. The papercut input schema uses one closed branch per action so discovery communicates each action's required fields, and every schema backed by a request type that denies unknown fields is closed in the same way. Unknown tools and malformed non-lifecycle tool arguments return JSON-RPC invalid-params errors; malformed lifecycle hooks retain their permissive result because host hooks must fail open. Stdio JSON frames are capped at 1 MiB plus one detection byte; an oversized frame is discarded through its newline using constant additional memory and a two-second recovery deadline, so later hooks keep their MCP connection. The discarded request has no response because its correlation ID cannot safely be decoded from a truncated document; that one caller may time out. A peer that does not finish the oversized frame within the recovery deadline still loses its connection. The CLI exits on an MCP transport error without waiting for Tokio's uncancelable blocking stdin read during runtime shutdown. Process-level framing regressions in `tests/mcp_frame_recovery.rs` cover both later-hook continuity and termination while stdin remains open. Neither payload contents nor credentials appear in the diagnostic. Both terminal hosts retain one local stdio MCP process for typed project and dashboard reads; that companion follows the selected client transport. In remote mode it tracks active lifecycle sessions with a local project root and, on each configured reconciliation tick, collects Git changes once per root before making bounded best-effort submissions for each session. Expired entries are pruned both when new activity arrives and on each tick, and the companion retains at most 1,024 recent sessions, so a long tick interval cannot make client memory grow without bound. Each Git identity or status command has a five-second deadline and a 4 MiB cap on each output stream; a timed-out or overflowing child process group is killed and reaped, and observation fails open with fallback identity or no changed paths. Each evidence page contains at most 2,048 paths and 256 KiB of path text; a per-root cursor rotates through later pages when the snapshot is truncated. The tick begins after one full interval, skips missed ticks, applies the lifecycle timeout to each submission, and stops with the MCP child. Session stop removes the session from later observations, and an otherwise idle session ages out after the configured claim TTL.
 

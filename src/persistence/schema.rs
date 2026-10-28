@@ -560,3 +560,50 @@ diesel::allow_tables_to_appear_in_same_query!(
     work_links,
     eval_records
 );
+
+diesel::table! {
+    concern_observations (project_id,id) {
+        project_id -> Text, id -> Text, concern_id -> Text, canonical_id -> Text,
+        kind -> Text, occurred_at -> Nullable<Text>, observed_at -> Text,
+        recorded_at -> Text, effective_time -> Text, payload_json -> Text,
+        content_hash -> Text, provenance_json -> Text, source_json -> Nullable<Text>, reporter_token_hash -> Nullable<Text>,
+    }
+}
+diesel::table! {
+    code_concerns (project_id,id) {
+        project_id -> Text, id -> Text, canonical_id -> Text, fingerprint -> Text,
+        title -> Text, status -> Text, last_observed_at -> Text, work_session_count -> BigInt,
+        returns_count -> BigInt, summary_json -> Text, reporter_token_hash -> Nullable<Text>,
+    }
+}
+diesel::table! {
+    concern_encounters (project_id,event_id) {
+        project_id -> Text, event_id -> Text, concern_id -> Text, reported_concern_id -> Text,
+        source_key -> Nullable<Text>, work_session_id -> Nullable<Text>, host_session_key -> Nullable<Text>,
+        source_time -> Nullable<Text>, effective_time -> Text, observed_at -> Text, effective_day -> Text,
+        repository -> Nullable<Text>, returned_after_resolution -> Integer,
+    }
+}
+diesel::table! {
+    concern_areas (project_id,id) {
+        project_id -> Text, id -> Text, repository -> Text, kind -> Text, area_key -> Text, area_json -> Text,
+    }
+}
+diesel::table! {
+    concern_attributions (project_id,event_id,area_id,relation) {
+        project_id -> Text, event_id -> Text, area_id -> Text, relation -> Text,
+    }
+}
+diesel::allow_tables_to_appear_in_same_query!(
+    concern_observations,
+    code_concerns,
+    concern_encounters,
+    concern_areas,
+    concern_attributions
+);
+
+diesel::table! {
+    concern_decisions (project_id,proposal_id) {
+        project_id -> Text, proposal_id -> Text, event_id -> Text, concern_id -> Text, decision -> Text,
+    }
+}

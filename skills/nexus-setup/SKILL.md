@@ -41,6 +41,41 @@ and storage prerequisites: local success verifies the database, not every host
 hook; remote success verifies service readiness. Use `status` and a representative
 host event to verify the entire connection.
 
+## Keep an installation current
+
+```sh
+nexus --version
+nexus update --check
+nexus update
+```
+
+`update` compares the full installed source revision with current `main`, then
+installs its verified versioned release without a Nexus checkout, `git pull`, or
+Rust compilation. A release still being built is reported as `release_pending`;
+retry after publication. Use `--force` only when intentionally replacing a dirty,
+ahead, divergent, or unknown source build with main. Normal updates preserve the
+existing executable location and refresh bundled skills, hooks, and extensions
+through `setup --refresh` with the retained explicit configuration path. This refresh also supports headless machines with no installed agent host.
+
+A running managed local daemon drains and restarts with its exact resolved
+configuration, socket, lock, database, and working directory. An inactive daemon
+stays inactive. Managed local Docker Compose deployments retain their project,
+resolved environment, secrets, health checks, networks, and volumes while only
+the Nexus image is replaced. The Docker server's platform determines the image,
+including when the client runs on macOS. The Compose startup script records
+management automatically; legacy known stacks can be adopted from their exact
+endpoint and container labels. If needed, supply `nexus update --compose-file
+/path/to/docker-compose.yml`; the path must match the running service's labels.
+The resolved private management snapshot supports later updates after that source
+checkout is gone. Source or runtime drift that prevents proving the running settings is refused before replacement; restore matching configuration or explicitly adopt the proven running deployment.
+
+Read the report's `service` and `notes` fields. An external or unverifiable legacy
+service is not silently restarted; its owner must update it separately. Restart
+or reconnect existing agent MCP companions after update so those processes load
+the new binary. Do not restart the user's agent application or mutate database
+volumes to force an upgrade. Failed managed transitions restore the previous
+binary and attempt service recovery; data and migrations are not rolled back.
+
 ## Select one state authority
 
 Local transport is the default: a stdio companion reaches or starts the

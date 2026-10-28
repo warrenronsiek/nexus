@@ -9,6 +9,9 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 use support::Harness;
 
+#[path = "work_capture/git.rs"]
+mod git_capture;
+
 #[test]
 fn automatic_shell_capture_supports_the_system_bash_with_unset_checks() {
     let harness = Harness::start();
@@ -101,12 +104,14 @@ fn wrapped_commit_passes_one_attempt_identity_to_post_commit() {
     let hooks = harness.root.join("hooks");
     std::fs::create_dir(&hooks).unwrap();
     let hook = hooks.join("post-commit");
+    let hook_error = hooks.join("post-commit.stderr");
     std::fs::write(
         &hook,
         format!(
-            "#!/bin/sh\n'{}' --config '{}' work git-hook post-commit >/dev/null 2>&1 || true\n",
+            "#!/bin/sh\n'{}' --config '{}' work git-hook post-commit >/dev/null 2>'{}' || true\n",
             env!("CARGO_BIN_EXE_nexus"),
-            harness._temp.path().join("config.toml").display()
+            harness._temp.path().join("config.toml").display(),
+            hook_error.display()
         ),
     )
     .unwrap();
@@ -138,6 +143,7 @@ fn wrapped_commit_passes_one_attempt_identity_to_post_commit() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    wait_for_work_delivery(&harness);
     let timeline = harness.call(
         "nexus_work",
         json!({"action":"timeline","work_session_id":"delivery"}),
@@ -158,7 +164,8 @@ fn wrapped_commit_passes_one_attempt_identity_to_post_commit() {
         links
             .iter()
             .any(|link| link["relation"] == "produced" && link["target"]["kind"] == "revision"),
-        "{detail}"
+        "{detail}; post-commit stderr: {}",
+        std::fs::read_to_string(hook_error).unwrap_or_default()
     );
 }
 

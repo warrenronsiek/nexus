@@ -27,26 +27,38 @@ impl Store {
         Ok(records)
     }
     fn host_session_display_name(&mut self, record: &SessionRecord) -> Result<Option<String>> {
-        let subject = WorkSubject::Activity {
-            id: host_agent_identity(&record.agent, &record.session_id),
-        };
-        let Some(detail) =
-            super::work_history::session_title(&mut self.connection, &record.project_id, &subject)?
-        else {
-            return Ok(None);
-        };
-        if detail.context.host_session_id.as_deref() != Some(record.session_id.as_str())
-            || detail
-                .context
-                .labels
-                .get("nexus.capture.host")
-                .map(String::as_str)
-                != Some(record.agent.as_str())
-        {
-            return Ok(None);
-        }
-        Ok(detail.context.labels.get("nexus.session_title").cloned())
+        host_title(
+            &mut self.connection,
+            &record.project_id,
+            &record.agent,
+            &record.session_id,
+        )
     }
+}
+
+pub(super) fn host_title(
+    connection: &mut super::backend::DbConnection,
+    project: &str,
+    agent: &str,
+    session: &str,
+) -> Result<Option<String>> {
+    let subject = WorkSubject::Activity {
+        id: host_agent_identity(agent, session),
+    };
+    let Some(detail) = super::work_history::session_title(connection, project, &subject)? else {
+        return Ok(None);
+    };
+    if detail.context.host_session_id.as_deref() != Some(session)
+        || detail
+            .context
+            .labels
+            .get("nexus.capture.host")
+            .map(String::as_str)
+            != Some(agent)
+    {
+        return Ok(None);
+    }
+    Ok(detail.context.labels.get("nexus.session_title").cloned())
 }
 
 #[cfg(all(test, feature = "sqlite"))]

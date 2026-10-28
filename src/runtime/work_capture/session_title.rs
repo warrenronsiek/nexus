@@ -143,18 +143,25 @@ async fn codex_title(command: &mut tokio::process::Command, session_id: &str) ->
 async fn read_codex(child: &mut tokio::process::Child, session_id: &str) -> Option<String> {
     let mut stdin = child.stdin.take()?;
     let mut reader = BufReader::new(child.stdout.take()?.take(64 * 1024));
-    initialize_codex(&mut stdin, &mut reader).await?;
+    metadata_exchange(&mut stdin, &mut reader, session_id).await
+}
+async fn metadata_exchange<W: tokio::io::AsyncWrite + Unpin, R: tokio::io::AsyncBufRead + Unpin>(
+    stdin: &mut W,
+    reader: &mut R,
+    session_id: &str,
+) -> Option<String> {
+    initialize_codex(stdin, reader).await?;
     let request = serde_json::json!({"id":2,"method":"thread/read","params":{"threadId":session_id,"includeTurns":false}});
     stdin
         .write_all(format!("{{\"method\":\"initialized\"}}\n{request}\n").as_bytes())
         .await
         .ok()?;
-    response(&mut reader, 2)
+    response(reader, 2)
         .await
         .and_then(|result| codex_name(&result, session_id))
 }
-async fn initialize_codex<R: tokio::io::AsyncBufRead + Unpin>(
-    stdin: &mut tokio::process::ChildStdin,
+async fn initialize_codex<W: tokio::io::AsyncWrite + Unpin, R: tokio::io::AsyncBufRead + Unpin>(
+    stdin: &mut W,
     reader: &mut R,
 ) -> Option<()> {
     stdin.write_all(b"{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"nexus-title-reader\",\"version\":\"1\"}}}\n").await.ok()?;
@@ -246,15 +253,53 @@ mod tests {
 
     #[tokio::test]
     async fn codex_title_uses_metadata_read_without_resuming_or_loading_turns() {
-        let temp = tempfile::tempdir().unwrap();
-        let executable = temp.path().join("codex");
-        std::fs::write(&executable, "#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if r.get('method')=='initialize': print(json.dumps({'id':1,'result':{}}),flush=True)\n if r.get('method')=='thread/read':\n  assert r['params']=={'threadId':'session-1','includeTurns':False}\n  print(json.dumps({'id':2,'result':{'thread':{'id':'session-1','name':'Exact Codex name'}}}),flush=True)\n").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let mut command = tokio::process::Command::new(&executable);
+        let (client, server) = tokio::io::duplex(4096);
+        let (reader, mut writer) = tokio::io::split(client);
+        let mut reader = BufReader::new(reader);
+        let result = tokio::time::timeout(Duration::from_millis(500), async {
+            let (name, ()) = tokio::join!(
+                metadata_exchange(&mut writer, &mut reader, "session-1"),
+                metadata_fixture(server)
+            );
+            name
+        })
+        .await
+        .expect("the in-memory protocol exchange must complete");
+        assert_eq!(result.as_deref(), Some("Exact Codex name"));
+    }
+
+    async fn metadata_fixture(server: tokio::io::DuplexStream) {
+        let (reader, mut writer) = tokio::io::split(server);
+        let mut reader = BufReader::new(reader);
+        let initialize = fixture_request(&mut reader).await;
+        assert_eq!(initialize["method"], "initialize");
+        assert_eq!(initialize["id"], 1);
+        writer
+            .write_all(b"{\"id\":1,\"result\":{}}\n")
+            .await
+            .unwrap();
+        let initialized = fixture_request(&mut reader).await;
+        assert_eq!(initialized, serde_json::json!({"method":"initialized"}));
+        let request = fixture_request(&mut reader).await;
         assert_eq!(
-            codex_title(&mut command, "session-1").await.as_deref(),
-            Some("Exact Codex name")
+            request,
+            serde_json::json!({"id":2,"method":"thread/read","params":{"threadId":"session-1","includeTurns":false}})
         );
+        writer.write_all(b"{\"id\":2,\"result\":{\"thread\":{\"id\":\"session-1\",\"name\":\"Exact Codex name\"}}}\n").await.unwrap();
+    }
+
+    async fn fixture_request<R: tokio::io::AsyncBufRead + Unpin>(
+        reader: &mut R,
+    ) -> serde_json::Value {
+        let mut line = String::new();
+        assert!(reader.read_line(&mut line).await.unwrap() > 0);
+        serde_json::from_str(&line).unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_unavailable_codex_process_keeps_optional_title_enrichment_unknown() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut command = tokio::process::Command::new(temp.path().join("absent-codex"));
+        assert_eq!(codex_title(&mut command, "session-1").await, None);
     }
 }

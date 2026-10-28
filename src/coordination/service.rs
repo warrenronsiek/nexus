@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature coordination
@@ -11,9 +13,11 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 mod analytics;
+mod concerns;
 mod dispatch;
 mod evals;
 mod feature_ops;
+mod history_ops;
 mod memory;
 mod papercuts;
 mod prompt;

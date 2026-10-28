@@ -1,3 +1,5 @@
+# @feature installation
+# @spec docs/features/installation.md
 # @feature runtime
 # @feature persistence
 # @spec docs/features/runtime.md
@@ -10,10 +12,16 @@ RUN apt-get update \
 
 WORKDIR /build
 COPY . .
+ARG NEXUS_RELEASE_REVISION=""
+ENV NEXUS_RELEASE_REVISION=${NEXUS_RELEASE_REVISION}
 RUN cargo build --release --locked --bin nexus-sqlite-export \
     && cargo build --release --locked --no-default-features --features postgres --bin nexus-server
 
 FROM debian:bookworm-slim AS runtime
+
+ARG NEXUS_RELEASE_REVISION="unknown"
+LABEL org.opencontainers.image.source="https://github.com/warrenronsiek/nexus" \
+      org.opencontainers.image.revision=${NEXUS_RELEASE_REVISION}
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates curl libpq5 \

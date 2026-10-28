@@ -5,7 +5,7 @@
 // @boundary work-wire: validate typed projections and bounded observation evidence; the service validates lifecycle bodies.
 import { decodeWorkDashboard, type WorkDashboard } from "./work-dashboard-wire.ts";
 import type { NexusMcpClient } from "./mcp-client.ts";
-import { isJsonValue, type JsonValue } from "./wire-values.ts";
+import { boundedArray as array, isJsonValue, type JsonValue } from "./wire-values.ts";
 
 export const WORK_OUTCOMES = ["succeeded", "failed", "canceled", "timed_out", "skipped", "infrastructure_error", "abandoned", "unknown"] as const;
 export type WorkOutcome = typeof WORK_OUTCOMES[number];
@@ -92,7 +92,6 @@ function observation(value: unknown): value is WorkObservation {
     object(value.producer) && texts(value.producer, ["name", "version", "instance_id"]) && object(value.body) && typeof value.body.event === "string" && isJsonValue(value.body) &&
     optional(value.correction, correction) && actor(value.provenance) && optional(value.source, sourceReceipt) && optional(value.source_clock, sourceClock);
 }
-function array<T>(value: unknown, check: (value: unknown) => value is T, maximum = 128): value is T[] { return Array.isArray(value) && value.length <= maximum && value.every(check); }
 function page(value: Record<string, unknown>): value is Record<string, unknown> & WorkPage { return array(value.items, summary, 64) && nullableText(value.next_cursor); }
 function detail(value: unknown): value is WorkDetail { return object(value) && summary(value.summary) && array(value.observations, observation, 64) && array(value.links, link) && typeof value.truncated === "boolean"; }
 function invalid(): never { throw new Error("Nexus work history returned an unexpected response"); }

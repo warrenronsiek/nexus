@@ -32,7 +32,7 @@ fn upgrades_v12_with_empty_work_observations_and_hierarchy_indexes() {
         .unwrap();
     assert_eq!(
         history,
-        (0..=13)
+        (0..=CURRENT_SCHEMA_VERSION as i64)
             .map(|version| (version, "deployed".into()))
             .collect::<Vec<_>>()
     );

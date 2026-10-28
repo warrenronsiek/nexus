@@ -22,7 +22,8 @@ Read the returned specification and entry-point files before editing. The curren
 - `usage-analytics`: observed tool, skill, and script usage capture and seven-day reporting.
 - `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
 - `papercuts`: timestamped development-friction reports, upvotes, duplicate review, consolidation, resolution, and complete registry export.
-- `sos`: immediate agent blockers, repeated-report aggregation, lifecycle tracking, and triage history.
+- `sos`: unusual situations reported by agents inside running applications, repeated-report aggregation, lifecycle tracking, and triage history.
+- `code-concerns`: attributable code problems, area recurrence, attempted remedies, Git locations, and historical review evidence.
 - `evals`: Git-backed evaluation definitions, motivations, caller-owned results, grading history, artifacts, comparisons, and terminal retrieval.
 - `work-history`: durable work sessions, nested activity timing, deterministic capture, caller-owned delivery evidence, and terminal timelines.
 

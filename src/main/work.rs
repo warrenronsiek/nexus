@@ -3,13 +3,9 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/runtime.md
 // @boundary work-cli-json-and-source-context
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
-use nexus::coordination::{
-    api::{ServiceRequest, WorkCommand},
-    domain::HookContext,
-};
-use nexus::runtime::client::NexusClient;
+use nexus::coordination::{api::ServiceRequest, domain::HookContext};
 use nexus::work_history::*;
 use nexus::LoadedConfig;
 use serde_json::Value;
@@ -191,31 +187,7 @@ pub(super) struct ListArgs {
     limit: u32,
 }
 
-struct WorkClient {
-    client: NexusClient,
-    context: HookContext,
-}
-impl WorkClient {
-    async fn send(&self, command: WorkAction) -> Result<Value> {
-        let response = self
-            .client
-            .ensure_and_request(&ServiceRequest::Work(WorkCommand {
-                context: self.context.clone(),
-                command,
-            }))
-            .await?;
-        if response.get("ok").and_then(Value::as_bool) != Some(true) {
-            bail!(
-                "work history request failed: {}",
-                response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("invalid response")
-            );
-        }
-        Ok(response)
-    }
-}
+type WorkClient = crate::history_client::HistoryClient<WorkAction>;
 
 pub(super) async fn run(
     command: WorkCliCommand,
@@ -264,7 +236,7 @@ async fn execute(
         }
         WorkCliCommand::GitHook { phase } => {
             nexus::runtime::work_capture::git_hook(loaded, root, &phase)?;
-            let _ = nexus::runtime::work_capture::flush(loaded, explicit).await;
+            let _ = nexus::runtime::work_capture::flush_before_exit(loaded, explicit).await;
             json_result(nexus::runtime::work_capture::health(loaded))
         }
         command => send_action(&work_client(root, loaded, explicit), action(command)?).await,
@@ -371,8 +343,11 @@ fn cli_context(root: &Path) -> HookContext {
 }
 
 fn work_client(root: &Path, loaded: &LoadedConfig, explicit: Option<&Path>) -> WorkClient {
-    WorkClient {
-        client: NexusClient::new(loaded, explicit),
-        context: cli_context(root),
-    }
+    WorkClient::new(
+        loaded,
+        explicit,
+        cli_context(root),
+        ServiceRequest::Work,
+        "work history",
+    )
 }

@@ -1,5 +1,7 @@
 // @feature work-history
 // @spec docs/features/work-history.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature papercuts
@@ -20,7 +22,7 @@ import { UsagePoller, type UsageLoader } from "./polling.ts";
 import { AnalyticsBrowser, type AnalyticsApi } from "./analytics.ts";
 import { renderUsageBars } from "./usage.ts";
 
-export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts" | "evals" | "work";
+export type DashboardTab = "coordination" | "sos" | "tools" | "skills" | "memory" | "papercuts" | "evals" | "work" | "concerns";
 export type UsageTab = Extract<DashboardTab, "tools" | "skills">;
 
 const DASHBOARD_TABS: readonly DashboardTab[] = [
@@ -32,6 +34,7 @@ const DASHBOARD_TABS: readonly DashboardTab[] = [
   "papercuts",
   "evals",
   "work",
+  "concerns",
 ];
 
 export function nextDashboardTab(
@@ -46,7 +49,7 @@ export function nextDashboardTab(
 
 export function renderTabHeader(theme: Theme, active: DashboardTab): string {
   return DASHBOARD_TABS.map((tab) => {
-    const label = tab === "sos" ? "SOS" : tab[0].toUpperCase() + tab.slice(1);
+    const label = tab === "sos" ? "SOS" : tab === "concerns" ? "Code concerns" : tab[0].toUpperCase() + tab.slice(1);
     const text = `[ ${label} ]`;
     return tab === active
       ? theme.fg("accent", theme.bold(text))

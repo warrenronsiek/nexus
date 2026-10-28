@@ -10,14 +10,16 @@
 // @spec docs/features/sos.md
 // @feature evals
 // @spec docs/features/evals.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
-    analytics_resources, analytics_revisions, capability_uses, claims, conflicts, eval_blob_chunks,
-    eval_blobs, eval_dimensions, eval_links, eval_records, events, memory_activations,
-    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
-    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
-    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
-    sos_triage_attempts, work_observations,
+    analytics_resources, analytics_revisions, capability_uses, claims, concern_observations,
+    conflicts, eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records, events,
+    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
+    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
+    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
+    sos_issues, sos_reports, sos_triage_attempts, work_observations,
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -414,6 +416,12 @@ portable_row!(AnalyticsResourcesTransfer, analytics_resources, {
 portable_row!(EvalRecordTransfer, eval_records, {
     project_id: String, id: String, kind: String, title: String, occurred_at: String,
     recorded_at: String, payload_json: String, content_hash: String, provenance_json: String, search_text: String,
+});
+
+portable_row!(ConcernObservationTransfer, concern_observations, {
+    project_id:String,id:String,concern_id:String,canonical_id:String,kind:String,
+    occurred_at:Option<String>,observed_at:String,recorded_at:String,effective_time:String,
+    payload_json:String,content_hash:String,provenance_json:String,source_json:Option<String>,reporter_token_hash:Option<String>,
 });
 portable_row!(EvalLinkTransfer, eval_links, {
     project_id: String, source_id: String, target_id: String, relation: String,

@@ -1,5 +1,7 @@
 # @feature work-history
 # @spec docs/features/work-history.md
+# @feature code-concerns
+# @spec docs/features/code-concerns.md
 # @feature usage-analytics
 # @spec docs/features/usage-analytics.md
 # @feature evals
@@ -33,21 +35,31 @@ import sys
 import tempfile
 import termios
 import time
+from weakref import WeakKeyDictionary
+
+if __package__:
+    from .terminal_screen import TerminalScreen
+else:
+    from terminal_screen import TerminalScreen
+
+TERMINAL_ROWS = 36
+TERMINAL_COLUMNS = 120
+_screens: WeakKeyDictionary[subprocess.Popen[bytes], TerminalScreen] = WeakKeyDictionary()
 
 
 def wait_for_text(process: subprocess.Popen[bytes], master: int, expected: bytes | tuple[bytes, ...], timeout_seconds: float = 15) -> None:
-    output = bytearray()
-    expected_texts = expected if isinstance(expected, tuple) else (expected,)
+    screen = _screens.setdefault(process, TerminalScreen(TERMINAL_ROWS, TERMINAL_COLUMNS))
+    expected_texts = tuple(text.decode("utf-8") for text in (expected if isinstance(expected, tuple) else (expected,)))
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
         if readable:
-            output.extend(os.read(master, 65536))
-            if all(text in output for text in expected_texts):
-                return
+            screen.feed(os.read(master, 65536))
+        if all(text in screen.text() for text in expected_texts):
+            return
         if process.poll() is not None:
             break
-    raise AssertionError(f"Missing {expected!r}; exit={process.poll()}; output={output[-6000:]!r}")
+    raise AssertionError(f"Missing {expected!r}; exit={process.poll()}; screen={screen.text()!r}")
 
 
 def isolated_project(temporary: Path) -> tuple[Path, Path, dict[str, str]]:
@@ -223,7 +235,7 @@ def exercise_evals(binary: str, config: Path, root: Path, environment: dict[str,
     os.write(master, b"b")
     wait_for_text(process, master, b"records loaded")
     os.write(master, b"t")
-    wait_for_text(process, master, b"Native evaluation change")
+    wait_for_text(process, master, ("Filters · change".encode(), b"Native evaluation change"))
     os.write(master, b"\r")
     wait_for_text(process, master, b"Distinct router regression reason")
     os.write(master, b"l")
@@ -318,6 +330,44 @@ def exercise_work(binary: str, config: Path, root: Path, environment: dict[str, 
     wait_for_text(process, master, (b"Activity hierarchy", b"Implementation agent"))
 
 
+def seed_concerns(binary: str, config: Path, root: Path, environment: dict[str, str]) -> int:
+    location = {"repository": "native-repository", "object_format": "sha1", "commit": "a" * 40,
+                "path": "src/native-router.rs", "language": "rust", "qualified_name": "router::finish",
+                "declaration_kind": "function", "line_start": 10, "line_end": 20, "dirty": True, "verification": "supplied"}
+    area = {"id": None, "repository": "native-repository", "kind": "subsystem", "key": "router", "display_name": "Native router subsystem", "discriminator": None}
+    context = {"host_session_id": "native-host", "work_session_id": "native-work", "activity_id": "native-test-1", "repository": "native-repository"}
+    observations = [
+        {"id": "native-concern-report", "concern_id": "native-concern", "occurred_at": "2026-10-27T12:00:00Z", "observed_at": "2026-10-27T12:00:01Z", "context": context,
+         "body": {"event": "reported", "title": "Native router race", "description": "Two callbacks finalize one dispatch", "hypothesis": None, "impact": None,
+                  "encounter": {"symptom": "Duplicate finalization", "source": {"source": "native-tests", "repository": "native-repository", "execution_attempt": "native-test-1", "failure_id": "duplicate"},
+                                "areas": [{"area": area, "relation": "affected", "location": location, "memberships": []}], "evidence": []}}},
+        {"id": "native-concern-remedy", "concern_id": "native-concern", "occurred_at": "2026-10-27T12:01:00Z", "observed_at": "2026-10-27T12:01:01Z", "context": context,
+         "body": {"event": "remedy_recorded", "encounter_ids": ["native-concern-report"], "what": "Serialize native completion", "why": "Duplicate native callbacks", "outcome": "uncertain", "evidence": [{"kind": "git", "location": location}]}},
+    ]
+    fixture = root / "native code concerns.json"
+    fixture.write_text(json.dumps({"format_version": 1, "observations": observations}))
+    recorded = subprocess.run([binary, "--config", str(config), "concerns", "record", str(fixture)],
+                              cwd=root, env=environment, capture_output=True, check=True, timeout=5)
+    assert json.loads(recorded.stdout)["ok"] is True
+    detail = subprocess.run([binary, "--config", str(config), "concerns", "get", "native-concern"],
+                            cwd=root, env=environment, capture_output=True, check=True, timeout=5)
+    history = json.loads(detail.stdout)["concern"]["history"]
+    return next(index for index, item in enumerate(history) if item["input"]["id"] == "native-concern-remedy")
+
+
+def exercise_concerns(binary: str, config: Path, root: Path, environment: dict[str, str], terminal: tuple[int, subprocess.Popen[bytes]]) -> None:
+    master, process = terminal
+    remedy_index = seed_concerns(binary, config, root, environment)
+    os.write(master, b"\t")
+    wait_for_text(process, master, (b"Problem areas", b"Native router subsystem", b"known sources"))
+    os.write(master, b"\r")
+    wait_for_text(process, master, (b"Distinct concerns", b"Native router race"))
+    os.write(master, b"\r")
+    wait_for_text(process, master, (b"Timeline", b"remedy_recorded"))
+    os.write(master, b"j" * remedy_index + b"r")
+    wait_for_text(process, master, (b"Serialize native completion", b"Duplicate native callbacks", b"src/native-router.rs", b"dirty true"))
+
+
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
@@ -325,7 +375,7 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             config = remote_config
         select_runtime(environment, runtime_source)
         master, slave = pty.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 120, 0, 0))
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0))
         original_settings = termios.tcgetattr(slave)
         process = subprocess.Popen(
             [binary, "--config", str(config), "tui"],
@@ -348,6 +398,7 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             exercise_papercuts(binary, config, root, environment, (master, process))
             exercise_evals(binary, config, root, environment, (master, process))
             exercise_work(binary, config, root, environment, (master, process))
+            exercise_concerns(binary, config, root, environment, (master, process))
             close_dashboard(process, master, exit_mode)
             mask = termios.ICANON | termios.ECHO
             assert termios.tcgetattr(slave)[3] & mask == original_settings[3] & mask

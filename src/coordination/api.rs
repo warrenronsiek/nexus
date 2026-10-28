@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @feature work-history
 // @spec docs/features/work-history.md
@@ -14,6 +16,7 @@
 // @spec docs/features/sos.md
 // @boundary dynamic-json
 mod analytics;
+mod concerns;
 mod evals;
 mod memory;
 mod papercuts;
@@ -21,6 +24,7 @@ mod responses;
 mod sos;
 mod work;
 
+pub use concerns::*;
 pub use evals::*;
 pub use memory::*;
 pub use papercuts::*;
@@ -83,6 +87,7 @@ pub enum ServiceRequest {
     MemoryConsolidate,
     Papercuts(PapercutCommand),
     Sos(SosCommand),
+    Concerns(ConcernCommand),
     Evals(EvalCommand),
     Work(WorkCommand),
     Analytics(crate::analytics::types::AnalyticsCommand),
@@ -255,8 +260,7 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
 
 fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
     match method {
-        "evals" => decode_context_command(params).map(ServiceRequest::Evals),
-        "work" => decode_context_command(params).map(ServiceRequest::Work),
+        "evals" | "work" | "concerns" => decode_history_command(method, params),
         "analytics" => analytics::decode_analytics(params),
         "resolve" => decode(params).map(ServiceRequest::Resolve),
         "release" => decode(params).map(ServiceRequest::Release),
@@ -295,6 +299,15 @@ fn decode_report(method: &str, params: Value) -> Result<ServiceRequest> {
             .map(ServiceRequest::Usage),
         "config" => Ok(ServiceRequest::Config),
         _ => unreachable!("method family was classified before decoding"),
+    }
+}
+
+fn decode_history_command(method: &str, params: Value) -> Result<ServiceRequest> {
+    match method {
+        "evals" => decode_context_command(params).map(ServiceRequest::Evals),
+        "work" => decode_context_command(params).map(ServiceRequest::Work),
+        "concerns" => decode_context_command(params).map(ServiceRequest::Concerns),
+        _ => unreachable!("history family selected before decoding"),
     }
 }
 
@@ -346,6 +359,7 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Sos(_)
         | ServiceRequest::Evals(_)
         | ServiceRequest::Work(_)
+        | ServiceRequest::Concerns(_)
         | ServiceRequest::Analytics(_) => RequestFamily::Command,
         ServiceRequest::Projects
         | ServiceRequest::Dashboard(_)
@@ -392,6 +406,7 @@ fn command_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)>
         ServiceRequest::Sos(command) => encode("sos", command),
         ServiceRequest::Evals(command) => encode("evals", command),
         ServiceRequest::Work(command) => encode("work", command),
+        ServiceRequest::Concerns(command) => encode("concerns", command),
         ServiceRequest::Analytics(command) => encode("analytics", command),
         _ => unreachable!("request family was selected before encoding"),
     }
@@ -439,6 +454,7 @@ const COMMAND_METHODS: &[&str] = &[
     "sos",
     "evals",
     "work",
+    "concerns",
 ];
 const REPORT_METHODS: &[&str] = &["projects", "dashboard", "usage", "config"];
 

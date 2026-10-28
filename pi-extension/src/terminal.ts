@@ -1,5 +1,7 @@
 // @feature work-history
 // @spec docs/features/work-history.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature usage-analytics
@@ -18,17 +20,13 @@
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { matchesKey, ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
-import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } from "./client.ts";
+import { fetchSnapshot } from "./client.ts";
+import { dashboardOptions } from "./dashboard-options.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
-import { NexusEvalsApi } from "./evals.ts";
-import { NexusWorkApi } from "./work.ts";
 import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
-import { NexusMemoryApi } from "./memory.ts";
-import { NexusPapercutsApi } from "./papercuts.ts";
-import { NexusSosApi } from "./sos.ts";
 import { TerminalDialogs } from "./terminal-dialogs.ts";
 import { terminalTheme } from "./theme.ts";
 
@@ -55,21 +53,9 @@ async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient,
   const terminal = new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const dialogs = new TerminalDialogs(tui, terminalTheme);
-  const memoryApi = new NexusMemoryApi(client, cwd);
-  const sosApi = new NexusSosApi(client, cwd);
   let done!: () => void;
   const closed = new Promise<void>((resolve) => { done = resolve; });
-  const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, {
-    loadSnapshot: (projectId, signal) => fetchSnapshot(client, cwd, projectId, signal),
-    loadUsage: (projectId, signal) => fetchUsage(client, cwd, projectId, signal),
-    loadAnalyticsUsage: (projectId, signal) => fetchAnalyticsUsage(client, cwd, projectId, signal),
-    analyticsApi: new NexusAnalyticsApi(client, cwd),
-    papercutsApi: new NexusPapercutsApi(client, cwd),
-    evalsApi: new NexusEvalsApi(client, cwd),
-    workApi: new NexusWorkApi(client, cwd),
-    sosApi,
-    memoryApi, memoryPrompts: new MemoryPrompts(dialogs), done,
-  });
+  const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, dashboardOptions(client, cwd, new MemoryPrompts(dialogs), done));
   tui.addChild(dashboard);
   tui.setFocus(dashboard);
   tui.addInputListener((data) => matchesKey(data, "ctrl+c") ? (done(), { consume: true }) : undefined);

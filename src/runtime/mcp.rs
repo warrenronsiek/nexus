@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature runtime
@@ -30,6 +32,8 @@ use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 mod analytics_schema;
+mod concern_reporting;
+mod concerns_schema;
 mod evals_schema;
 mod reconciliation;
 mod tool_definitions;
@@ -310,7 +314,12 @@ fn bind_tool_context(
     if method == "sos" {
         enrich_sos_arguments(&mut arguments, invocation_context);
     }
-    if matches!(method, "evals" | "work") {
+    if method == "concerns" {
+        if let Ok(command) = concern_reporting::prepare(arguments.clone()) {
+            arguments = serde_json::to_value(command).expect("typed concern command serializable");
+        }
+    }
+    if matches!(method, "evals" | "work" | "concerns") {
         arguments = json!({
             "context": {
                 "session_id":invocation_context.session_id,
