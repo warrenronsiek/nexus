@@ -1,7 +1,7 @@
 // @feature coordination
 // @spec docs/features/coordination.md
 // @boundary dynamic-json
-use super::domain::{Advisory, Claim, Operation, PathIntent, Severity, ToolPayload};
+use super::domain::{Advisory, Claim, Operation, PathIntent, Severity};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -180,15 +180,9 @@ impl BoundedPathIntents {
     }
 }
 
-pub fn extract_path_intents(
-    tool_name: &str,
-    input: &ToolPayload,
-    project_root: Option<&str>,
-) -> Vec<PathIntent> {
-    let project_root = project_root.filter(|root| is_bounded_path(root));
-    let extractor = ToolIntentExtractor::for_tool(tool_name);
-    BoundedPathIntents::normalize(extractor.extract(input.as_json()), project_root)
-}
+mod execution;
+pub use execution::extract_path_intents;
+pub(crate) use execution::{bounded_reported_intents, shell_invocation};
 
 fn is_bounded_path(path: &str) -> bool {
     !path.is_empty() && path.len() <= MAX_TOOL_PATH_BYTES
@@ -356,12 +350,16 @@ fn extract_patch(input: &Value) -> Vec<PathIntent> {
     PatchScanner::new().extract(patch)
 }
 
-fn extract_shell(input: &Value) -> Vec<PathIntent> {
-    let command = input
+fn shell_command(input: &Value) -> Option<&str> {
+    input
         .get("cmd")
         .or_else(|| input.get("command"))
         .and_then(Value::as_str)
-        .or_else(|| input.as_str());
+        .or_else(|| input.as_str())
+}
+
+fn extract_shell(input: &Value) -> Vec<PathIntent> {
+    let command = shell_command(input);
     let Some(command) = command else {
         return Vec::new();
     };

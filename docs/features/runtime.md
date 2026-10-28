@@ -225,3 +225,35 @@ The stdio/local companion performs bounded, fail-open activity enrichment in mem
 Codex native tool-hook templates use fields available on ordinary main-thread
 events; they do not require an optional child `agent_id` to render. Child-agent
 identity remains captured through the dedicated native lifecycle callbacks.
+
+## Tool checkout routing and teardown
+
+The stdio companion selects a configured client per actual native execution
+checkout. Shell working directories, literal Git `-C`, and native file-edit
+paths are resolved locally without changing process cwd or evaluating shell code.
+Client instances are reused by configuration hash (at most 64 alternate
+configurations), and checkout resolution has 32 concurrent slots and a 750 ms
+deadline. Cross-repository file batches are explicitly reported as unavailable
+coverage rather than guessed. Explicit read tools retain the companion's initial
+project binding.
+
+Reconciliation tracks `(session, checkout, configuration)` and submits each
+checkout's evidence through its own client. Session stop fans out to visited
+clients. Native session-end hooks consult the private bounded checkout journal
+when the companion has already exited, retaining it if any cleanup fails.
+Pre-tool capture failures produce a fixed informational coverage notice in the
+host's accepted hook context; internal diagnostics remain structured operator
+data, and execution always remains permitted.
+
+Literal Git integration preflight reports bounded path intents before merge or
+cherry-pick execution. The optional typed `client_path_intents` field carries
+client-observed operations through the existing tool hook, with the same path
+and count limits as native extraction. These remain untrusted advisory inputs;
+the service neither executes Git nor validates client filesystem contents.
+
+Codex 0.165.0 Bash hooks omit `workdir`; see the [host adapter evidence](../../skills/nexus-work-history/references/host-adapters.md) for verified behavior and the explicit `git -C` integration.
+
+The typed host-state file implementation owns shared directory locking, private
+bounded reads, atomic publication, and the 4,096-file capacity rule for both
+work-context and checkout journals. Each caller retains its own byte and domain
+validation limits. Existing work-context identities and JSON formats are preserved.

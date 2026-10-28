@@ -4,11 +4,13 @@
 // @spec docs/features/usage-analytics.md
 mod analytics;
 mod bounded_io;
+pub(crate) mod checkout_visits;
 pub mod client;
 pub mod daemon;
 pub mod daemon_control;
 mod dispatch;
 pub mod hooks;
+mod host_state;
 pub mod mcp;
 pub(crate) mod protocol;
 pub mod script_exec;

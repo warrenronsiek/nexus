@@ -3,12 +3,11 @@
 // @boundary cached-work-envelopes: compare bounded typed local capture envelopes to preserve canonical callback receipts and reject changed event bodies.
 use crate::coordination::{api::WorkCommand, domain::HookContext};
 use crate::work_history::{WorkAction, WorkEvent, WorkObservationInput};
-use anyhow::{bail, Context, Result};
-use fs2::FileExt;
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError};
 
@@ -354,36 +353,7 @@ pub(super) fn record_capture(
     super::health::capture(directory, context, receipt);
 }
 
-pub(super) fn lock_directory(directory: &Path) -> Result<File> {
-    std::fs::create_dir_all(directory)?;
-    let metadata = std::fs::symlink_metadata(directory)?;
-    if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
-        bail!("work outbox must be a private owned directory");
-    }
-    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))?;
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(directory.join(".lock"))?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
-    loop {
-        match lock.try_lock_exclusive() {
-            Ok(()) => break,
-            Err(error)
-                if error.kind() == std::io::ErrorKind::WouldBlock
-                    && std::time::Instant::now() < deadline =>
-            {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-            Err(error) => return Err(error).context("work outbox is busy"),
-        }
-    }
-    Ok(lock)
-}
+pub(super) use crate::private_state::lock_directory;
 
 fn counter(directory: &Path, name: &str) -> u64 {
     read_entry(&directory.join(name))

@@ -20,3 +20,5 @@ pub(crate) use workspace::ProjectBinding;
 pub(crate) fn local_project_id(root: Option<&str>) -> anyhow::Result<String> {
     workspace::identify(&workspace::ProjectBinding::Local, root).map(|identity| identity.id)
 }
+
+pub(crate) use classifier::{extract_path_intents, shell_invocation};

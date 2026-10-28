@@ -32,9 +32,11 @@ use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 mod analytics_schema;
+mod checkouts;
 mod concern_reporting;
 mod concerns_schema;
 mod evals_schema;
+mod git_intents;
 mod reconciliation;
 mod tool_definitions;
 mod work_schema;
@@ -421,9 +423,24 @@ fn enrich_memory_arguments(method: &str, arguments: &mut Value, context: &McpInv
 fn add_hook_context(method: &str, result: &mut Value) {
     if method == "user_prompt" {
         add_memory_context(result);
+        add_coordination_guidance(result);
     } else {
         add_pre_tool_context(method, result);
     }
+}
+
+fn add_coordination_guidance(result: &mut Value) {
+    let Some(object) = result.as_object_mut() else {
+        return;
+    };
+    let hook = object
+        .entry("hookSpecificOutput")
+        .or_insert_with(|| json!({"hookEventName":"UserPromptSubmit"}));
+    let previous = hook
+        .get("additionalContext")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    hook["additionalContext"] = json!(format!("{previous}\nNexus coordination: for Git operations in another checkout, use a standalone native `git -C /path/to/checkout ...` command, even when setting the tool workdir. Some hosts omit execution directories from hooks. This lets Nexus inspect incoming merge/cherry-pick paths before execution; advisories remain informational."));
 }
 
 fn add_memory_context(result: &mut Value) {
@@ -506,10 +523,12 @@ fn add_pre_tool_context(method: &str, result: &mut Value) {
     let Some(items) = result.get("advisories").and_then(Value::as_array) else {
         return;
     };
-    if items.is_empty() {
+    let missing_coverage = result.get("recorded").and_then(Value::as_bool) == Some(false)
+        && result.get("diagnostic").is_some();
+    if items.is_empty() && !missing_coverage {
         return;
     }
-    let context = items
+    let mut context = items
         .iter()
         .map(|item| {
             format!(
@@ -527,6 +546,9 @@ fn add_pre_tool_context(method: &str, result: &mut Value) {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    if missing_coverage {
+        context.push_str("\nNexus could not record coordination for this call; conflict coverage is unavailable. Execution remains permitted.");
+    }
     result.as_object_mut().unwrap().insert(
         "hookSpecificOutput".into(),
         json!({

@@ -38,7 +38,9 @@ use super::api::{
     EventsResponse, ProjectsResponse, PromptResponse, ReleaseCommand, ReleasedResponse,
     ResolveCommand, ResolvedResponse, ServiceResponse, StatusResponse,
 };
-use super::classifier::{advisory, extract_path_intents, strongest_overlaps};
+use super::classifier::{
+    advisory, bounded_reported_intents, extract_path_intents, strongest_overlaps,
+};
 use super::client_evidence::{
     capture_changed_paths_page, ClientDerivedUsage, ClientFilesystemEvidence,
 };
@@ -512,11 +514,12 @@ fn pre_tool_use_result(
                 )
             })
         });
-    let intents = extract_path_intents(
-        &input.tool_name,
-        &input.tool_input,
-        project.claim_root.as_deref(),
-    );
+    let root = project.claim_root.as_deref();
+    let intents = if input.client_path_intents.is_empty() {
+        extract_path_intents(&input.tool_name, &input.tool_input, root)
+    } else {
+        bounded_reported_intents(&input.client_path_intents, root)
+    };
     let mut store = service
         .lifecycle_store()
         .context("acquire lifecycle store")?;

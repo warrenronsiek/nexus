@@ -21,14 +21,16 @@ use std::time::{Duration, Instant};
 pub(super) const MAX_ACTIVE_CLIENT_SESSIONS: usize = 1_024;
 
 pub(super) struct ConfiguredInvoker {
-    pub(super) client: NexusClient,
-    pub(super) active_sessions: Mutex<HashMap<String, ActiveClientSession>>,
+    pub(super) client: Arc<NexusClient>,
+    pub(super) checkouts: super::checkouts::CheckoutClients,
+    pub(super) active_sessions: Mutex<HashMap<(String, String, String), ActiveClientSession>>,
     pub(super) claim_ttl: Duration,
 }
 
 #[derive(Clone)]
 pub(super) struct ActiveClientSession {
     session_id: String,
+    client: Arc<NexusClient>,
     agent: String,
     project_root: String,
     pub(super) last_seen: Instant,
@@ -37,19 +39,17 @@ pub(super) struct ActiveClientSession {
 impl ConfiguredInvoker {
     pub(super) fn from_loaded(loaded: Arc<LoadedConfig>, explicit_config: Option<PathBuf>) -> Self {
         Self {
-            client: NexusClient::from_shared(loaded.clone(), explicit_config),
+            client: Arc::new(NexusClient::from_shared(
+                loaded.clone(),
+                explicit_config.clone(),
+            )),
+            checkouts: super::checkouts::CheckoutClients::new(&loaded, explicit_config),
             active_sessions: Mutex::new(HashMap::new()),
             claim_ttl: Duration::from_secs(loaded.config.coordination.claim_ttl_seconds as u64),
         }
     }
 
-    pub(super) fn observe_session(&self, request: &ServiceRequest) {
-        if let ServiceRequest::SessionStop(input) = request {
-            if let Ok(mut sessions) = self.active_sessions.lock() {
-                sessions.remove(&input.context.session_id);
-            }
-            return;
-        }
+    pub(super) fn observe_checkout(&self, request: &ServiceRequest, client: Arc<NexusClient>) {
         let context = match request {
             ServiceRequest::UserPrompt(input) => Some(&input.context),
             ServiceRequest::ToolHook { input, .. } => Some(&input.context),
@@ -64,20 +64,30 @@ impl ConfiguredInvoker {
         };
         if let Ok(mut sessions) = self.active_sessions.lock() {
             prune_active_client_sessions(&mut sessions, self.claim_ttl);
-            if !sessions.contains_key(&context.session_id)
-                && sessions.len() >= MAX_ACTIVE_CLIENT_SESSIONS
-            {
+            let key = (
+                context.session_id.clone(),
+                project_root.clone(),
+                client.configuration_hash().to_owned(),
+            );
+            if !sessions.contains_key(&key) && sessions.len() >= MAX_ACTIVE_CLIENT_SESSIONS {
                 evict_oldest_active_client_session(&mut sessions);
             }
             sessions.insert(
-                context.session_id.clone(),
+                key,
                 ActiveClientSession {
+                    client,
                     session_id: context.session_id.clone(),
                     agent: context.agent.clone(),
                     project_root: project_root.clone(),
                     last_seen: Instant::now(),
                 },
             );
+        }
+    }
+
+    fn forget_session(&self, id: &str) {
+        if let Ok(mut sessions) = self.active_sessions.lock() {
+            sessions.retain(|_, session| session.session_id != id);
         }
     }
 
@@ -109,8 +119,21 @@ impl ServiceInvoker for ConfiguredInvoker {
 
     async fn invoke(&self, request: ServiceRequest, lifecycle: bool) -> Result<Value> {
         if lifecycle {
-            self.observe_session(&request);
-            Ok(self.client.lifecycle_request(&request).await)
+            let (request, client) = match self.checkouts.resolve(request, self.client.clone()).await
+            {
+                Ok(resolved) => resolved,
+                Err(error) => {
+                    return Ok(serde_json::to_value(
+                        crate::coordination::domain::HookResponse::fail_open(error),
+                    )?)
+                }
+            };
+            if let ServiceRequest::SessionStop(input) = &request {
+                self.forget_session(&input.context.session_id);
+                return Ok(self.checkouts.stop(&input.context).await);
+            }
+            self.observe_checkout(&request, client.clone());
+            Ok(client.lifecycle_request(&request).await)
         } else {
             self.client.ensure_and_request(&request).await
         }
@@ -118,14 +141,16 @@ impl ServiceInvoker for ConfiguredInvoker {
 }
 
 fn prune_active_client_sessions(
-    sessions: &mut HashMap<String, ActiveClientSession>,
+    sessions: &mut HashMap<(String, String, String), ActiveClientSession>,
     claim_ttl: Duration,
 ) {
     let now = Instant::now();
     sessions.retain(|_, session| now.saturating_duration_since(session.last_seen) <= claim_ttl);
 }
 
-fn evict_oldest_active_client_session(sessions: &mut HashMap<String, ActiveClientSession>) {
+fn evict_oldest_active_client_session(
+    sessions: &mut HashMap<(String, String, String), ActiveClientSession>,
+) {
     if let Some(oldest) = sessions
         .iter()
         .min_by_key(|(_, session)| session.last_seen)
@@ -174,7 +199,7 @@ pub(super) fn spawn_remote_reconciler(
                     );
                     let _ = tokio::time::timeout(
                         crate::runtime::client::LIFECYCLE_RESPONSE_BUDGET,
-                        invoker.client.submit_reconciliation(evidence),
+                        session.client.submit_reconciliation(evidence),
                     )
                     .await;
                 }

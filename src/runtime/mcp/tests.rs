@@ -9,9 +9,6 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 use super::*;
-use crate::runtime::client::NexusClient;
-use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 mod capture_health;
@@ -26,17 +23,15 @@ fn configured_invoker(claim_ttl: Duration) -> ConfiguredInvoker {
         sources: Vec::new(),
         hash: "test-config".into(),
     };
-    ConfiguredInvoker {
-        client: NexusClient::new(&loaded, None),
-        active_sessions: Mutex::new(HashMap::new()),
-        claim_ttl,
-    }
+    let mut invoker = ConfiguredInvoker::from_loaded(Arc::new(loaded), None);
+    invoker.claim_ttl = claim_ttl;
+    invoker
 }
 
 #[test]
 fn remote_reconciliation_tracks_only_fresh_lifecycle_sessions() {
     let invoker = configured_invoker(Duration::from_secs(120));
-    invoker.observe_session(&ServiceRequest::Status);
+    invoker.observe_checkout(&ServiceRequest::Status, invoker.client.clone());
     assert!(invoker.sessions_by_root().is_empty());
 
     let request = ServiceRequest::decode(
@@ -51,14 +46,15 @@ fn remote_reconciliation_tracks_only_fresh_lifecycle_sessions() {
         }),
     )
     .unwrap();
-    invoker.observe_session(&request);
+    invoker.observe_checkout(&request, invoker.client.clone());
     assert_eq!(invoker.sessions_by_root()["/tmp/nexus-project"].len(), 1);
 
     invoker
         .active_sessions
         .lock()
         .unwrap()
-        .get_mut("active-session")
+        .values_mut()
+        .next()
         .unwrap()
         .last_seen = Instant::now() - Duration::from_secs(121);
     assert!(invoker.sessions_by_root().is_empty());
@@ -81,7 +77,7 @@ fn remote_reconciliation_caps_sessions_during_observation() {
             }),
         )
         .unwrap();
-        invoker.observe_session(&request);
+        invoker.observe_checkout(&request, invoker.client.clone());
     }
 
     assert_eq!(
@@ -631,4 +627,21 @@ async fn queued_stdio_response_retains_request_capacity_until_consumed() {
     assert_eq!(queued.value["ok"], true);
     drop(queued);
     assert!(slots.try_acquire_owned().is_ok());
+}
+
+#[test]
+fn one_host_session_keeps_all_visited_checkouts_for_reconciliation() {
+    let invoker = configured_invoker(Duration::from_secs(120));
+    for root in ["/checkout/one", "/checkout/two"] {
+        let request = ServiceRequest::decode(
+            "pre_tool_use",
+            json!({
+                "session_id":"multi-checkout", "project_root":root, "agent":"codex",
+                "tool_use_id":root, "tool_name":"Read", "tool_input":{"path":"README.md"}
+            }),
+        )
+        .unwrap();
+        invoker.observe_checkout(&request, invoker.client.clone());
+    }
+    assert_eq!(invoker.sessions_by_root().len(), 2);
 }

@@ -46,7 +46,7 @@ pub fn process_instance_id() -> &'static str {
     ID.get_or_init(|| uuid::Uuid::new_v4().to_string())
 }
 
-fn directory(loaded: &LoadedConfig) -> Result<PathBuf> {
+pub(crate) fn directory(loaded: &LoadedConfig) -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("NEXUS_WORK_OUTBOX_DIR") {
         return Ok(path.into());
     }
@@ -438,6 +438,7 @@ mod tests {
             model: None,
         };
         let tool = ToolHookInput {
+            client_path_intents: Vec::new(),
             is_interrupt: None,
             agent_id: None,
             context,

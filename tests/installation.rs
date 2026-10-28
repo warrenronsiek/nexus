@@ -30,7 +30,7 @@ fn machine_setup_installs_integrations_idempotently() {
     fs::create_dir_all(&codex_home).unwrap();
     fs::write(
         codex_home.join("hooks.json"),
-        r#"{"theme":"user-choice","hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"keep-me"}]}]}}"#,
+        r#"{"theme":"user-choice","hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"keep-me"},{"type":"mcp","server":"nexus","tool":"old"}]}]}}"#,
     )
     .unwrap();
     fake_host(&command_directory, "codex");
@@ -45,6 +45,7 @@ fn machine_setup_installs_integrations_idempotently() {
         assert_success(&setup);
     }
     assert_machine_setup(&home, &codex_home, &host_log);
+    assert_unique_work_hooks(&codex_home);
     assert!(home.join(".pi/agent/extensions/nexus/index.ts").is_file());
     assert!(home
         .join(".pi/agent/extensions/nexus/component.ts")
@@ -95,6 +96,29 @@ fn machine_setup_installs_integrations_idempotently() {
                 .is_file(),
             "machine setup did not install {memory_module}"
         );
+    }
+}
+
+fn assert_unique_work_hooks(codex_home: &Path) {
+    let hooks: Value =
+        serde_json::from_slice(&fs::read(codex_home.join("hooks.json")).unwrap()).unwrap();
+    assert!(hooks.to_string().contains("keep-me"));
+    for event in [
+        "SessionStart",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "Interrupt",
+    ] {
+        let commands: Vec<_> = hooks["hooks"][event]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["hooks"].as_array().unwrap())
+            .filter_map(|hook| hook["command"].as_str())
+            .filter(|command| command.contains(" work host-event --host "))
+            .collect();
+        assert_eq!(commands.len(), 1, "{event}: {hooks}");
     }
 }
 

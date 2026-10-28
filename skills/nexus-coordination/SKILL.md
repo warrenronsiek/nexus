@@ -115,3 +115,21 @@ arrive, completion IDs match, session stop releases claims, and workload results
 survive capture failure. Inspect the coordination panes with
 [nexus-observability](../nexus-observability/SKILL.md). Use
 [nexus](../nexus/SKILL.md) to choose another Nexus feature.
+
+## Verify calls that leave the startup checkout
+
+The stdio companion follows native shell `workdir`/`cwd`, literal Git `-C`, and
+file-edit paths into the target repository and reloads that repository's binding.
+Literal merge/cherry-pick calls preflight incoming committed paths before execution.
+Use separate native calls for shell orchestration or multi-repository file batches;
+Nexus does not interpret arbitrary shell or JavaScript. A missing-coverage notice
+means the call remained permitted but no reliable overlap check was recorded.
+
+Test two sessions in the target checkout, including one whose host starts elsewhere.
+Verify that a warning names the peer before execution and that native session end
+releases claims across every visited checkout. Independent clones still need
+matching explicit project IDs: run `nexus install --share-project-with
+/path/to/existing/checkout` from the new clone and inspect both resolved configs.
+This refuses different remote endpoints and never copies credentials.
+
+Use a standalone native `git -C /path/to/checkout ...` command for another checkout, even when setting `workdir`; see the [host adapter evidence](../nexus-work-history/references/host-adapters.md).

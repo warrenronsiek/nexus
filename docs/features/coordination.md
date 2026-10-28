@@ -123,3 +123,44 @@ The main invariants are:
 Unit tests cover extraction, severity, typed request decoding, local service overlap behavior, bounded recent-session selection, grouped local reconciliation with per-session attribution, and two distinct clone roots sharing one remote project without persisting either root as a worktree. Process tests in `tests/mcp_hooks.rs` exercise the local flows through a real MCP process, daemon socket, and SQLite database. Remote runtime tests prove client-side reconciliation plus derived script/skill evidence, while the PostgreSQL integration test covers the shared project binding.
 
 Store-contention recovery tests release the held lock from the retry callback rather than relying on a 20 ms sleep completing inside the 100 ms lifecycle budget. Production retains the same 100 ms deadline and 1 ms retry interval. Separate deterministic tests cover retry exhaustion, and the real concurrent fail-open test keeps its bounded-response assertion.
+
+## Cross-checkout coordination
+
+The local stdio companion resolves the checkout used by each native tool call before
+loading its project configuration. Shell `workdir`/`cwd`, literal Git `-C` options,
+and native file-edit paths determine that checkout; relative file paths retain the
+caller's actual directory. Repository configuration, endpoint, credentials, and
+project namespace follow the target checkout through normal configuration layering.
+The shared service never inspects a client path on its own filesystem.
+
+Before literal `git merge` and `git cherry-pick` calls, the companion reads incoming
+committed path metadata and reports bounded write/delete intents. It never executes
+the requested integration, external diff drivers, or shell orchestration. Commands
+are limited to eight revisions, 256 paths, and 256 KiB of Git output; each read has
+a 250 ms deadline within the 750 ms checkout-resolution budget. Unsupported
+integration options, batched shell commands, unavailable directories, or exhausted
+capture limits fail open with a model-visible notice that conflict coverage is
+unavailable. This is not a general shell or JavaScript interpreter.
+
+A host session can visit several checkouts and project bindings. Reconciliation
+retains each visited root and its configured client instead of replacing the
+previous root. Stop is sent to every observed binding. A bounded owner-only local
+journal retains routing metadata for the native session-end hook after its MCP
+companion exits; it contains credential-file paths, never credential values or tool
+payloads. The journal permits 32 visits per host and 4,096 host journals, with a
+256 KiB file limit. Incomplete cleanup preserves its journal; ordinary claim expiry
+remains the safety net when shutdown delivery fails.
+
+Worktrees share Git-common-directory configuration. Independent clones require
+explicit namespace onboarding: from the new clone run
+`nexus install --share-project-with /path/to/existing/checkout`. This copies only
+the resolved project ID and refuses different remote service endpoints; it does
+not copy credentials or merge historical project records. Verify the resolved
+configuration in each clone, including environment overrides.
+
+Teardown journals are needed only for visits outside the initial checkout or
+configuration. Their storage failures never disable primary tool coordination;
+failed shutdown delivery still relies on claim expiry. MCP and native session
+stop share one journal reader and cleanup path, and a single private directory
+lock avoids accumulating a lock file for every completed host. Pi sends session
+stop before closing its companion at shutdown.

@@ -13,6 +13,8 @@
 // @entrypoint setup_machine
 // @entrypoint install_repository
 // @boundary dynamic-json
+mod project_binding;
+
 use crate::agents::integration::{hook_configuration, mcp_server_arguments, Host};
 use crate::config::{ClientConfig, Config};
 use crate::persistence::Store;
@@ -205,16 +207,15 @@ fn install_host_integrations(
 pub fn install_repository(
     repository: &Path,
     explicit_config: Option<&Path>,
+    shared_with: Option<&Path>,
 ) -> Result<RepositoryInstallReport> {
     let repository = repository
         .canonicalize()
         .with_context(|| format!("resolve repository {}", repository.display()))?;
-    let common_directory = repository_common_directory(&repository)?;
-    let project_config = common_directory.join("nexus.toml");
-    if !project_config.exists() {
-        std::fs::write(&project_config, PROJECT_CONFIG)
-            .with_context(|| format!("write {}", project_config.display()))?;
-    }
+    let project_config = prepare_project_config(&repository)?;
+    shared_with
+        .map(|source| project_binding::share(&repository, source, &project_config, explicit_config))
+        .transpose()?;
     let loaded = Config::load(explicit_config, Some(&repository))?;
     let database = match &loaded.config.client {
         ClientConfig::Local => {
@@ -230,6 +231,20 @@ pub fn install_repository(
         database,
         mode: "advisory_only",
     })
+}
+
+fn prepare_project_config(repository: &Path) -> Result<PathBuf> {
+    let project_config = repository_common_directory(repository)?.join("nexus.toml");
+    ensure_project_config(&project_config)?;
+    Ok(project_config)
+}
+
+fn ensure_project_config(project_config: &Path) -> Result<()> {
+    if !project_config.exists() {
+        std::fs::write(project_config, PROJECT_CONFIG)
+            .with_context(|| format!("write {}", project_config.display()))?;
+    }
+    Ok(())
 }
 
 fn repository_common_directory(repository: &Path) -> Result<PathBuf> {
@@ -335,7 +350,7 @@ fn merge_hooks(path: &Path, generated: Value) -> Result<()> {
             .or_insert_with(|| Value::Array(Vec::new()))
             .as_array_mut()
             .with_context(|| format!("hook event {event} must be an array"))?;
-        entries.retain(|entry| !contains_nexus_hook(entry));
+        remove_nexus_handlers(entries);
         entries.extend(
             generated_entries
                 .as_array()
@@ -351,6 +366,20 @@ fn merge_hooks(path: &Path, generated: Value) -> Result<()> {
         .with_context(|| format!("write {}", path.display()))
 }
 
+fn remove_nexus_handlers(entries: &mut Vec<Value>) {
+    for entry in entries.iter_mut() {
+        if let Some(handlers) = entry.get_mut("hooks").and_then(Value::as_array_mut) {
+            handlers.retain(|handler| !contains_nexus_hook(handler));
+        }
+    }
+    entries.retain(|entry| {
+        entry
+            .get("hooks")
+            .and_then(Value::as_array)
+            .is_none_or(|handlers| !handlers.is_empty())
+    });
+}
+
 fn contains_nexus_hook(value: &Value) -> bool {
     match value {
         Value::Object(object) => {
@@ -358,7 +387,10 @@ fn contains_nexus_hook(value: &Value) -> bool {
                 || object
                     .get("command")
                     .and_then(Value::as_str)
-                    .is_some_and(|command| command.contains(" hook-session-end --agent "))
+                    .is_some_and(|command| {
+                        command.contains(" hook-session-end --agent ")
+                            || command.contains(" work host-event --host ")
+                    })
                 || object.values().any(contains_nexus_hook)
         }
         Value::Array(values) => values.iter().any(contains_nexus_hook),

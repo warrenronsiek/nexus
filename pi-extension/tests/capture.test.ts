@@ -83,7 +83,7 @@ it("records tool start and completion through the existing Nexus lifecycle calls
     );
 });
 
-it("records explicit skills, failed tools, and closes at session shutdown", () => {
+it.each([false, true])("records skills, failed tools, and stops before shutdown (unavailable: %s)", async (unavailable) => {
     const handlers = new Map<string, (event: never, context: HandlerContext) => void>();
     const pi = {
       on(name: string, handler: (event: never, context: HandlerContext) => void) {
@@ -91,7 +91,12 @@ it("records explicit skills, failed tools, and closes at session shutdown", () =
         return () => undefined;
       },
     } as unknown as ExtensionAPI;
-    const transport: AnalyticsTransport = { call: vi.fn(), close: vi.fn() };
+    const transport: AnalyticsTransport = {
+      call: vi.fn((name: string) => {
+        if (unavailable && name === "nexus_session_stop") return Promise.reject(new Error("unavailable"));
+        return Promise.resolve({});
+      }), close: vi.fn(),
+    };
     registerAnalyticsCapture(pi, transport);
     const context = {
       cwd: "/repo",
@@ -116,7 +121,7 @@ it("records explicit skills, failed tools, and closes at session shutdown", () =
       } as never,
       context,
     );
-    handlers.get("session_shutdown")?.(
+    await handlers.get("session_shutdown")?.(
       { type: "session_shutdown", reason: "quit" } as never,
       context,
     );
@@ -138,6 +143,8 @@ it("records explicit skills, failed tools, and closes at session shutdown", () =
       expect.objectContaining({ tool_use_id: "tool-2" }),
       "/repo",
     );
+    expect(transport.call).toHaveBeenNthCalledWith(3, "nexus_session_stop",
+      expect.objectContaining({session_id: "session-1", project_root: "/repo", agent: "pi"}), "/repo");
     expect(transport.close).toHaveBeenCalledOnce();
 });
 

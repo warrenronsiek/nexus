@@ -2,10 +2,12 @@
 // @spec docs/features/installation.md
 // @feature runtime
 // @spec docs/features/runtime.md
-// @boundary private-update-state: restrictive owned files contain resolved deployment configuration and are never emitted in reports.
+// @boundary private-state: restrictive owned files contain resolved deployment configuration and are never emitted in reports.
 use anyhow::{ensure, Context, Result};
+use fs2::FileExt;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 pub(crate) fn directory_at(path: &Path) -> Result<()> {
@@ -20,7 +22,7 @@ pub(crate) fn directory_at(path: &Path) -> Result<()> {
         metadata.is_dir()
             && metadata.uid() == unsafe { libc::geteuid() }
             && metadata.mode() & 0o077 == 0,
-        "update state directory must be private and owned by the current user"
+        "private state directory must be private and owned by the current user"
     );
     Ok(())
 }
@@ -54,7 +56,7 @@ pub(crate) fn read(path: &Path, limit: u64) -> Result<Option<Vec<u8>>> {
             && metadata.uid() == unsafe { libc::geteuid() }
             && metadata.mode() & 0o077 == 0
             && metadata.len() <= limit,
-        "update state must be a bounded private owned file"
+        "private state must be a bounded private owned file"
     );
     let mut bytes = Vec::new();
     Read::by_ref(&mut file)
@@ -62,7 +64,55 @@ pub(crate) fn read(path: &Path, limit: u64) -> Result<Option<Vec<u8>>> {
         .read_to_end(&mut bytes)?;
     ensure!(
         bytes.len() as u64 <= limit,
-        "update state exceeds its limit"
+        "private state exceeds its limit"
     );
     Ok(Some(bytes))
+}
+
+fn prepare_lock_directory(directory: &Path) -> Result<()> {
+    std::fs::create_dir_all(directory)?;
+    let metadata = std::fs::symlink_metadata(directory)?;
+    ensure!(
+        metadata.is_dir() && metadata.uid() == unsafe { libc::geteuid() },
+        "private state must be a private owned directory"
+    );
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).map_err(Into::into)
+}
+
+fn open_directory_lock(directory: &Path) -> Result<File> {
+    prepare_lock_directory(directory)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(directory.join(".lock"))?;
+    let metadata = lock.metadata()?;
+    ensure!(
+        metadata.is_file()
+            && metadata.uid() == unsafe { libc::geteuid() }
+            && metadata.mode() & 0o077 == 0,
+        "private state lock must be an owned private file"
+    );
+    Ok(lock)
+}
+
+pub(crate) fn lock_directory(directory: &Path) -> Result<File> {
+    let lock = open_directory_lock(directory)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
+    loop {
+        match lock.try_lock_exclusive() {
+            Ok(()) => break,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            Err(error) => return Err(error).context("private state is busy"),
+        }
+    }
+    Ok(lock)
 }
