@@ -173,8 +173,11 @@ impl NexusClient {
         } else {
             None
         };
-        let outcome =
-            tokio::time::timeout(LIFECYCLE_RESPONSE_BUDGET, self.ensure_and_request(request)).await;
+        let outcome = tokio::time::timeout(
+            LIFECYCLE_RESPONSE_BUDGET,
+            self.retry_unrecorded_lifecycle(request),
+        )
+        .await;
         let diagnostic = match outcome {
             Ok(Ok(response)) => {
                 let _ =
@@ -192,6 +195,18 @@ impl NexusClient {
                 .expect("hook responses serialize"),
             capture,
         )
+    }
+
+    async fn retry_unrecorded_lifecycle(&self, request: &ServiceRequest) -> Result<Value> {
+        loop {
+            let response = self.ensure_and_request(request).await?;
+            if response.get("recorded").and_then(Value::as_bool) != Some(false)
+                || response.get("retryable").and_then(Value::as_bool) != Some(true)
+            {
+                return Ok(response);
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 
     pub(crate) fn configuration_hash(&self) -> &str {

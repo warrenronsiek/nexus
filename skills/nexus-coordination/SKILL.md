@@ -133,3 +133,8 @@ matching explicit project IDs: run `nexus install --share-project-with
 This refuses different remote endpoints and never copies credentials.
 
 Use a standalone native `git -C /path/to/checkout ...` command for another checkout, even when setting `workdir`; see the [host adapter evidence](../nexus-work-history/references/host-adapters.md).
+
+Companions retry brief store contention only when Nexus explicitly confirms no
+store was acquired and nothing was recorded. Retries share the existing 2.5-second
+lifecycle budget; transport errors and uncertain recording failures are not replayed.
+A missing-coverage notice after that budget still means overlap coverage was unavailable.

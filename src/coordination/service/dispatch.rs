@@ -53,7 +53,10 @@ impl NexusService {
             },
             evidence.derived_usage.clone(),
         );
-        let _ = self.reconcile_remote_evidence(&project_id, &evidence, false);
+        // Preserve the no-write guarantee of an acquisition-timeout response.
+        if !matches!(&response, ServiceResponse::Hook(hook) if hook.retryable) {
+            let _ = self.reconcile_remote_evidence(&project_id, &evidence, false);
+        }
         response
     }
 
