@@ -1,5 +1,7 @@
 // @feature work-history
 // @spec docs/features/work-history.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature papercuts
@@ -15,17 +17,13 @@
 // @entrypoint pi-extension
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAnalyticsCapture } from "./capture.ts";
-import { fetchSnapshot, fetchUsage, fetchAnalyticsUsage, NexusAnalyticsApi } from "./client.ts";
+import { fetchSnapshot } from "./client.ts";
+import { dashboardOptions } from "./dashboard-options.ts";
 import { NexusDashboardComponent } from "./component.ts";
 import { sanitizeDisplayText } from "./display.ts";
-import { NexusEvalsApi } from "./evals.ts";
-import { NexusWorkApi } from "./work.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
-import { NexusMemoryApi } from "./memory.ts";
-import { NexusPapercutsApi } from "./papercuts.ts";
-import { NexusSosApi } from "./sos.ts";
 
 export default function nexusExtension(pi: ExtensionAPI): void {
   const client = new NexusMcpClient();
@@ -41,28 +39,12 @@ export default function nexusExtension(pi: ExtensionAPI): void {
       try {
         ctx.ui.notify("Connecting to Nexus…", "info");
         const snapshot = await fetchSnapshot(client, ctx.cwd, null);
-        const memoryApi = new NexusMemoryApi(client, ctx.cwd);
-        const sosApi = new NexusSosApi(client, ctx.cwd);
         await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
           return new NexusDashboardComponent(
             tui,
             theme,
             snapshot,
-            {
-              loadSnapshot: (projectId, signal) =>
-                fetchSnapshot(client, ctx.cwd, projectId, signal),
-              loadUsage: (projectId, signal) =>
-                fetchUsage(client, ctx.cwd, projectId, signal),
-              loadAnalyticsUsage: (projectId, signal) => fetchAnalyticsUsage(client, ctx.cwd, projectId, signal),
-              analyticsApi: new NexusAnalyticsApi(client, ctx.cwd),
-              papercutsApi: new NexusPapercutsApi(client, ctx.cwd),
-              evalsApi: new NexusEvalsApi(client, ctx.cwd),
-              workApi: new NexusWorkApi(client, ctx.cwd),
-              sosApi,
-              memoryApi,
-              memoryPrompts: new MemoryPrompts(ctx.ui),
-              done: () => done(),
-            },
+            dashboardOptions(client, ctx.cwd, new MemoryPrompts(ctx.ui), () => done()),
           );
         });
       } catch (error) {

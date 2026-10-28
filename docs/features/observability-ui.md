@@ -6,9 +6,9 @@ feature: observability-ui
 
 ## What this feature does
 
-Nexus has two entry points for one terminal interface: the bundled `nexus tui` command and `/nexus` inside Pi. Both render the same Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals, and Work tabs. Coordination progressively discloses sessions, claims, conflicts, and events. SOS presents aggregate issues by importance and last arrival, then reveals their retained source reports, triage attempts, and lifecycle history. Papercuts lists the current or selected project’s open issues with encounter counts and latest encounter times; Enter opens the full description, identifiers, and timestamps. Pressing `n` or moving down from the last loaded row fetches older open reports in bounded pages. The list exposes whether more pages remain and points to `nexus papercuts dump` for the complete historical registry. Reads are abortable when leaving the tab, stale responses cannot replace a newer scope, and refresh retains the last successful list on failure. An initial timeout tells the user how to retry. Tools and Skills show rolling seven-day horizontal bar charts. Memory browses and searches notes, adds an explicitly scoped raw note, expands or invalidates a derived summary, and requests consolidation.
+Nexus has two entry points for one terminal interface: the bundled `nexus tui` command and `/nexus` inside Pi. Both render the same Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals, Work, and Code concerns tabs. Coordination progressively discloses sessions, claims, conflicts, and events. SOS presents aggregate issues by importance and last arrival, then reveals their retained source reports, triage attempts, and lifecycle history. Papercuts lists the current or selected project’s open issues with encounter counts and latest encounter times; Enter opens the full description, identifiers, and timestamps. Pressing `n` or moving down from the last loaded row fetches older open reports in bounded pages. The list exposes whether more pages remain and points to `nexus papercuts dump` for the complete historical registry. Reads are abortable when leaving the tab, stale responses cannot replace a newer scope, and refresh retains the last successful list on failure. An initial timeout tells the user how to retry. Tools and Skills show rolling seven-day horizontal bar charts. Memory browses and searches notes, adds an explicitly scoped raw note, expands or invalidates a derived summary, and requests consolidation.
 
-All data travels through one persistent local `nexus mcp` child per interface. Coordination, SOS, Papercuts, Evals, Work, project, usage, and memory reads use the same typed service boundary and configured client transport as the CLI. Memory requests carry correlated host context. Nexus serves an authenticated machine API and direct MCP endpoint for shared deployments, but it does not serve a web application and the repository contains no HTML, CSS, Elm, or other browser assets.
+All data travels through one persistent local `nexus mcp` child per interface. Coordination, SOS, Papercuts, Code concerns, Evals, Work, project, usage, and memory reads use the same typed service boundary and configured client transport as the CLI. Memory requests carry correlated host context. Nexus serves an authenticated machine API and direct MCP endpoint for shared deployments, but it does not serve a web application and the repository contains no HTML, CSS, Elm, or other browser assets.
 
 `nexus tui` embeds the terminal renderer and dashboard bundle. It uses a compatible Node runtime already on `PATH` or installs a pinned, verified runtime into `nexus/tui/` under the operating system's per-user cache directory. Dashboard files and the managed runtime do not depend on access to the configured database directory, including when a remote client retains an inaccessible local database path. It requires no Pi installation, agent login, or model credentials for rendering. Remote mode does require the Nexus bearer credential selected by `NEXUS_SECRET` or `client.secret_file`. The Pi extension uses its host's renderer and also observes tool calls and explicit skill invocations through a bounded, fail-open capture queue.
 
@@ -16,7 +16,7 @@ All data travels through one persistent local `nexus mcp` child per interface. C
 
 Agent-facing advisories solve immediate collisions, but a person still needs a compact operational view of repositories, sessions, claims, conflicts, recurring SOS problems, tool activity, skill activity, and memory health. Keeping the interface in the terminal avoids a browser frontend toolchain and browser security surface while remaining available both inside Pi and directly from the CLI. A remote service listener is transport infrastructure shared with every other client, not a separate UI server.
 
-Progressive disclosure keeps recent operational state first. The initial Coordination page answers whether Nexus is healthy, where work is happening, and whether conflicts are open. Full payloads and metadata appear only after a person selects a category and record. Coordination, SOS, Papercuts, Evals, Work, and analytics are read-only; only explicit Memory-tab operations mutate state, and immutable raw notes cannot be edited or deleted.
+Progressive disclosure keeps recent operational state first. The initial Coordination page answers whether Nexus is healthy, where work is happening, and whether conflicts are open. Full payloads and metadata appear only after a person selects a category and record. Coordination, SOS, Papercuts, Code concerns, Evals, Work, and analytics are read-only; only explicit Memory-tab operations mutate state, and immutable raw notes cannot be edited or deleted.
 
 ## Data flow
 
@@ -42,7 +42,7 @@ flowchart TD
     L --> N
     M --> N
     SI --> N
-    N --> O[Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals, Work tabs]
+    N --> O[Coordination, SOS, Tools, Skills, Memory, Papercuts, Code concerns, Evals, Work tabs]
     P[Polling tick] --> Q{Request already active?}
     Q -->|yes| R[Skip overlapping poll]
     Q -->|no| B
@@ -67,7 +67,7 @@ flowchart TD
 14. **Memory context and health** remain on the correlated MCP protocol and are delimited as untrusted data when injected into a model session.
 15. **SOS aggregate and source detail** is read-only in the terminal: list shows importance and last arrival first, while detail includes source reports, triage timestamps, and lifecycle history. Reporting, resolution, and deprecation remain explicit HTTP, MCP, or CLI actions.
 16. **Typed terminal decoders** reject malformed dynamic responses before they enter component state.
-17. **Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals, Work tabs** present the shared keyboard-driven component in either host.
+17. **Coordination, SOS, Tools, Skills, Memory, Papercuts, Code concerns, Evals, Work tabs** present the shared keyboard-driven component in either host.
 18. **Polling tick** refreshes only the active surface and never overlaps a prior polling request.
 19. **Skip overlapping poll** bounds work while a previous request is active.
 20. **Abort queued MCP read** removes stale scope requests before backpressure can send them.
@@ -76,7 +76,7 @@ flowchart TD
 
 `src/persistence/dashboard.rs` owns the read model and keeps database access in Diesel's typed DSL for either backend. `DashboardRecords` returns exact scoped counts alongside bounded record windows. Configuration can request smaller windows, but the server always caps a dashboard at 32 events and 16 sessions, claims, and conflicts. Project discovery remains global but returns at most 16 recently active projects and samples at most four recent sessions for each summary. Truncation is explicit, and hard bounds cannot be raised through `[ui]` configuration.
 
-The shared terminal UI lives under `pi-extension/`. `client.ts` maps typed dashboard, project, and usage reads onto the MCP client. `domain.ts` validates their wire shapes. `navigation.ts` owns Coordination's progressive-disclosure state. `sos.ts` validates SOS list and detail responses and `sos-pane.ts` owns its read-only summary-to-source navigation. `polling.ts` owns independent single-flight dashboard and analytics refresh lifecycles. `usage.ts` and `usage-pane.ts` render seven-day bar summaries. `component.ts` composes the eight tabs.
+The shared terminal UI lives under `pi-extension/`. `client.ts` maps typed dashboard, project, and usage reads onto the MCP client. `domain.ts` validates their wire shapes. `navigation.ts` owns Coordination's progressive-disclosure state. `sos.ts` validates SOS list and detail responses and `sos-pane.ts` owns its read-only summary-to-source navigation. `polling.ts` owns independent single-flight dashboard and analytics refresh lifecycles. `usage.ts` and `usage-pane.ts` render seven-day bar summaries. `component.ts` composes the nine tabs.
 
 `history-pane.ts` owns the common scoped component lifecycle for Evals and Work:
 scope changes cancel pending reads before domain navigation resets, deactivation
@@ -122,6 +122,40 @@ repository identity, commit, path, and backing metadata; stored blobs display
 digest and size. Rendering never fetches artifact bytes or launches an evaluation.
 
 `evals.ts` validates the MCP `nexus_evals` list/get/why envelopes and recursively checks bounded JSON values before presentation; the service owns validation of the closed domain variants. `evals-pane.ts` configures the shared history component. `evals-state.ts` owns the discriminated set/metric/list/detail/history/link navigation state and filter commands; `evals-requests.ts` owns single-flight reads, cancellation, stale-response rejection, and page acceptance. `evals-view.ts` formats structured evidence with terminal sanitization, explicit preview limits, and links. `t` cycles record kinds; `/`, `o`, and `m` edit search, repository, and model filters; `c` clears them. Empty filter input clears that filter. `n` or moving past the last loaded row fetches the next page. Filter and scope changes abort old requests, late responses cannot replace the new view, and failed refreshes keep the last successful data with a stale notice. History truncation and display-only omissions are explicit; unknown or partial capture remains visible in record metadata.
+
+The separate read-only **Code concerns / Problem areas** tab summarizes reported
+code problems by feature, subsystem, file, or declaration. Ranked area bars and
+a UTC observation trend retain raw observations, known source occurrences,
+distinct work/host sessions, and unknown source/context/time counts separately.
+`m` cycles sorts by affected work sessions, recent reports, and returns after
+resolution. In the recent sort the service orders by source activity while bars
+still measure labeled observation counts, never epoch timestamp magnitudes.
+Overlapping areas are not additive totals, and no reports means no reported
+problems rather than verified code health.
+
+Enter selects an area to reveal its distinct concerns; Enter on a concern opens
+a timeline of encounters, remedies, reviews, resolutions, and returns. Arrows
+or `j`/`k` select evidence. Metadata below the timeline retains source occurrence,
+observation, and receipt times, reporter/session identities, remedy motivation
+and outcomes, Git locations, and dirty/verification qualifications. Session names use current metadata matched to the original agent and exact host/work
+identities, including additional history pages; missing titles remain explicitly
+unavailable. `n` pages areas, concerns, or
+immutable observations; `a` browses all concerns, including valid unlocated
+reports; Escape returns. An empty area list never hides unlocated concerns or
+establishes absence. Partial population/source counts,
+bounded metadata previews, next cursors, and source uncertainty remain visible.
+The terminal never fetches Git objects, artifact bytes, or executes a remedy.
+
+`concerns.ts` validates bounded `nexus_concerns` projections and JSON evidence;
+`concerns-evidence.ts` reads recorded Git locators without inferring identity.
+`concerns-state.ts` and `concerns-requests.ts` preserve scoped navigation,
+pagination, current selection, aborts, stale reads, and refresh failure behavior.
+`concerns-pane.ts` reuses the shared history component; `concerns-view.ts`
+sanitizes source text before trusted styling. Both terminal entry points use
+the same configured transport and project binding. Papercuts remains the
+development/environment friction registry, while SOS represents unusual
+situations encountered by agents in running applications; explicit evidence
+links retain those separate lifecycle and counting policies.
 
 Evals list rows include occurrence date and time in UTC. Record detail separates the bound receipt from an imported original source receipt. For runs, trials, and attempts, it shows caller-reported lifecycle frontiers above the immutable body, retaining the initial state and exposing unresolved forks or partial history without selecting a winner.
 

@@ -8,6 +8,14 @@ feature: papercuts
 
 Papercuts is a durable, project-aware ergonomics log for friction that makes development slower or less reliable: flaky tests, awkward setup, slow checks, confusing tools, and similar recurring problems. Agents can report a papercut, upvote one they encounter, read the active set, dump the complete registry, soft-remove a solved issue, and consolidate duplicate reports.
 
+Memory pressure and orphan test containers are development/environment
+friction. An identified race in application code exposed by a flaky check
+belongs in [Code concerns](code-concerns.md); the impediment caused by flaky
+checks may remain a linked papercut. [SOS](sos.md) serves agents inside running
+applications encountering unusual inputs or situations outside their expected
+scope. Route by the substance of the report; these registries retain separate
+identities and lifecycle policies.
+
 Every report and upvote is retained as its own timestamped observation. Resolution, reopening, and consolidation are retained as typed timestamped lifecycle transitions with actor provenance. The canonical issue therefore shows both total impact and the most recent encounter, while a complete dump preserves the underlying history needed to decide whether an issue is stale or still actively impeding work.
 
 ## Why it exists

@@ -6,7 +6,21 @@ feature: sos
 
 ## What this feature does
 
-SOS is a durable, project-scoped inbox for agents that encounter a complex problem and need help. An authenticated agent submits a structured source report containing `message`, `type`, `environment`, `version`, `model`, `trace`, and an arbitrary JSON metadata object. Nexus retains that source report unchanged apart from boundary normalization, then asks a configured model to triage it against the project's bounded recent aggregate issues, including closed aggregates that may have recurred.
+SOS is a durable, project-scoped inbox for agents inside a running application
+that encounter unfamiliar input or a situation outside their expected operating
+scope. An email-handling agent receiving an input it cannot handle within its
+responsibilities can report that situation here. An authenticated agent submits
+a structured source report containing `message`, `type`, `environment`,
+`version`, `model`, `trace`, and an arbitrary JSON metadata object. Nexus retains
+that source report unchanged apart from boundary normalization, then asks a
+configured model to triage it against the project's bounded recent aggregate
+issues, including closed aggregates that may have recurred.
+
+Development/environment friction belongs in [Papercuts](papercuts.md);
+evidenced defects or recurring design concerns in maintained code belong in
+[Code concerns](code-concerns.md). An application SOS can motivate a linked code
+investigation without changing either record's lifecycle or meaning. This
+routing clarification does not alter the SOS ingestion schema or triage policy.
 
 Triage either creates a generated issue or links the report to an existing issue and refreshes that issue's generated title and summary. Aggregate importance is the number of linked source reports, not a mutable counter. First and last arrival timestamps are likewise derived from source reports. Resolving or deprecating an issue never deletes it; a later linked report reopens it automatically.
 

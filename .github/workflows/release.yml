@@ -1,0 +1,96 @@
+# @feature installation
+# @spec docs/features/installation.md
+name: release
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  assets:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      RELEASE_REVISION: ${{ github.event.workflow_run.head_sha }}
+      RELEASE_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the exact validated source revision
+        env:
+          NEXUS_RELEASE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: cargo build --locked --release --bin nexus --target "$RELEASE_TARGET"
+      - name: Collect executable
+        run: |
+          mkdir release-assets
+          cp "target/$RELEASE_TARGET/release/nexus" "release-assets/nexus-$RELEASE_TARGET"
+      - name: Build a versioned service image without user data
+        if: runner.os == 'Linux'
+        run: |
+          docker build --build-arg "NEXUS_RELEASE_REVISION=$RELEASE_REVISION" --tag "nexus-release:$RELEASE_REVISION" .
+          docker image save --output "release-assets/nexus-service-$RELEASE_TARGET.tar" "nexus-release:$RELEASE_REVISION"
+          docker image inspect --format '{{.Id}}' "nexus-release:$RELEASE_REVISION" > "release-assets/image-id-$RELEASE_TARGET.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: release-assets/*
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_REVISION: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify complete assets and publish atomically
+        run: |
+          release_version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          python3 scripts/release_manifest.py --directory release-assets --revision "$RELEASE_REVISION" --version "$release_version"
+          release_tag="main-$RELEASE_REVISION"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            if [ "$(gh release view "$release_tag" --json isDraft --jq .isDraft)" != true ]; then
+              echo "The immutable release is already published."
+              exit 0
+            fi
+          else
+            gh release create "$release_tag" --draft --target "$RELEASE_REVISION" --title "Nexus $release_version + $RELEASE_REVISION" --notes "Verified binaries and service images for the exact main revision after its CI run passed."
+          fi
+          gh release upload "$release_tag" release-assets/manifest.json release-assets/nexus-* --clobber
+          gh release edit "$release_tag" --draft=false --latest=false

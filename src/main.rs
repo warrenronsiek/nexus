@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @feature work-history
 // @spec docs/features/work-history.md
@@ -16,10 +18,18 @@
 // @spec docs/features/sos.md
 // @entrypoint main
 // @boundary cli-and-json
+#[path = "main/concerns.rs"]
+mod concerns_cli;
 #[path = "main/evals.rs"]
 mod evals_cli;
+#[path = "main/history_client.rs"]
+mod history_client;
+#[path = "main/history_transfer.rs"]
+mod history_transfer;
 #[path = "main/sos.rs"]
 mod sos_cli;
+#[path = "main/update.rs"]
+mod update_cli;
 #[path = "main/work.rs"]
 mod work_cli;
 
@@ -44,7 +54,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Parser)]
 #[command(
     name = "nexus",
-    version,
+    version = nexus::updater::version(),
     about = "Advisory coordination for coding agents"
 )]
 struct Cli {
@@ -58,7 +68,14 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Configure installed agent hosts and bundled review skills on this machine.
-    Setup,
+    Setup(update_cli::SetupArgs),
+    /// Install the verified main release and restart a provably managed service.
+    Update(update_cli::UpdateArgs),
+    #[command(hide = true)]
+    UpdateResume {
+        #[arg(long)]
+        snapshot: PathBuf,
+    },
     /// Install Nexus coordination into the current Git repository.
     Install,
     /// Run the local coordination daemon in the foreground.
@@ -133,7 +150,12 @@ enum Command {
         #[command(subcommand)]
         command: PapercutsCommand,
     },
-    /// Report, inspect, and maintain complex problems that need help.
+    /// Record code defects and investigate recurring problem areas across sessions.
+    Concerns {
+        #[command(subcommand)]
+        command: concerns_cli::ConcernCliCommand,
+    },
+    /// Report unusual situations encountered by live application agents.
     Sos {
         #[command(subcommand)]
         command: SosCliCommand,
@@ -290,33 +312,29 @@ impl CliInvocation {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    if let Command::UpdateResume { snapshot } = &cli.command {
+        return nexus::runtime::daemon_control::resume(snapshot).await;
+    }
+    run_configured(CliInvocation::resolve(cli)?).await
+}
+
+async fn run_configured(invocation: CliInvocation) -> Result<()> {
     let CliInvocation {
         command,
         root,
         explicit_config,
         loaded,
-    } = CliInvocation::resolve(Cli::parse())?;
+    } = invocation;
     match command {
-        Command::Setup => {
-            let report =
-                installation::setup_machine(&std::env::current_exe()?, explicit_config.as_deref())?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::Setup(args) => args.run(&loaded, explicit_config.as_deref()),
+        Command::Update(args) => update_cli::run(args, &loaded, explicit_config.as_deref()).await,
         Command::Install => {
             let report = installation::install_repository(&root, explicit_config.as_deref())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
-        Command::Daemon => {
-            if matches!(
-                &loaded.config.client,
-                nexus::config::ClientConfig::Remote(_)
-            ) {
-                bail!("a remote Nexus service is configured; the local daemon is disabled");
-            }
-            daemon::serve(loaded).await
-        }
+        Command::Daemon => run_local_daemon(loaded).await,
         Command::Mcp { agent } => run_mcp(loaded, explicit_config.as_deref(), &agent).await,
         Command::HookSessionEnd { agent } => {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
@@ -337,6 +355,16 @@ async fn main() -> Result<()> {
         | Command::Conflicts { .. }) => run_query_command(query, &loaded).await,
         command => run_admin_command(command, &root, &loaded, explicit_config.as_deref()).await,
     }
+}
+
+async fn run_local_daemon(loaded: LoadedConfig) -> Result<()> {
+    if matches!(
+        &loaded.config.client,
+        nexus::config::ClientConfig::Remote(_)
+    ) {
+        bail!("a remote Nexus service is configured; the local daemon is disabled");
+    }
+    daemon::serve(loaded).await
 }
 
 async fn run_mcp(loaded: LoadedConfig, explicit_config: Option<&Path>, agent: &str) -> Result<()> {
@@ -482,6 +510,9 @@ async fn run_admin_command(
     match command {
         Command::Eval { command } => evals_cli::run(command, root, loaded).await,
         Command::Work { command } => work_cli::run(command, root, loaded, explicit_config).await,
+        Command::Concerns { command } => {
+            concerns_cli::run(command, root, loaded, explicit_config).await
+        }
         Command::Resolve {
             conflict_id,
             resolution,

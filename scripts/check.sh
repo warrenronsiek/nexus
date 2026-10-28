@@ -40,7 +40,7 @@ fi
 
 nexus_work_exec lint.feature-map "Feature annotations" "${python_command}" scripts/feature_map.py --root . --lint
 nexus_work_exec lint.complexity "Complexity policy" "${python_command}" scripts/complexity_analysis.py --check
-nexus_work_exec test.python "Python tooling tests" "${python_command}" -m unittest tests/test_feature_map.py tests/test_complexity_analysis.py tests/test_work_github.py
+nexus_work_exec test.python "Python tooling tests" "${python_command}" -m unittest tests/test_feature_map.py tests/test_complexity_analysis.py tests/test_work_github.py tests/test_release_manifest.py tests/test_compose_management.py
 nexus_work_exec test.terminal "Terminal extension validation" scripts/check-pi-extension.sh
 nexus_work_exec test.docker-health "Docker health checks" scripts/test-docker-healthcheck.sh
 nexus_work_exec lint.format "Rust formatting" cargo fmt --all -- --check

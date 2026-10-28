@@ -5,18 +5,11 @@
 // @boundary work-history-json-protocol
 mod support;
 use serde_json::json;
-use std::process::{Command, Output};
+use std::process::Output;
 use support::Harness;
 
 fn cli(harness: &Harness, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_nexus"))
-        .current_dir(&harness.root)
-        .arg("--config")
-        .arg(harness._temp.path().join("config.toml"))
-        .arg("work")
-        .args(args)
-        .output()
-        .unwrap()
+    harness.feature_cli("work", args)
 }
 
 fn success(output: Output) -> serde_json::Value {

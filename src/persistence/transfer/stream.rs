@@ -2,18 +2,20 @@
 // @spec docs/features/persistence.md
 // @feature evals
 // @spec docs/features/evals.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @entrypoint Store::write_streamed_snapshot
 // @entrypoint Store::import_streamed_snapshot
 // @boundary portable-database-stream
 use super::super::backend::DbConnection;
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
-    analytics_resources, analytics_revisions, capability_uses, claims, conflicts, database_imports,
-    eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records, events,
-    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
-    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
-    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
-    sos_issues, sos_reports, sos_triage_attempts, work_observations,
+    analytics_resources, analytics_revisions, capability_uses, claims, concern_observations,
+    conflicts, database_imports, eval_blob_chunks, eval_blobs, eval_dimensions, eval_links,
+    eval_records, events, memory_activations, memory_compaction_attempts, memory_compaction_queue,
+    memory_entries, memory_frontier_snapshots, memory_spaces, memory_summaries,
+    papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts, sessions,
+    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts, work_observations,
 };
 use super::super::Store;
 use super::rows::*;
@@ -70,7 +72,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 5;
+const FORMAT_VERSION: i32 = 6;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -192,6 +194,7 @@ batches! {
     30: EvalBlobs(EvalBlobTransfer) => eval_blobs, (eval_blobs::project_id.asc(),eval_blobs::digest.asc());
     31: EvalBlobChunks(EvalBlobChunkTransfer) => eval_blob_chunks, (eval_blob_chunks::project_id.asc(),eval_blob_chunks::digest.asc(),eval_blob_chunks::chunk_index.asc());
     32: WorkObservations(WorkObservationTransfer) => work_observations, (work_observations::project_id.asc(),work_observations::id.asc());
+    33: ConcernObservations(ConcernObservationTransfer) => concern_observations, (concern_observations::project_id.asc(),concern_observations::id.asc());
 }
 
 #[derive(Serialize, Deserialize)]
@@ -394,6 +397,10 @@ fn import(connection: &mut DbConnection, mut input: impl BufRead) -> Result<Snap
             progress.format_version = 4;
             32
         }
+        Some(Record::Header { format_version: 5 }) => {
+            progress.format_version = 5;
+            33
+        }
         Some(Record::Header {
             format_version: FORMAT_VERSION,
         }) => {
@@ -426,6 +433,7 @@ fn finish_import(
     }
     super::super::evals::validate_snapshot(connection)?;
     super::super::work_history::rebuild_snapshot(connection)?;
+    super::super::code_concerns::rebuild_snapshot(connection)?;
     sync_event_identity(connection, progress.maximum_event_id)?;
     Ok(SnapshotManifest {
         format_version: progress.format_version,

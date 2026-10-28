@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @feature work-history
 // @spec docs/features/work-history.md
@@ -59,6 +61,8 @@ pub enum ServiceResponse {
     Evals(Box<super::EvalResponse>),
     Work(Box<super::WorkEnvelope>),
     WorkError(super::WorkErrorEnvelope),
+    Concerns(Box<super::ConcernEnvelope>),
+    ConcernError(super::ConcernErrorEnvelope),
     Analytics(crate::analytics::types::AnalyticsResponse),
     Config(Box<ConfigResponse>),
     Error(ErrorResponse),

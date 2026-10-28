@@ -74,4 +74,16 @@ else
   echo "Starting Nexus without a SQLite import source"
 fi
 
-exec docker compose --file "${repository_root}/docker-compose.yml" up --build --detach
+docker compose --file "${repository_root}/docker-compose.yml" up --build --detach
+
+if command -v nexus >/dev/null 2>&1; then
+  nexus_service_host="${NEXUS_BIND_ADDRESS:-127.0.0.1}"
+  case "${nexus_service_host}" in
+    0.0.0.0|::) nexus_service_host=127.0.0.1 ;;
+    *:*) nexus_service_host="[${nexus_service_host}]" ;;
+  esac
+  if ! nexus update --record-compose "${repository_root}/docker-compose.yml" \
+    --service-endpoint "http://${nexus_service_host}:${NEXUS_PORT:-7337}"; then
+    echo "Nexus started; its update descriptor was not recorded. A later nexus update can adopt this exact Compose deployment." >&2
+  fi
+fi

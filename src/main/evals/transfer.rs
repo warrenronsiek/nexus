@@ -339,7 +339,10 @@ struct ValidatedBundle {
 
 impl ValidatedBundle {
     fn open(source: &Path) -> Result<Self> {
-        let mut reader = BufReader::new(copy_bundle(source)?);
+        let mut reader = BufReader::new(crate::history_transfer::snapshot_file(
+            source,
+            MAX_BUNDLE_BYTES,
+        )?);
         let (records, blobs) = validate(&mut reader)?;
         reader.seek(SeekFrom::Start(0))?;
         Ok(Self {
@@ -353,18 +356,6 @@ impl ValidatedBundle {
             .map(|bytes| serde_json::from_slice(&bytes).map_err(Into::into))
             .transpose()
     }
-}
-
-fn copy_bundle(source: &Path) -> Result<File> {
-    let mut snapshot = tempfile::tempfile()?;
-    let source = File::open(source)?;
-    let copied = std::io::copy(&mut source.take(MAX_BUNDLE_BYTES + 1), &mut snapshot)?;
-    anyhow::ensure!(
-        copied <= MAX_BUNDLE_BYTES,
-        "eval reference bundle exceeds 4 GiB"
-    );
-    snapshot.seek(SeekFrom::Start(0))?;
-    Ok(snapshot)
 }
 
 pub(super) async fn import(client: &EvalClient<'_>, source: &Path) -> Result<Value> {

@@ -123,8 +123,7 @@ impl Harness {
         .unwrap();
 
         let executable = env!("CARGO_BIN_EXE_nexus");
-        let daemon = spawn_daemon(executable, &config, &root);
-        wait_for_socket(&socket);
+        let daemon = wait_for_socket(&socket, spawn_daemon(executable, &config, &root));
         let (mcp, connection) = spawn_mcp(executable, &config, &root);
         Self {
             _temp: temp,
@@ -146,12 +145,16 @@ impl Harness {
     }
 
     pub fn eval_cli(&self, args: &[&str]) -> Output {
+        self.feature_cli("eval", args)
+    }
+
+    pub fn feature_cli(&self, feature: &str, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_nexus"))
             .current_dir(&self.root)
             .args([
                 "--config",
                 self._temp.path().join("config.toml").to_str().unwrap(),
-                "eval",
+                feature,
             ])
             .args(args)
             .output()
@@ -260,11 +263,49 @@ impl Harness {
     }
 }
 
-fn wait_for_socket(socket: &Path) {
+struct StartingDaemon {
+    child: Child,
+    stderr: std::thread::JoinHandle<Vec<u8>>,
+}
+impl StartingDaemon {
+    fn fail(mut self, reason: &str) -> ! {
+        let _ = self.child.kill();
+        let status = self.child.wait();
+        let stderr = self.stderr.join().expect("daemon stderr reader failed");
+        panic!(
+            "{reason}; cleanup status {status:?}; daemon stderr (up to16KiB): {}",
+            String::from_utf8_lossy(&stderr)
+        );
+    }
+}
+fn wait_for_socket(socket: &Path, mut daemon: StartingDaemon) -> Child {
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !socket.exists() {
-        assert!(Instant::now() < deadline, "daemon socket did not appear");
+    loop {
+        if let Some(status) = daemon.child.try_wait().unwrap() {
+            daemon.fail(&format!(
+                "daemon exited before publishing its socket: {status}"
+            ));
+        }
+        if socket.exists() {
+            return daemon.child;
+        }
+        if Instant::now() >= deadline {
+            daemon.fail("daemon socket did not appear within5seconds; child was still running");
+        }
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+fn read_daemon_stderr(mut stderr: impl std::io::Read) -> Vec<u8> {
+    let mut retained = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match stderr.read(&mut buffer) {
+            Ok(0) | Err(_) => return retained,
+            Ok(count) => {
+                let keep = count.min((16 * 1024_usize).saturating_sub(retained.len()));
+                retained.extend_from_slice(&buffer[..keep]);
+            }
+        }
     }
 }
 
@@ -294,7 +335,7 @@ impl Drop for Harness {
     }
 }
 
-fn spawn_daemon(executable: &str, config: &Path, root: &Path) -> Child {
+fn spawn_daemon(executable: &str, config: &Path, root: &Path) -> StartingDaemon {
     let mut command = Command::new(executable);
     clear_git_environment(&mut command);
     command
@@ -302,12 +343,17 @@ fn spawn_daemon(executable: &str, config: &Path, root: &Path) -> Child {
         .args(["--config", config.to_str().unwrap(), "daemon"])
         // Prove synchronous service work cannot starve the async runtime.
         .env("TOKIO_WORKER_THREADS", "1");
-    command
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap()
+        .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    StartingDaemon {
+        child,
+        stderr: std::thread::spawn(move || read_daemon_stderr(stderr)),
+    }
 }
 
 fn test_config(

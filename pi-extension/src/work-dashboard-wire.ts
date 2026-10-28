@@ -5,6 +5,7 @@
 // @boundary work-dashboard-wire: validate scoped aggregate projections before display; exact source evidence remains in work detail.
 import type { WorkSummary } from "./work.ts";
 import type { WaterfallNode } from "./work-waterfall.ts";
+import { boundedArray as array } from "./wire-values.ts";
 
 export interface WorkDurationStats { count: number; known_count: number; total_seconds: number; average_seconds: number | null }
 export interface WorkKindStats extends WorkDurationStats { kind: string }
@@ -40,7 +41,6 @@ function kind(value: unknown): value is WorkKindStats { return stats(value) && o
 function date(value: unknown): boolean { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value); }
 function day(value: unknown): value is WorkDayStats { return object(value) && date(value.date) && metrics(value, value.session_count); }
 function activityDay(value: unknown): value is WorkActivityDay { return kind(value) && object(value) && date(value.date); }
-function array<T>(value: unknown, check: (item: unknown) => item is T, maximum: number): value is T[] { return Array.isArray(value) && value.length <= maximum && value.every(check); }
 
 function aggregateFields(value: Record<string, unknown>): boolean {
   return stats(value.session_duration) && array(value.activity_kinds, kind, 4096) && array(value.daily, day, 4096) && array(value.activity_daily, activityDay, 4096) &&

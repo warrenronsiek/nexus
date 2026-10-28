@@ -1,5 +1,7 @@
 // @feature work-history
 // @spec docs/features/work-history.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature observability-ui
 // @feature installation
 // @feature runtime

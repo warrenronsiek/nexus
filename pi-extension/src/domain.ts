@@ -3,6 +3,7 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @boundary dynamic-json
+import { hasShape, type FieldGuard, type FieldShape } from "./wire-values.ts";
 
 export interface Counts {
   active_sessions: number;
@@ -115,8 +116,6 @@ export interface UsageSummary {
 }
 
 type JsonObject = Record<string, unknown>;
-type FieldGuard = (value: unknown) => boolean;
-type FieldShape = Record<string, FieldGuard>;
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -148,13 +147,6 @@ function isAnyValue(_value: unknown): boolean {
 
 function oneOf(values: readonly string[]): FieldGuard {
   return (value) => typeof value === "string" && values.includes(value);
-}
-
-function hasShape(value: unknown, shape: FieldShape): value is JsonObject {
-  return (
-    isObject(value) &&
-    Object.entries(shape).every(([field, guard]) => field in value && guard(value[field]))
-  );
 }
 
 function isWindow(value: unknown, itemGuard: (item: unknown) => boolean): boolean {

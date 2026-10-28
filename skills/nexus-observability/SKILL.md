@@ -1,6 +1,6 @@
 ---
 name: nexus-observability
-description: Inspect Nexus coordination, tools, skills, memory, papercuts, SOS, evaluation evidence, and nested work through the native or Pi terminal; connect existing work to the right inspection surface.
+description: Inspect Nexus coordination, code concerns, tools, skills, memory, papercuts, SOS, evaluation evidence, and nested work through the native or Pi terminal; connect existing work to the right inspection surface.
 ---
 
 # Inspect Nexus evidence in the terminal
@@ -21,7 +21,7 @@ installed extension. Use [setup](../nexus-setup/SKILL.md) when connecting either
 ## Navigate from a question
 
 Both entry points have Coordination, SOS, Tools, Skills, Memory, Papercuts,
-Evals, and Work tabs. Tab/Shift-Tab switch tabs, arrows select rows, Enter opens,
+Evals, Work, and Code concerns tabs. Tab/Shift-Tab switch tabs, arrows select rows, Enter opens,
 Escape backs out, `r` refreshes, and `q` closes. Follow each tab's footer for its
 specific controls. Scope matters: inspect the header's actual project binding
 before comparing results. Coordination's project entries select a repository;
@@ -36,12 +36,13 @@ history tabs use the selected project or the invoking repository.
 | Are installed skills being used? | Skills seven-day counts and evidence |
 | What durable context exists? | Memory → search, raw note, summary children, health |
 | Which friction keeps recurring? | Papercuts → description, encounters, timestamps |
-| What complex problem needs help? | SOS → source reports, triage, lifecycle |
+| Which unusual application situations recur? | SOS → source reports, triage, lifecycle |
+| What keeps going wrong in this code area? | Code concerns → ranked areas/trends → concerns → remedy/return timeline |
 | How are eval results changing? | Evals → suite/target/repository/model set → metric trend |
 | What was evaluated and why? | Evals → `b` records → immutable record → why/history and links |
 | Where did task time go? | Work → duration trends and activity averages → session breakdown |
 
-Coordination, SOS, Tools, Skills, Papercuts, Evals, and Work are read-only.
+Coordination, SOS, Tools, Skills, Papercuts, Evals, Work, and Code concerns are read-only.
 Memory has explicit add, invalidate-summary, and consolidation actions in
 addition to reads; use them for an intended memory change. Raw memory notes
 remain immutable. Inspecting a view does not authorize resolving an issue,
@@ -103,11 +104,29 @@ and capture gaps remain explicit. Do not add inclusive parent/child durations
 as total effort. Use [work history](../nexus-work-history/SKILL.md) to instrument
 existing scripts/hooks.
 
+**Code concerns:** start with ranked code-area bars and a UTC recurrence trend.
+`m` cycles affected work sessions, recent encounters, and returns after
+resolution. The recent sort retains source ordering while bars show observation
+counts. Select an area and Enter for its distinct concerns, then Enter for the
+timeline of encounters, remedies, reviews, resolutions, and returns. Arrows or
+`j`/`k` select timeline evidence; its source/receipt times, reporter/context,
+motivations, outcomes, and Git locations appear below. `n` pages areas,
+concerns, or immutable history, `a` browses all concerns including unlocated
+reports, and Escape returns. Source counts, work/host
+sessions, unknown context, overlapping areas, and partial results remain
+qualified. Current session names are matched to the original agent and exact host/work
+identities; unavailable names remain explicit. No reports means no reported problems, not verified
+health; recurrence is not a defect rate or proof of causation. Use
+[code concerns](../nexus-code-concerns/SKILL.md) to record problems and remedies.
+
 **Papercuts and SOS:** select for retained detail; Papercuts `n` loads older open
 reports. An open list is not complete history. `nexus papercuts dump` and
 `nexus sos dump` provide complete registries in their selected CLI scope. Use
 [papercuts](../nexus-papercuts/SKILL.md) and [SOS](../nexus-sos/SKILL.md) for
 reporting, resolution, and duplicate/triage workflows.
+Papercuts describes development/environment friction; SOS describes unusual
+situations inside running applications. Code concerns retains problems in the
+code being maintained, with explicit cross-feature evidence links when useful.
 
 ## Respect read limits and freshness
 
@@ -120,7 +139,7 @@ that filter; changing scope cancels obsolete reads.
 
 For automation or noninteractive inspection use MCP reads such as
 `nexus_projects`, `nexus_dashboard`, `nexus_usage`, `nexus_analytics`,
-`nexus_work`, and `nexus_evals`, plus each feature's CLI query commands.
+`nexus_work`, `nexus_evals`, and `nexus_concerns`, plus each feature's CLI query commands.
 Discover current schemas and follow pagination. Terminal hosts share the same
 service contracts; there is no separate browser dashboard to launch.
 

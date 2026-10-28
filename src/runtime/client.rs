@@ -1,3 +1,5 @@
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 // @feature runtime
@@ -42,6 +44,10 @@ impl RemoteResponsePolicy {
             request,
             ServiceRequest::Papercuts(PapercutCommand::Dump { .. })
                 | ServiceRequest::Sos(SosCommand::Dump { .. })
+                | ServiceRequest::Concerns(crate::coordination::api::ConcernCommand {
+                    command: crate::code_concerns::ConcernAction::Dump { .. },
+                    ..
+                })
         ) {
             Self::CompleteRegistry
         } else {

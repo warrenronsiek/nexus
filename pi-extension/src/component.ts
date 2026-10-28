@@ -1,5 +1,7 @@
 // @feature work-history
 // @spec docs/features/work-history.md
+// @feature code-concerns
+// @spec docs/features/code-concerns.md
 // @feature evals
 // @spec docs/features/evals.md
 // @feature papercuts
@@ -30,6 +32,8 @@ import { EvalsPane } from "./evals-pane.ts";
 import type { EvalsApi } from "./evals.ts";
 import { WorkPane } from "./work-pane.ts";
 import type { WorkApi } from "./work.ts";
+import { ConcernsPane } from "./concerns-pane.ts";
+import type { ConcernsApi } from "./concerns.ts";
 import { MemoryPane, type MemoryInteractionPrompts } from "./memory-pane.ts";
 import type { MemoryApi } from "./memory.ts";
 import { PapercutsPane } from "./papercuts-pane.ts";
@@ -63,7 +67,7 @@ import {
 
 export { nextDashboardTab } from "./usage-pane.ts";
 
-interface DashboardOptions extends AnalyticsOptions {
+export interface DashboardOptions extends AnalyticsOptions {
   loadSnapshot: SnapshotLoader;
   loadUsage: UsageLoader;
   papercutsApi: PapercutsApi;
@@ -72,6 +76,7 @@ interface DashboardOptions extends AnalyticsOptions {
   memoryPrompts: MemoryInteractionPrompts;
   evalsApi?: EvalsApi;
   workApi?: WorkApi;
+  concernsApi?: ConcernsApi;
   done: () => void;
 }
 
@@ -82,9 +87,10 @@ interface DashboardPanes {
   sos: SosPane;
   evals: EvalsPane;
   work: WorkPane;
+  concerns: ConcernsPane;
 }
 
-type DashboardPaneKind = "coordination" | "usage" | "memory" | "sos" | "papercuts" | "evals" | "work";
+type DashboardPaneKind = "coordination" | "usage" | "memory" | "sos" | "papercuts" | "evals" | "work" | "concerns";
 
 function paneKind(tab: DashboardTab): DashboardPaneKind {
   if (tab === "tools" || tab === "skills") return "usage";
@@ -98,6 +104,7 @@ function deactivatePane(kind: DashboardPaneKind, panes: DashboardPanes): void {
   else if (kind === "papercuts") panes.papercuts.deactivate();
   else if (kind === "evals") panes.evals.deactivate();
   else if (kind === "work") panes.work.deactivate();
+  else if (kind === "concerns") panes.concerns.deactivate();
 }
 
 function activatePane(
@@ -112,6 +119,7 @@ function activatePane(
   else if (kind === "papercuts") panes.papercuts.activate(projectId);
   else if (kind === "evals") panes.evals.activate(projectId);
   else if (kind === "work") panes.work.activate(projectId);
+  else if (kind === "concerns") panes.concerns.activate(projectId);
 }
 
 function transitionPane(
@@ -138,6 +146,7 @@ const TAB_TITLES: Record<Exclude<DashboardTab, "coordination">, string> = {
   memory: "Memory",
   evals: "Eval results",
   work: "Work durations",
+  concerns: "Code concerns / Problem areas",
 };
 
 function dashboardTitle(tab: DashboardTab, page: Page): string {
@@ -174,6 +183,7 @@ function dashboardCommand(data: string, tab: DashboardTab): DashboardCommand | u
 }
 
 const TAB_HINTS: Record<Exclude<DashboardTab, "coordination">, string> = {
+  concerns: "tab switch · ↑↓ area/concern/evidence · enter timeline · a all concerns · m sort · n more · esc back · r refresh · q close",
   work: "tab switch · ↑↓ task · ← parent → child · PgUp/PgDn time · H/L lanes · +/- zoom · enter detail · d records · esc back · r/q",
   evals: "tab switch · ↑↓ eval set/metric · enter results · [/] metric · b records · d evidence · o repo · m model · / search · esc back · r refresh · q close",
   sos: "tab switch · ↑↓ navigate · enter detail · j/k scroll · esc back · r refresh · q close",
@@ -207,6 +217,7 @@ interface DashboardBodyOptions {
   sosPane: SosPane;
   evalsPane: EvalsPane;
   workPane: WorkPane;
+  concernsPane: ConcernsPane;
   back: () => void;
   open: (value: string) => void;
 }
@@ -247,6 +258,7 @@ function addDashboardBody(options: DashboardBodyOptions): BodyState {
       papercuts: options.papercutsPane,
       evals: options.evalsPane,
       work: options.workPane,
+      concerns: options.concernsPane,
     };
     options.container.addChild(panes[options.tab]);
     return {};
@@ -326,6 +338,7 @@ export class NexusDashboardComponent implements Component {
   private readonly sosPane: SosPane;
   private readonly evalsPane: EvalsPane;
   private readonly workPane: WorkPane;
+  private readonly concernsPane: ConcernsPane;
 
   constructor(
     private readonly tui: TUI,
@@ -355,6 +368,8 @@ export class NexusDashboardComponent implements Component {
     this.evalsPane = new EvalsPane(tui, theme, options.evalsApi ?? { dashboard: unavailable, list: unavailable, get: unavailable, why: unavailable }, () => this.rebuild());
     const workUnavailable = async (): Promise<never> => { throw new Error("Work history API is unavailable in this host"); };
     this.workPane = new WorkPane(tui, theme, options.workApi ?? { dashboard: workUnavailable, health: workUnavailable, list: workUnavailable, activities: workUnavailable, get: workUnavailable, timeline: workUnavailable, events: workUnavailable }, () => this.rebuild());
+    const concernsUnavailable = async (): Promise<never> => { throw new Error("Code concerns API is unavailable in this host"); };
+    this.concernsPane = new ConcernsPane(tui, theme, options.concernsApi ?? { dashboard: concernsUnavailable, list: concernsUnavailable, get: concernsUnavailable, history: concernsUnavailable }, () => this.rebuild());
     this.rebuild();
     this.poller.start();
   }
@@ -369,7 +384,7 @@ export class NexusDashboardComponent implements Component {
 
   handleInput(data: string): void {
     const priority: Partial<Record<DashboardTab, { handleInput(data: string): boolean }>> = {
-      tools: this.usagePane, evals: this.evalsPane, work: this.workPane,
+      tools: this.usagePane, evals: this.evalsPane, work: this.workPane, concerns: this.concernsPane,
     };
     if (priority[this.tab]?.handleInput(data)) return;
     const command = dashboardCommand(data, this.tab);
@@ -410,6 +425,7 @@ export class NexusDashboardComponent implements Component {
     this.papercutsPane.dispose();
     this.evalsPane.dispose();
     this.workPane.dispose();
+    this.concernsPane.dispose();
   }
 
   private applyPollingUpdate(update: PollingUpdate): void {
@@ -434,6 +450,7 @@ export class NexusDashboardComponent implements Component {
       sos: this.sosPane,
       evals: this.evalsPane,
       work: this.workPane,
+      concerns: this.concernsPane,
     });
     this.rebuild();
     this.tui.requestRender();
@@ -449,6 +466,7 @@ export class NexusDashboardComponent implements Component {
       else if (this.tab === "papercuts") this.papercutsPane.refresh();
       else if (this.tab === "evals") this.evalsPane.refresh();
       else if (this.tab === "work") this.workPane.refresh();
+      else if (this.tab === "concerns") this.concernsPane.refresh();
       else this.sosPane.refresh();
     }
   }
@@ -481,6 +499,7 @@ export class NexusDashboardComponent implements Component {
       sosPane: this.sosPane,
       evalsPane: this.evalsPane,
       workPane: this.workPane,
+      concernsPane: this.concernsPane,
       back: () => this.goBack(),
       open: (value) => this.open(value),
     });
@@ -508,6 +527,7 @@ export class NexusDashboardComponent implements Component {
         sos: this.sosPane,
         evals: this.evalsPane,
       work: this.workPane,
+        concerns: this.concernsPane,
       },
     });
     container.addChild(

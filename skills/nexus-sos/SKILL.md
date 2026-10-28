@@ -1,11 +1,14 @@
 ---
 name: nexus-sos
-description: Submit and investigate complex problems through Nexus SOS source reports and generated aggregate issues. Use when agent failures need durable evidence, cross-report triage, recurrence tracking, or integration with failure-reporting scripts.
+description: Record unusual situations encountered by agents inside a running application, with durable SOS source evidence, generated triage, and recurrence history. Use Papercuts for development friction and Code concerns for problems in maintained code.
 ---
 
 # Preserve the symptom before trying to explain it
 
-SOS is a durable project inbox for complex problems that need help. It retains
+SOS is a durable project inbox for agents inside a running application that
+encounter unfamiliar input or a situation beyond their expected operating scope.
+An email-handling agent encountering a message it cannot handle within its
+responsibilities is one example. It retains
 each normalized source report before asynchronous model triage creates an
 aggregate issue or links it to an existing one. Aggregate importance counts
 linked source reports; source evidence, generated interpretation, triage
@@ -13,9 +16,11 @@ attempts, and issue lifecycle remain distinguishable.
 
 Nexus records and organizes the problem. It does not repair the caller's code,
 page a human, rerun a failed workload, or decide whether a release proceeds.
-Use [nexus-papercuts](../nexus-papercuts/SKILL.md) for simple recurring tooling
-friction with explicit encounters and reporter-controlled duplicate approval.
-SOS instead lets its strict triage contract create or link a project-local
+Use [nexus-papercuts](../nexus-papercuts/SKILL.md) for ambient development and
+environment friction. Use [nexus-code-concerns](../nexus-code-concerns/SKILL.md)
+for evidenced problems in code being maintained, including bugs investigated
+after an application SOS. Link that investigation to the SOS without replacing
+the original application report. SOS lets its strict triage contract create or link a project-local
 aggregate automatically while retaining original evidence.
 
 ## Add a meaningful source report

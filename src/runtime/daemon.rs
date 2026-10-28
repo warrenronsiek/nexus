@@ -9,7 +9,7 @@ use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::domain::HookResponse;
 use crate::coordination::NexusService;
 use crate::runtime::protocol::WireRequest;
-use crate::runtime::{bounded_io, dispatch};
+use crate::runtime::{bounded_io, daemon_control::DaemonControl, dispatch};
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde_json::Value;
@@ -18,7 +18,7 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Semaphore;
 
@@ -27,15 +27,22 @@ const LOCAL_REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     let runtime = start_runtime(loaded).await?;
-    let _memory_scheduler = dispatch::MemoryConsolidationScheduler::start(runtime.service.clone());
+    let memory_scheduler = dispatch::MemoryConsolidationScheduler::start(runtime.service.clone());
     let model_work = dispatch::ModelWorkScheduler::start(runtime.service.clone());
-    run_event_loop(
+    let result = run_event_loop(
         &runtime.listener,
         runtime.service.clone(),
-        model_work,
+        model_work.clone(),
         runtime.reconcile_seconds,
+        runtime.control.clone(),
     )
-    .await
+    .await;
+    drop(memory_scheduler);
+    drop(model_work);
+    while Arc::strong_count(&runtime.service) > 1 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    result
 }
 
 struct DaemonRuntime {
@@ -44,6 +51,7 @@ struct DaemonRuntime {
     listener: UnixListener,
     service: Arc<NexusService>,
     reconcile_seconds: u64,
+    control: DaemonControl,
 }
 
 impl Drop for DaemonRuntime {
@@ -53,6 +61,7 @@ impl Drop for DaemonRuntime {
 }
 
 async fn start_runtime(loaded: LoadedConfig) -> Result<DaemonRuntime> {
+    let control = DaemonControl::new(&loaded)?;
     let socket_path = loaded.config.runtime.socket_path.clone();
     let lock_path = loaded.config.runtime.lock_path.clone();
     let reconcile_seconds = loaded.config.coordination.reconcile_seconds;
@@ -72,6 +81,7 @@ async fn start_runtime(loaded: LoadedConfig) -> Result<DaemonRuntime> {
         listener,
         service,
         reconcile_seconds,
+        control,
     })
 }
 
@@ -101,7 +111,9 @@ async fn run_event_loop(
     service: Arc<NexusService>,
     model_work: dispatch::ModelWorkScheduler,
     reconcile_seconds: u64,
+    control: DaemonControl,
 ) -> Result<()> {
+    let mut shutdown = control.subscribe();
     let mut reconcile = reconciliation_interval(reconcile_seconds);
     let connection_slots = Arc::new(Semaphore::new(MAX_IN_FLIGHT_LOCAL_CONNECTIONS));
     let reconciliation_scheduler = ReconciliationScheduler::new();
@@ -112,8 +124,9 @@ async fn run_event_loop(
                 let (stream, _) = incoming?;
                 let service = service.clone();
                 let model_work = model_work.clone();
+                let control=control.clone();
                 spawn_admitted_connection(connection_slots.clone(), async move {
-                    let _ = handle_connection(stream, service, model_work).await;
+                    let _ = handle_connection(stream, service, model_work,control).await;
                 });
             }
             _ = reconcile.tick() => {
@@ -123,8 +136,13 @@ async fn run_event_loop(
                 });
             }
             _ = tokio::signal::ctrl_c() => break,
+            _ = shutdown.changed() => break,
         }
     }
+    // Keep the process/database lock until every admitted connection has exited.
+    let _drained = connection_slots
+        .acquire_many_owned(MAX_IN_FLIGHT_LOCAL_CONNECTIONS as u32)
+        .await?;
     Ok(())
 }
 
@@ -178,11 +196,17 @@ async fn handle_connection(
     stream: UnixStream,
     service: Arc<NexusService>,
     model_work: dispatch::ModelWorkScheduler,
+    control: DaemonControl,
 ) -> Result<()> {
+    let peer_uid = stream.peer_cred().ok().map(|credentials| credentials.uid());
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     while let Some(frame) = read_request_frame(&mut reader).await? {
-        let response = match serde_json::from_slice::<WireRequest>(&frame) {
+        let request = serde_json::from_slice::<WireRequest>(&frame);
+        if reply_to_control(&request, peer_uid, &control, &mut writer).await? {
+            return Ok(());
+        }
+        let response = match request {
             Ok(request) => match ServiceRequest::decode(&request.method, request.params) {
                 Ok(request) => dispatch::handle(service.clone(), &model_work, request, None).await,
                 Err(error) if ServiceRequest::is_lifecycle_method(&request.method) => {
@@ -192,11 +216,34 @@ async fn handle_connection(
             },
             Err(error) => ServiceResponse::error(format!("invalid request: {error}")),
         };
-        writer
-            .write_all(serde_json::to_string(&response)?.as_bytes())
-            .await?;
-        writer.write_all(b"\n").await?;
+        write_json_line(&mut writer, &response).await?;
     }
+    Ok(())
+}
+
+async fn reply_to_control(
+    request: &std::result::Result<WireRequest, serde_json::Error>,
+    peer_uid: Option<u32>,
+    control: &DaemonControl,
+    writer: &mut (impl AsyncWrite + Unpin),
+) -> Result<bool> {
+    let response = request
+        .as_ref()
+        .ok()
+        .and_then(|request| control.response(request, peer_uid));
+    let Some(response) = response else {
+        return Ok(false);
+    };
+    write_json_line(writer, &response).await?;
+    Ok(true)
+}
+
+pub(super) async fn write_json_line(
+    writer: &mut (impl AsyncWrite + Unpin),
+    value: &impl serde::Serialize,
+) -> Result<()> {
+    writer.write_all(&serde_json::to_vec(value)?).await?;
+    writer.write_all(b"\n").await?;
     Ok(())
 }
 

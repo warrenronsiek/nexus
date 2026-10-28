@@ -2,6 +2,8 @@
 
 Nexus is a coordination service for coding agents. It observes tool activity, records advisory path claims, detects overlapping work, and gives agents context without controlling their execution. It can run as a local SQLite daemon for agents sharing one machine or as an authenticated Dockerized PostgreSQL service for agents working across compute environments.
 
+Installed users can run `nexus update --check` and `nexus update` to stay current without a source checkout or rebuilding. Updates preserve the selected local or managed Compose service mode.
+
 The invariant is structural: every lifecycle-hook response permits the original tool call. Nexus emits no deny, block, approval, or input-rewrite decision.
 
 ## Agent memory
@@ -147,7 +149,35 @@ cd /path/to/repository && nexus install
 
 When setup uses a non-default configuration path, run `nexus --config /path/to/config.toml setup` or set `NEXUS_CONFIG` for that command. Nexus makes the path absolute and preserves it in the registered MCP, session-end commands, and installed Pi launch context, so later host processes keep using the selected remote endpoint regardless of their working directory. Registrations also bind each companion's agent identity for memory and papercut provenance. Direct `NEXUS_ENDPOINT`, `NEXUS_PROJECT_ID`, and `NEXUS_CLIENT_SECRET_FILE` overrides remain process-scoped; every agent host must inherit them if you choose those instead of a durable config file.
 
-The bootstrap currently runs from a source checkout because this repository has no configured release remote. Once release hosting exists, that script is the stable boundary a remote one-liner can invoke.
+The source checkout and Rust toolchain are needed only for that initial bootstrap.
+Subsequent updates use verified release assets:
+
+```sh
+nexus --version
+nexus update --check
+nexus update
+```
+
+`update` compares the full installed source revision with current `main`, verifies
+its versioned release, replaces the executable atomically, and refreshes installed
+skills, hooks, and extensions. It does not pull or build the caller's repository.
+An active managed SQLite daemon restarts with its exact existing configuration;
+an inactive daemon stays inactive. A proven local Docker Compose deployment
+updates only its Nexus image, retaining its project, environment, secrets, health
+checks, and volumes. The Docker server's platform selects the service image.
+External or unverifiable legacy services are explicitly reported as unmanaged.
+Existing agent MCP companions need reconnecting to load the new binary; Nexus
+does not restart the agent application.
+
+Releases are published only after CI passes for their exact main commit. If that
+release is still building, the command reports `release_pending` and leaves the
+installation untouched. A dirty, ahead, divergent, or unknown source build
+requires `--force` to intentionally replace it with main. `--compose-file PATH`
+can establish legacy management only when the file matches the running service's
+Compose labels and configured endpoint. The startup helper and setup retain a
+private resolved snapshot automatically, so later updates need no source
+checkout. See [the installation contract](docs/features/installation.md) for
+verification, rollback, and managed-service boundaries.
 
 ## Shared PostgreSQL service
 
