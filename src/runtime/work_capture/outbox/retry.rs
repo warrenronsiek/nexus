@@ -5,7 +5,13 @@ use super::{read_entry, Outbox, MAX_ENTRIES};
 use anyhow::{ensure, Result};
 use serde::Serialize;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy)]
+pub enum InvalidRetry {
+    Preview,
+    Requeue { limit: usize },
+}
 
 #[derive(Debug, Serialize)]
 pub struct RetryInvalidReport {
@@ -15,12 +21,14 @@ pub struct RetryInvalidReport {
 }
 
 impl Outbox {
-    pub fn retry_invalid(&self, limit: usize, dry_run: bool) -> Result<RetryInvalidReport> {
-        ensure!((1..=MAX_ENTRIES).contains(&limit), "invalid retry limit");
-        let paths = invalid_candidates(&self.directory)?;
+    pub fn retry_invalid(&self, mode: InvalidRetry) -> Result<RetryInvalidReport> {
+        if let InvalidRetry::Requeue { limit } = mode {
+            ensure!((1..=MAX_ENTRIES).contains(&limit), "invalid retry limit");
+        }
+        let paths = self.invalid_candidates()?;
         let eligible = paths.len();
         let mut requeued = 0;
-        if !dry_run {
+        if let InvalidRetry::Requeue { limit } = mode {
             for path in paths.into_iter().take(limit) {
                 std::fs::rename(&path, path.with_extension("json"))?;
                 requeued += 1;
@@ -28,32 +36,31 @@ impl Outbox {
             File::open(&self.directory)?.sync_all()?;
         }
         Ok(RetryInvalidReport {
-            dry_run,
+            dry_run: matches!(mode, InvalidRetry::Preview),
             eligible,
             requeued,
         })
     }
-}
 
-fn invalid_candidates(directory: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    for entry in std::fs::read_dir(directory)?.take(MAX_ENTRIES + 16) {
-        let path = entry?.path();
-        if path
-            .extension()
-            .is_none_or(|extension| extension != "rejected-invalid")
-        {
-            continue;
+    fn invalid_candidates(&self) -> Result<Vec<PathBuf>> {
+        let mut paths = Vec::new();
+        for path in self.entries()? {
+            if path
+                .extension()
+                .is_none_or(|extension| extension != "rejected-invalid")
+            {
+                continue;
+            }
+            read_entry(&path)?;
+            ensure!(
+                !["json", "seen", "callback"]
+                    .iter()
+                    .any(|extension| path.with_extension(extension).exists()),
+                "capture already has another delivery state"
+            );
+            paths.push(path);
         }
-        read_entry(&path)?;
-        ensure!(
-            !["json", "seen", "callback"]
-                .iter()
-                .any(|extension| path.with_extension(extension).exists()),
-            "capture already has another delivery state"
-        );
-        paths.push(path);
+        paths.sort();
+        Ok(paths)
     }
-    paths.sort();
-    Ok(paths)
 }

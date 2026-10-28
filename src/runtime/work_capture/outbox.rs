@@ -15,7 +15,7 @@ const MAX_BYTES: u64 = 8 * 1024 * 1024;
 static WRITER: Mutex<()> = Mutex::new(());
 
 mod retry;
-pub use retry::RetryInvalidReport;
+pub use retry::{InvalidRetry, RetryInvalidReport};
 
 #[cfg(test)]
 mod retry_tests;

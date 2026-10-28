@@ -38,7 +38,7 @@ pub use host_events::{host_event, host_event_with_title};
 pub(crate) use lifecycle::lifecycle_command as prepare_lifecycle;
 use lifecycle::stable_id;
 use outbox::Outbox;
-pub use outbox::{CaptureHealth, RetryInvalidReport};
+pub use outbox::{CaptureHealth, InvalidRetry, RetryInvalidReport};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -81,12 +81,8 @@ pub fn health(loaded: &LoadedConfig) -> Result<CaptureHealth> {
     Outbox::open(&directory(loaded)?)?.health()
 }
 
-pub fn retry_invalid(
-    loaded: &LoadedConfig,
-    limit: usize,
-    dry_run: bool,
-) -> Result<RetryInvalidReport> {
-    Outbox::writer(&directory(loaded)?)?.retry_invalid(limit, dry_run)
+pub fn retry_invalid(loaded: &LoadedConfig, mode: InvalidRetry) -> Result<RetryInvalidReport> {
+    Outbox::writer(&directory(loaded)?)?.retry_invalid(mode)
 }
 
 pub fn capture_lifecycle(loaded: &LoadedConfig, command: WorkCommand) -> CaptureReceipt {

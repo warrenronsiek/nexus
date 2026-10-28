@@ -38,14 +38,6 @@ pub(crate) struct HostEventArgs {
     pub(super) advisory: bool,
 }
 
-pub(super) fn retry_invalid(loaded: &LoadedConfig, limit: u32, dry_run: bool) -> Result<Value> {
-    Ok(serde_json::to_value(work_capture::retry_invalid(
-        loaded,
-        limit as usize,
-        dry_run,
-    )?)?)
-}
-
 pub(super) fn context(args: ContextArgs, loaded: &LoadedConfig) -> Result<Value> {
     let active = work_capture::active_host_context(loaded, &args.agent, &args.host_session);
     let mut handoff = match active {
