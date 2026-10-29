@@ -244,3 +244,10 @@ Coordination overview counters and records show recent sessions, live claims, an
 live unresolved conflicts using the shared persistence liveness predicates. They
 do not present accumulated historical open conflicts as current collisions.
 Historical records remain available through explicit CLI/MCP all-scope queries.
+
+Dashboard conflict liveness resolves each original owner separately from the
+indexed lookup of live leases at its path, including after leases are replaced.
+A PostgreSQL scale regression exercises the
+complete scoped dashboard with 60,000 historical claims and 257 conflicts inside
+a two-second read budget, leaving headroom within the terminal's five-second MCP
+deadline. Counts and record windows retain the same exact liveness semantics.

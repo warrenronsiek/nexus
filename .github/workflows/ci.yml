@@ -64,6 +64,7 @@ jobs:
         env:
           NEXUS_TEST_DATABASE_URL: postgres://nexus:nexus-ci@127.0.0.1:5432/nexus_transfer
       - run: cargo test --locked --no-default-features --features postgres --test postgres_service
+      - run: cargo test --locked --no-default-features --features postgres --lib persistence::dashboard::tests
       - run: cargo test --locked --no-default-features --features postgres --test eval_postgres
       - run: cargo test --locked --no-default-features --features postgres --test work_postgres
       - run: cargo test --locked --no-default-features --features postgres --test code_concerns_postgres

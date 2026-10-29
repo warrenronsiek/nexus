@@ -148,3 +148,9 @@ the header scope, and the appropriate capture/producer health before changing
 the workload. Capture can be partial even when rendering is healthy. Hand over
 the concrete session/activity/eval/issue IDs and qualified observations so the
 next agent can inspect the same evidence without repeating work.
+
+If startup reports a five-second MCP timeout, distinguish service readiness from
+dashboard read latency. A healthy service can still queue dashboard reads behind
+slow database work. Large retained claim histories need the service's indexed
+live-owner lookup rather than a scan of each owner's historical leases; update
+the service as well as the client before increasing timeouts or removing history.

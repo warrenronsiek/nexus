@@ -59,6 +59,11 @@ conflicts. Counts, active lists, and dashboard records apply those predicates
 before database windows, without mutating historical statuses or resolutions.
 Session activity uses the configured claim TTL and any remaining live leases;
 conflict liveness follows the original session pair through replacement leases.
+Live-owner reads resolve the immutable original claim's session with a scalar
+subquery, then probe current leases by project, path, state, and expiry. This
+keeps PostgreSQL from flattening an owner/history join into repeated scans of a
+session's accumulated tool-call history. The existing active-path index supports
+the lookup; historical claims and lease/conflict semantics remain unchanged.
 The service passes the activity window explicitly. Dashboard and list session/claim
 windows share their capped readers; dashboard conflicts intentionally prioritize
 recent updates while conflict history lists retain creation ordering.
