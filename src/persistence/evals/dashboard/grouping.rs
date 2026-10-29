@@ -4,9 +4,7 @@
 // @spec docs/features/evals.md
 use super::{series, RecordCache, SOURCE_LIMIT};
 use crate::evals::*;
-use crate::persistence::schema::eval_dimensions;
 use anyhow::Result;
-use diesel::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 struct GroupProjection {
     summary: EvalDashboardGroup,
@@ -166,7 +164,7 @@ fn group_summary(
     let Some(context) = group_context(cache, body)? else {
         return Ok(None);
     };
-    let dimensions = dimensions(cache, record)?;
+    let dimensions = cache.dimensions(&record.id)?;
     let repository: Vec<_> = dimensions
         .iter()
         .filter(|(kind, _)| kind == "repository")
@@ -255,26 +253,6 @@ fn component_labels(cache: &mut RecordCache<'_>, components: &[Component]) -> Re
     Ok(labels)
 }
 
-fn dimensions(
-    cache: &mut RecordCache<'_>,
-    record: &EvalRecordInput,
-) -> Result<Vec<(String, String)>> {
-    let mut values = eval_dimensions::table
-        .filter(eval_dimensions::project_id.eq(cache.project))
-        .filter(eval_dimensions::record_id.eq(&record.id))
-        .order((
-            eval_dimensions::dimension.asc(),
-            eval_dimensions::value.asc(),
-        ))
-        .limit(129)
-        .select((eval_dimensions::dimension, eval_dimensions::value))
-        .load::<(String, String)>(cache.connection)?;
-    if values.len() > 128 {
-        values.truncate(128);
-        cache.truncated = true;
-    }
-    Ok(values)
-}
 fn resolve_run(
     cache: &mut RecordCache<'_>,
     record: &EvalRecordInput,
@@ -295,7 +273,7 @@ fn resolve_run(
     cache.truncated = true;
     Ok(None)
 }
-fn execution_parent(body: &EvalBody) -> Option<&str> {
+pub(super) fn execution_parent(body: &EvalBody) -> Option<&str> {
     match body {
         EvalBody::Trial(value) => Some(&value.run_id),
         EvalBody::Attempt(value) => Some(&value.trial_id),

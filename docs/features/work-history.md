@@ -269,6 +269,24 @@ limits, and aggregate counts retain the scanned population when rows are
 omitted for display. A final serialized response bound protects the remote 1 MiB
 transport limit. No bounded read claims complete capture of external work.
 
+Read operations reuse project-scoped lineage links within one operation, bounded
+to 4096 cached subjects and 8 MiB of encoded links and diagnostics. Cache capacity
+falls back to ordinary reads without changing projection coverage. The cache
+never spans writes or requests. Summary reads avoid bounding and encoding detail
+evidence that the caller did not request.
+
+Dashboard and timeline reads prefetch at most 1025 observation rows for a
+64-subject page, retaining at most 8 MiB of encoded complete groups. A group cut
+by that row limit, or excluded by the cache byte limit, uses the ordinary bounded
+subject read. The lineage cache also reuses up to 4096 subject-existence checks
+inside its existing 8 MiB budget. These are read optimizations, not new source
+coverage limits; unknown finishes and projection gaps remain explicit.
+
+The same page reads child-presence flags with one project-scoped distinct-target
+query, bounded to 129 scope/identity pairs for at most 64 requested subjects.
+Session membership and activity parent edges retain their distinct meanings.
+
+
 Selected-session accounting uses one shared projection for CLI/MCP and both
 terminal hosts. `occupied_wall` is the clipped union of qualified queue intervals
 and intervals explicitly labeled `nexus.accounting.role=execution` or `wait`; containers and unknown roles

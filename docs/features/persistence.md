@@ -166,3 +166,10 @@ claims and events. It does not commit once per renewed path. Ordinary claim
 insertion and reconciliation share the same typed transaction-local insertion
 primitive; ordinary insertion still owns its own transaction. A rejected batch
 leaves neither partial claims nor partial event history.
+
+Bounded prefetch readers share the typed `batch::complete_groups` policy. It
+retains complete ordered groups, drops an uncertain final group at the row
+limit, and caches missing keys only when the batch is complete. Callers supply
+row, encoded-byte, and per-group sentinel bounds; uncached groups use normal
+reads. Retention follows source order, making byte-pressure behavior deterministic
+without changing a domain projection's coverage or diagnostics.

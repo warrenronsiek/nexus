@@ -67,9 +67,9 @@ pub(super) fn subjects(
         .load::<SubjectRow>(connection)?;
     let more = rows.len() > page.limit as usize;
     rows.truncate(page.limit as usize);
+    let mut reader = projection::Projection::new(connection, project);
     for row in rows {
-        let item = projection::detail(connection, project, &scope.subject(row.id.clone()))?
-            .map(|detail| detail.summary);
+        let item = reader.summary(&scope.subject(row.id.clone()))?;
         if !page.include(row.id, item)? {
             break;
         }
