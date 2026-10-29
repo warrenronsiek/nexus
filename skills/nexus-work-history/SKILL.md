@@ -147,3 +147,7 @@ Session stop attempts to drain final work delivery within its existing response
 deadline. Check completion in every visited project's namespace; a tool run in
 another checkout may be recorded there. Verify automatic exit delivery before
 using an explicit flush, so manual recovery does not conceal a shutdown gap.
+Check the logical work-session root as well as its host activity. Compatible
+records use transactional batch delivery; a local pending receipt can still
+represent an uncertain acknowledgment. Confirm the exact canonical observation
+before treating such a receipt as already delivered.

@@ -280,3 +280,7 @@ never denies or reruns the workload.
 Shutdown drains further bounded pages only while the queue shrinks and time
 remains. An unsuccessful pass returns promptly with the payloads retained; it
 does not spend the remaining shutdown window retrying an unavailable endpoint.
+Compatible cached work records share a bounded bulk request with their original
+caller context. The receiver's existing transaction commits paired lifecycle
+finishes together; distinct callers and deferred callback reconciliation remain
+separate. Batch rejection retains individual reconciliation behavior.

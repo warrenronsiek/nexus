@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for ToolPayload {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HookContext {
     pub session_id: String,
     #[serde(default)]

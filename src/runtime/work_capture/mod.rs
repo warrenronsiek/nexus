@@ -6,6 +6,7 @@
 // @boundary work-outbox-wire: decode stored typed recording envelopes and bounded transport acknowledgments, never arbitrary workload inputs.
 mod activity;
 mod context_bridge;
+mod delivery;
 mod git;
 mod handoff;
 mod health;
@@ -259,17 +260,7 @@ async fn flush_with_budget(
         explicit_config.map(Path::to_path_buf),
     );
     let deadline = Instant::now() + budget;
-    for entry in pending {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero()
-            || matches!(
-                deliver(&client, &path, &entry, remaining).await?,
-                Delivery::RetryLater
-            )
-        {
-            break;
-        }
-    }
+    delivery::deliver_page(&client, &path, &pending, deadline).await?;
     Outbox::open(&path)?.health()
 }
 

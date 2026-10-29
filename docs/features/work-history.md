@@ -339,3 +339,13 @@ its exact turn parent can remain in the origin project's history. The target
 view retains an unresolved-link qualification rather than copying or guessing
 that parent across project boundaries. The tool's own start, finish and elapsed
 evidence remain independently recorded.
+
+Delivery batches adjacent cached observations only when their complete caller
+contexts match, using the existing transactional work-record API. A batch stays
+within the bounded pending page and 64 KiB of source envelopes. Original cache
+bytes, observation identities, clocks, timestamps and producer provenance stay
+unchanged. Paired host-activity and logical-session finishes can therefore arrive
+together within one RPC deadline. Rejected batches fall back to the existing
+individual validation and callback-reconciliation path, preserving valid
+neighbors and quarantining invalid evidence. Uncertain batch delivery retains
+the original entries for idempotent retry.
