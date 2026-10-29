@@ -14,6 +14,9 @@ use chrono::Utc;
 use diesel::dsl::{count_star, max};
 use diesel::prelude::*;
 
+#[cfg(all(test, feature = "postgres"))]
+mod tests;
+
 impl Store {
     pub fn list_projects(&mut self) -> Result<Vec<ProjectSummary>> {
         Ok(self.list_projects_window()?.items)

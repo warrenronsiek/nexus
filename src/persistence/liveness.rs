@@ -47,18 +47,13 @@ enum ConflictOwner {
 
 fn live_owner(owner: ConflictOwner) -> Predicate<conflicts::table> {
     let (original, current) = diesel::alias!(claims as original, claims as current);
-    let query = original
-        .inner_join(
-            current.on(current
-                .field(claims::project_id)
-                .eq(original.field(claims::project_id))
-                .and(
-                    current
-                        .field(claims::session_id)
-                        .eq(original.field(claims::session_id)),
-                )),
-        )
+    let original_session = original
         .filter(original.field(claims::project_id).eq(conflicts::project_id))
+        .select(original.field(claims::session_id));
+    // Keep owner resolution scalar so current leases are probed by project and path.
+    // A flattened join can scan every historical lease for that owner instead.
+    let query = current
+        .filter(current.field(claims::project_id).eq(conflicts::project_id))
         .filter(current.field(claims::path).eq(conflicts::path))
         .filter(current.field(claims::state).eq_any(["claimed", "modified"]))
         .filter(
@@ -68,10 +63,24 @@ fn live_owner(owner: ConflictOwner) -> Predicate<conflicts::table> {
         );
     match owner {
         ConflictOwner::Left => Box::new(exists(
-            query.filter(original.field(claims::id).eq(conflicts::left_claim_id)),
+            query.filter(
+                current
+                    .field(claims::session_id)
+                    .nullable()
+                    .eq(original_session
+                        .filter(original.field(claims::id).eq(conflicts::left_claim_id))
+                        .single_value()),
+            ),
         )),
         ConflictOwner::Right => Box::new(exists(
-            query.filter(original.field(claims::id).eq(conflicts::right_claim_id)),
+            query.filter(
+                current
+                    .field(claims::session_id)
+                    .nullable()
+                    .eq(original_session
+                        .filter(original.field(claims::id).eq(conflicts::right_claim_id))
+                        .single_value()),
+            ),
         )),
     }
 }
