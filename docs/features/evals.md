@@ -198,3 +198,11 @@ A separate 64-record/4 MiB IO buffer prefetches direct execution or run-definiti
 dependencies per source page. Records enter the original dependency count/byte
 budget only when requested, in the original traversal order. Unused prefetched
 payloads do not consume dependency capacity or manufacture missing context.
+
+Source fetches use bounded 256-row pages while retaining the same 4096-record
+and 8 MiB population limits.
+
+Lifecycle lookup selects lifecycle record kinds and keeps each predecessor check
+inside a scalar correlated predicate. PostgreSQL cannot flatten that check into
+a scan of all project links when a new project's statistics underestimate its
+history. The existing target index supplies the project/record probe.

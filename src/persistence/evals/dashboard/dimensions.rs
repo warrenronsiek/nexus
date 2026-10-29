@@ -4,10 +4,10 @@
 // @spec docs/features/evals.md
 use super::RecordCache;
 use crate::evals::EvalRecordInput;
+use crate::persistence::batch::{complete_groups, GroupBounds};
 use crate::persistence::schema::eval_dimensions;
 use anyhow::Result;
 use diesel::prelude::*;
-use std::collections::BTreeMap;
 
 impl RecordCache<'_> {
     pub(super) fn prefetch_dimensions(&mut self, records: &[EvalRecordInput]) -> Result<()> {
@@ -34,27 +34,19 @@ impl RecordCache<'_> {
         records: &[EvalRecordInput],
         rows: Vec<(String, String, String)>,
     ) -> Result<()> {
-        let incomplete = (rows.len() == 1025).then(|| rows.last().unwrap().0.clone());
-        let mut groups: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-        for (id, dimension, value) in rows {
-            groups.entry(id).or_default().push((dimension, value));
-        }
-        if incomplete.is_none() {
-            for record in records {
-                groups.entry(record.id.clone()).or_default();
-            }
-        }
-        let mut bytes = 0;
-        for (id, mut values) in groups {
-            if incomplete.as_ref() == Some(&id) {
-                continue;
-            }
-            values.truncate(129);
-            bytes += serde_json::to_vec(&(&id, &values))?.len();
-            if bytes <= 1024 * 1024 {
-                self.dimension_page.insert(id, values);
-            }
-        }
+        self.dimension_page = complete_groups(
+            rows.into_iter()
+                .map(|(id, dimension, value)| (id, (dimension, value)))
+                .collect(),
+            records.iter().map(|record| record.id.clone()),
+            GroupBounds {
+                rows: 1025,
+                bytes: 1024 * 1024,
+                items: 129,
+            },
+        )?
+        .into_iter()
+        .collect();
         Ok(())
     }
     pub(super) fn dimensions(&mut self, id: &str) -> Result<Vec<(String, String)>> {

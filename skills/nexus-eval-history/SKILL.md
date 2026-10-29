@@ -32,8 +32,3 @@ Return a concise answer with record IDs, the relevant revision boundaries, and e
 ## Sources
 
 Original Nexus workflow informed by the evidence and adapter practices in Anthropic's [eval report contract](https://github.com/anthropics/skills/blob/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/claude-api/shared/evals/report/SCHEMA.md). Nexus history remains the source of recorded facts; narrative summaries are derived views.
-
-Dashboard reads batch context lookups and use the receipt-order index from
-migration V15. Source, dependency, dimension, and lifecycle limits still qualify
-the overview. Prefetching does not consume dependency capacity until requested
-or change grouping and frontier semantics.

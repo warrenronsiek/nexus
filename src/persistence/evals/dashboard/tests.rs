@@ -101,6 +101,12 @@ fn insert_history(connection: &mut DbConnection, project: &str, inputs: &[EvalRe
 fn eval_lifecycle_frontier_reads_do_not_scan_unrelated_link_history() {
     let mut store = Store::connect(&std::env::var("NEXUS_TEST_DATABASE_URL").unwrap()).unwrap();
     store.connection.begin_test_transaction().unwrap();
+    let background = uuid::Uuid::new_v4().to_string();
+    seed(&mut store, &background);
+    // Model a populated service before this project's rows enter its planner statistics.
+    diesel::sql_query("ANALYZE eval_records, eval_links")
+        .execute(&mut store.connection)
+        .unwrap();
     let project = uuid::Uuid::new_v4().to_string();
     seed(&mut store, &project);
     let started = Instant::now();

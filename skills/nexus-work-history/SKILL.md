@@ -151,8 +151,3 @@ Check the logical work-session root as well as its host activity. Compatible
 records use transactional batch delivery; a local pending receipt can still
 represent an uncertain acknowledgment. Confirm the exact canonical observation
 before treating such a receipt as already delivered.
-
-Dashboard, summary, and timeline reads reuse bounded project context within one
-operation. Batch reads retain complete groups and use ordinary reads for cut or
-uncached groups. These optimizations preserve timing, correction, membership,
-and truncation semantics; subsequent requests read current evidence.

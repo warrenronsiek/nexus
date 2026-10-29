@@ -10,6 +10,7 @@
 // @spec docs/features/sos.md
 mod analytics;
 mod backend;
+mod batch;
 mod code_concerns;
 mod conflicts;
 mod dashboard;

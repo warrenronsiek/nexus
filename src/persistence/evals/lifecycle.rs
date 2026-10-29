@@ -7,7 +7,6 @@ use crate::evals::{EvalBody, EvalRecordInput, LifecycleFrontier, LifecycleProjec
 use crate::persistence::backend::DbConnection;
 use crate::persistence::schema::{eval_links, eval_records};
 use anyhow::{bail, Result};
-use diesel::dsl::{exists, not};
 use diesel::prelude::*;
 
 pub(super) fn projection(
@@ -21,31 +20,43 @@ pub(super) fn projection(
         EvalBody::Attempt(attempt) => attempt.state,
         _ => return Ok(None),
     };
+    let rows = frontier_rows(connection, project, &input.id)?;
+    Ok(Some(LifecycleProjection {
+        initial_state,
+        truncated: rows.len() > 64,
+        frontiers: rows
+            .into_iter()
+            .take(64)
+            .map(frontier)
+            .collect::<Result<_>>()?,
+    }))
+}
+
+fn frontier_rows(
+    connection: &mut DbConnection,
+    project: &str,
+    subject: &str,
+) -> Result<Vec<RecordRow>> {
     let subjects = eval_links::table
         .filter(eval_links::project_id.eq(project))
         .filter(eval_links::relation.eq("lifecycle_subject"))
-        .filter(eval_links::target_id.eq(&input.id))
+        .filter(eval_links::target_id.eq(subject))
         .select(eval_links::source_id);
+    // A scalar probe prevents an anti join from scanning all links under stale project statistics.
     let predecessors = eval_links::table
         .filter(eval_links::project_id.eq(project))
         .filter(eval_links::relation.eq("previous_lifecycle"))
-        .filter(eval_links::target_id.eq(eval_records::id));
-    let mut rows = eval_records::table
+        .filter(eval_links::target_id.eq(eval_records::id))
+        .select(eval_links::target_id);
+    Ok(eval_records::table
         .filter(eval_records::project_id.eq(project))
+        .filter(eval_records::kind.eq("lifecycle"))
         .filter(eval_records::id.eq_any(subjects))
-        .filter(not(exists(predecessors)))
+        .filter(predecessors.single_value().is_null())
         .order((eval_records::recorded_at.asc(), eval_records::id.asc()))
         .limit(65)
         .select(RecordRow::as_select())
-        .load::<RecordRow>(connection)?;
-    let truncated = rows.len() > 64;
-    rows.truncate(64);
-    let frontiers = rows.into_iter().map(frontier).collect::<Result<_>>()?;
-    Ok(Some(LifecycleProjection {
-        initial_state,
-        frontiers,
-        truncated,
-    }))
+        .load::<RecordRow>(connection)?)
 }
 
 fn frontier(row: RecordRow) -> Result<LifecycleFrontier> {

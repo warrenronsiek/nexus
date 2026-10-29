@@ -3,6 +3,7 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/work-history.md
 use super::*;
+use crate::persistence::batch::{complete_groups, GroupBounds};
 
 impl Projection<'_> {
     /// Cache only complete subject groups; a cut or oversized group uses the ordinary read.
@@ -77,34 +78,24 @@ impl Projection<'_> {
         subjects: &[WorkSubject],
         rows: Vec<ObservationRow>,
     ) -> Result<()> {
-        let incomplete = if rows.len() == (PROJECTION_LIMIT + 1) as usize {
-            Some(rows.last().unwrap().observation()?.input.subject)
-        } else {
-            None
-        };
-        let mut groups: HashMap<WorkSubject, Vec<WorkObservation>> = HashMap::new();
-        for row in rows {
-            let observation = row.observation()?;
-            groups
-                .entry(observation.input.subject.clone())
-                .or_default()
-                .push(observation);
-        }
-        if incomplete.is_none() {
-            for subject in subjects {
-                groups.entry(subject.clone()).or_default();
-            }
-        }
-        let mut bytes = 0;
-        for (subject, observations) in groups {
-            if incomplete.as_ref() == Some(&subject) {
-                continue;
-            }
-            bytes += serde_json::to_vec(&(&subject, &observations))?.len();
-            if bytes <= 8 * 1024 * 1024 {
-                self.observations.insert(subject, observations);
-            }
-        }
+        let observations = rows
+            .into_iter()
+            .map(|row| {
+                let observation = row.observation()?;
+                Ok((observation.input.subject.clone(), observation))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.observations = complete_groups(
+            observations,
+            subjects.iter().cloned(),
+            GroupBounds {
+                rows: (PROJECTION_LIMIT + 1) as usize,
+                bytes: 8 * 1024 * 1024,
+                items: PROJECTION_LIMIT as usize,
+            },
+        )?
+        .into_iter()
+        .collect();
         Ok(())
     }
 }

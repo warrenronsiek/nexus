@@ -80,7 +80,7 @@ fn source_records(
         }
         let rows = query
             .order((eval_records::recorded_at.desc(), eval_records::id.asc()))
-            .limit(64)
+            .limit(256)
             .select((
                 eval_records::id,
                 eval_records::recorded_at,
