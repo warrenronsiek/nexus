@@ -18,15 +18,6 @@ enum Progress {
     Deferred,
 }
 
-impl From<Delivery> for Progress {
-    fn from(delivery: Delivery) -> Self {
-        match delivery {
-            Delivery::RetryLater => Self::Deferred,
-            Delivery::Recorded | Delivery::Rejected(_) => Self::Settled,
-        }
-    }
-}
-
 struct CompatibleBatch {
     context: HookContext,
     observations: Vec<WorkObservationInput>,
@@ -132,14 +123,7 @@ pub(super) async fn deliver_page(
                     .deliver(client, path, &pending[index..index + count], deadline)
                     .await?
             }
-            None => deliver(
-                client,
-                path,
-                &pending[index],
-                deadline.saturating_duration_since(Instant::now()),
-            )
-            .await?
-            .into(),
+            None => settle_individually(client, path, &pending[index..=index], deadline).await?,
         };
         if matches!(progress, Progress::Deferred) {
             break;
