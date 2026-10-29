@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import fcntl
 import json
 import os
@@ -35,6 +36,7 @@ import sys
 import tempfile
 import termios
 import time
+from typing import Iterator
 from weakref import WeakKeyDictionary
 
 if __package__:
@@ -60,6 +62,10 @@ def wait_for_text(process: subprocess.Popen[bytes], master: int, expected: bytes
         if process.poll() is not None:
             break
     raise AssertionError(f"Missing {expected!r}; exit={process.poll()}; screen={screen.text()!r}")
+
+
+def terminal_text(process: subprocess.Popen[bytes]) -> str:
+    return _screens[process].text()
 
 
 def isolated_project(temporary: Path) -> tuple[Path, Path, dict[str, str]]:
@@ -368,21 +374,36 @@ def exercise_concerns(binary: str, config: Path, root: Path, environment: dict[s
     wait_for_text(process, master, (b"Serialize native completion", b"Duplicate native callbacks", b"src/native-router.rs", b"dirty true"))
 
 
+@contextmanager
+def terminal_dashboard(binary: str, config: Path, root: Path, environment: dict[str, str]) -> Iterator[tuple[subprocess.Popen[bytes], int]]:
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0))
+    original_settings = termios.tcgetattr(slave)
+    process = subprocess.Popen([binary, "--config", str(config), "tui"], cwd=root, env=environment,
+                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    try:
+        yield process, master
+        mask = termios.ICANON | termios.ECHO
+        assert process.poll() == 0, "Close the terminal before leaving its fixture"
+        assert termios.tcgetattr(slave)[3] & mask == original_settings[3] & mask
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        if process.poll() is None:
+            process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
 def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str, remote_config: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="nexus-tui-") as directory:
         root, config, environment = isolated_project(Path(directory))
         if remote_config is not None:
             config = remote_config
         select_runtime(environment, runtime_source)
-        master, slave = pty.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0))
-        original_settings = termios.tcgetattr(slave)
-        process = subprocess.Popen(
-            [binary, "--config", str(config), "tui"],
-            cwd=root, env=environment, stdin=slave, stdout=slave, stderr=slave,
-            start_new_session=True,
-        )
-        try:
+        with terminal_dashboard(binary, config, root, environment) as (process, master):
             wait_for_text(process, master, b"Coordination", 150 if runtime_source == "download" else 15)
             added = subprocess.run(
                 [binary, "--config", str(config), "memory", "add", "--scope", "project", "terminal fixture memory"],
@@ -400,18 +421,7 @@ def exercise_terminal_dashboard(binary: str, runtime_source: str, exit_mode: str
             exercise_work(binary, config, root, environment, (master, process))
             exercise_concerns(binary, config, root, environment, (master, process))
             close_dashboard(process, master, exit_mode)
-            mask = termios.ICANON | termios.ECHO
-            assert termios.tcgetattr(slave)[3] & mask == original_settings[3] & mask
             assert_created_note(binary, config, root, environment)
-        finally:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            if process.poll() is None:
-                process.wait(timeout=5)
-            os.close(master)
-            os.close(slave)
 
 
 if __name__ == "__main__":

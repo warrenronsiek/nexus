@@ -20,11 +20,9 @@
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { matchesKey, ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
-import { fetchSnapshot } from "./client.ts";
 import { dashboardOptions } from "./dashboard-options.ts";
-import { NexusDashboardComponent } from "./component.ts";
+import { NexusDashboardConnection } from "./connection.ts";
 import { sanitizeDisplayText } from "./display.ts";
-import type { Snapshot } from "./domain.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { MemoryPrompts } from "./memory-prompts.ts";
 import { TerminalDialogs } from "./terminal-dialogs.ts";
@@ -42,20 +40,19 @@ async function runTerminalDashboard(): Promise<void> {
     cwd: directory, stdio: ["pipe", "pipe", "ignore"],
   }));
   try {
-    const snapshot = await fetchSnapshot(client, cwd, null);
-    await showTerminalDashboard(snapshot, client, cwd);
+    await showTerminalDashboard(client, cwd);
   } finally {
     client.close();
   }
 }
 
-async function showTerminalDashboard(snapshot: Snapshot, client: NexusMcpClient, cwd: string): Promise<void> {
+async function showTerminalDashboard(client: NexusMcpClient, cwd: string): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const dialogs = new TerminalDialogs(tui, terminalTheme);
   let done!: () => void;
   const closed = new Promise<void>((resolve) => { done = resolve; });
-  const dashboard = new NexusDashboardComponent(tui, terminalTheme, snapshot, dashboardOptions(client, cwd, new MemoryPrompts(dialogs), done));
+  const dashboard = new NexusDashboardConnection(tui, terminalTheme, dashboardOptions(client, cwd, new MemoryPrompts(dialogs), done));
   tui.addChild(dashboard);
   tui.setFocus(dashboard);
   tui.addInputListener((data) => matchesKey(data, "ctrl+c") ? (done(), { consume: true }) : undefined);

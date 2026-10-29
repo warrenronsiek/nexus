@@ -17,9 +17,8 @@
 // @entrypoint pi-extension
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAnalyticsCapture } from "./capture.ts";
-import { fetchSnapshot } from "./client.ts";
 import { dashboardOptions } from "./dashboard-options.ts";
-import { NexusDashboardComponent } from "./component.ts";
+import { NexusDashboardConnection } from "./connection.ts";
 import { sanitizeDisplayText } from "./display.ts";
 import { NexusMcpClient } from "./mcp-client.ts";
 import { registerMemoryContext } from "./memory-context.ts";
@@ -37,15 +36,9 @@ export default function nexusExtension(pi: ExtensionAPI): void {
         return;
       }
       try {
-        ctx.ui.notify("Connecting to Nexus…", "info");
-        const snapshot = await fetchSnapshot(client, ctx.cwd, null);
         await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-          return new NexusDashboardComponent(
-            tui,
-            theme,
-            snapshot,
-            dashboardOptions(client, ctx.cwd, new MemoryPrompts(ctx.ui), () => done()),
-          );
+          return new NexusDashboardConnection(tui, theme,
+            dashboardOptions(client, ctx.cwd, new MemoryPrompts(ctx.ui), () => done()));
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

@@ -78,6 +78,15 @@ flowchart TD
 
 The shared terminal UI lives under `pi-extension/`. `client.ts` maps typed dashboard, project, and usage reads onto the MCP client. `domain.ts` validates their wire shapes. `navigation.ts` owns Coordination's progressive-disclosure state. `sos.ts` validates SOS list and detail responses and `sos-pane.ts` owns its read-only summary-to-source navigation. `polling.ts` owns independent single-flight dashboard and analytics refresh lifecycles. `usage.ts` and `usage-pane.ts` render seven-day bar summaries. `component.ts` composes the nine tabs.
 
+`connection.ts` opens a responsive connection screen before the first snapshot
+arrives in either host. A five-second MCP read timeout remains visible there,
+with an automatic read retry after two seconds and `r` for an immediate retry.
+Only one connection attempt is pending at a time. Quitting or host disposal
+aborts client-side reads and retry timers; reads already sent to the service may
+finish independently, but late responses cannot open a closed dashboard. Counts appear only
+after a real snapshot arrives. These retries apply only to dashboard/project
+reads, never to commands, model calls, or Memory writes.
+
 `history-pane.ts` owns the common scoped component lifecycle for Evals and Work:
 scope changes cancel pending reads before domain navigation resets, deactivation
 clears filter editing, and accepted input/requests notify the renderer. Each
