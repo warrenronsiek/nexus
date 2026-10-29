@@ -21,20 +21,30 @@ fn isolated_invoker() -> (tempfile::TempDir, ConfiguredInvoker, McpInvocationCon
 
 #[tokio::test]
 async fn capture_health_tool_reports_caller_outbox_without_a_service() {
-    let (_temp, invoker, context) = isolated_invoker();
-    let response = tool_call(
-        &invoker,
-        &context,
-        json!(1),
-        json!({"name":"nexus_capture_health","arguments":{}}),
-    )
-    .await;
+    let (temp, invoker, context) = isolated_invoker();
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let response = loop {
+        let response = tool_call(
+            &invoker,
+            &context,
+            json!(1),
+            json!({"name":"nexus_capture_health","arguments":{}}),
+        )
+        .await;
+        if response["result"]["structuredContent"]["available"] == true
+            || std::time::Instant::now() >= deadline
+        {
+            break response;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
     let health = &response["result"]["structuredContent"];
     assert_eq!(health["ok"], true);
     assert_eq!(health["scope"], "local_companion");
-    assert_eq!(health["available"], true);
+    assert_eq!(health["available"], true, "{health}");
     assert_eq!(health["work_capture"]["queued"], 0);
     assert!(health["work_capture"]["capture"]["offered"].is_u64());
+    assert!(!temp.path().join("absent.sock").exists());
 }
 
 #[tokio::test]
