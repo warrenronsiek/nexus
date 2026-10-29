@@ -7,6 +7,7 @@ use crate::evals::{EvalBody, EvalRecordInput, LifecycleFrontier, LifecycleProjec
 use crate::persistence::backend::DbConnection;
 use crate::persistence::schema::{eval_links, eval_records};
 use anyhow::{bail, Result};
+use diesel::dsl::{exists, not};
 use diesel::prelude::*;
 
 pub(super) fn projection(
@@ -28,11 +29,11 @@ pub(super) fn projection(
     let predecessors = eval_links::table
         .filter(eval_links::project_id.eq(project))
         .filter(eval_links::relation.eq("previous_lifecycle"))
-        .select(eval_links::target_id);
+        .filter(eval_links::target_id.eq(eval_records::id));
     let mut rows = eval_records::table
         .filter(eval_records::project_id.eq(project))
         .filter(eval_records::id.eq_any(subjects))
-        .filter(eval_records::id.ne_all(predecessors))
+        .filter(not(exists(predecessors)))
         .order((eval_records::recorded_at.asc(), eval_records::id.asc()))
         .limit(65)
         .select(RecordRow::as_select())

@@ -180,3 +180,21 @@ bounds. Individual group metadata arrays also have count/byte bounds.
 distinguish partial source coverage from partial display rows; counts describe
 the captured source population, never an unbounded all-history claim. Ordinary
 paginated immutable history retrieval remains available for complete audit work.
+
+Lifecycle frontier reads check indexed predecessor references for each candidate
+report rather than scanning every predecessor in the project. Unrelated link
+history does not change the frontier population or its existing bounds.
+
+SQLite and PostgreSQL V15 add a project-scoped receipt-order index for dashboard
+source paging. Each continuation constrains the receipt-time range before the
+time/identity tie-break, preserving recent-first ordering and source bounds.
+
+Dimension reads prefetch up to 1025 ordered rows per 64 source records and
+retain at most 1 MiB of encoded complete groups. A cut or uncached group falls
+back to the ordinary 129-row read with its existing 128-dimension disclosure.
+Prefetching does not consume dependency capacity or change grouping semantics.
+
+A separate 64-record/4 MiB IO buffer prefetches direct execution or run-definition
+dependencies per source page. Records enter the original dependency count/byte
+budget only when requested, in the original traversal order. Unused prefetched
+payloads do not consume dependency capacity or manufacture missing context.

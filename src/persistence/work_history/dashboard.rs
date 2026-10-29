@@ -11,6 +11,9 @@ use std::collections::BTreeMap;
 pub(super) const SOURCE_LIMIT: usize = 4096;
 pub(super) const SOURCE_BYTES: usize = 8 * 1024 * 1024;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) fn dashboard(
     connection: &mut DbConnection,
     project: &str,
@@ -21,22 +24,15 @@ pub(super) fn dashboard(
         "work dashboard identity exceeds limit"
     );
     let (rows, truncated) = source_rows(connection, project)?;
+    let mut reader = projection::Projection::new(connection, project);
     let selected = session
-        .map(|id| projection::detail(connection, project, &WorkSubject::Session { id: id.into() }))
+        .map(|id| reader.summary(&WorkSubject::Session { id: id.into() }))
         .transpose()?
-        .flatten()
-        .map(|detail| detail.summary);
+        .flatten();
     let mut projection = DashboardProjection::new(session, selected, truncated);
-    for row in rows {
-        let subject = if row.scope == "session" {
-            WorkSubject::Session { id: row.id }
-        } else {
-            WorkSubject::Activity { id: row.id }
-        };
-        if let Some(detail) = projection::detail(connection, project, &subject)? {
-            if !projection.include(detail.summary, &row.occurred_at)? {
-                break;
-            }
+    for page in rows.chunks(64) {
+        if !projection.include_page(&mut reader, page)? {
+            break;
         }
     }
     if let Some(session) = session {
@@ -93,6 +89,31 @@ impl DashboardProjection {
             bytes: 0,
             unlinked: 0,
         }
+    }
+    fn include_page(
+        &mut self,
+        reader: &mut projection::Projection<'_>,
+        page: &[SubjectRow],
+    ) -> Result<bool> {
+        let subjects: Vec<_> = page
+            .iter()
+            .map(|row| {
+                if row.scope == "session" {
+                    WorkSubject::Session { id: row.id.clone() }
+                } else {
+                    WorkSubject::Activity { id: row.id.clone() }
+                }
+            })
+            .collect();
+        reader.prefetch(&subjects)?;
+        for (subject, row) in subjects.iter().zip(page) {
+            if let Some(summary) = reader.summary(subject)? {
+                if !self.include(summary, &row.occurred_at)? {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
     }
     fn include(&mut self, summary: WorkSummary, fallback: &str) -> Result<bool> {
         self.bytes += serde_json::to_vec(&summary)?.len();

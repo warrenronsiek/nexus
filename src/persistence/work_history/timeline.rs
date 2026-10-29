@@ -35,8 +35,15 @@ pub(super) fn timeline(
     let mut rows = timeline.rows(connection)?;
     let more = rows.len() > timeline.page.limit as usize;
     rows.truncate(timeline.page.limit as usize);
+    let mut reader = projection::Projection::new(connection, project);
+    reader.prefetch(
+        &rows
+            .iter()
+            .map(|row| WorkSubject::Activity { id: row.id.clone() })
+            .collect::<Vec<_>>(),
+    )?;
     for row in rows {
-        if !timeline.include(connection, row)? {
+        if !timeline.include(&mut reader, row)? {
             break;
         }
     }
@@ -85,14 +92,14 @@ impl<'a> Timeline<'a> {
             .select(SubjectRow::as_select())
             .load(connection)?)
     }
-    fn include(&mut self, connection: &mut DbConnection, row: SubjectRow) -> Result<bool> {
-        let detail = projection::detail(
-            connection,
-            self.project,
-            &WorkSubject::Activity { id: row.id.clone() },
-        )?;
+    fn include(
+        &mut self,
+        reader: &mut projection::Projection<'_>,
+        row: SubjectRow,
+    ) -> Result<bool> {
+        let detail = reader.detail(&WorkSubject::Activity { id: row.id.clone() })?;
         let item = match detail {
-            Some(detail) if self.visible(connection, &detail.summary)? => {
+            Some(detail) if self.visible(reader, &detail.summary)? => {
                 self.unresolved.extend(
                     detail
                         .links
@@ -106,7 +113,11 @@ impl<'a> Timeline<'a> {
         };
         self.page.include(row.id, item)
     }
-    fn visible(&self, connection: &mut DbConnection, summary: &WorkSummary) -> Result<bool> {
+    fn visible(
+        &self,
+        reader: &mut projection::Projection<'_>,
+        summary: &WorkSummary,
+    ) -> Result<bool> {
         if !summary
             .work_session_ids
             .iter()
@@ -120,14 +131,9 @@ impl<'a> Timeline<'a> {
         match &summary.parent_activity_id {
             None => Ok(true),
             Some(parent) => {
-                let parent = projection::detail(
-                    connection,
-                    self.project,
-                    &WorkSubject::Activity { id: parent.clone() },
-                )?;
+                let parent = reader.summary(&WorkSubject::Activity { id: parent.clone() })?;
                 Ok(!parent.is_some_and(|detail| {
                     detail
-                        .summary
                         .work_session_ids
                         .iter()
                         .any(|id| id == self.request.session)

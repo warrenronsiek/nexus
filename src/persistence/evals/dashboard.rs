@@ -3,6 +3,8 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/evals.md
 // @boundary chart-numbers: exact metric text is retained; only finite safely roundtripping scalars receive optional presentation numbers.
+mod dependencies;
+mod dimensions;
 mod grouping;
 mod series;
 use crate::evals::*;
@@ -12,6 +14,8 @@ use diesel::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 const SOURCE_LIMIT: usize = 4096;
 const SOURCE_BYTES: usize = 8 * 1024 * 1024;
+#[cfg(all(test, feature = "postgres"))]
+mod tests;
 impl Store {
     pub fn eval_dashboard(&mut self, project: &str, group: Option<&str>) -> Result<EvalDashboard> {
         ensure!(
@@ -42,10 +46,16 @@ fn project_dashboard(
         records: BTreeMap::new(),
         bytes: 0,
         truncated: false,
+        dimension_page: BTreeMap::new(),
+        payload_page: BTreeMap::new(),
     };
     let mut projection = grouping::DashboardProjection::new(selected);
-    for record in &records {
-        projection.observe(&mut cache, record, &superseded)?;
+    for page in records.chunks(64) {
+        cache.prefetch_dependencies(page)?;
+        cache.prefetch_dimensions(page)?;
+        for record in page {
+            projection.observe(&mut cache, record, &superseded)?;
+        }
     }
     projection.finish(scanned_records, truncated || cache.truncated)
 }
@@ -62,12 +72,10 @@ fn source_records(
             .filter(eval_records::kind.eq_any(["run", "grade", "measurement"]))
             .into_boxed::<crate::persistence::backend::DbBackend>();
         if let Some((time, id)) = &after {
-            query = query.filter(
+            query = query.filter(eval_records::recorded_at.le(time)).filter(
                 eval_records::recorded_at
                     .lt(time)
-                    .or(eval_records::recorded_at
-                        .eq(time)
-                        .and(eval_records::id.gt(id))),
+                    .or(eval_records::id.gt(id)),
             );
         }
         let rows = query
@@ -98,6 +106,8 @@ struct RecordCache<'a> {
     records: BTreeMap<String, Option<EvalRecordInput>>,
     bytes: usize,
     truncated: bool,
+    dimension_page: BTreeMap<String, Vec<(String, String)>>,
+    payload_page: BTreeMap<String, String>,
 }
 impl RecordCache<'_> {
     fn get(&mut self, id: &str) -> Result<Option<EvalRecordInput>> {
@@ -108,11 +118,14 @@ impl RecordCache<'_> {
             self.truncated = true;
             return Ok(None);
         }
-        let payload = eval_records::table
-            .find((self.project, id))
-            .select(eval_records::payload_json)
-            .first::<String>(self.connection)
-            .optional()?;
+        let payload = match self.payload_page.get(id) {
+            Some(payload) => Some(payload.clone()),
+            None => eval_records::table
+                .find((self.project, id))
+                .select(eval_records::payload_json)
+                .first::<String>(self.connection)
+                .optional()?,
+        };
         if payload
             .as_ref()
             .is_some_and(|payload| self.bytes + payload.len() > SOURCE_BYTES)

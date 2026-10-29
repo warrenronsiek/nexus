@@ -253,7 +253,8 @@ fn check_known_parent_cycle(
             if !seen.insert(current.clone()) {
                 break;
             }
-            let (links, _) = super::projection::active_links(connection, project, &current)?;
+            let (links, _) =
+                super::projection::Projection::new(connection, project).active_links(&current)?;
             let parent = links
                 .into_iter()
                 .find(|link| link.relation == "parent")
@@ -322,10 +323,10 @@ pub(super) fn refresh(
     project: &str,
     subject: &WorkSubject,
 ) -> Result<()> {
-    let Some(detail) = super::projection::detail(connection, project, subject)? else {
+    let Some(summary) = super::projection::Projection::new(connection, project).summary(subject)?
+    else {
         return Ok(());
     };
-    let summary = detail.summary;
     let outcome = summary
         .outcome
         .map(serde_json::to_value)

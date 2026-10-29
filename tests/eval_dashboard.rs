@@ -119,3 +119,29 @@ fn numeric_looking_categories_do_not_become_chart_quantities() {
         "7"
     );
 }
+
+#[test]
+fn partial_dimension_prefetch_keeps_each_runs_full_model_composition() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("eval.db")).unwrap();
+    let mut definitions = definitions();
+    definitions.retain(|record| record.id != "run");
+    let components: Vec<_> = (0..20).map(|i| json!({"id":format!("worker-{i}"),"role":"answer","repository_id":"repo","model":{"assignment":"fixed","model_id":format!("model-{i}")}})).collect();
+    *definitions
+        .iter_mut()
+        .find(|record| record.id == "target")
+        .unwrap() = revision("target", "target", json!({"components":components}));
+    definitions.extend((0..20).map(|i| revision(&format!("model-{i}"), "model", json!({"label":format!("model-{i}"),"provider":"fixture","requested_model":format!("model-{i}")}))));
+    store
+        .record_eval_bundle("p", &definitions, &actor())
+        .unwrap();
+    let runs: Vec<_> = (0..64).map(|i| record(&format!("run-{i:02}"),json!({"kind":"run","target_id":"target","suite_id":"suite","runner":"caller","runner_version":"1","state":"planned","selection_rule":"all"}))).collect();
+    store.record_eval_bundle("p", &runs, &actor()).unwrap();
+    let dashboard = store.eval_dashboard("p", None).unwrap();
+    assert_eq!(dashboard.run_count, 64);
+    assert_eq!(dashboard.groups.len(), 1);
+    assert_eq!(dashboard.groups[0].models.len(), 20);
+    assert_eq!(dashboard.groups[0].repository, vec!["router"]);
+    assert_eq!(dashboard.groups[0].statuses.get("planned"), Some(&64));
+    assert!(!dashboard.truncated);
+}

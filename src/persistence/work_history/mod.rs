@@ -62,7 +62,9 @@ fn read_command(
             work_session_id, ..
         } => dashboard::dashboard(connection, project, work_session_id.as_deref()),
         WorkAction::Get { subject, .. } => Ok(WorkResponse::Detail {
-            record: projection::detail(connection, project, subject)?.map(Box::new),
+            record: projection::Projection::new(connection, project)
+                .detail(subject)?
+                .map(Box::new),
         }),
         WorkAction::Observation { id, .. } => queries::observation(connection, project, id),
         WorkAction::Timeline {

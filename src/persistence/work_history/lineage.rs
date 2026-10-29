@@ -3,7 +3,7 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/work-history.md
 use super::corrections::Diagnostics;
-use crate::persistence::backend::DbConnection;
+use super::projection::Projection;
 use crate::work_history::*;
 use anyhow::Result;
 use std::collections::HashSet;
@@ -15,11 +15,7 @@ pub(super) struct Lineage {
     pub diagnostics: Diagnostics,
 }
 impl Lineage {
-    pub fn resolve(
-        connection: &mut DbConnection,
-        project: &str,
-        subject: &WorkSubject,
-    ) -> Result<Self> {
+    pub fn resolve(projection: &mut Projection<'_>, subject: &WorkSubject) -> Result<Self> {
         let mut lineage = Self::default();
         let mut seen = HashSet::new();
         let mut current = subject.clone();
@@ -29,8 +25,7 @@ impl Lineage {
                 lineage.parent = None;
                 break;
             }
-            let (links, diagnostics) =
-                super::projection::active_links(connection, project, &current)?;
+            let (links, diagnostics) = projection.active_links(&current)?;
             lineage.diagnostics.merge(diagnostics);
             let Some(parent) = lineage.include(links) else {
                 break;

@@ -7,7 +7,7 @@ use crate::work_history::*;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Diagnostics {
     pub conflicts: Vec<String>,
     pub gaps: Vec<String>,
