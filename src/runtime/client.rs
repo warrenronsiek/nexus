@@ -173,15 +173,25 @@ impl NexusClient {
         } else {
             None
         };
-        let outcome = tokio::time::timeout(
-            LIFECYCLE_RESPONSE_BUDGET,
-            self.retry_unrecorded_lifecycle(request),
-        )
-        .await;
+        let deadline = tokio::time::Instant::now() + LIFECYCLE_RESPONSE_BUDGET;
+        let outcome =
+            tokio::time::timeout_at(deadline, self.retry_unrecorded_lifecycle(request)).await;
         let diagnostic = match outcome {
             Ok(Ok(response)) => {
-                let _ =
-                    super::work_capture::flush(&self.loaded, self.explicit_config.as_deref()).await;
+                let delivery = async {
+                    if matches!(request, ServiceRequest::SessionStop(_)) {
+                        super::work_capture::flush_before_exit_with_budget(
+                            &self.loaded,
+                            self.explicit_config.as_deref(),
+                            deadline.saturating_duration_since(tokio::time::Instant::now()),
+                        )
+                        .await
+                    } else {
+                        super::work_capture::flush(&self.loaded, self.explicit_config.as_deref())
+                            .await
+                    }
+                };
+                let _ = tokio::time::timeout_at(deadline, delivery).await;
                 return with_capture_receipt(response, capture);
             }
             Ok(Err(error)) => format!("nexus is unavailable: {error}"),

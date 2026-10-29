@@ -11,6 +11,8 @@
 // @spec docs/features/sos.md
 // @spec docs/features/observability-ui.md
 // @boundary dynamic-json
+#[path = "remote_runtime/lifecycle_exit.rs"]
+mod lifecycle_exit;
 #[path = "remote_runtime/lifecycle_retry.rs"]
 mod lifecycle_retry;
 #[path = "remote_runtime/support.rs"]

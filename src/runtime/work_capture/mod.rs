@@ -103,8 +103,40 @@ pub async fn flush_before_exit(
     loaded: &LoadedConfig,
     explicit_config: Option<&Path>,
 ) -> Result<CaptureHealth> {
-    let _ = CaptureHandoff::default().drain_pending(Duration::from_millis(1500));
-    flush(loaded, explicit_config).await
+    flush_before_exit_with_budget(loaded, explicit_config, Duration::from_secs(2)).await
+}
+
+pub(crate) async fn flush_before_exit_with_budget(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+    budget: Duration,
+) -> Result<CaptureHealth> {
+    let deadline = Instant::now() + budget;
+    let _ = CaptureHandoff::default().drain_pending(Duration::from_millis(1500).min(budget));
+    let mut health = health(loaded)?;
+    while health.queued > 0 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let previous = health.queued;
+        match tokio::time::timeout(
+            remaining,
+            flush_with_budget(loaded, explicit_config, remaining),
+        )
+        .await
+        {
+            Ok(next) => health = next?,
+            Err(_) => break,
+        }
+        if health.queued >= previous {
+            tokio::time::sleep(
+                Duration::from_millis(25).min(deadline.saturating_duration_since(Instant::now())),
+            )
+            .await;
+        }
+    }
+    Ok(health)
 }
 
 pub fn capture_adapter_rejection(
@@ -223,13 +255,21 @@ fn account_enqueue(receipt: &mut CaptureReceipt, result: Result<outbox::Enqueued
 }
 
 pub async fn flush(loaded: &LoadedConfig, explicit_config: Option<&Path>) -> Result<CaptureHealth> {
+    flush_with_budget(loaded, explicit_config, Duration::from_millis(250)).await
+}
+
+async fn flush_with_budget(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+    budget: Duration,
+) -> Result<CaptureHealth> {
     let path = directory(loaded)?;
     let pending = Outbox::open(&path)?.pending()?;
     let client = NexusClient::without_analytics(
         Arc::new(loaded.clone()),
         explicit_config.map(Path::to_path_buf),
     );
-    let deadline = Instant::now() + Duration::from_millis(250);
+    let deadline = Instant::now() + budget;
     for entry in pending {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero()

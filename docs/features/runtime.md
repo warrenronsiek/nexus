@@ -270,3 +270,10 @@ or retrying agent execution.
 Tool-hook adapters treat blank optional child-agent hints as absent, retaining
 the known host executor and ordinary turn parent for root-agent tools. Nonempty
 child hints retain their reported identity and parent relationship.
+
+Session-stop callbacks drain admitted capture jobs and attempt final outbox
+delivery within the remaining lifecycle deadline, including visited checkout
+scopes. Final delivery uses that remaining budget rather than repeatedly
+cancelling records at the ordinary 250 ms flush boundary. The lifecycle response
+deadline remains 2.5 seconds; unavailable delivery retains pending payloads and
+never denies or reruns the workload.
