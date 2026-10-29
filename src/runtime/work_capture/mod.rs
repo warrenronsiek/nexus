@@ -120,20 +120,9 @@ pub(crate) async fn flush_before_exit_with_budget(
             break;
         }
         let previous = health.queued;
-        match tokio::time::timeout(
-            remaining,
-            flush_with_budget(loaded, explicit_config, remaining),
-        )
-        .await
-        {
-            Ok(next) => health = next?,
-            Err(_) => break,
-        }
+        health = flush_with_budget(loaded, explicit_config, remaining).await?;
         if health.queued >= previous {
-            tokio::time::sleep(
-                Duration::from_millis(25).min(deadline.saturating_duration_since(Instant::now())),
-            )
-            .await;
+            break;
         }
     }
     Ok(health)

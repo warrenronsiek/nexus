@@ -14,7 +14,7 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 async fn acknowledge(
@@ -69,6 +69,41 @@ async fn native_exit_delivers_retained_and_final_work_within_its_cleanup_budget(
         std::collections::HashSet::from(["activity", "session"])
     );
     server.abort();
+}
+
+#[test]
+fn unavailable_delivery_preserves_the_workload_and_queue_without_waiting_out_shutdown() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let fixture = ExitFixture::new(listener.local_addr().unwrap());
+    drop(listener);
+    fixture.seed();
+    let started = Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_nexus"))
+        .arg("--config")
+        .arg(&fixture.config)
+        .args(["exec", "--", "sh", "-c", "printf executed; exit 7"])
+        .env("NEXUS_WORK_OUTBOX_DIR", &fixture.queue)
+        .env_remove("NEXUS_WORK_CONTEXT")
+        .env_remove("NEXUS_WORK_SESSION_ID")
+        .env_remove("NEXUS_PARENT_ACTIVITY_ID")
+        .env_remove("NEXUS_HOST_SESSION_ID")
+        .current_dir(fixture.temporary.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    assert_eq!(
+        output.stdout, b"executed",
+        "the workload must run exactly once"
+    );
+    assert!(
+        !fixture.pending().is_empty(),
+        "unacknowledged evidence must remain durable"
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(1500),
+        "unavailable delivery consumed the shutdown window: {:?}",
+        started.elapsed()
+    );
 }
 
 struct ExitFixture {

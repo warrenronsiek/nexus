@@ -277,3 +277,6 @@ scopes. Final delivery uses that remaining budget rather than repeatedly
 cancelling records at the ordinary 250 ms flush boundary. The lifecycle response
 deadline remains 2.5 seconds; unavailable delivery retains pending payloads and
 never denies or reruns the workload.
+Shutdown drains further bounded pages only while the queue shrinks and time
+remains. An unsuccessful pass returns promptly with the payloads retained; it
+does not spend the remaining shutdown window retrying an unavailable endpoint.
