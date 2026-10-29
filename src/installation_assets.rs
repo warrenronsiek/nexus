@@ -140,7 +140,7 @@ pub(super) const SKILL_FILES: [(&str, &str); 28] = [
         include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
-pub(super) const PI_EXTENSION_FILES: [(&str, &str); 56] = [
+pub(super) const PI_EXTENSION_FILES: [(&str, &str); 57] = [
     ("index.ts", include_str!("../pi-extension/src/index.ts")),
     (
         "dashboard-options.ts",
@@ -269,6 +269,10 @@ pub(super) const PI_EXTENSION_FILES: [(&str, &str); 56] = [
     (
         "component.ts",
         include_str!("../pi-extension/src/component.ts"),
+    ),
+    (
+        "connection.ts",
+        include_str!("../pi-extension/src/connection.ts"),
     ),
     ("display.ts", include_str!("../pi-extension/src/display.ts")),
     ("domain.ts", include_str!("../pi-extension/src/domain.ts")),

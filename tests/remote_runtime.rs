@@ -62,6 +62,24 @@ async fn remote_terminal_works_without_a_local_database_directory() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remote_terminal_opens_before_slow_reads_and_recovers_after_timeout() {
+    let service = RunningService::start(Vec::new()).await;
+    let config = service.write_client_config("terminal-recovery", 3600);
+    let output = std::process::Command::new("python3")
+        .args(["tests/tui_startup.py", env!("CARGO_BIN_EXE_nexus")])
+        .arg(config)
+        .arg(service.endpoint(""))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_client_authenticates_and_sends_project_outside_feature_payload() {
     let endpoint = CaptureEndpoint::start().await;
     let temporary = tempfile::tempdir().unwrap();
