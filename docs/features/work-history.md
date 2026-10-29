@@ -316,3 +316,36 @@ observations and corrupt inputs are not selected. `nexus work flush` then attemp
 normal authenticated delivery; receiver validation and idempotency still apply.
 This recovers retained evidence without rerunning an agent workload. It cannot
 reconstruct evidence that was never captured or was already evicted.
+
+Empty optional child-agent hints in tool callbacks mean that no child executor
+was supplied. Those callbacks retain their ordinary turn parent and known host
+executor; they never create an identity for an empty child. Historical work
+records decode blank optional executor hints as unknown, preserving source IDs,
+timestamps and parent references. Required record and parent identities remain
+strict. Explicit recovery can therefore accept retained declarations without
+inventing executor evidence or repairing historical parentage by inference.
+
+Before producer exit, admitted capture gets at most 1.5 seconds to persist, and
+delivery shares a bounded shutdown window. Ordinary producers use a two-second
+window; session-stop delivery uses the remaining lifecycle response budget.
+Slow acknowledgments can therefore drain retained and final records without
+repeated 250 ms cancellations. An unavailable service or an excessive backlog
+can still leave durable records queued; shutdown does not claim their delivery
+or infer missing timing. Validate completed activities in every visited project
+namespace when checking cross-checkout capture.
+
+When coordination routes a tool callback into a different project's namespace,
+its exact turn parent can remain in the origin project's history. The target
+view retains an unresolved-link qualification rather than copying or guessing
+that parent across project boundaries. The tool's own start, finish and elapsed
+evidence remain independently recorded.
+
+Delivery batches adjacent cached observations only when their complete caller
+contexts match, using the existing transactional work-record API. A batch stays
+within the bounded pending page and 64 KiB of source envelopes. Original cache
+bytes, observation identities, clocks, timestamps and producer provenance stay
+unchanged. Paired host-activity and logical-session finishes can therefore arrive
+together within one RPC deadline. Rejected batches fall back to the existing
+individual validation and callback-reconciliation path, preserving valid
+neighbors and quarantining invalid evidence. Uncertain batch delivery retains
+the original entries for idempotent retry.

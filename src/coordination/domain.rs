@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for ToolPayload {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HookContext {
     pub session_id: String,
     #[serde(default)]
@@ -76,7 +76,7 @@ pub struct HookContext {
     pub agent: String,
     #[serde(default)]
     pub turn_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::model_hint::deserialize")]
+    #[serde(default, deserialize_with = "crate::optional_hint::deserialize")]
     pub model: Option<String>,
 }
 
@@ -109,7 +109,7 @@ pub struct ToolHookInput {
     pub error: Option<String>,
     #[serde(default)]
     pub is_interrupt: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::optional_hint::deserialize")]
     pub agent_id: Option<String>,
 }
 

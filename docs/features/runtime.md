@@ -266,3 +266,21 @@ its health and completion evidence as well as coordination responses. The explic
 `nexus work retry-invalid` operation can requeue retained invalid captures in the
 configured namespace after their cause has been fixed, without rewriting payloads
 or retrying agent execution.
+
+Tool-hook adapters treat blank optional child-agent hints as absent, retaining
+the known host executor and ordinary turn parent for root-agent tools. Nonempty
+child hints retain their reported identity and parent relationship.
+
+Session-stop callbacks drain admitted capture jobs and attempt final outbox
+delivery within the remaining lifecycle deadline, including visited checkout
+scopes. Final delivery uses that remaining budget rather than repeatedly
+cancelling records at the ordinary 250 ms flush boundary. The lifecycle response
+deadline remains 2.5 seconds; unavailable delivery retains pending payloads and
+never denies or reruns the workload.
+Shutdown drains further bounded pages only while the queue shrinks and time
+remains. An unsuccessful pass returns promptly with the payloads retained; it
+does not spend the remaining shutdown window retrying an unavailable endpoint.
+Compatible cached work records share a bounded bulk request with their original
+caller context. The receiver's existing transaction commits paired lifecycle
+finishes together; distinct callers and deferred callback reconciliation remain
+separate. Batch rejection retains individual reconciliation behavior.

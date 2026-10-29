@@ -136,3 +136,18 @@ requeue a bounded batch with `nexus work retry-invalid --limit 128`, then run
 and preserves source payloads and identities. Conflict/corrupt quarantines and
 other namespaces are excluded. Do not rerun the workload or invent missing times
 to fill historical gaps.
+
+Blank optional child-agent hints are absent, so root-agent tool capture retains
+the known host executor and turn parent. Retained blank executor hints decode as
+unknown during recovery; source identity, time and parentage are preserved.
+Validate tool activities as well as request/turn/session timing when checking a
+host integration. Missing historical executor or parent evidence remains visible.
+
+Session stop attempts to drain final work delivery within its existing response
+deadline. Check completion in every visited project's namespace; a tool run in
+another checkout may be recorded there. Verify automatic exit delivery before
+using an explicit flush, so manual recovery does not conceal a shutdown gap.
+Check the logical work-session root as well as its host activity. Compatible
+records use transactional batch delivery; a local pending receipt can still
+represent an uncertain acknowledgment. Confirm the exact canonical observation
+before treating such a receipt as already delivered.

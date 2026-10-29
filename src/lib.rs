@@ -16,7 +16,7 @@ mod git_process;
 mod identity;
 pub mod installation;
 pub mod memory;
-mod model_hint;
+mod optional_hint;
 pub mod papercuts;
 pub mod persistence;
 mod process_capture;

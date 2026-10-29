@@ -18,7 +18,7 @@ pub struct WorkHandoff {
     pub host_session_id: String,
     pub agent: String,
     pub turn_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::model_hint::deserialize")]
+    #[serde(default, deserialize_with = "crate::optional_hint::deserialize")]
     pub model: Option<String>,
 }
 

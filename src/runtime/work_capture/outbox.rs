@@ -77,7 +77,7 @@ pub(super) enum Enqueued {
     Conflict,
 }
 
-fn single_observation(bytes: &[u8]) -> Option<(HookContext, WorkObservationInput)> {
+pub(super) fn single_observation(bytes: &[u8]) -> Option<(HookContext, WorkObservationInput)> {
     let command: WorkCommand = serde_json::from_slice(bytes).ok()?;
     let WorkAction::Record { observations } = command.command else {
         return None;

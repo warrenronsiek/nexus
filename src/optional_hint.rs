@@ -2,7 +2,7 @@
 // @feature work-history
 // @spec docs/features/runtime.md
 // @spec docs/features/work-history.md
-// @boundary optional-model-hint: hosts can substitute an empty string for unavailable model metadata; preserve that absence without choosing a model.
+// @boundary optional-host-hints: blank model, child-agent and executor hints mean unavailable; required record and parent identities remain strict.
 use serde::{Deserialize, Deserializer};
 
 pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
