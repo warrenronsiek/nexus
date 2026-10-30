@@ -278,7 +278,7 @@ pub(super) fn index(connection: &mut DbConnection, row: &ObservationRow) -> Resu
         title: row.subject_id.clone(),
         kind: row.subject_scope.clone(),
         repository: None,
-        host_session_id: Some(observation.provenance.session_id),
+        host_session_id: Some(observation.provenance.session_id.clone()),
         environment: None,
         outcome: None,
         occurred_at: row.occurred_at.clone(),
@@ -289,7 +289,7 @@ pub(super) fn index(connection: &mut DbConnection, row: &ObservationRow) -> Resu
         .values(&placeholder)
         .on_conflict_do_nothing()
         .execute(connection)?;
-    index_host_origin(connection, row, input)?;
+    index_host_origin(connection, row, &observation)?;
     for (relation, target) in input.body.references() {
         let (target_scope, target_id) = match &target {
             WorkReference::Session { id } => ("session", id.clone()),
@@ -372,14 +372,9 @@ fn source_window_time(
 fn index_host_origin(
     connection: &mut DbConnection,
     row: &ObservationRow,
-    input: &WorkObservationInput,
+    observation: &WorkObservation,
 ) -> Result<()> {
-    if input.subject.scope() == "session"
-        && input
-            .body
-            .context()
-            .is_some_and(|context| context.labels.contains_key("nexus.capture.host"))
-    {
+    if observation.host_root_owner().is_some() {
         diesel::update(work_subjects::table.find((&row.project_id, "session", &row.subject_id)))
             .set(work_subjects::has_host_capture.eq(true))
             .execute(connection)?;

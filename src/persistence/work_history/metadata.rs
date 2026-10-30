@@ -7,11 +7,38 @@ use crate::work_history::*;
 use std::collections::BTreeSet;
 
 pub(super) fn project(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    host_origin(summary, events);
     session_title(summary, events);
     capture_gaps(summary, events);
     accounting_role(summary, events);
     executor(summary, events);
 }
+fn host_origin(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    if !matches!(summary.subject, WorkSubject::Session { .. }) {
+        return;
+    }
+    let openings: Vec<_> = events
+        .iter()
+        .filter(|event| matches!(event.input.body, WorkEvent::SessionOpened { .. }))
+        .collect();
+    let owner = openings.first().and_then(|event| event.host_root_owner());
+    match owner.filter(|owner| {
+        openings
+            .iter()
+            .all(|event| event.host_root_owner() == Some(owner))
+    }) {
+        Some(owner) => {
+            summary
+                .context
+                .labels
+                .insert("nexus.capture.host".into(), owner.into());
+        }
+        None => {
+            summary.context.labels.remove("nexus.capture.host");
+        }
+    }
+}
+
 fn contexts<'a>(
     events: &'a [&WorkObservation],
     name: &'a str,

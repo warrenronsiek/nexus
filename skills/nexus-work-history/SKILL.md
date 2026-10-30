@@ -167,3 +167,8 @@ up to ten seconds. Repeat and inspect health; automatic hooks retain their short
 delivery budget. The host-root candidate index is backfilled by the normal
 ordered migration and rebuilt by imports, so caller-owned standalone commands
 cannot crowd harness sessions out of their source window.
+
+A named legacy harness root may predate host metadata. Nexus recognizes its
+original companion producer and exact recorded host-root identity; importing
+retains the original actor for this check. Standalone command roots remain in
+source browsing. Names alone never establish host ownership or missing parentage.

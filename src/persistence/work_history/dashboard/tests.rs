@@ -274,3 +274,61 @@ fn populate_unrelated_dashboard_history(store: &mut Store, project: &str) {
             .unwrap();
     }
 }
+
+#[test]
+fn harness_dashboard_includes_named_legacy_roots_and_excludes_standalone_cli_capture() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    let legacy = "58448194a44a55a3e6f7e0e780fdcfe223da3649b0c53a4ca1e0b85eadd89329";
+    let mut opened = observation(
+        "legacy-open",
+        "session",
+        legacy,
+        json!({"event":"session_opened","title":"codex session legacy-native","context":{"host_session_id":"legacy-native"}}),
+    );
+    opened.producer.name = "nexus-companion".into();
+    opened.producer.version = "0.1.0".into();
+    let renamed = observation(
+        "legacy-title",
+        "session",
+        legacy,
+        json!({"event":"milestone","name":"Host session title updated","context":{"labels":{"nexus.session_title":"Historical named harness"}}}),
+    );
+    let actor = WorkActor {
+        agent: "codex".into(),
+        session_id: "legacy-native".into(),
+        model_id: None,
+        config_hash: "fixture".into(),
+    };
+    store
+        .work_command(
+            &project,
+            &actor,
+            &WorkAction::Record {
+                observations: vec![opened, renamed],
+            },
+        )
+        .unwrap();
+    record(
+        &mut store,
+        &project,
+        vec![observation(
+            "command-open",
+            "session",
+            "command-root",
+            json!({"event":"session_opened","title":"Standalone command","context":{"labels":{"nexus.capture.host":"nexus-cli"}}}),
+        )],
+    );
+    let WorkResponse::Dashboard { dashboard: view } = dashboard(
+        &mut store.connection,
+        &project,
+        None,
+        WorkSessionOrigin::Host,
+    )
+    .unwrap() else {
+        panic!("dashboard")
+    };
+    assert_eq!(view.sessions.len(), 1);
+    assert_eq!(view.sessions[0].subject.id(), legacy);
+    assert_eq!(view.sessions[0].title, "Historical named harness");
+}

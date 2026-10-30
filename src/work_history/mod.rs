@@ -3,6 +3,7 @@
 mod accounting;
 mod dashboard;
 mod identity;
+mod origin;
 mod queries;
 mod records;
 mod validation;

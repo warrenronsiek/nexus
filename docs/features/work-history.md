@@ -416,3 +416,11 @@ retention is reclaimed before returning health. This restores bounded admission
 for subsequent callbacks without removing pending observations or authoritative
 server history. Legacy receipt reclamation can take additional filesystem time
 beyond the network delivery budget.
+
+Legacy companion roots that predate capture labels retain harness ownership when
+their original Nexus producer, recorded Codex/Claude actor and exact deterministic
+host-root identity agree. Import uses the retained original actor. This is source
+identity evidence, not a title or nearby-activity guess. The candidate migration
+includes these legacy reports; canonical metadata derives the host marker from
+active opening observations. Standalone `nexus-cli` command roots are excluded.
+No source event, historical parent or timestamp is rewritten.

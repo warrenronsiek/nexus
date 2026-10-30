@@ -44,8 +44,8 @@ fn upgrades_v15_indexing_host_capture_without_changing_original_observations() {
     let (_temp, path) = database_through("upgrade-work-origin.db", 15);
     let mut connection = establish_connection(path.to_str().unwrap()).unwrap();
     let expected = [
-        seed_legacy_root(&mut connection, "caller", false),
-        seed_legacy_root(&mut connection, "host", true),
+        seed_legacy_root(&mut connection, "caller", LegacyRoot::Caller),
+        seed_legacy_root(&mut connection, "host", LegacyRoot::TaggedHost),
     ];
     drop(connection);
     assert_current_version(&path);
@@ -65,24 +65,36 @@ fn upgrades_v15_indexing_host_capture_without_changing_original_observations() {
     assert_eq!(payloads, expected);
 }
 
-fn seed_legacy_root(connection: &mut DbConnection, id: &str, host: bool) -> String {
+#[derive(Clone, Copy)]
+enum LegacyRoot {
+    Caller,
+    TaggedHost,
+    Companion,
+}
+
+fn seed_legacy_root(connection: &mut DbConnection, id: &str, origin: LegacyRoot) -> String {
     use crate::work_history::{WorkActor, WorkObservationInput};
-    let labels = if host {
+    let labels = if matches!(origin, LegacyRoot::TaggedHost) {
         serde_json::json!({"nexus.capture.host":"fixture"})
     } else {
         serde_json::json!({})
     };
     let input: WorkObservationInput = serde_json::from_value(serde_json::json!({
         "id": id, "subject":{"scope":"session","id":id}, "occurred_at":"2026-10-24T12:00:00Z",
-        "producer":{"name":"fixture","version":"1","instance_id":"clock"},"method":"caller",
-        "body":{"event":"session_opened","title":id,"context":{"labels":labels}}
+        "producer":{"name":if matches!(origin, LegacyRoot::Companion) { "nexus-companion" } else { "fixture" },"version":"1","instance_id":"clock"},"method":"caller",
+        "body":{"event":"session_opened","title":id,"context":{"labels":labels,"host_session_id":"legacy-native"}}
     }))
     .unwrap();
     input.validate().unwrap();
     let payload = serde_json::to_string(&input).unwrap();
     let actor = WorkActor {
-        agent: "fixture".into(),
-        session_id: "native".into(),
+        agent: if matches!(origin, LegacyRoot::Companion) {
+            "codex"
+        } else {
+            "fixture"
+        }
+        .into(),
+        session_id: "legacy-native".into(),
         model_id: None,
         config_hash: "fixture".into(),
     };
@@ -120,4 +132,28 @@ fn seed_legacy_subject(connection: &mut DbConnection, id: &str) {
         ))
         .execute(connection)
         .unwrap();
+}
+
+#[test]
+fn upgrades_v15_backfilling_a_companion_root_without_capture_labels() {
+    let (_temp, path) = database_through("legacy-companion.db", 15);
+    let mut connection = establish_connection(path.to_str().unwrap()).unwrap();
+    let id = "58448194a44a55a3e6f7e0e780fdcfe223da3649b0c53a4ca1e0b85eadd89329";
+    let payload = seed_legacy_root(&mut connection, id, LegacyRoot::Companion);
+    drop(connection);
+    assert_current_version(&path);
+    let mut connection = establish_connection(path.to_str().unwrap()).unwrap();
+    assert!(work_subjects::table
+        .find(("project", "session", id))
+        .select(work_subjects::has_host_capture)
+        .first::<bool>(&mut connection)
+        .unwrap());
+    assert_eq!(
+        work_observations::table
+            .find(("project", id))
+            .select(work_observations::payload_json)
+            .first::<String>(&mut connection)
+            .unwrap(),
+        payload
+    );
 }
