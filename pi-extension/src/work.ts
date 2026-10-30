@@ -140,7 +140,7 @@ export class NexusWorkApi implements WorkApi {
     return this.subjects("activity", project, query, signal);
   }
   async dashboard(project: string | null, sessionId?: string, signal?: AbortSignal): Promise<WorkDashboard> {
-    const value = await this.read(project, { action: "dashboard", ...(sessionId ? { work_session_id: sessionId } : {}) }, "dashboard", signal);
+    const value = await this.read(project, { action: "dashboard", ...(sessionId ? { work_session_id: sessionId } : { session_origin: "host" }) }, "dashboard", signal);
     return decodeWorkDashboard(value, sessionId, summary) ?? invalid();
   }
   async get(project: string | null, wanted: WorkSubject, signal?: AbortSignal): Promise<WorkDetail | null> {

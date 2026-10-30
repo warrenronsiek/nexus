@@ -9,6 +9,9 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 use support::Harness;
 
+#[path = "work_capture/environment.rs"]
+mod host_environment;
+
 #[path = "work_capture/git.rs"]
 mod git_capture;
 

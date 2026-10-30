@@ -14,6 +14,7 @@ const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 static WRITER: Mutex<()> = Mutex::new(());
 
+mod inventory;
 mod retry;
 pub use retry::{InvalidRetry, RetryInvalidReport};
 
@@ -193,14 +194,23 @@ impl Outbox {
         Ok(Enqueued::New)
     }
 
-    pub fn pending(&self) -> Result<Vec<Pending>> {
-        let mut paths = self.entries()?;
-        paths.retain(|path| is_pending(path));
-        paths.sort_by_key(|path| std::fs::metadata(path).and_then(|m| m.modified()).ok());
+    pub fn pending(&self, limit: usize) -> Result<Vec<Pending>> {
+        anyhow::ensure!(
+            (1..=MAX_ENTRIES).contains(&limit),
+            "invalid work flush limit"
+        );
+        let paths = inventory::oldest_entries(&self.directory, true, limit)?;
         let mut entries = Vec::new();
-        for path in paths.into_iter().take(16) {
+        let mut retained_bytes = 0;
+        for path in paths {
             match read_entry(&path) {
-                Ok(bytes) => entries.push(Pending { path, bytes }),
+                Ok(bytes) => {
+                    retained_bytes += bytes.len();
+                    if retained_bytes > 1024 * 1024 {
+                        break;
+                    }
+                    entries.push(Pending { path, bytes });
+                }
                 Err(_) => {
                     self.reject(
                         &Pending {
@@ -260,7 +270,8 @@ impl Outbox {
             health_persistence_failed_process: super::health::persistence_failures(),
             ..CaptureHealth::default()
         };
-        for path in self.entries()? {
+        for path in inventory::entries(&self.directory)? {
+            let path = path?;
             let metadata = std::fs::symlink_metadata(&path)?;
             health.bytes = health.bytes.saturating_add(metadata.len());
             if is_pending(&path) {
@@ -279,55 +290,37 @@ impl Outbox {
         Ok(health)
     }
 
-    fn entries(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = Vec::new();
-        for entry in std::fs::read_dir(&self.directory)?.take(MAX_ENTRIES + 16) {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                continue;
-            }
-            let path = entry.path();
-            if path
-                .file_name()
-                .is_some_and(|name| !name.to_string_lossy().starts_with('.'))
-            {
-                paths.push(path);
-            }
-        }
-        Ok(paths)
-    }
-
     fn evict_settled(&self, incoming: u64) -> Result<()> {
         let mut health = self.health()?;
-        let mut settled: Vec<_> = self
-            .entries()?
-            .into_iter()
-            .filter(|path| !is_pending(path))
-            .collect();
-        settled.sort_by_key(|path| {
-            (
-                !path.extension().is_some_and(|ext| ext == "seen"),
-                std::fs::metadata(path).and_then(|m| m.modified()).ok(),
-            )
-        });
-        for path in settled {
-            if health.queued + health.rejected + health.recent_delivered < MAX_ENTRIES
-                && health.bytes.saturating_add(incoming) <= MAX_BYTES
-            {
+        loop {
+            let settled = inventory::oldest_entries(&self.directory, false, MAX_ENTRIES)?;
+            if settled.is_empty() {
                 break;
             }
-            let bytes = std::fs::metadata(&path)?.len();
-            std::fs::remove_file(&path)?;
-            if path.extension().is_some_and(|ext| ext == "seen") {
-                health.recent_delivered -= 1;
-            } else {
-                increment_counter(&self.directory, ".rejected-evicted")?;
-                health.rejected -= 1;
+            for path in settled {
+                if health.queued + health.rejected + health.recent_delivered < MAX_ENTRIES
+                    && health.bytes.saturating_add(incoming) <= MAX_BYTES
+                {
+                    return Ok(());
+                }
+                self.evict_entry(&path, &mut health)?;
             }
-            health.bytes = health.bytes.saturating_sub(bytes);
         }
         Ok(())
     }
+    fn evict_entry(&self, path: &Path, health: &mut CaptureHealth) -> Result<()> {
+        let bytes = std::fs::metadata(path)?.len();
+        std::fs::remove_file(path)?;
+        if path.extension().is_some_and(|ext| ext == "seen") {
+            health.recent_delivered -= 1;
+        } else {
+            increment_counter(&self.directory, ".rejected-evicted")?;
+            health.rejected -= 1;
+        }
+        health.bytes = health.bytes.saturating_sub(bytes);
+        Ok(())
+    }
+
     fn ensure_capacity(&self, incoming: usize) -> Result<()> {
         if incoming <= MAX_ENTRY_BYTES {
             self.evict_settled(incoming as u64)?;

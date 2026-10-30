@@ -18,18 +18,20 @@ pub(super) fn dashboard(
     connection: &mut DbConnection,
     project: &str,
     session: Option<&str>,
+    origin: WorkSessionOrigin,
 ) -> Result<WorkResponse> {
     ensure!(
         session.is_none_or(|id| id.len() <= 512),
         "work dashboard identity exceeds limit"
     );
-    let (rows, truncated) = source_rows(connection, project)?;
+    let (rows, truncated) = source_rows(connection, project, origin)?;
     let mut reader = projection::Projection::new(connection, project);
     let selected = session
         .map(|id| reader.summary(&WorkSubject::Session { id: id.into() }))
         .transpose()?
         .flatten();
     let mut projection = DashboardProjection::new(session, selected, truncated);
+    projection.origin = origin;
     for page in rows.chunks(64) {
         if !projection.include_page(&mut reader, page)? {
             break;
@@ -40,22 +42,36 @@ pub(super) fn dashboard(
     }
     projection.finish()
 }
-fn source_rows(connection: &mut DbConnection, project: &str) -> Result<(Vec<SubjectRow>, bool)> {
-    let mut rows = work_subjects::table
-        .filter(work_subjects::project_id.eq(project))
-        .order((
-            work_subjects::recorded_at.desc(),
-            work_subjects::scope.asc(),
-            work_subjects::id.asc(),
-        ))
-        .limit((SOURCE_LIMIT + 1) as i64)
-        .select(SubjectRow::as_select())
-        .load::<SubjectRow>(connection)?;
-    let truncated = rows.len() > SOURCE_LIMIT;
-    rows.truncate(SOURCE_LIMIT);
+fn source_rows(
+    connection: &mut DbConnection,
+    project: &str,
+    origin: WorkSessionOrigin,
+) -> Result<(Vec<SubjectRow>, bool)> {
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    // A busy operation stream cannot evict long-lived roots from inspection.
+    for scope in ["session", "activity"] {
+        let mut query = work_subjects::table
+            .filter(work_subjects::project_id.eq(project))
+            .filter(work_subjects::scope.eq(scope))
+            .into_boxed();
+        if scope == "session" && origin == WorkSessionOrigin::Host {
+            query = query.filter(work_subjects::has_host_capture.eq(true));
+        }
+        let mut page = query
+            .order((work_subjects::recorded_at.desc(), work_subjects::id.asc()))
+            .limit((SOURCE_LIMIT + 1) as i64)
+            .select(SubjectRow::as_select())
+            .load::<SubjectRow>(connection)?;
+        truncated |= page.len() > SOURCE_LIMIT;
+        page.truncate(SOURCE_LIMIT);
+        rows.extend(page);
+    }
     Ok((rows, truncated))
 }
+
 struct DashboardProjection {
+    origin: WorkSessionOrigin,
     view: WorkDashboard,
     kinds: BTreeMap<String, DurationStatistics>,
     dates: BTreeMap<String, DurationStatistics>,
@@ -66,6 +82,7 @@ struct DashboardProjection {
 impl DashboardProjection {
     fn new(session: Option<&str>, selected: Option<WorkSummary>, truncated: bool) -> Self {
         Self {
+            origin: WorkSessionOrigin::All,
             view: WorkDashboard {
                 work_session_id: session.map(str::to_owned),
                 selected_session: selected,
@@ -79,9 +96,13 @@ impl DashboardProjection {
                 daily: vec![],
                 activity_daily: vec![],
                 scanned_subjects: 0,
-                source_limit: SOURCE_LIMIT,
+                source_limit: SOURCE_LIMIT * 2,
                 truncated,
-                notices: vec![],
+                notices: if truncated {
+                    vec!["source_subject_limit: most recently received 4096 roots and 4096 activities scanned independently; aggregates are partial".into()]
+                } else {
+                    vec![]
+                },
             },
             kinds: BTreeMap::new(),
             dates: BTreeMap::new(),
@@ -136,11 +157,27 @@ impl DashboardProjection {
         Ok(true)
     }
     fn session(&mut self, summary: WorkSummary, date: String) {
+        if self.origin == WorkSessionOrigin::Host
+            && !summary.context.labels.contains_key("nexus.capture.host")
+        {
+            return;
+        }
         self.view.session_duration.observe(&summary);
         self.dates.entry(date).or_default().observe(&summary);
         self.view.sessions.push(summary);
     }
     fn activity(&mut self, summary: WorkSummary, date: String) {
+        if self.view.work_session_id.is_none()
+            && self.origin == WorkSessionOrigin::Host
+            && !self.view.sessions.iter().any(|root| {
+                summary
+                    .work_session_ids
+                    .iter()
+                    .any(|id| id == root.subject.id())
+            })
+        {
+            return;
+        }
         if self
             .view
             .work_session_id
@@ -200,9 +237,6 @@ impl DashboardProjection {
         Ok(())
     }
     fn finish(mut self) -> Result<WorkResponse> {
-        if self.view.scanned_subjects == SOURCE_LIMIT && self.view.truncated {
-            self.view.notices.push("source_subject_limit: most recently received 4096 subjects; aggregates are partial".into());
-        }
         self.view.activity_kinds = std::mem::take(&mut self.kinds)
             .into_iter()
             .map(|(kind, duration)| ActivityDurationStatistics { kind, duration })

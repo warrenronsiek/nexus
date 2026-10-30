@@ -150,7 +150,7 @@ it("decodes dashboard responses with scope identity and finite qualified metrics
   const call = vi.fn(async () => ({ ok: true, response: "dashboard", ...overview }));
   const api = new NexusWorkApi({ inspect: call }, "/repo");
   expect((await api.dashboard("project-1")).sessions[0]?.title).toBe("Ship router");
-  expect(call).toHaveBeenCalledWith("nexus_work", { action: "dashboard", project_id: "project-1" }, "/repo", undefined);
+  expect(call).toHaveBeenCalledWith("nexus_work", { action: "dashboard", session_origin: "host", project_id: "project-1" }, "/repo", undefined);
   const wrong = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "dashboard", ...selected, work_session_id: "wrong" })) }, "/repo");
   await expect(wrong.dashboard(null, "work-1")).rejects.toThrow("unexpected response");
   const malformed = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "dashboard", ...overview, session_duration: { ...duration, average_seconds: Infinity } })) }, "/repo");
@@ -172,7 +172,7 @@ it("keeps the overview and parent picker visible in a compact terminal", async (
   const { pane } = fixture(dashboard); await ready(pane);
   const lines = pane.render(60);
   expect(lines.length).toBeLessThanOrEqual(24);
-  expect(lines.join("\n")).toContain("Parent sessions");
+  expect(lines.join("\n")).toContain("Harness sessions");
   pane.dispose();
 });
 

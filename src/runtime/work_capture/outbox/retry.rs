@@ -25,8 +25,7 @@ impl Outbox {
         if let InvalidRetry::Requeue { limit } = mode {
             ensure!((1..=MAX_ENTRIES).contains(&limit), "invalid retry limit");
         }
-        let paths = self.invalid_candidates()?;
-        let eligible = paths.len();
+        let (eligible, paths) = self.invalid_candidates()?;
         let mut requeued = 0;
         if let InvalidRetry::Requeue { limit } = mode {
             for path in paths.into_iter().take(limit) {
@@ -42,9 +41,11 @@ impl Outbox {
         })
     }
 
-    fn invalid_candidates(&self) -> Result<Vec<PathBuf>> {
+    fn invalid_candidates(&self) -> Result<(usize, Vec<PathBuf>)> {
         let mut paths = Vec::new();
-        for path in self.entries()? {
+        let mut eligible = 0;
+        for path in super::inventory::entries(&self.directory)? {
+            let path = path?;
             if path
                 .extension()
                 .is_none_or(|extension| extension != "rejected-invalid")
@@ -58,9 +59,11 @@ impl Outbox {
                     .any(|extension| path.with_extension(extension).exists()),
                 "capture already has another delivery state"
             );
+            eligible += 1;
             paths.push(path);
+            paths.sort();
+            paths.truncate(MAX_ENTRIES);
         }
-        paths.sort();
-        Ok(paths)
+        Ok((eligible, paths))
     }
 }

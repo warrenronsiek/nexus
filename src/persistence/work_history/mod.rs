@@ -59,8 +59,15 @@ fn read_command(
             queries::SubjectScope::Activities,
         ),
         WorkAction::Dashboard {
-            work_session_id, ..
-        } => dashboard::dashboard(connection, project, work_session_id.as_deref()),
+            work_session_id,
+            session_origin,
+            ..
+        } => dashboard::dashboard(
+            connection,
+            project,
+            work_session_id.as_deref(),
+            *session_origin,
+        ),
         WorkAction::Get { subject, .. } => Ok(WorkResponse::Detail {
             record: projection::Projection::new(connection, project)
                 .detail(subject)?

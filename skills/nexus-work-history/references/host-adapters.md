@@ -43,9 +43,13 @@ invented new start/finish facts. Preserve actual runner attempt IDs explicitly.
 
 ## Identity reaches launchers explicitly
 
-A command hook or MCP hook cannot mutate the host shell's environment. Obtain a
-handoff using exact host identities, carry it to the launcher, and let the
-launcher propagate it to workers:
+Hooks cannot mutate their parent process environment. Claude's `SessionStart`
+command adapter uses the host-provided `CLAUDE_ENV_FILE` export surface to pass
+its exact agent and session identity to later shell commands. Runners can resolve
+current parent context with `work context`; they must not freeze a startup turn.
+Codex shell commands can use their exact `CODEX_THREAD_ID` with `--agent codex`.
+When no supported host identity is available, obtain a handoff explicitly, carry
+it to the launcher, and let the launcher propagate it to workers:
 
 ```sh
 nexus work context --agent codex --host-session "$host_session_id"

@@ -283,11 +283,13 @@ pub(super) fn index(connection: &mut DbConnection, row: &ObservationRow) -> Resu
         outcome: None,
         occurred_at: row.occurred_at.clone(),
         recorded_at: row.recorded_at.clone(),
+        has_host_capture: false,
     };
     diesel::insert_into(work_subjects::table)
         .values(&placeholder)
         .on_conflict_do_nothing()
         .execute(connection)?;
+    index_host_origin(connection, row, input)?;
     for (relation, target) in input.body.references() {
         let (target_scope, target_id) = match &target {
             WorkReference::Session { id } => ("session", id.clone()),
@@ -365,4 +367,22 @@ fn source_window_time(
         ))
         .select(work_observations::occurred_at)
         .first(connection)?)
+}
+
+fn index_host_origin(
+    connection: &mut DbConnection,
+    row: &ObservationRow,
+    input: &WorkObservationInput,
+) -> Result<()> {
+    if input.subject.scope() == "session"
+        && input
+            .body
+            .context()
+            .is_some_and(|context| context.labels.contains_key("nexus.capture.host"))
+    {
+        diesel::update(work_subjects::table.find((&row.project_id, "session", &row.subject_id)))
+            .set(work_subjects::has_host_capture.eq(true))
+            .execute(connection)?;
+    }
+    Ok(())
 }

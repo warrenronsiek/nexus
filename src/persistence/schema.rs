@@ -545,7 +545,7 @@ diesel::table! {
     work_subjects (project_id, scope, id) {
         project_id -> Text, scope -> Text, id -> Text, title -> Text, kind -> Text,
         repository -> Nullable<Text>, host_session_id -> Nullable<Text>, environment -> Nullable<Text>,
-        outcome -> Nullable<Text>, occurred_at -> Text, recorded_at -> Text,
+        outcome -> Nullable<Text>, occurred_at -> Text, recorded_at -> Text, has_host_capture -> Bool,
     }
 }
 diesel::table! {

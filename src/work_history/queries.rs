@@ -28,6 +28,15 @@ pub enum WorkRejection {
     Conflict(String),
 }
 
+/// Select caller-owned roots or roots captured by a harness adapter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkSessionOrigin {
+    #[default]
+    All,
+    Host,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkAction {
@@ -55,6 +64,8 @@ pub enum WorkAction {
     Dashboard {
         project_id: Option<String>,
         work_session_id: Option<String>,
+        #[serde(default)]
+        session_origin: WorkSessionOrigin,
     },
     Get {
         project_id: Option<String>,

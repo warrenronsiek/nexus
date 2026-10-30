@@ -275,3 +275,9 @@ the terminal; no write is retried by this policy.
 The MCP client owns the inspection deadline for Analytics catalog and example
 reads too. Their view request owner cancels navigation changes and retains old
 data after failure, without imposing a second shorter timeout.
+
+The Work overview selects harness sessions by default. Enter opens the selected
+session's nested operation durations; `d` browses all caller-owned source records.
+The root inventory is bounded independently of operation traffic, and missing
+harness capture is shown as missing coverage rather than a standalone command
+being relabeled as a harness session.

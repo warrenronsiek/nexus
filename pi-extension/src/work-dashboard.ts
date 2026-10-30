@@ -57,9 +57,9 @@ function overview(view: WorkDashboardView, data: WorkDashboard, width: number): 
   return ["Work duration dashboard · d source records", `Session wall · avg ${duration(stats.average_seconds)} · total ${duration(stats.known_count ? stats.total_seconds : null)} · ${stats.known_count}/${stats.count} sessions timed`,
     "inclusive intervals; not effort. Unknown/conflicted excluded.",
     ...trend(view, data, width), ...kindChart(view, data, width),
-    `Parent sessions · Enter visual breakdown · ↑/↓ select · ${data.sessions.length} retained`,
+    `Harness sessions · Enter visual breakdown · ↑/↓ select · ${data.sessions.length} retained`,
     ...data.sessions.slice(start, start + 3).map((item, offset) => fitDisplayText(`${start + offset === view.selected ? "›" : " "} ${item.title} · ${elapsed(item)} · ${item.outcome ?? item.state}`, width)),
-    ...(data.sessions.length ? [] : ["No work sessions recorded. Capture caller-owned session and activity boundaries."]), ...notices(data).slice(0, 3)];
+    ...(data.sessions.length ? [] : ["No harness sessions recorded. Check host capture; d browses all source records."]), ...notices(data).slice(0, 3)];
 }
 function sessionBreakdown(view: WorkDashboardView, data: WorkDashboard, width: number, theme?: DashboardTheme): string[] {
   const session = data.selected_session;

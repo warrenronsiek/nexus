@@ -151,3 +151,19 @@ Check the logical work-session root as well as its host activity. Compatible
 records use transactional batch delivery; a local pending receipt can still
 represent an uncertain acknowledgment. Confirm the exact canonical observation
 before treating such a receipt as already delivered.
+
+The Work dashboard starts with harness-owned sessions, then opens their recorded
+operations and qualified durations. `d` keeps all caller-owned source records
+accessible, including standalone invocations and shared logical work. The API's
+`dashboard` action defaults to all roots; `session_origin: "host"` selects roots
+with recorded harness adapter metadata. Roots and operations have independent
+bounded source windows, with partial coverage disclosed. Local outbox health
+counts every retained pending boundary, including legacy oversized backlogs;
+flush uses bounded pages without discarding pending evidence.
+
+Use `nexus work flush --limit 256` for an oversized retained backlog. Each
+explicit recovery pass holds at most 1 MiB of payloads and attempts delivery for
+up to ten seconds. Repeat and inspect health; automatic hooks retain their short
+delivery budget. The host-root candidate index is backfilled by the normal
+ordered migration and rebuilt by imports, so caller-owned standalone commands
+cannot crowd harness sessions out of their source window.
