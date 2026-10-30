@@ -263,8 +263,12 @@ resolved descendants with the same count/byte bounds and at most 64 candidate
 pages of 64 rows (including stale/corrected links), so unrelated newer work
 does not hide an older session's tasks. Existing 1024-observation/lineage projection
 limits still apply and remain visible as gaps. Display lists cap at 512 sessions
-(192 KiB) and 512 activity summaries (128 KiB). The separate compact waterfall
-retains up to 4096 interval nodes within 384 KiB; daily/session-kind charts have separate
+(512 KiB) and 512 activity summaries (128 KiB). The separate compact waterfall
+retains up to 4096 interval nodes within 384 KiB. It prioritizes each operation's
+most recent known queue/start/finish time, retaining its recorded ancestors before
+the operation so display bounds preserve available parent context. Missing times
+remain unknown and cycles remain source conflicts; retention does not infer
+causality or change accounting totals. Daily/session-kind charts have separate
 encoded-byte bounds. `truncated` and notices disclose source versus display
 limits, and aggregate counts retain the scanned population when rows are
 omitted for display. A final serialized response bound protects the remote 1 MiB
