@@ -332,3 +332,40 @@ fn harness_dashboard_includes_named_legacy_roots_and_excludes_standalone_cli_cap
     assert_eq!(view.sessions[0].subject.id(), legacy);
     assert_eq!(view.sessions[0].title, "Historical named harness");
 }
+
+#[test]
+fn named_harness_choices_fit_the_dashboard_transport_before_display_truncation() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    for start in (0..288).step_by(64) {
+        let events = (start..(start + 64).min(288))
+            .map(|index| {
+                let id = format!("native-{index:03}");
+                observation(&format!("{id}-open"), "session", &id,
+                    json!({"event":"session_opened","title":format!("Named native session {index}"),
+                        "context":{"host_session_id":id,"labels":{"nexus.capture.host":"native","context": "x".repeat(256)}}}))
+            })
+            .collect();
+        record(&mut store, &project, events);
+    }
+    let WorkResponse::Dashboard { dashboard: view } = dashboard(
+        &mut store.connection,
+        &project,
+        None,
+        WorkSessionOrigin::Host,
+    )
+    .unwrap() else {
+        panic!("expected dashboard");
+    };
+    assert_eq!(
+        view.sessions.len(),
+        288,
+        "ordinary named harness roots fit the response transport"
+    );
+    assert!(view
+        .sessions
+        .iter()
+        .any(|item| item.subject.id() == "native-000"));
+    assert!(serde_json::to_vec(&view).unwrap().len() < 896 * 1024);
+    assert!(!view.truncated);
+}

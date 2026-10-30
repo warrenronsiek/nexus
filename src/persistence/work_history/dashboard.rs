@@ -302,7 +302,7 @@ impl DashboardProjection {
         Ok(())
     }
     fn bound_sources(&mut self) -> Result<bool> {
-        let sessions = bound_items(&mut self.view.sessions, 512, 192 * 1024)?;
+        let sessions = bound_items(&mut self.view.sessions, 512, 512 * 1024)?;
         let activities = bound_items(&mut self.view.activities, 512, 128 * 1024)?;
         Ok(sessions || activities)
     }
