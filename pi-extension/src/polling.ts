@@ -22,6 +22,7 @@ export class SnapshotPoller {
   private timer: NodeJS.Timeout | undefined;
   private controller: AbortController | undefined;
   private disposed = false;
+  private active = false;
   private scope: string | null;
 
   constructor(
@@ -33,7 +34,16 @@ export class SnapshotPoller {
   }
 
   start(): void {
+    if (this.disposed || this.active) return;
+    this.active = true;
     this.schedule();
+  }
+
+  pause(): void {
+    this.active = false;
+    this.clearTimer();
+    this.controller?.abort();
+    this.controller = undefined;
   }
 
   async refresh(projectId: string | null, mode: RefreshMode): Promise<void> {
@@ -54,7 +64,7 @@ export class SnapshotPoller {
   }
 
   private beginRefresh(projectId: string | null, mode: RefreshMode): RefreshRequest | undefined {
-    if (this.disposed || (mode === "poll" && this.controller !== undefined)) return;
+    if (this.disposed || (mode === "poll" && (!this.active || this.controller !== undefined))) return;
     if (mode === "scope") this.scope = projectId;
     this.controller?.abort();
     this.clearTimer();
@@ -81,7 +91,7 @@ export class SnapshotPoller {
   private finishRefresh(request: RefreshRequest): void {
     if (this.isCurrent(request)) {
       this.controller = undefined;
-      if (!this.disposed) this.schedule();
+      if (!this.disposed && this.active) this.schedule();
     }
   }
 
@@ -96,7 +106,7 @@ export class SnapshotPoller {
   }
 
   private schedule(): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.active) return;
     const delay = Math.max(500, this.snapshot.dashboard.refresh_interval_ms);
     this.timer = setTimeout(() => {
       void this.refresh(this.scope, "poll");

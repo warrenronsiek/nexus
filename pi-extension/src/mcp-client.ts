@@ -1,3 +1,5 @@
+// @feature observability-ui
+// @spec docs/features/observability-ui.md
 // @feature runtime
 // @feature usage-analytics
 // @feature agent-memory
@@ -123,7 +125,6 @@ export class NexusMcpClient {
   constructor(
     private readonly start: McpSpawner = spawnMcp,
     private readonly maximumPending = 256,
-    private readonly requestTimeoutMs = 5_000,
   ) {}
 
   call(
@@ -132,6 +133,15 @@ export class NexusMcpClient {
     cwd: string,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    return this.request(toolName, argumentsValue, cwd, 5_000, signal);
+  }
+
+  /** A caller-owned inspection waits through the companion's bounded service read. */
+  inspect(toolName: string, argumentsValue: Record<string, unknown>, cwd: string, signal?: AbortSignal): Promise<unknown> {
+    return this.request(toolName, argumentsValue, cwd, 20_000, signal);
+  }
+
+  private request(toolName: string, argumentsValue: Record<string, unknown>, cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(abortReason(signal));
     const child = this.ensureChild(cwd);
     if (child === undefined) return Promise.reject(new Error("Nexus MCP is unavailable"));
@@ -146,9 +156,9 @@ export class NexusMcpClient {
       const timeout = setTimeout(() => {
         this.reject(
           id,
-          new Error(`Nexus MCP request timed out after ${this.requestTimeoutMs}ms`),
+          new Error(`Nexus MCP request timed out after ${timeoutMs}ms`),
         );
-      }, this.requestTimeoutMs);
+      }, timeoutMs);
       timeout.unref();
       const abort = signal === undefined
         ? undefined

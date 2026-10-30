@@ -19,7 +19,7 @@ it("reads the selected project and browses sanitized papercut details", async ()
   const pane = new PapercutsPane(
     { requestRender: vi.fn() } as unknown as TUI,
     { fg: (_color, text) => text, bold: text => text },
-    new NexusPapercutsApi({ call }, "/repo"), vi.fn(),
+    new NexusPapercutsApi({ inspect: call }, "/repo"), vi.fn(),
   );
   pane.activate("project-1");
   await vi.waitFor(() => expect(pane.render(100).join("\n")).toContain("Slow checks"));
@@ -35,13 +35,13 @@ it("reads the selected project and browses sanitized papercut details", async ()
 });
 
 it("rejects malformed papercut responses", async () => {
-  const api = new NexusPapercutsApi({ call: vi.fn(async () => ({ ok: true, action: "listed", papercuts: [{ ...issue, upvote_count: -1 }], truncated: false })) }, "/repo");
+  const api = new NexusPapercutsApi({ inspect: vi.fn(async () => ({ ok: true, action: "listed", papercuts: [{ ...issue, upvote_count: -1 }], truncated: false })) }, "/repo");
   await expect(api.list(null)).rejects.toThrow("unexpected response");
 });
 
 it("sends the selected project and page cursor through the MCP boundary", async () => {
   const call = vi.fn(async () => ({ ok: true, action: "listed", papercuts: [], truncated: false }));
-  const api = new NexusPapercutsApi({ call }, "/repo");
+  const api = new NexusPapercutsApi({ inspect: call }, "/repo");
   const after = { updated_at: issue.updated_at, id: issue.id };
 
   await api.list("project-1", undefined, after);

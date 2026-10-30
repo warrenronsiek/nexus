@@ -92,7 +92,7 @@ it("retains dashboard on failed refresh and cancels superseded composition and s
 
 it("decodes bounded dashboard data and rejects non-finite graph values and mismatched selected groups", async () => {
   const call = vi.fn(async () => ({ ok: true, action: "dashboard", ...selected }));
-  const api = new NexusEvalsApi({ call }, "/repo");
+  const api = new NexusEvalsApi({ inspect: call }, "/repo");
   expect((await api.dashboard("project-1", "routing-a")).series[1].points[0].value).toEqual(series[1].points[0].value);
   expect(call).toHaveBeenCalledWith("nexus_evals", { action: "dashboard", project_id: "project-1", group_id: "routing-a" }, "/repo", undefined);
   call.mockResolvedValueOnce({ ok: true, action: "dashboard", ...selected, selected_group_id: "other" });

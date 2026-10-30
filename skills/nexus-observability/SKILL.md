@@ -149,7 +149,7 @@ the workload. Capture can be partial even when rendering is healthy. Hand over
 the concrete session/activity/eval/issue IDs and qualified observations so the
 next agent can inspect the same evidence without repeating work.
 
-If startup reports a five-second MCP timeout, distinguish service readiness from
+If startup or a history view reports a timeout, distinguish service readiness from
 dashboard read latency. A healthy service can still queue dashboard reads behind
 slow database work. The connection screen stays open across read failures and
 retries after two seconds; `r` retries immediately and `q` closes, including
@@ -157,3 +157,9 @@ while connecting. Counts remain unavailable until a real snapshot arrives.
 Large retained claim histories need the service's indexed
 live-owner lookup rather than a scan of each owner's historical leases; update
 the service as well as the client before increasing timeouts or removing history.
+
+Inspection reads allow up to twenty seconds for the companion’s bounded service
+wait, while hook and write deadlines remain unchanged. The connecting/loading
+view stays responsive; quitting or switching views cancels the client wait.
+Coordination polling pauses while another tab is active. A longer wait does not
+prove service health: report recurring slow reads with their tab and project.

@@ -19,14 +19,14 @@ function scopeArguments(projectId: string | null): Record<string, unknown> {
 }
 
 export async function fetchSnapshot(
-  client: Pick<NexusMcpClient, "call">,
+  client: Pick<NexusMcpClient, "inspect">,
   cwd: string,
   projectId: string | null,
   signal?: AbortSignal,
 ): Promise<Snapshot> {
   const [dashboardJson, projectsJson] = await Promise.all([
-    client.call("nexus_dashboard", scopeArguments(projectId), cwd, signal),
-    client.call("nexus_projects", {}, cwd, signal),
+    client.inspect("nexus_dashboard", scopeArguments(projectId), cwd, signal),
+    client.inspect("nexus_projects", {}, cwd, signal),
   ]);
   return {
     dashboard: decodeDashboard(dashboardJson),
@@ -35,20 +35,20 @@ export async function fetchSnapshot(
 }
 
 export async function fetchUsage(
-  client: Pick<NexusMcpClient, "call">,
+  client: Pick<NexusMcpClient, "inspect">,
   cwd: string,
   projectId: string | null,
   signal?: AbortSignal,
 ): Promise<UsageSummary> {
   return decodeUsage(
-    await client.call("nexus_usage", scopeArguments(projectId), cwd, signal),
+    await client.inspect("nexus_usage", scopeArguments(projectId), cwd, signal),
   );
 }
 
-export async function fetchAnalyticsUsage(client: Pick<NexusMcpClient, "call">, cwd: string, project: string | null, signal: AbortSignal): Promise<UsageSummary> {
+export async function fetchAnalyticsUsage(client: Pick<NexusMcpClient, "inspect">, cwd: string, project: string | null, signal: AbortSignal): Promise<UsageSummary> {
   const usage = await fetchUsage(client, cwd, project, signal);
   try {
-    const [summary, catalog, opportunities] = await Promise.all(["summary", "catalog", "opportunities"].map((action) => client.call("nexus_analytics", { action, ...scopeArguments(project) }, cwd, signal)));
+    const [summary, catalog, opportunities] = await Promise.all(["summary", "catalog", "opportunities"].map((action) => client.inspect("nexus_analytics", { action, ...scopeArguments(project) }, cwd, signal)));
     return { ...usage, analytics: decodeAnalytics({ summary, catalog, opportunities }) };
   } catch (error) {
     if (signal.aborted || !unsupportedAnalytics(error)) throw error;
@@ -56,12 +56,12 @@ export async function fetchAnalyticsUsage(client: Pick<NexusMcpClient, "call">, 
   }
 }
 export class NexusAnalyticsApi implements AnalyticsApi {
-  constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
+  constructor(private readonly client: Pick<NexusMcpClient, "inspect">, private readonly cwd: string) {}
   async catalog(project: string | null, offset: number, signal: AbortSignal): Promise<Catalog> {
-    return decodeCatalog(await this.client.call("nexus_analytics", { action: "catalog", ...scopeArguments(project), offset }, this.cwd, signal));
+    return decodeCatalog(await this.client.inspect("nexus_analytics", { action: "catalog", ...scopeArguments(project), offset }, this.cwd, signal));
   }
   async examples(project: string | null, filter: ExampleFilter, signal: AbortSignal): Promise<Examples> {
-    return decodeExamples(await this.client.call("nexus_analytics", { action: "examples", ...scopeArguments(project), ...filter }, this.cwd, signal));
+    return decodeExamples(await this.client.inspect("nexus_analytics", { action: "examples", ...scopeArguments(project), ...filter }, this.cwd, signal));
   }
 }
 

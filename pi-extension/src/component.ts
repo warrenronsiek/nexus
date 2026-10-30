@@ -443,6 +443,8 @@ export class NexusDashboardComponent implements Component {
     if (tab === this.tab) return;
     const previous = this.tab;
     this.tab = tab;
+    if (tab === "coordination") this.poller.start();
+    else this.poller.pause();
     transitionPane(previous, tab, this.snapshot.dashboard.project_id, {
       usage: this.usagePane,
       memory: this.memoryPane,

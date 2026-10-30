@@ -34,9 +34,9 @@ function isPapercut(value: unknown): value is Papercut {
     typeof value.upvote_count === "number" && Number.isSafeInteger(value.upvote_count) && value.upvote_count >= 0;
 }
 export class NexusPapercutsApi implements PapercutsApi {
-  constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
+  constructor(private readonly client: Pick<NexusMcpClient, "inspect">, private readonly cwd: string) {}
   async list(projectId: string | null, signal?: AbortSignal, after?: PapercutCursor): Promise<PapercutsList> {
-    const value = await this.client.call("nexus_papercuts", {
+    const value = await this.client.inspect("nexus_papercuts", {
       action: "list", ...(projectId === null ? {} : { project_id: projectId }),
       ...(after === undefined ? {} : { after }),
     }, this.cwd, signal);

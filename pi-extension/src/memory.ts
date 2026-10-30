@@ -310,14 +310,14 @@ function health(value: unknown): MemoryHealth {
 
 export class NexusMemoryApi implements MemoryApi {
   constructor(
-    private readonly client: Pick<NexusMcpClient, "call">,
+    private readonly client: Pick<NexusMcpClient, "call" | "inspect">,
     private readonly cwd: string,
   ) {}
 
   async load(): Promise<MemoryView> {
     const [statusValue, contextValue] = await Promise.all([
-      this.client.call("nexus_memory_status", { project_root: this.cwd }, this.cwd),
-      this.client.call(
+      this.client.inspect("nexus_memory_status", { project_root: this.cwd }, this.cwd),
+      this.client.inspect(
         "nexus_memory_context",
         { scope: "layered", project_root: this.cwd },
         this.cwd,
@@ -332,7 +332,7 @@ export class NexusMemoryApi implements MemoryApi {
   }
 
   async expand(summaryId: string): Promise<MemoryNode[]> {
-    const result = response(await this.client.call(
+    const result = response(await this.client.inspect(
       "nexus_memory_expand",
       { summary_id: summaryId },
       this.cwd,
@@ -341,7 +341,7 @@ export class NexusMemoryApi implements MemoryApi {
   }
 
   async search(regex: string): Promise<MemoryEntry[]> {
-    const result = response(await this.client.call(
+    const result = response(await this.client.inspect(
       "nexus_memory_search",
       { scope: "layered", project_root: this.cwd, regex, limit: 50 },
       this.cwd,

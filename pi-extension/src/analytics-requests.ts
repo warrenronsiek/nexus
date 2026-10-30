@@ -12,12 +12,10 @@ export class AnalyticsRequests {
     this.cancel();
     const controller = new AbortController(); this.controller = controller;
     this.status = "Loading…"; this.updated();
-    const timer = setTimeout(() => controller.abort(), 10_000);
     void load(controller.signal).then((value) => {
       if (this.controller !== controller) return;
-      if (controller.signal.aborted) throw new Error("Analytics request timed out");
       apply(value); this.status = "";
     }).catch(() => { if (this.controller === controller) this.status = "Request failed; previous data retained. Press r to retry."; })
-      .finally(() => { clearTimeout(timer); if (this.controller === controller) this.updated(); });
+      .finally(() => { if (this.controller === controller) this.updated(); });
   }
 }
