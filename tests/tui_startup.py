@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import http.server
+import os
+import select
+import time
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import urllib.request
-from tui_terminal import isolated_project, wait_for_text, close_dashboard, terminal_dashboard, terminal_text
+from tui_terminal import isolated_project, wait_for_text, close_dashboard, terminal_dashboard, terminal_text, _screens
 
 
 class DelayedReads(http.server.BaseHTTPRequestHandler):
@@ -52,8 +55,14 @@ def exercise_startup(binary: str, config: str, endpoint: str) -> None:
             with terminal_dashboard(binary, Path(config), root, environment) as (process, master):
                 wait_for_text(process, master, b"Connecting to Nexus", 3)
                 assert "recent sessions" not in terminal_text(process)
-                wait_for_text(process, master, b"timed out after 5000ms", 8)
-                assert process.poll() is None, "A read timeout must not close the terminal"
+                deadline = time.monotonic() + 6
+                while time.monotonic() < deadline:
+                    readable, _, _ = select.select([master], [], [], 0.1)
+                    if readable:
+                        _screens[process].feed(os.read(master, 65536))
+                assert "Connecting to Nexus" in terminal_text(process)
+                assert "Unavailable" not in terminal_text(process)
+                assert process.poll() is None, "A queued read must not close the terminal"
                 DelayedReads.ready.set()
                 wait_for_text(process, master, b"Coordination", 8)
                 close_dashboard(process, master, "quit")

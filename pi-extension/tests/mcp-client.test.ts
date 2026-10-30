@@ -1,3 +1,5 @@
+// @feature observability-ui
+// @spec docs/features/observability-ui.md
 // @feature agent-memory
 // @spec docs/features/agent-memory.md
 import { expect, it, vi } from "vitest";
@@ -272,4 +274,43 @@ it("rejects every pending call when the MCP child errors", async () => {
 
   await firstResult;
   await secondResult;
+});
+
+it("lets dashboard and work reads finish after contention without extending lifecycle or write deadlines", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const dashboard = client.call("nexus_dashboard", {}, "/repo").then(value => ({ value }), error => ({ error }));
+    const work = client.call("nexus_work", { action: "dashboard" }, "/repo").then(value => ({ value }), error => ({ error }));
+    const hook = client.call("nexus_post_tool_use", {}, "/repo");
+    const write = client.call("nexus_work", { action: "record", observations: [] }, "/repo");
+    const hookExpired = expect(hook).rejects.toThrow("5000ms");
+    const writeExpired = expect(write).rejects.toThrow("5000ms");
+    await vi.advanceTimersByTimeAsync(6_000);
+    await hookExpired; await writeExpired;
+    harness.emitStdout(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ready: true } }) + "\n");
+    harness.emitStdout(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { loaded: true } }) + "\n");
+    expect(await dashboard).toEqual({ value: { ready: true } });
+    expect(await work).toEqual({ value: { loaded: true } });
+    client.close();
+  } finally { vi.useRealTimers(); }
+});
+
+it("still bounds inspection reads and cancels them immediately when leaving a view", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const stalled = client.call("nexus_work", { action: "dashboard" }, "/repo");
+    const expired = expect(stalled).rejects.toThrow("20000ms");
+    const controller = new AbortController();
+    const canceled = client.call("nexus_dashboard", {}, "/repo", controller.signal);
+    const aborted = expect(canceled).rejects.toThrow("aborted");
+    controller.abort();
+    await aborted;
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expired;
+    client.close();
+  } finally { vi.useRealTimers(); }
 });

@@ -329,3 +329,24 @@ it("opens Work lazily and lets work filters consume global shortcut letters", as
   await vi.waitFor(() => expect(list).toHaveBeenLastCalledWith(null, { search: "qr", limit: 24 }, expect.any(AbortSignal)));
   expect(done).not.toHaveBeenCalled(); component.dispose();
 });
+
+it("pauses coordination polling while Work is open and resumes on return", async () => {
+  vi.useFakeTimers();
+  const loadSnapshot = vi.fn(async () => snapshot);
+  const memory = memoryHarness(), sos = sosHarness();
+  const component = new NexusDashboardComponent({ requestRender: vi.fn() } as unknown as TUI, theme, snapshot, {
+    loadSnapshot, loadUsage: async () => usage,
+    papercutsApi: { list: async () => ({ papercuts: [], truncated: false }) },
+    sosApi: sos.api, memoryApi: memory.api, memoryPrompts: memory.prompts, done: vi.fn(),
+  });
+  try {
+    component.handleInput("\u001b[Z");
+    component.handleInput("\u001b[Z");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(loadSnapshot).not.toHaveBeenCalled();
+    component.handleInput("\t");
+    component.handleInput("\t");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(loadSnapshot).toHaveBeenCalledOnce();
+  } finally { component.dispose(); vi.useRealTimers(); }
+});

@@ -62,7 +62,7 @@ async fn remote_terminal_works_without_a_local_database_directory() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_terminal_opens_before_slow_reads_and_recovers_after_timeout() {
+async fn remote_terminal_opens_before_contended_reads_without_premature_timeout() {
     let service = RunningService::start(Vec::new()).await;
     let config = service.write_client_config("terminal-recovery", 3600);
     let output = std::process::Command::new("python3")
