@@ -33,12 +33,11 @@ const summaryNode = {
 };
 
 function client(responses: Record<string, unknown>) {
-  return {
-    call: vi.fn(async (name: string) => {
-      if (!(name in responses)) throw new Error(`unexpected ${name}`);
-      return responses[name];
-    }),
-  };
+  const call = vi.fn(async (name: string) => {
+    if (!(name in responses)) throw new Error(`unexpected ${name}`);
+    return responses[name];
+  });
+  return { call, inspect: call };
 }
 
   it("loads typed context and health over the shared local MCP transport", async () => {

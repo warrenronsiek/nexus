@@ -118,13 +118,13 @@ function localCaptureHealth(value: unknown): WorkCaptureHealth | undefined {
 }
 
 export class NexusWorkApi implements WorkApi {
-  constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
+  constructor(private readonly client: Pick<NexusMcpClient, "inspect">, private readonly cwd: string) {}
   async health(signal?: AbortSignal): Promise<WorkCaptureHealth> {
-    const value = await this.client.call("nexus_capture_health", {}, this.cwd, signal);
+    const value = await this.client.inspect("nexus_capture_health", {}, this.cwd, signal);
     return localCaptureHealth(value) ?? invalid();
   }
   private async read(project: string | null, fields: Record<string, unknown>, response: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const value = await this.client.call("nexus_work", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
+    const value = await this.client.inspect("nexus_work", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
     if (!object(value) || value.ok !== true || value.response !== response) return invalid();
     return value;
   }

@@ -83,7 +83,7 @@ describe("SOS MCP client boundary", () => {
       if (argumentsValue.action === "get") return { ok: true, detail: detailResponse };
       throw new Error("unexpected action");
     });
-    const api = new NexusSosApi({ call } as Pick<NexusMcpClient, "call">, "/repo");
+    const api = new NexusSosApi({ inspect: call } as Pick<NexusMcpClient, "inspect">, "/repo");
 
     await expect(api.list()).resolves.toEqual(listResponse);
     await expect(api.get("sos-1")).resolves.toEqual(detailResponse);

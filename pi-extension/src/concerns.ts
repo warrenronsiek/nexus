@@ -60,9 +60,9 @@ function scoped(value: Record<string, unknown>, project: string | null): boolean
 function invalid(): never { throw new Error("Nexus code concerns returned an unexpected response"); }
 
 export class NexusConcernsApi implements ConcernsApi {
-  constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
+  constructor(private readonly client: Pick<NexusMcpClient, "inspect">, private readonly cwd: string) {}
   private async read(project: string | null, fields: Record<string, unknown>, response: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const value = await this.client.call("nexus_concerns", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
+    const value = await this.client.inspect("nexus_concerns", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
     if (!object(value) || value.ok !== true || value.response !== response) return invalid();
     const { ok: _ok, response: _response, ...data } = value;
     return data;

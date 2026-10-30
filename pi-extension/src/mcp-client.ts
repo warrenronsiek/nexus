@@ -113,27 +113,6 @@ function terminateMcp(child: McpProcess): void {
   }
 }
 
-// Interactive reads may queue behind shared-store work. Leave room for the
-// companion's 15-second service wait and bounded credential loading.
-const INSPECTION_TIMEOUT_MS = 20_000;
-const INSPECTION_TOOLS = new Set([
-  "nexus_dashboard", "nexus_projects", "nexus_usage", "nexus_status", "nexus_config",
-  "nexus_sessions", "nexus_claims", "nexus_conflicts", "nexus_events",
-  "nexus_memory_search", "nexus_memory_expand", "nexus_memory_status", "nexus_capture_health",
-]);
-const INSPECTION_ACTIONS = new Map<string, ReadonlySet<unknown>>([
-  ["nexus_work", new Set(["dashboard", "list", "activities", "get", "observation", "timeline", "events", "health"])],
-  ["nexus_evals", new Set(["dashboard", "list", "get", "why"])],
-  ["nexus_concerns", new Set(["dashboard", "list", "get", "history", "dump"])],
-  ["nexus_papercuts", new Set(["list", "dump"])],
-  ["nexus_sos", new Set(["list", "get", "dump"])],
-  ["nexus_analytics", new Set(["summary", "catalog", "opportunities", "examples", "categories"])],
-]);
-function requestTimeout(tool: string, argumentsValue: Record<string, unknown>): number {
-  return INSPECTION_TOOLS.has(tool) || INSPECTION_ACTIONS.get(tool)?.has(argumentsValue.action)
-    ? INSPECTION_TIMEOUT_MS : 5_000;
-}
-
 export class NexusMcpClient {
   private child: McpProcess | undefined;
   private cwd: string | undefined;
@@ -146,7 +125,6 @@ export class NexusMcpClient {
   constructor(
     private readonly start: McpSpawner = spawnMcp,
     private readonly maximumPending = 256,
-    private readonly requestTimeoutMs?: number,
   ) {}
 
   call(
@@ -155,6 +133,15 @@ export class NexusMcpClient {
     cwd: string,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    return this.request(toolName, argumentsValue, cwd, 5_000, signal);
+  }
+
+  /** A caller-owned inspection waits through the companion's bounded service read. */
+  inspect(toolName: string, argumentsValue: Record<string, unknown>, cwd: string, signal?: AbortSignal): Promise<unknown> {
+    return this.request(toolName, argumentsValue, cwd, 20_000, signal);
+  }
+
+  private request(toolName: string, argumentsValue: Record<string, unknown>, cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(abortReason(signal));
     const child = this.ensureChild(cwd);
     if (child === undefined) return Promise.reject(new Error("Nexus MCP is unavailable"));
@@ -165,7 +152,6 @@ export class NexusMcpClient {
       method: "tools/call",
       params: { name: toolName, arguments: argumentsValue },
     })}\n`;
-    const timeoutMs = this.requestTimeoutMs ?? requestTimeout(toolName, argumentsValue);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.reject(

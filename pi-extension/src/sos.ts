@@ -211,19 +211,19 @@ export function decodeSosDetail(value: unknown): SosIssueDetail {
 
 export class NexusSosApi implements SosApi {
   constructor(
-    private readonly client: Pick<NexusMcpClient, "call">,
+    private readonly client: Pick<NexusMcpClient, "inspect">,
     private readonly cwd: string,
   ) {}
 
   async list(signal?: AbortSignal): Promise<SosList> {
     return decodeSosList(
-      await this.client.call("nexus_sos", { action: "list" }, this.cwd, signal),
+      await this.client.inspect("nexus_sos", { action: "list" }, this.cwd, signal),
     );
   }
 
   async get(issueId: string, signal?: AbortSignal): Promise<SosIssueDetail> {
     return decodeSosDetail(
-      await this.client.call(
+      await this.client.inspect(
         "nexus_sos",
         { action: "get", issue_id: issueId },
         this.cwd,

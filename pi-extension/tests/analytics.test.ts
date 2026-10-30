@@ -60,3 +60,20 @@ it("keeps a full page of long capability names within a terminal and discloses n
   expect(browser.render(40).join("")).toContain(longName);
   browser.deactivate();
 });
+
+it("leaves the inspection deadline to transport rather than aborting valid analytics reads at ten seconds", async () => {
+  vi.useFakeTimers();
+  try {
+    const { AnalyticsRequests } = await import("../src/analytics-requests.ts");
+    const requests = new AnalyticsRequests(vi.fn());
+    let signal!: AbortSignal, finish!: (value: number) => void;
+    const apply = vi.fn();
+    requests.run(current => { signal = current; return new Promise<number>(resolve => { finish = resolve; }); }, apply);
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(signal.aborted).toBe(false);
+    finish(42);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(apply).toHaveBeenCalledWith(42);
+    requests.cancel();
+  } finally { vi.useRealTimers(); }
+});

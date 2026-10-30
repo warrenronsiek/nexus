@@ -148,12 +148,12 @@ it("aborts old dashboard scopes and ignores their late data", async () => {
 
 it("decodes dashboard responses with scope identity and finite qualified metrics", async () => {
   const call = vi.fn(async () => ({ ok: true, response: "dashboard", ...overview }));
-  const api = new NexusWorkApi({ call }, "/repo");
+  const api = new NexusWorkApi({ inspect: call }, "/repo");
   expect((await api.dashboard("project-1")).sessions[0]?.title).toBe("Ship router");
   expect(call).toHaveBeenCalledWith("nexus_work", { action: "dashboard", project_id: "project-1" }, "/repo", undefined);
-  const wrong = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "dashboard", ...selected, work_session_id: "wrong" })) }, "/repo");
+  const wrong = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "dashboard", ...selected, work_session_id: "wrong" })) }, "/repo");
   await expect(wrong.dashboard(null, "work-1")).rejects.toThrow("unexpected response");
-  const malformed = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "dashboard", ...overview, session_duration: { ...duration, average_seconds: Infinity } })) }, "/repo");
+  const malformed = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "dashboard", ...overview, session_duration: { ...duration, average_seconds: Infinity } })) }, "/repo");
   await expect(malformed.dashboard(null)).rejects.toThrow("unexpected response");
 });
 
@@ -203,7 +203,7 @@ it("rejects malformed waterfall evidence before it reaches the terminal layout",
   const queued = { ...selected.activities[0], id: "bad-queue", executor: null, accounting_role: "execution", queued_at: "not a date" };
   const lossy = { ...selected.activities[0], id: "lossy", executor: null, accounting_role: "execution", elapsed: { nanoseconds: 9007199254740992, method: "monotonic", clock_id: "boot" } };
   for (const intervals of [[{ id: "bad" }], [{ ...selected.activities[0], id: "bad", started_at: "not a date", executor: null, accounting_role: "execution" }], [queued], [lossy]]) {
-    const api = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "dashboard", ...selected, intervals })) }, "/repo");
+    const api = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "dashboard", ...selected, intervals })) }, "/repo");
     await expect(api.dashboard(null, "work-1")).rejects.toThrow("unexpected response");
   }
 });
@@ -245,7 +245,7 @@ it("qualifies queue sums when source clocks cannot measure every queued task", a
 });
 
 it("keeps known delivery backlog while showing unknown losses when the capture ledger is unavailable", async () => {
-  const api = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, scope: "local_companion", available: true, work_capture: {
+  const api = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, scope: "local_companion", available: true, work_capture: {
     queued: 2, rejected: 1, capture: null, admission_lost_process: 0, worker_failed_process: 0, health_persistence_failed_process: 1,
   } })) }, "/repo");
   expect(await api.health()).toMatchObject({ available: true, queued: 2, rejected: 1, lost: undefined, health_failures: 1 });
@@ -264,7 +264,7 @@ it("shows rejected callback transport separately from quarantined observations",
     queued: 0, rejected: 1, capture: { lost: 0, transport_rejected: 4, rejected_replays: 2, last_captured_at: null, last_delivered_at: null },
     admission_lost_process: 0, worker_failed_process: 0, health_persistence_failed_process: 0,
   } };
-  const decoded = await new NexusWorkApi({ call: vi.fn(async () => wire) }, "/repo").health();
+  const decoded = await new NexusWorkApi({ inspect: vi.fn(async () => wire) }, "/repo").health();
   expect(decoded).toMatchObject({ rejected: 1, transport_rejected: 4 });
   const { pane, api } = fixture(); api.health.mockResolvedValue(decoded); await ready(pane);
   expect(screen(pane, 240)).toContain("Transport rejected 4");

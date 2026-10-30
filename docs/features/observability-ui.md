@@ -81,7 +81,8 @@ The shared terminal UI lives under `pi-extension/`. `client.ts` maps typed dashb
 `connection.ts` opens a responsive connection screen before the first snapshot
 arrives in either host. Read-only inspection calls allow twenty seconds at the MCP boundary, leaving
 room for the companion’s fifteen-second service deadline and bounded credential
-loading. Hook calls, writes, and unknown actions retain five seconds. A failed
+loading. Read adapters explicitly use `inspect`; ordinary calls, including hooks and
+writes, retain five seconds. Transport does not infer intent from tool names. A failed
 read remains visible there,
 with an automatic read retry after two seconds and `r` for an immediate retry.
 Only one connection attempt is pending at a time. Quitting or host disposal
@@ -270,3 +271,7 @@ avoids running exact coordination counts repeatedly behind the Work or Evals
 view. Manual scope refresh and retries retain their existing semantics. Read
 deadlines remain bounded and cancel immediately when leaving a view or closing
 the terminal; no write is retried by this policy.
+
+The MCP client owns the inspection deadline for Analytics catalog and example
+reads too. Their view request owner cancels navigation changes and retains old
+data after failure, without imposing a second shorter timeout.

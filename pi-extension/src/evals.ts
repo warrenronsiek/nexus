@@ -75,9 +75,9 @@ function response(value: unknown, action: string): value is Record<string, unkno
 function invalid(): never { throw new Error("Nexus eval history returned an unexpected response"); }
 
 export class NexusEvalsApi implements EvalsApi {
-  constructor(private readonly client: Pick<NexusMcpClient, "call">, private readonly cwd: string) {}
+  constructor(private readonly client: Pick<NexusMcpClient, "inspect">, private readonly cwd: string) {}
   private call(project: string | null, fields: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-    return this.client.call("nexus_evals", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
+    return this.client.inspect("nexus_evals", { ...fields, ...(project === null ? {} : { project_id: project }) }, this.cwd, signal);
   }
   async dashboard(project: string | null, groupId?: string, signal?: AbortSignal): Promise<EvalDashboard> {
     return decodeEvalDashboard(await this.call(project, { action: "dashboard", ...(groupId ? { group_id: groupId } : {}) }, signal), groupId);

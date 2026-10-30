@@ -8,10 +8,10 @@ import type { NexusMcpClient } from "../src/mcp-client.ts";
 
 function queryClient(responses: Record<string, unknown>): {
   call: ReturnType<typeof vi.fn>;
-  client: Pick<NexusMcpClient, "call">;
+  client: Pick<NexusMcpClient, "inspect">;
 } {
   const call = vi.fn(async (toolName: string) => responses[toolName]);
-  return { call, client: { call } };
+  return { call, client: { inspect: call } };
 }
 
 describe("Pi local Nexus reads", () => {
@@ -77,13 +77,13 @@ describe("Pi local Nexus reads", () => {
 it("preserves a stale activity view on transport failure instead of replacing it with legacy data", async () => {
   const { fetchAnalyticsUsage } = await import("../src/client.ts");
   const usage = { ok: true, project_id: null, window_started_at: "start", window_ended_at: "end", tools: [], skills: [], truncated: false, capture_health: {} };
-  const client = { call: vi.fn(async (name: string) => { if (name === "nexus_usage") return usage; throw new Error("connection lost"); }) };
+  const client = { inspect: vi.fn(async (name: string) => { if (name === "nexus_usage") return usage; throw new Error("connection lost"); }) };
   await expect(fetchAnalyticsUsage(client, "/repo", null, new AbortController().signal)).rejects.toThrow("connection lost");
 });
 
 it("labels old-server fallback as legacy with unknown semantic coverage", async () => {
   const { fetchAnalyticsUsage } = await import("../src/client.ts");
   const usage = { ok: true, project_id: null, window_started_at: "start", window_ended_at: "end", tools: [], skills: [], truncated: false, capture_health: {} };
-  const client = { call: vi.fn(async (name: string) => { if (name === "nexus_usage") return usage; throw new Error("unknown tool nexus_analytics"); }) };
+  const client = { inspect: vi.fn(async (name: string) => { if (name === "nexus_usage") return usage; throw new Error("unknown tool nexus_analytics"); }) };
   expect((await fetchAnalyticsUsage(client, "/repo", null, new AbortController().signal)).analytics_error).toContain("legacy");
 });

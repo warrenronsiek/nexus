@@ -199,7 +199,7 @@ it("does not send a queued mutation after that request has timed out", async () 
   try {
     const harness = processHarness();
     harness.stdin.write.mockReturnValueOnce(false);
-    const client = new NexusMcpClient(() => harness.child, 256, 10);
+    const client = new NexusMcpClient(() => harness.child);
     const blocking = client.call("nexus_memory_status", {}, "/repo");
     const blockingResult = blocking.catch((error: unknown) => error);
     const mutation = client.call(
@@ -207,9 +207,9 @@ it("does not send a queued mutation after that request has timed out", async () 
       { summary_id: "summary-1" },
       "/repo",
     );
-    const mutationResult = expect(mutation).rejects.toThrow("timed out after 10ms");
+    const mutationResult = expect(mutation).rejects.toThrow("timed out after 5000ms");
 
-    await vi.advanceTimersByTimeAsync(11);
+    await vi.advanceTimersByTimeAsync(5_001);
     await mutationResult;
     harness.emitDrain();
 
@@ -281,8 +281,8 @@ it("lets dashboard and work reads finish after contention without extending life
   try {
     const harness = processHarness();
     const client = new NexusMcpClient(() => harness.child);
-    const dashboard = client.call("nexus_dashboard", {}, "/repo").then(value => ({ value }), error => ({ error }));
-    const work = client.call("nexus_work", { action: "dashboard" }, "/repo").then(value => ({ value }), error => ({ error }));
+    const dashboard = client.inspect("nexus_dashboard", {}, "/repo").then(value => ({ value }), error => ({ error }));
+    const work = client.inspect("nexus_work", { action: "dashboard" }, "/repo").then(value => ({ value }), error => ({ error }));
     const hook = client.call("nexus_post_tool_use", {}, "/repo");
     const write = client.call("nexus_work", { action: "record", observations: [] }, "/repo");
     const hookExpired = expect(hook).rejects.toThrow("5000ms");
@@ -302,15 +302,33 @@ it("still bounds inspection reads and cancels them immediately when leaving a vi
   try {
     const harness = processHarness();
     const client = new NexusMcpClient(() => harness.child);
-    const stalled = client.call("nexus_work", { action: "dashboard" }, "/repo");
+    const stalled = client.inspect("nexus_work", { action: "dashboard" }, "/repo");
     const expired = expect(stalled).rejects.toThrow("20000ms");
     const controller = new AbortController();
-    const canceled = client.call("nexus_dashboard", {}, "/repo", controller.signal);
+    const canceled = client.inspect("nexus_dashboard", {}, "/repo", controller.signal);
     const aborted = expect(canceled).rejects.toThrow("aborted");
     controller.abort();
     await aborted;
     await vi.advanceTimersByTimeAsync(20_000);
     await expired;
+    client.close();
+  } finally { vi.useRealTimers(); }
+});
+
+it("keeps both Memory tab reads pending during service contention", async () => {
+  vi.useFakeTimers();
+  try {
+    const { NexusMemoryApi } = await import("../src/memory.ts");
+    const harness = processHarness();
+    const client = new NexusMcpClient(() => harness.child);
+    const pending = new NexusMemoryApi(client, "/repo").load().then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(6_000);
+    const health = { scopes: [], providers: [], pending_summaries: 0, failed_attempts: 0, cooling_down_attempts: 0, fallback_uses: 0, degraded: false, last_activation_at: null };
+    harness.emitStdout(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true, health } }) + "\n");
+    harness.emitStdout(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { ok: true, context: { scope: { scope: "global" }, nodes: [], omitted: [], item_count: 0, byte_count: 0 } } }) + "\n");
+    const result = await pending;
+    if ("error" in result) throw result.error;
+    expect(result.value.context.nodes).toEqual([]);
     client.close();
   } finally { vi.useRealTimers(); }
 });

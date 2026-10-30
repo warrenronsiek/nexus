@@ -37,13 +37,13 @@ it("sends bounded eval history filters and validates records at the MCP boundary
   const call = vi.fn().mockResolvedValueOnce({ ok: true, action: "listed", records: [header], next_cursor: "older" })
     .mockResolvedValueOnce({ ok: true, action: "detailed", record })
     .mockResolvedValueOnce({ ok: true, action: "history", records: [record], truncated: true });
-  const api = new NexusEvalsApi({ call }, "/repo");
+  const api = new NexusEvalsApi({ inspect: call }, "/repo");
   const filters = { kind: "change" as const, repository: "nexus", model: "model-a", search: "discovery", after: "cursor", limit: 24 };
   expect((await api.list("project-1", filters)).next_cursor).toBe("older");
   expect(call.mock.calls[0]).toEqual(["nexus_evals", { action: "list", project_id: "project-1", ...filters }, "/repo", undefined]);
   expect((await api.get("project-1", "change-1"))?.body.kind).toBe("change");
   expect((await api.why("project-1", "change-1")).truncated).toBe(true);
-  const malformed = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "listed", records: [{ ...header, kind: "mystery" }], next_cursor: null })) }, "/repo");
+  const malformed = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "listed", records: [{ ...header, kind: "mystery" }], next_cursor: null })) }, "/repo");
   await expect(malformed.list(null, {})).rejects.toThrow("unexpected response");
 });
 
@@ -72,7 +72,7 @@ it("progressively opens rationale and linked evidence without loading artifacts"
 
 it("accepts trace, artifact-verification, and lifecycle headers in a mixed history page", async () => {
   const records = ["trace", "verification", "lifecycle"].map(kind => ({ ...header, id: kind, kind }));
-  const api = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "listed", records, next_cursor: null })) }, "/repo");
+  const api = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "listed", records, next_cursor: null })) }, "/repo");
   expect((await api.list(null, {})).records.map(record => record.kind)).toEqual(["trace", "verification", "lifecycle"]);
 });
 
@@ -170,20 +170,20 @@ it("cancels an unfinished detail read when returning to the retained list", asyn
 });
 
 it("rejects a detailed response for a different record identity", async () => {
-  const api = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "detailed", record })) }, "/repo");
+  const api = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "detailed", record })) }, "/repo");
   await expect(api.get(null, "different-id")).rejects.toThrow("unexpected response");
 });
 
 it("rejects missing typed links instead of guessing references from record contents", async () => {
   const { links: _links, ...withoutLinks } = record;
-  const api = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "detailed", record: withoutLinks })) }, "/repo");
+  const api = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "detailed", record: withoutLinks })) }, "/repo");
   await expect(api.get(null, record.id)).rejects.toThrow("unexpected response");
 });
 
 it("displays imported source receipt separately from the bound receipt and rejects malformed source", async () => {
   const imported = { ...record, source: { project_id: "original-project", recorded_at: "2026-10-20T10:00:00Z",
     provenance: { agent: "original-author", session_id: "original-session", model_id: null, config_hash: "original-config" } } };
-  const api = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "detailed", record: imported })) }, "/repo");
+  const api = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "detailed", record: imported })) }, "/repo");
   const decoded = await api.get(null, imported.id);
   const lines = evalDetailLines(decoded!).join("\n");
   expect(lines).toContain("original source receipt");
@@ -191,7 +191,7 @@ it("displays imported source receipt separately from the bound receipt and rejec
   expect(lines).toContain("original-author");
   expect(lines).toContain("2026-10-20T10:00:00Z");
   expect(lines).toContain(`Recorded: ${record.recorded_at}`);
-  const invalid = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "detailed", record: { ...imported, source: { ...imported.source, recorded_at: 123 } } })) }, "/repo");
+  const invalid = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "detailed", record: { ...imported, source: { ...imported.source, recorded_at: 123 } } })) }, "/repo");
   await expect(invalid.get(null, imported.id)).rejects.toThrow("unexpected response");
 });
 
@@ -201,7 +201,7 @@ it("shows unresolved lifecycle frontiers and partial history without choosing a 
     { id: "failed-event", state: "failed", occurred_at: "2026-10-22T12:02:00Z", recorded_at: "2026-10-22T12:04:00Z" },
   ] };
   const run = { ...record, id: "run-1", lifecycle, body: { kind: "run" as const, state: "planned" } };
-  const api = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "detailed", record: run })) }, "/repo");
+  const api = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "detailed", record: run })) }, "/repo");
   const decoded = await api.get(null, run.id);
   const lines = evalDetailLines(decoded!).join("\n");
   expect(lines).toContain("initial planned");
@@ -209,7 +209,7 @@ it("shows unresolved lifecycle frontiers and partial history without choosing a 
   expect(lines).toContain("Lifecycle history is partial");
   expect(lines).toContain("completed-event");
   expect(lines).toContain("failed-event");
-  const invalid = new NexusEvalsApi({ call: vi.fn(async () => ({ ok: true, action: "detailed", record: {
+  const invalid = new NexusEvalsApi({ inspect: vi.fn(async () => ({ ok: true, action: "detailed", record: {
     ...run, lifecycle: { ...lifecycle, frontiers: [{ ...lifecycle.frontiers[0], state: "exact" }] },
   } })) }, "/repo");
   await expect(invalid.get(null, run.id)).rejects.toThrow("unexpected response");
@@ -227,7 +227,7 @@ it("includes occurrence time in history rows before opening a record", async () 
 it("accepts metric definitions and measurements without parsing exact value text", async () => {
   const headers = ["metric", "measurement"].map(kind => ({ ...header, id: kind, kind }));
   const call = vi.fn(async () => ({ ok: true, action: "listed", records: headers, next_cursor: null }));
-  const api = new NexusEvalsApi({ call }, "/repo");
+  const api = new NexusEvalsApi({ inspect: call }, "/repo");
   expect((await api.list(null, {})).records.map(item => item.kind)).toEqual(["metric", "measurement"]);
   for (const text of ["900719925474099312345678901234567890", "0.123456789012345678901234567890", '{"bins":[1,2],"note":null,"valid":false}']) {
     const measured = { ...record, body: { kind: "measurement" as const, metric_id: "metric-1", value: { storage: "inline", text } } };

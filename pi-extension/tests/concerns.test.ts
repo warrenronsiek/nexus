@@ -57,12 +57,12 @@ it("selects an area and concern to show its remedy timeline and evidence metadat
 
 it("validates scoped bounded MCP reads and rejects malformed recurrence and evidence", async () => {
   const call = vi.fn(async () => ({ ok: true, response: "dashboard", ...dashboard }));
-  const api = new NexusConcernsApi({ call }, "/repo");
+  const api = new NexusConcernsApi({ inspect: call }, "/repo");
   expect(await api.dashboard("project-1", { sort: "returns" })).toEqual(dashboard);
   expect(call).toHaveBeenCalledWith("nexus_concerns", { action: "dashboard", project_id: "project-1", query: { sort: "returns" } }, "/repo", undefined);
   call.mockResolvedValue({ ok: true, response: "dashboard", ...dashboard, counts: { ...counts, raw_observations: -1 } });
   await expect(api.dashboard(null, {})).rejects.toThrow("unexpected response");
-  const bad = new NexusConcernsApi({ call: vi.fn(async () => ({ ok: true, response: "detail", concern: { ...detail, history: [{ ...observation, input: { ...observation.input, body: { event: "remedy_recorded", text: Infinity } } }] } })) }, "/repo");
+  const bad = new NexusConcernsApi({ inspect: vi.fn(async () => ({ ok: true, response: "detail", concern: { ...detail, history: [{ ...observation, input: { ...observation.input, body: { event: "remedy_recorded", text: Infinity } } }] } })) }, "/repo");
   await expect(bad.get(null, summary.id)).rejects.toThrow("unexpected response");
 });
 
@@ -186,9 +186,9 @@ it("shows derived session titles only for the exact original agent and host/work
 });
 
 it("rejects invalid typed query echoes and derived title fields before they reach UI state", async () => {
-  const invalidQuery = new NexusConcernsApi({ call: vi.fn(async () => ({ ok: true, response: "dashboard", ...dashboard, query: { sort: "random", repository: 42 } })) }, "/repo");
+  const invalidQuery = new NexusConcernsApi({ inspect: vi.fn(async () => ({ ok: true, response: "dashboard", ...dashboard, query: { sort: "random", repository: 42 } })) }, "/repo");
   await expect(invalidQuery.dashboard(null, {})).rejects.toThrow("unexpected response");
-  const invalidTitles = new NexusConcernsApi({ call: vi.fn(async () => ({ ok: true, response: "detail", concern: { ...detail, session_titles: [{ agent: "codex", host_session_id: null, work_session_id: "work", host_title: false, work_title: "name" }] } })) }, "/repo");
+  const invalidTitles = new NexusConcernsApi({ inspect: vi.fn(async () => ({ ok: true, response: "detail", concern: { ...detail, session_titles: [{ agent: "codex", host_session_id: null, work_session_id: "work", host_title: false, work_title: "name" }] } })) }, "/repo");
   await expect(invalidTitles.get(null, summary.id)).rejects.toThrow("unexpected response");
 });
 

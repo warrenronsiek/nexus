@@ -56,15 +56,15 @@ it("reads bounded work-session pages and rejects malformed and misidentified pro
   const call = vi.fn().mockResolvedValueOnce(envelope([session]))
     .mockResolvedValueOnce({ ok: true, response: "detail", record: detail() })
     .mockResolvedValueOnce({ ok: true, response: "timeline", ...timeline([activity("agent-a", null)]) });
-  const api = new NexusWorkApi({ call }, "/repo");
+  const api = new NexusWorkApi({ inspect: call }, "/repo");
   const query = { repository: "nexus", outcome: "failed" as const, limit: 24 };
   expect((await api.list("project-1", query)).items[0].title).toBe("Improve fallback");
   expect(call.mock.calls[0]).toEqual(["nexus_work", { action: "list", query, project_id: "project-1" }, "/repo", undefined]);
   expect((await api.get(null, { scope: "activity", id: "test-1" }))?.summary.subject.id).toBe("test-1");
   expect((await api.timeline(null, "work-1", null, {})).items[0].subject.id).toBe("agent-a");
-  const invalid = new NexusWorkApi({ call: vi.fn(async () => envelope([{ ...session, outcome: "approved" } as unknown as WorkSummary])) }, "/repo");
+  const invalid = new NexusWorkApi({ inspect: vi.fn(async () => envelope([{ ...session, outcome: "approved" } as unknown as WorkSummary])) }, "/repo");
   await expect(invalid.list(null, {})).rejects.toThrow("unexpected response");
-  const wrong = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "detail", record: detail() })) }, "/repo");
+  const wrong = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "detail", record: detail() })) }, "/repo");
   await expect(wrong.get(null, { scope: "activity", id: "different" })).rejects.toThrow("unexpected response");
 });
 
@@ -183,9 +183,9 @@ it("applies all root filters through bounded queries and cancels unfinished navi
 
 it("keeps unresolved orphan roots visible while rejecting a wrong nested parent", async () => {
   const orphan = { ...activity("orphan", "missing-parent", "Unresolved child"), gaps: ["unresolved_link"] };
-  const api = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "timeline", ...timeline([orphan]) })) }, "/repo");
+  const api = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "timeline", ...timeline([orphan]) })) }, "/repo");
   expect((await api.timeline(null, "work-1", null, {})).items[0].parent_activity_id).toBe("missing-parent");
-  const wrong = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "timeline", ...timeline([orphan], "different-parent") })) }, "/repo");
+  const wrong = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "timeline", ...timeline([orphan], "different-parent") })) }, "/repo");
   await expect(wrong.timeline(null, "work-1", "different-parent", {})).rejects.toThrow("unexpected response");
 });
 
@@ -216,7 +216,7 @@ function sharedFixture() {
 
 it("decodes original source receipts independently of the importer", async () => {
   const { shared, sharedDetail } = sharedFixture();
-  const api = new NexusWorkApi({ call: vi.fn(async () => ({ ok: true, response: "detail", record: sharedDetail })) }, "/repo");
+  const api = new NexusWorkApi({ inspect: vi.fn(async () => ({ ok: true, response: "detail", record: sharedDetail })) }, "/repo");
   const decoded = await api.get(null, shared.subject);
   expect(decoded?.observations[0].source?.provenance.agent).toBe("source-ci");
 });
@@ -244,10 +244,10 @@ it("routes activity-kind searches to activity pages and follows their work-sessi
 it("sends typed activity-search queries and rejects session rows in that response", async () => {
   const query = { kind: "test", environment: "beta", limit: 24 };
   const call = vi.fn(async () => envelope([activity("test-1", null)]));
-  const api = new NexusWorkApi({ call }, "/repo");
+  const api = new NexusWorkApi({ inspect: call }, "/repo");
   expect((await api.activities("project-1", query)).items[0].subject.scope).toBe("activity");
   expect(call).toHaveBeenCalledWith("nexus_work", { action: "activities", query, project_id: "project-1" }, "/repo", undefined);
-  const wrong = new NexusWorkApi({ call: vi.fn(async () => envelope([session])) }, "/repo");
+  const wrong = new NexusWorkApi({ inspect: vi.fn(async () => envelope([session])) }, "/repo");
   await expect(wrong.activities(null, query)).rejects.toThrow("unexpected response");
 });
 
