@@ -35,7 +35,9 @@ pub use git::git_hook;
 pub(crate) use handoff::CaptureHandoff;
 pub use handoff::{CaptureReceipt, CaptureStatus};
 pub use host_context::{host_handoff, WorkHandoff};
-pub use host_events::{host_event, host_event_with_title};
+pub use host_events::{
+    export_host_environment, host_event, host_event_with_title, EnvironmentHandoff,
+};
 pub(crate) use lifecycle::lifecycle_command as prepare_lifecycle;
 use lifecycle::stable_id;
 use outbox::Outbox;
@@ -248,13 +250,48 @@ pub async fn flush(loaded: &LoadedConfig, explicit_config: Option<&Path>) -> Res
     flush_with_budget(loaded, explicit_config, Duration::from_millis(250)).await
 }
 
+/// Explicit recovery uses a larger bounded inventory window and delivery budget.
+pub async fn flush_pending(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+    limit: u16,
+) -> Result<CaptureHealth> {
+    let health = flush_window(
+        loaded,
+        explicit_config,
+        Duration::from_secs(10),
+        usize::from(limit),
+    )
+    .await?;
+    reclaim_if_drained(loaded, health)
+}
+
+fn reclaim_if_drained(loaded: &LoadedConfig, health: CaptureHealth) -> Result<CaptureHealth> {
+    if health.queued > 0 {
+        return Ok(health);
+    }
+    let path = directory(loaded)?;
+    let queue = Outbox::writer(&path)?;
+    queue.evict_settled(0)?;
+    queue.health()
+}
+
 async fn flush_with_budget(
     loaded: &LoadedConfig,
     explicit_config: Option<&Path>,
     budget: Duration,
 ) -> Result<CaptureHealth> {
+    flush_window(loaded, explicit_config, budget, 16).await
+}
+
+async fn flush_window(
+    loaded: &LoadedConfig,
+    explicit_config: Option<&Path>,
+    budget: Duration,
+    limit: usize,
+) -> Result<CaptureHealth> {
     let path = directory(loaded)?;
-    let pending = Outbox::open(&path)?.pending()?;
+    let pending = Outbox::open(&path)?.pending(limit)?;
     let client = NexusClient::without_analytics(
         Arc::new(loaded.clone()),
         explicit_config.map(Path::to_path_buf),

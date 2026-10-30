@@ -9,7 +9,7 @@ fn retry_invalid_respects_the_selected_limit() {
     for id in ["first", "second"] {
         queue.enqueue(id, b"{}").unwrap();
         let entry = queue
-            .pending()
+            .pending(16)
             .unwrap()
             .into_iter()
             .find(|entry| entry.path.file_stem().unwrap() == id)
@@ -20,7 +20,7 @@ fn retry_invalid_respects_the_selected_limit() {
         queue.retry_invalid(InvalidRetry::Preview).unwrap().eligible,
         2
     );
-    assert!(queue.pending().unwrap().is_empty());
+    assert!(queue.pending(16).unwrap().is_empty());
     assert!(queue
         .retry_invalid(InvalidRetry::Requeue { limit: 0 })
         .is_err());
@@ -34,7 +34,7 @@ fn retry_invalid_respects_the_selected_limit() {
             .requeued,
         1
     );
-    assert_eq!(queue.pending().unwrap().len(), 1);
+    assert_eq!(queue.pending(16).unwrap().len(), 1);
     assert_eq!(
         queue
             .retry_invalid(InvalidRetry::Requeue { limit: 1 })
@@ -42,7 +42,7 @@ fn retry_invalid_respects_the_selected_limit() {
             .requeued,
         1
     );
-    assert_eq!(queue.pending().unwrap().len(), 2);
+    assert_eq!(queue.pending(16).unwrap().len(), 2);
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn retry_invalid_rejects_symlinks_before_moving_any_payload() {
         .unwrap()
         .file_type()
         .is_symlink());
-    assert!(queue.pending().unwrap().is_empty());
+    assert!(queue.pending(16).unwrap().is_empty());
     assert_eq!(std::fs::read(outside).unwrap(), b"private fixture");
 }
 
@@ -77,7 +77,7 @@ fn retry_invalid_preserves_payload_scope_and_other_rejection_classes() {
         let queue = Outbox::writer(&other).unwrap();
         queue.enqueue("foreign", original).unwrap();
         queue
-            .reject(&queue.pending().unwrap().remove(0), "invalid")
+            .reject(&queue.pending(16).unwrap().remove(0), "invalid")
             .unwrap();
     }
     let queue = Outbox::writer(&current).unwrap();
@@ -88,7 +88,7 @@ fn retry_invalid_preserves_payload_scope_and_other_rejection_classes() {
     ] {
         queue.enqueue(id, original).unwrap();
         let pending = queue
-            .pending()
+            .pending(16)
             .unwrap()
             .into_iter()
             .find(|entry| entry.path.file_stem().unwrap() == id)
@@ -98,12 +98,12 @@ fn retry_invalid_preserves_payload_scope_and_other_rejection_classes() {
     let preview = queue.retry_invalid(InvalidRetry::Preview).unwrap();
     assert_eq!(preview.eligible, 1);
     assert_eq!(preview.requeued, 0);
-    assert!(queue.pending().unwrap().is_empty());
+    assert!(queue.pending(16).unwrap().is_empty());
     let result = queue
         .retry_invalid(InvalidRetry::Requeue { limit: 128 })
         .unwrap();
     assert_eq!(result.requeued, 1);
-    let pending = queue.pending().unwrap();
+    let pending = queue.pending(16).unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].bytes, original);
     assert!(current.join("conflict.rejected-conflict").exists());

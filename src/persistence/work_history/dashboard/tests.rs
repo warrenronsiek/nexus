@@ -83,7 +83,13 @@ fn shared_parent_dashboard_keeps_a_bounded_query_budget_and_exact_membership() {
         record(&mut store, &project, events);
     }
     let queries = capture_queries(&mut store.connection);
-    let response = dashboard(&mut store.connection, &project, None).unwrap();
+    let response = dashboard(
+        &mut store.connection,
+        &project,
+        None,
+        WorkSessionOrigin::All,
+    )
+    .unwrap();
     let WorkResponse::Dashboard { dashboard: result } = response else {
         panic!("expected dashboard")
     };
@@ -170,4 +176,159 @@ fn partial_prefetch_preserves_projection_gaps_and_later_subjects() {
             serde_json::to_value(expected).unwrap()
         );
     }
+}
+
+#[test]
+fn host_sessions_remain_selectable_behind_newer_commands_and_activity_floods() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    record(
+        &mut store,
+        &project,
+        vec![
+            observation(
+                "host-open",
+                "session",
+                "host-root",
+                json!({"event":"session_opened","title":"Named harness session","context":{"host_session_id":"native-thread","labels":{"nexus.capture.adapter":"host-hooks-v1","nexus.capture.host":"fixture-host"}}}),
+            ),
+            observation(
+                "tool-open",
+                "activity",
+                "tool",
+                json!({"event":"activity_declared","name":"Test invocation","kind":"test.run","work_session_id":"host-root","context":{}}),
+            ),
+        ],
+    );
+    populate_unrelated_dashboard_history(&mut store, &project);
+    let action: WorkAction =
+        serde_json::from_value(json!({"action":"dashboard","session_origin":"host"})).unwrap();
+    let actor = WorkActor {
+        agent: "fixture".into(),
+        session_id: "reader".into(),
+        model_id: None,
+        config_hash: "fixture".into(),
+    };
+    let WorkResponse::Dashboard { dashboard: view } =
+        store.work_command(&project, &actor, &action).unwrap()
+    else {
+        panic!("dashboard")
+    };
+    assert_eq!(view.sessions.len(), 1);
+    assert_eq!(view.sessions[0].subject.id(), "host-root");
+    assert!(
+        view.truncated,
+        "Activity source coverage must remain disclosed"
+    );
+    let WorkResponse::Dashboard {
+        dashboard: selected,
+    } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("host-root"),
+        WorkSessionOrigin::All,
+    )
+    .unwrap()
+    else {
+        panic!("dashboard")
+    };
+    assert_eq!(selected.activities.len(), 1);
+    assert_eq!(selected.activities[0].title, "Test invocation");
+}
+
+fn populate_unrelated_dashboard_history(store: &mut Store, project: &str) {
+    for index in 0..4300 {
+        record(
+            store,
+            project,
+            vec![observation(
+                &format!("caller-{index}-open"),
+                "session",
+                &format!("caller-{index}"),
+                json!({"event":"session_opened","title":"Standalone command","context":{}}),
+            )],
+        );
+    }
+    // Only the inventory population matters for the flood: missing observations
+    // remain honest projection gaps, rather than invented command measurements.
+    for batch in 0..70 {
+        let rows: Vec<_> = (0..64)
+            .map(|index| SubjectRow {
+                project_id: project.to_owned(),
+                scope: "activity".into(),
+                id: format!("flood-{}", batch * 64 + index),
+                title: "Operation".into(),
+                kind: "tool".into(),
+                repository: None,
+                host_session_id: None,
+                environment: None,
+                outcome: None,
+                has_host_capture: false,
+                occurred_at: "2026-10-30T00:00:00Z".into(),
+                recorded_at: "2099-01-01T00:00:00Z".into(),
+            })
+            .collect();
+        diesel::insert_into(work_subjects::table)
+            .values(&rows)
+            .execute(&mut store.connection)
+            .unwrap();
+    }
+}
+
+#[test]
+fn harness_dashboard_includes_named_legacy_roots_and_excludes_standalone_cli_capture() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    let legacy = "58448194a44a55a3e6f7e0e780fdcfe223da3649b0c53a4ca1e0b85eadd89329";
+    let mut opened = observation(
+        "legacy-open",
+        "session",
+        legacy,
+        json!({"event":"session_opened","title":"codex session legacy-native","context":{"host_session_id":"legacy-native"}}),
+    );
+    opened.producer.name = "nexus-companion".into();
+    opened.producer.version = "0.1.0".into();
+    let renamed = observation(
+        "legacy-title",
+        "session",
+        legacy,
+        json!({"event":"milestone","name":"Host session title updated","context":{"labels":{"nexus.session_title":"Historical named harness"}}}),
+    );
+    let actor = WorkActor {
+        agent: "codex".into(),
+        session_id: "legacy-native".into(),
+        model_id: None,
+        config_hash: "fixture".into(),
+    };
+    store
+        .work_command(
+            &project,
+            &actor,
+            &WorkAction::Record {
+                observations: vec![opened, renamed],
+            },
+        )
+        .unwrap();
+    record(
+        &mut store,
+        &project,
+        vec![observation(
+            "command-open",
+            "session",
+            "command-root",
+            json!({"event":"session_opened","title":"Standalone command","context":{"labels":{"nexus.capture.host":"nexus-cli"}}}),
+        )],
+    );
+    let WorkResponse::Dashboard { dashboard: view } = dashboard(
+        &mut store.connection,
+        &project,
+        None,
+        WorkSessionOrigin::Host,
+    )
+    .unwrap() else {
+        panic!("dashboard")
+    };
+    assert_eq!(view.sessions.len(), 1);
+    assert_eq!(view.sessions[0].subject.id(), legacy);
+    assert_eq!(view.sessions[0].title, "Historical named harness");
 }

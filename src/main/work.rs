@@ -158,7 +158,11 @@ pub(super) enum WorkCliCommand {
     /// Show the local automatic-capture outbox health.
     Health,
     /// Attempt bounded delivery of queued automatic observations.
-    Flush,
+    Flush {
+        /// Explicit recovery window; ordinary hook delivery keeps its short budget.
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
+        limit: Option<u16>,
+    },
     /// Requeue retained invalid captures after fixing their rejection reason; payloads remain unchanged.
     RetryInvalid(RetryInvalidArgs),
 }
@@ -248,8 +252,8 @@ async fn execute(
         WorkCliCommand::RetryInvalid(args) => json_result(
             nexus::runtime::work_capture::retry_invalid(loaded, args.mode()),
         ),
-        WorkCliCommand::Flush => {
-            json_result(nexus::runtime::work_capture::flush(loaded, explicit).await)
+        WorkCliCommand::Flush { limit } => {
+            json_result(capture::flush(loaded, explicit, limit).await)
         }
         WorkCliCommand::Capture { file } => {
             nexus::runtime::work_capture::enqueue(

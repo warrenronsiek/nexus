@@ -64,6 +64,7 @@ pub(super) struct SubjectRow {
     pub outcome: Option<String>,
     pub occurred_at: String,
     pub recorded_at: String,
+    pub has_host_capture: bool,
 }
 
 #[derive(Clone, Queryable, Selectable, Insertable)]

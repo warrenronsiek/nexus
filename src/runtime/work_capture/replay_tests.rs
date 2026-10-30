@@ -133,7 +133,7 @@ impl ReplayFixture {
             )
             .unwrap();
         queue
-            .acknowledge(&queue.pending().unwrap().pop().unwrap())
+            .acknowledge(&queue.pending(16).unwrap().pop().unwrap())
             .unwrap();
         for index in 0..255 {
             let path = self.path.join(format!("other-{index}.json"));
@@ -143,7 +143,7 @@ impl ReplayFixture {
         queue.enqueue("newer", b"metadata").unwrap();
         assert!(!self.path.join(format!("{key}.seen")).exists());
         queue
-            .acknowledge(&queue.pending().unwrap().remove(0))
+            .acknowledge(&queue.pending(16).unwrap().remove(0))
             .unwrap();
     }
 
@@ -282,7 +282,7 @@ async fn replay_makes_progress_when_one_round_trip_fits_the_delivery_budget() {
         }
         entry = Outbox::writer(&fixture.path)
             .unwrap()
-            .pending()
+            .pending(16)
             .unwrap()
             .pop()
             .unwrap();

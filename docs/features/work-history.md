@@ -256,7 +256,8 @@ counted once per identity within the selected scope. Source dates use UTC start,
 or first source occurrence when no start is known. Repository/environment and
 other legacy list filters remain in the secondary audit view.
 
-Project scans select the most recently received 4096 subjects and at most 8 MiB
+Project scans select the most recently received 4096 session roots and 4096
+activities independently, and at most 8 MiB
 of projected summary payloads. Selecting a session separately traverses its
 resolved descendants with the same count/byte bounds and at most 64 candidate
 pages of 64 rows (including stale/corrected links), so unrelated newer work
@@ -367,3 +368,59 @@ together within one RPC deadline. Rejected batches fall back to the existing
 individual validation and callback-reconciliation path, preserving valid
 neighbors and quarantining invalid evidence. Uncertain batch delivery retains
 the original entries for idempotent retry.
+
+The dashboard query accepts `session_origin: "host"` to select automatic harness
+roots by their recorded `nexus.capture.host` adapter metadata. Omitting the field
+keeps all caller-owned work sessions available. The terminal overview requests
+harness roots by default; its source browser retains standalone commands, shared
+logical work, and unlinked activities. Operation traffic cannot displace roots
+from their independent source window. Both windows and display caps remain
+explicit; older roots beyond the root window require paginated source browsing.
+Activity charts in the harness overview cover resolved membership in the scanned
+harness roots. Selecting a root retrieves its descendant inventory separately.
+
+Outbox inventory visits the complete retained directory before reporting health
+or choosing delivery candidates. Delivery retains only the oldest sixteen pending
+boundaries in memory per page; settled eviction and invalid retry also use bounded
+windows. Hidden control files and context directories cannot conceal pending
+records or defeat admission limits. Legacy oversized queues remain visible and
+drain without deleting pending evidence; new admission stays bounded while the
+retained pending population exceeds capacity.
+
+Claude `SessionStart` command capture appends only `NEXUS_AGENT` and the exact
+`NEXUS_HOST_SESSION_ID` to the host-provided `CLAUDE_ENV_FILE`. Later commands can
+resolve current parent context through the exact bridge rather than retaining a
+stale startup turn. Export preserves existing file contents, quotes identity
+values literally, and refuses symlinks, nonregular files, other owners, or shared
+write access. Missing export support leaves explicit handoff available. Export
+failure does not prevent work capture or block the host; explicit ingestion
+reports `environment_handoff: "unavailable"` separately from capture health.
+
+V16 adds a rebuildable `has_host_capture` candidate index to work subjects and
+receipt-order indexes for independent root/activity reads. Backfill examines only
+retained session observations carrying host adapter metadata; original source
+observations remain unchanged. The candidate flag is monotonic across retained
+reports, while canonical projection still decides whether a corrected root is
+host-owned. Thus standalone roots do not consume the harness window, and a
+corrected-away host label does not falsely display as current ownership. Imports
+rebuild the hint from the original observations.
+
+For explicit backlog recovery, `nexus work flush --limit 256` selects up to 256
+retained boundaries within a 1 MiB payload window and a ten-second delivery
+budget. Repeat while queued work remains. Ordinary automatic flush keeps its
+sixteen-record window and 250 ms network budget. Both paths retain uncertain
+acknowledgments for canonical receipt reconciliation and never rerun workloads.
+
+After an explicit recovery pass drains pending work, normal settled-receipt
+retention is reclaimed before returning health. This restores bounded admission
+for subsequent callbacks without removing pending observations or authoritative
+server history. Legacy receipt reclamation can take additional filesystem time
+beyond the network delivery budget.
+
+Legacy companion roots that predate capture labels retain harness ownership when
+their original Nexus producer, recorded Codex/Claude actor and exact deterministic
+host-root identity agree. Import uses the retained original actor. This is source
+identity evidence, not a title or nearby-activity guess. The candidate migration
+includes these legacy reports; canonical metadata derives the host marker from
+active opening observations. Standalone `nexus-cli` command roots are excluded.
+No source event, historical parent or timestamp is rewritten.

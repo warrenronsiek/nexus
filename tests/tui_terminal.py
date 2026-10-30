@@ -269,8 +269,11 @@ def seed_work(binary: str, config: Path, root: Path, environment: dict[str, str]
                  "work_session_id": "native-work", "parent_activity_id": parent, "context": {}})
         observe(f"{identifier}-started", "activity", identifier, second, {"event": "started"})
 
+    observe("standalone-opened", "session", "standalone-runner", 0,
+            {"event": "session_opened", "title": "Standalone runner fixture", "context": {}})
     observe("native-work-opened", "session", "native-work", 0,
-            {"event": "session_opened", "title": "Native work fixture", "context": {}})
+            {"event": "session_opened", "title": "Native work fixture", "context": {
+                "host_session_id": "native-host", "labels": {"nexus.capture.host": "fixture-host"}}})
     observe("native-request", "session", "native-work", 0, {"event": "milestone", "name": "request_received", "context": {}})
     declare("native-agent", "Implementation agent", "agent.task", None, 1)
     declare("native-reviewer", "Delegated reviewer", "review.qa", "native-agent", 2)
@@ -299,7 +302,8 @@ def exercise_work(binary: str, config: Path, root: Path, environment: dict[str, 
     master, process = terminal
     seed_work(binary, config, root, environment)
     os.write(master, b"\t")
-    wait_for_text(process, master, b"Native work fixture")
+    wait_for_text(process, master, (b"Harness sessions", b"Native work fixture"))
+    assert "Standalone runner fixture" not in terminal_text(process)
     os.write(master, b"\r")
     wait_for_text(process, master, (b"Session duration breakdown", b"Grandchild test", "Time ↓".encode(), b"Selected: Native work fixture"))
     os.write(master, b"\x1b[C")

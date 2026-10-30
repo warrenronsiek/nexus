@@ -150,3 +150,9 @@ For cross-checkout tools, verify the actual `workdir`/`cwd` or file path, not ju
 the host's startup directory. The companion selects configuration for that target
 checkout and native session end cleans up its recorded visits. Missing coverage
 is advisory and visible; it never blocks the workload.
+
+Claude's SessionStart command adapter exports its exact native identity through
+`CLAUDE_ENV_FILE` when supplied by the host. This enables runner-side `work
+context` resolution without guessing by checkout. Existing sessions need a new
+supported SessionStart boundary or an explicit identity handoff; refreshing the
+binary cannot retroactively change a running shell's environment.

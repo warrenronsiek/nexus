@@ -74,7 +74,7 @@ async fn slow_capture_admits_siblings_and_reports_bounded_overflow() {
     .await
     .unwrap();
     let queue = Outbox::writer(&path).unwrap();
-    assert_eq!(queue.pending().unwrap().len(), 2);
+    assert_eq!(queue.pending(16).unwrap().len(), 2);
     let counters = queue.health().unwrap().capture.unwrap();
     assert_eq!(counters.offered, 3);
     assert_eq!(counters.durably_queued, 2);
@@ -89,7 +89,7 @@ fn repeated_quarantined_callbacks_report_rejection_instead_of_durable_capture() 
     assert_eq!(first.status, CaptureStatus::Durable);
     let queue = Outbox::writer(&directory(&loaded).unwrap()).unwrap();
     queue
-        .reject(&queue.pending().unwrap().pop().unwrap(), "invalid")
+        .reject(&queue.pending(16).unwrap().pop().unwrap(), "invalid")
         .unwrap();
     drop(queue);
     let repeat = persist_lifecycle(&loaded, callback("rejected-tool"));
@@ -138,7 +138,7 @@ fn a_producer_exit_fence_waits_for_admitted_capture_with_a_bounded_deadline() {
     assert!(started.elapsed() < Duration::from_millis(200));
     drop(holder);
     assert!(handoff.drain_pending(Duration::from_secs(1)));
-    assert_eq!(Outbox::open(&path).unwrap().pending().unwrap().len(), 1);
+    assert_eq!(Outbox::open(&path).unwrap().pending(16).unwrap().len(), 1);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn exact_host_bridge_keeps_an_explicit_work_root_across_later_callbacks() {
     assert_eq!(active.work_session_id, "shared-work");
     let queue = Outbox::writer(&directory(&loaded).unwrap()).unwrap();
     let commands: Vec<WorkCommand> = queue
-        .pending()
+        .pending(16)
         .unwrap()
         .into_iter()
         .map(|entry| serde_json::from_slice(&entry.bytes).unwrap())
@@ -278,7 +278,7 @@ fn a_continuation_stops_the_original_request_instead_of_an_orphan_request() {
     }
     let request = stable_id(&["request", "claude", "continuation-host", "human-request"]);
     let queue = Outbox::writer(&directory(&loaded).unwrap()).unwrap();
-    let finished = queue.pending().unwrap().into_iter().any(|entry| {
+    let finished = queue.pending(16).unwrap().into_iter().any(|entry| {
         let command: WorkCommand = serde_json::from_slice(&entry.bytes).unwrap();
         let WorkAction::Record { observations } = command.command else {
             return false;
@@ -364,7 +364,7 @@ fn changed_cached_outcomes_are_rejected_without_replacing_the_original_bytes() {
             finished_callback(crate::work_history::WorkOutcome::Succeeded),
         );
         let queue = Outbox::writer(&directory(&loaded).unwrap()).unwrap();
-        let original = queue.pending().unwrap().pop().unwrap();
+        let original = queue.pending(16).unwrap().pop().unwrap();
         match phase {
             "seen" => queue.acknowledge(&original).unwrap(),
             "callback" => queue.defer_callback(&original).unwrap(),
@@ -428,4 +428,29 @@ fn shared_sqlite_outboxes_keep_identical_observation_ids_separate_by_git_project
         assert_eq!(receipt.duplicates, 0);
     }
     assert_eq!(health(&loaded).unwrap().queued, 2);
+}
+
+#[tokio::test]
+async fn explicit_recovery_reclaims_settled_legacy_backlog_before_new_admission() {
+    let temp = tempfile::tempdir().unwrap();
+    let loaded = fixture(temp.path());
+    let path = directory(&loaded).unwrap();
+    {
+        let _queue = Outbox::open(&path).unwrap();
+        for index in 0..340 {
+            crate::private_state::write(
+                &path.join(format!("delivered-{index}.seen")),
+                b"delivered",
+            )
+            .unwrap();
+        }
+        crate::private_state::write(&path.join("rejected.rejected-invalid"), b"retained").unwrap();
+    }
+    let health = flush_pending(&loaded, None, 256).await.unwrap();
+    assert_eq!(health.queued, 0);
+    assert_eq!(health.rejected, 1);
+    assert!(health.recent_delivered + health.rejected < 256);
+    let queue = Outbox::open(&path).unwrap();
+    queue.enqueue("fresh", b"source").unwrap();
+    assert_eq!(queue.health().unwrap().queued, 1);
 }

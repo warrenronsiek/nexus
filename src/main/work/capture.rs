@@ -109,8 +109,13 @@ async fn capture_host_event(
     );
     capture_title(&args.host, &bytes, loaded).await?;
     let _ = work_capture::flush(loaded, explicit).await;
+    let destination = std::env::var_os("CLAUDE_ENV_FILE").map(PathBuf::from);
+    let environment_handoff =
+        work_capture::export_host_environment(&args.host, &bytes, destination.as_deref());
     let health = work_capture::health(loaded).ok();
-    Ok(json!({"capture":receipt,"health":health,"health_available":health.is_some()}))
+    Ok(
+        json!({"capture":receipt,"health":health,"health_available":health.is_some(),"environment_handoff":environment_handoff}),
+    )
 }
 
 async fn capture_title(host: &str, bytes: &[u8], loaded: &LoadedConfig) -> Result<()> {
@@ -145,4 +150,15 @@ fn read_input(path: &Path) -> Result<Vec<u8>> {
         bail!("host event exceeds 1 MiB");
     }
     Ok(bytes)
+}
+
+pub(super) async fn flush(
+    loaded: &LoadedConfig,
+    explicit: Option<&Path>,
+    limit: Option<u16>,
+) -> Result<work_capture::CaptureHealth> {
+    match limit {
+        Some(limit) => work_capture::flush_pending(loaded, explicit, limit).await,
+        None => work_capture::flush(loaded, explicit).await,
+    }
 }

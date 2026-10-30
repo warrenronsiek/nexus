@@ -43,7 +43,7 @@ fn concurrent_producers_survive_a_slow_writer_without_losing_boundaries() {
     });
     let queue = Outbox::open(temp.path()).unwrap();
     let mut bytes: Vec<_> = queue
-        .pending()
+        .pending(16)
         .unwrap()
         .into_iter()
         .map(|entry| entry.bytes)
@@ -101,7 +101,7 @@ fn a_panicked_writer_does_not_disable_later_capture() {
     .is_err());
     let queue = Outbox::writer(temp.path()).unwrap();
     queue.enqueue("recovered", b"original metadata").unwrap();
-    assert_eq!(queue.pending().unwrap()[0].bytes, b"original metadata");
+    assert_eq!(queue.pending(16).unwrap()[0].bytes, b"original metadata");
 }
 
 #[test]
@@ -115,19 +115,19 @@ fn saturated_quarantine_recovers_valid_delivery_without_discarding_pending() {
     queue.enqueue("valid-two", b"valid two").unwrap();
     set_fixture_time(&queue, "valid-one", 1);
     set_fixture_time(&queue, "valid-two", 2);
-    let pending = queue.pending().unwrap();
+    let pending = queue.pending(16).unwrap();
     assert_eq!(pending.len(), 2);
     assert_eq!(pending[0].bytes, b"valid one");
     assert_eq!(pending[1].bytes, b"valid two");
     queue.acknowledge(&pending[0]).unwrap();
     queue.enqueue("valid-three", b"valid three").unwrap();
-    let pending = queue.pending().unwrap();
+    let pending = queue.pending(16).unwrap();
     assert_eq!(pending[0].bytes, b"valid two");
     assert_eq!(pending[1].bytes, b"valid three");
     assert_recovered_health(&queue);
     drop(queue);
     let queue = Outbox::open(temp.path()).unwrap();
-    for entry in queue.pending().unwrap() {
+    for entry in queue.pending(16).unwrap() {
         queue.acknowledge(&entry).unwrap();
     }
     assert_eq!(queue.health().unwrap().queued, 0);
@@ -138,7 +138,7 @@ fn fill_quarantine(queue: &Outbox, count: usize) {
     for index in 0..count {
         queue.enqueue(&format!("bad-{index}"), b"bad").unwrap();
         queue
-            .reject(&queue.pending().unwrap().pop().unwrap(), "invalid")
+            .reject(&queue.pending(16).unwrap().pop().unwrap(), "invalid")
             .unwrap();
     }
 }
@@ -152,10 +152,9 @@ fn assert_recovered_health(queue: &Outbox) {
     assert_eq!(health.bytes, ((MAX_ENTRIES - 2) * 3 + 20) as u64);
     assert_eq!(health.rejected_evicted, 2);
     assert_eq!(health.dropped, 0);
-    let retained = queue
-        .entries()
+    let retained = super::inventory::entries(&queue.directory)
         .unwrap()
-        .into_iter()
+        .map(Result::unwrap)
         .find(|path| {
             path.extension()
                 .is_some_and(|ext| ext == "rejected-invalid")
@@ -213,7 +212,7 @@ fn a_late_conflict_after_recent_journal_eviction_is_not_requeued_forever() {
     let temp = tempfile::tempdir().unwrap();
     let queue = Outbox::open(temp.path()).unwrap();
     queue.enqueue_once("root", b"original boundary").unwrap();
-    let original = queue.pending().unwrap().pop().unwrap();
+    let original = queue.pending(16).unwrap().pop().unwrap();
     queue.acknowledge(&original).unwrap();
     for index in 0..MAX_ENTRIES {
         queue
@@ -221,7 +220,7 @@ fn a_late_conflict_after_recent_journal_eviction_is_not_requeued_forever() {
             .unwrap();
     }
     assert!(!temp.path().join("root.seen").exists());
-    let old = queue.pending().unwrap().remove(0);
+    let old = queue.pending(16).unwrap().remove(0);
     queue.acknowledge(&old).unwrap();
     queue.enqueue_once("root", b"new callback time").unwrap();
     queue
@@ -233,7 +232,7 @@ fn a_late_conflict_after_recent_journal_eviction_is_not_requeued_forever() {
             "conflict",
         )
         .unwrap();
-    let old = queue.pending().unwrap().remove(0);
+    let old = queue.pending(16).unwrap().remove(0);
     queue.acknowledge(&old).unwrap();
     queue
         .enqueue_once("root", b"another callback time")
@@ -254,11 +253,11 @@ fn pending_metadata_survives_restart_and_rejections_do_not_block_delivery() {
     drop(queue);
 
     let queue = Outbox::open(&path).unwrap();
-    let entries = queue.pending().unwrap();
+    let entries = queue.pending(16).unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].bytes, b"first-observation");
     queue.reject(&entries[0], "invalid").unwrap();
-    let second = queue.pending().unwrap().pop().unwrap();
+    let second = queue.pending(16).unwrap().pop().unwrap();
     assert_eq!(second.bytes, b"second-observation");
     queue.acknowledge(&second).unwrap();
     let health = queue.health().unwrap();
@@ -312,4 +311,72 @@ fn nonregular_pending_metadata_cannot_block_the_outbox() {
         .recv_timeout(std::time::Duration::from_secs(2))
         .expect("nonregular pending metadata must not block the outbox"));
     reader.join().unwrap();
+}
+
+#[test]
+fn legacy_oversized_outbox_counts_and_drains_every_retained_boundary() {
+    let temp = tempfile::tempdir().unwrap();
+    let queue = Outbox::open(temp.path()).unwrap();
+    for index in 0..MAX_ENTRIES + 80 {
+        std::fs::write(temp.path().join(format!(".control-{index}")), b"metadata").unwrap();
+        crate::private_state::write(
+            &temp.path().join(format!("legacy-{index}.json")),
+            b"original",
+        )
+        .unwrap();
+    }
+    let count = MAX_ENTRIES + 80;
+    assert_eq!(queue.health().unwrap().queued, count);
+    assert!(
+        queue.enqueue("new", b"new").is_err(),
+        "A legacy backlog must not bypass capacity"
+    );
+    let mut delivered = 0;
+    while let Some(first) = queue.pending(16).unwrap().first() {
+        assert_eq!(first.bytes, b"original");
+        let batch = queue.pending(16).unwrap();
+        assert!(batch.len() <= 16);
+        for item in batch {
+            queue.acknowledge(&item).unwrap();
+            delivered += 1;
+        }
+    }
+    assert_eq!(delivered, count);
+    assert_eq!(queue.health().unwrap().queued, 0);
+    queue.enqueue("new", b"new").unwrap();
+    assert_eq!(queue.health().unwrap().queued, 1);
+}
+
+#[test]
+fn explicit_recovery_window_drains_a_larger_bounded_page() {
+    let temp = tempfile::tempdir().unwrap();
+    let queue = Outbox::open(temp.path()).unwrap();
+    for index in 0..64 {
+        queue.enqueue(&format!("entry-{index}"), b"source").unwrap();
+    }
+    assert_eq!(queue.pending(16).unwrap().len(), 16);
+    let recovery = queue.pending(64).unwrap();
+    assert_eq!(recovery.len(), 64);
+    for entry in recovery {
+        queue.acknowledge(&entry).unwrap();
+    }
+    assert_eq!(queue.health().unwrap().queued, 0);
+}
+
+#[test]
+fn recovery_payload_window_preserves_unread_entries_when_its_byte_budget_is_full() {
+    let temp = tempfile::tempdir().unwrap();
+    let queue = Outbox::open(temp.path()).unwrap();
+    let bytes = vec![b'x'; MAX_ENTRY_BYTES];
+    for index in 0..32 {
+        queue.enqueue(&format!("entry-{index}"), &bytes).unwrap();
+    }
+    let recovery = queue.pending(256).unwrap();
+    assert_eq!(recovery.len(), 16);
+    assert_eq!(queue.health().unwrap().queued, 32);
+    assert!(recovery.iter().all(|entry| entry.bytes == bytes));
+    for entry in recovery {
+        queue.acknowledge(&entry).unwrap();
+    }
+    assert_eq!(queue.pending(256).unwrap().len(), 16);
 }
