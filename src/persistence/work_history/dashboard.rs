@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashSet};
 pub(super) const SOURCE_LIMIT: usize = 4096;
 pub(super) const SOURCE_BYTES: usize = 8 * 1024 * 1024;
 
+mod retention;
 #[cfg(test)]
 mod tests;
 
@@ -307,6 +308,8 @@ impl DashboardProjection {
         Ok(sessions || activities)
     }
     fn bound_timeline(&mut self) -> Result<bool> {
+        self.view.intervals =
+            retention::recent_with_ancestors(std::mem::take(&mut self.view.intervals));
         let intervals = bound_items(&mut self.view.intervals, SOURCE_LIMIT, 384 * 1024)?;
         let mut gaps = false;
         if let Some(accounting) = &mut self.view.accounting {

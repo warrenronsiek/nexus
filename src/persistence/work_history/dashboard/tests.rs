@@ -369,3 +369,109 @@ fn named_harness_choices_fit_the_dashboard_transport_before_display_truncation()
     assert!(serde_json::to_vec(&view).unwrap().len() < 896 * 1024);
     assert!(!view.truncated);
 }
+
+fn seed_retention_parent(store: &mut Store, project: &str) {
+    let mut parent_start = observation(
+        "parent-start",
+        "activity",
+        "zz-parent",
+        json!({"event":"started"}),
+    );
+    parent_start.occurred_at = "2026-10-29T00:00:00Z".parse().unwrap();
+    record(
+        store,
+        project,
+        vec![
+            observation(
+                "root-open",
+                "session",
+                "root",
+                json!({"event":"session_opened","title":"Named harness","context":{"labels":{"nexus.capture.host":"native"}}}),
+            ),
+            observation(
+                "parent-open",
+                "activity",
+                "zz-parent",
+                json!({"event":"activity_declared","name":"Calling operation","kind":"tool","work_session_id":"root","context":{}}),
+            ),
+            parent_start,
+        ],
+    );
+}
+
+fn seed_older_retention_calls(store: &mut Store, project: &str) {
+    for start in (0..1024).step_by(32) {
+        let mut events = vec![];
+        for index in start..start + 32 {
+            let id = format!("older-{index:04}");
+            events.push(observation(&format!("{id}-open"), "activity", &id,
+                json!({"event":"activity_declared","name":format!("Older operation {index} {}", "x".repeat(160)),"kind":"tool","work_session_id":"root","context":{}})));
+            events.push(observation(&format!("{id}-finish"), "activity", &id,
+                json!({"event":"finished","outcome":"succeeded","elapsed":{"nanoseconds":"1000000000","method":"monotonic","clock_id":"clock"}})));
+        }
+        record(store, project, events);
+    }
+}
+
+fn seed_recent_retention_call(store: &mut Store, project: &str) {
+    let mut recent = vec![
+        observation(
+            "recent-open",
+            "activity",
+            "zzz-recent",
+            json!({"event":"activity_declared","name":"Recent measured operation","kind":"test.operation","work_session_id":"root","parent_activity_id":"zz-parent","context":{}}),
+        ),
+        observation(
+            "recent-start",
+            "activity",
+            "zzz-recent",
+            json!({"event":"started"}),
+        ),
+        observation(
+            "recent-finish",
+            "activity",
+            "zzz-recent",
+            json!({"event":"finished","outcome":"succeeded","elapsed":{"nanoseconds":"1000000000","method":"monotonic","clock_id":"clock"}}),
+        ),
+    ];
+    for event in &mut recent {
+        event.occurred_at = "2026-10-30T12:00:00Z".parse().unwrap();
+    }
+    record(store, project, recent);
+}
+
+#[test]
+fn bounded_waterfalls_retain_recent_operations_and_their_recorded_parents() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    seed_retention_parent(&mut store, &project);
+    seed_older_retention_calls(&mut store, &project);
+    seed_recent_retention_call(&mut store, &project);
+    let WorkResponse::Dashboard { dashboard: view } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("root"),
+        WorkSessionOrigin::Host,
+    )
+    .unwrap() else {
+        panic!("expected dashboard");
+    };
+    let recent = view
+        .intervals
+        .iter()
+        .position(|node| node.id == "zzz-recent")
+        .expect("recent measured operation must remain selectable");
+    let parent = view
+        .intervals
+        .iter()
+        .position(|node| node.id == "zz-parent")
+        .expect("a retained operation keeps its recorded parent");
+    assert!(parent < recent);
+    assert_eq!(
+        view.intervals[recent].elapsed.as_ref().unwrap().nanoseconds,
+        "1000000000"
+    );
+    let accounting = view.accounting.unwrap();
+    assert_eq!(accounting.coverage.activity_count, 1026);
+    assert!(accounting.coverage.display_partial);
+}
