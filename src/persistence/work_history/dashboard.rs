@@ -7,7 +7,7 @@ use crate::persistence::{backend::DbConnection, schema::work_subjects};
 use crate::work_history::*;
 use anyhow::{ensure, Result};
 use diesel::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 pub(super) const SOURCE_LIMIT: usize = 4096;
 pub(super) const SOURCE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -24,17 +24,18 @@ pub(super) fn dashboard(
         session.is_none_or(|id| id.len() <= 512),
         "work dashboard identity exceeds limit"
     );
-    let (rows, truncated) = source_rows(connection, project, origin)?;
+    let sources = source_rows(connection, project, origin)?;
     let mut reader = projection::Projection::new(connection, project);
     let selected = session
         .map(|id| reader.summary(&WorkSubject::Session { id: id.into() }))
         .transpose()?
         .flatten();
-    let mut projection = DashboardProjection::new(session, selected, truncated);
-    projection.origin = origin;
-    for page in rows.chunks(64) {
-        if !projection.include_page(&mut reader, page)? {
-            break;
+    let mut projection = DashboardProjection::new(session, selected, sources.truncated, origin);
+    'population: for rows in [&sources.roots, &sources.activities] {
+        for page in rows.chunks(64) {
+            if !projection.include_page(&mut reader, page)? {
+                break 'population;
+            }
         }
     }
     if let Some(session) = session {
@@ -42,36 +43,51 @@ pub(super) fn dashboard(
     }
     projection.finish()
 }
+struct DashboardSources {
+    roots: Vec<SubjectRow>,
+    activities: Vec<SubjectRow>,
+    truncated: bool,
+}
 fn source_rows(
     connection: &mut DbConnection,
     project: &str,
     origin: WorkSessionOrigin,
+) -> Result<DashboardSources> {
+    let (roots, roots_partial) = scope_rows(connection, project, "session", origin)?;
+    let (activities, activities_partial) =
+        scope_rows(connection, project, "activity", WorkSessionOrigin::All)?;
+    Ok(DashboardSources {
+        roots,
+        activities,
+        truncated: roots_partial || activities_partial,
+    })
+}
+fn scope_rows(
+    connection: &mut DbConnection,
+    project: &str,
+    scope: &str,
+    origin: WorkSessionOrigin,
 ) -> Result<(Vec<SubjectRow>, bool)> {
-    let mut rows = Vec::new();
-    let mut truncated = false;
-    // A busy operation stream cannot evict long-lived roots from inspection.
-    for scope in ["session", "activity"] {
-        let mut query = work_subjects::table
-            .filter(work_subjects::project_id.eq(project))
-            .filter(work_subjects::scope.eq(scope))
-            .into_boxed();
-        if scope == "session" && origin == WorkSessionOrigin::Host {
-            query = query.filter(work_subjects::has_host_capture.eq(true));
-        }
-        let mut page = query
-            .order((work_subjects::recorded_at.desc(), work_subjects::id.asc()))
-            .limit((SOURCE_LIMIT + 1) as i64)
-            .select(SubjectRow::as_select())
-            .load::<SubjectRow>(connection)?;
-        truncated |= page.len() > SOURCE_LIMIT;
-        page.truncate(SOURCE_LIMIT);
-        rows.extend(page);
+    let mut query = work_subjects::table
+        .filter(work_subjects::project_id.eq(project))
+        .filter(work_subjects::scope.eq(scope))
+        .into_boxed();
+    if origin == WorkSessionOrigin::Host {
+        query = query.filter(work_subjects::has_host_capture.eq(true));
     }
+    let mut rows = query
+        .order((work_subjects::recorded_at.desc(), work_subjects::id.asc()))
+        .limit((SOURCE_LIMIT + 1) as i64)
+        .select(SubjectRow::as_select())
+        .load::<SubjectRow>(connection)?;
+    let truncated = rows.len() > SOURCE_LIMIT;
+    rows.truncate(SOURCE_LIMIT);
     Ok((rows, truncated))
 }
 
 struct DashboardProjection {
     origin: WorkSessionOrigin,
+    host_roots: HashSet<String>,
     view: WorkDashboard,
     kinds: BTreeMap<String, DurationStatistics>,
     dates: BTreeMap<String, DurationStatistics>,
@@ -80,9 +96,15 @@ struct DashboardProjection {
     unlinked: usize,
 }
 impl DashboardProjection {
-    fn new(session: Option<&str>, selected: Option<WorkSummary>, truncated: bool) -> Self {
+    fn new(
+        session: Option<&str>,
+        selected: Option<WorkSummary>,
+        truncated: bool,
+        origin: WorkSessionOrigin,
+    ) -> Self {
         Self {
-            origin: WorkSessionOrigin::All,
+            origin,
+            host_roots: HashSet::new(),
             view: WorkDashboard {
                 work_session_id: session.map(str::to_owned),
                 selected_session: selected,
@@ -162,6 +184,7 @@ impl DashboardProjection {
         {
             return;
         }
+        self.host_roots.insert(summary.subject.id().to_owned());
         self.view.session_duration.observe(&summary);
         self.dates.entry(date).or_default().observe(&summary);
         self.view.sessions.push(summary);
@@ -169,12 +192,10 @@ impl DashboardProjection {
     fn activity(&mut self, summary: WorkSummary, date: String) {
         if self.view.work_session_id.is_none()
             && self.origin == WorkSessionOrigin::Host
-            && !self.view.sessions.iter().any(|root| {
-                summary
-                    .work_session_ids
-                    .iter()
-                    .any(|id| id == root.subject.id())
-            })
+            && !summary
+                .work_session_ids
+                .iter()
+                .any(|id| self.host_roots.contains(id))
         {
             return;
         }
@@ -402,7 +423,12 @@ mod transport_tests {
         root.work_session_ids = (0..64)
             .map(|index| format!("{index:02}{}", "\u{0001}".repeat(510)))
             .collect();
-        let mut projection = DashboardProjection::new(Some("root"), Some(root.clone()), false);
+        let mut projection = DashboardProjection::new(
+            Some("root"),
+            Some(root.clone()),
+            false,
+            WorkSessionOrigin::All,
+        );
         let start: chrono::DateTime<chrono::Utc> = "2026-10-27T00:00:00Z".parse().unwrap();
         populate_display_rows(&mut projection, start);
         let mut accounting = session_accounting(&root, &[], false);

@@ -429,3 +429,28 @@ fn shared_sqlite_outboxes_keep_identical_observation_ids_separate_by_git_project
     }
     assert_eq!(health(&loaded).unwrap().queued, 2);
 }
+
+#[tokio::test]
+async fn explicit_recovery_reclaims_settled_legacy_backlog_before_new_admission() {
+    let temp = tempfile::tempdir().unwrap();
+    let loaded = fixture(temp.path());
+    let path = directory(&loaded).unwrap();
+    {
+        let _queue = Outbox::open(&path).unwrap();
+        for index in 0..340 {
+            crate::private_state::write(
+                &path.join(format!("delivered-{index}.seen")),
+                b"delivered",
+            )
+            .unwrap();
+        }
+        crate::private_state::write(&path.join("rejected.rejected-invalid"), b"retained").unwrap();
+    }
+    let health = flush_pending(&loaded, None, 256).await.unwrap();
+    assert_eq!(health.queued, 0);
+    assert_eq!(health.rejected, 1);
+    assert!(health.recent_delivered + health.rejected < 256);
+    let queue = Outbox::open(&path).unwrap();
+    queue.enqueue("fresh", b"source").unwrap();
+    assert_eq!(queue.health().unwrap().queued, 1);
+}

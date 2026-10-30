@@ -410,3 +410,9 @@ retained boundaries within a 1 MiB payload window and a ten-second delivery
 budget. Repeat while queued work remains. Ordinary automatic flush keeps its
 sixteen-record window and 250 ms network budget. Both paths retain uncertain
 acknowledgments for canonical receipt reconciliation and never rerun workloads.
+
+After an explicit recovery pass drains pending work, normal settled-receipt
+retention is reclaimed before returning health. This restores bounded admission
+for subsequent callbacks without removing pending observations or authoritative
+server history. Legacy receipt reclamation can take additional filesystem time
+beyond the network delivery budget.

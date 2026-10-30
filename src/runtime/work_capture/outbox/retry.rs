@@ -60,9 +60,7 @@ impl Outbox {
                 "capture already has another delivery state"
             );
             eligible += 1;
-            paths.push(path);
-            paths.sort();
-            paths.truncate(MAX_ENTRIES);
+            super::inventory::retain_smallest(&mut paths, path, MAX_ENTRIES);
         }
         Ok((eligible, paths))
     }

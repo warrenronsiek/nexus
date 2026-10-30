@@ -5,7 +5,7 @@
 // @entrypoint host_event
 // @boundary native-host-work-events: retain typed identity, timing, and outcomes only; unknown prompt, result, transcript, and error fields are discarded.
 mod environment;
-pub use environment::export_host_environment;
+pub use environment::{export_host_environment, EnvironmentHandoff};
 
 use super::{
     lifecycle::{event, stable_id, HostCapture},

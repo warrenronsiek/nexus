@@ -111,11 +111,7 @@ async fn capture_host_event(
     let _ = work_capture::flush(loaded, explicit).await;
     let destination = std::env::var_os("CLAUDE_ENV_FILE").map(PathBuf::from);
     let environment_handoff =
-        match work_capture::export_host_environment(&args.host, &bytes, destination.as_deref()) {
-            Ok(true) => "exported",
-            Ok(false) => "not_requested",
-            Err(_) => "unavailable",
-        };
+        work_capture::export_host_environment(&args.host, &bytes, destination.as_deref());
     let health = work_capture::health(loaded).ok();
     Ok(
         json!({"capture":receipt,"health":health,"health_available":health.is_some(),"environment_handoff":environment_handoff}),

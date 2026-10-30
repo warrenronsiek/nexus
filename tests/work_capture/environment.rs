@@ -29,6 +29,8 @@ fn claude_session_start_exports_exact_identity_for_later_shell_commands() {
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["environment_handoff"], "exported");
     let shell = Command::new("bash").args(["-c", "source \"$1\"; printf '%s\\n' \"$KEEP_ME\" \"$NEXUS_AGENT\" \"$NEXUS_HOST_SESSION_ID\"", "verify"]).arg(&env_file)
         .env_remove("NEXUS_AGENT").env_remove("NEXUS_HOST_SESSION_ID").current_dir(&harness.root).output().unwrap();
     assert!(shell.status.success());

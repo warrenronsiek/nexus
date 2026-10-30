@@ -35,7 +35,9 @@ pub use git::git_hook;
 pub(crate) use handoff::CaptureHandoff;
 pub use handoff::{CaptureReceipt, CaptureStatus};
 pub use host_context::{host_handoff, WorkHandoff};
-pub use host_events::{export_host_environment, host_event, host_event_with_title};
+pub use host_events::{
+    export_host_environment, host_event, host_event_with_title, EnvironmentHandoff,
+};
 pub(crate) use lifecycle::lifecycle_command as prepare_lifecycle;
 use lifecycle::stable_id;
 use outbox::Outbox;
@@ -254,13 +256,24 @@ pub async fn flush_pending(
     explicit_config: Option<&Path>,
     limit: u16,
 ) -> Result<CaptureHealth> {
-    flush_window(
+    let health = flush_window(
         loaded,
         explicit_config,
         Duration::from_secs(10),
         usize::from(limit),
     )
-    .await
+    .await?;
+    reclaim_if_drained(loaded, health)
+}
+
+fn reclaim_if_drained(loaded: &LoadedConfig, health: CaptureHealth) -> Result<CaptureHealth> {
+    if health.queued > 0 {
+        return Ok(health);
+    }
+    let path = directory(loaded)?;
+    let queue = Outbox::writer(&path)?;
+    queue.evict_settled(0)?;
+    queue.health()
 }
 
 async fn flush_with_budget(

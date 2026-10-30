@@ -199,7 +199,7 @@ impl Outbox {
             (1..=MAX_ENTRIES).contains(&limit),
             "invalid work flush limit"
         );
-        let paths = inventory::oldest_entries(&self.directory, true, limit)?;
+        let paths = inventory::oldest_entries(&self.directory, inventory::Window::Delivery, limit)?;
         let mut entries = Vec::new();
         let mut retained_bytes = 0;
         for path in paths {
@@ -290,10 +290,14 @@ impl Outbox {
         Ok(health)
     }
 
-    fn evict_settled(&self, incoming: u64) -> Result<()> {
+    pub(super) fn evict_settled(&self, incoming: u64) -> Result<()> {
         let mut health = self.health()?;
         loop {
-            let settled = inventory::oldest_entries(&self.directory, false, MAX_ENTRIES)?;
+            let settled = inventory::oldest_entries(
+                &self.directory,
+                inventory::Window::Eviction,
+                MAX_ENTRIES,
+            )?;
             if settled.is_empty() {
                 break;
             }

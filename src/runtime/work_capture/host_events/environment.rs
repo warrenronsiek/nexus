@@ -4,25 +4,38 @@
 // @spec docs/features/runtime.md
 use super::decode_input;
 use anyhow::{ensure, Result};
+use serde::Serialize;
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentHandoff {
+    Exported,
+    NotRequested,
+    Unavailable,
+}
 
 /// Append the exact native identity only at the host's environment-export boundary.
 pub fn export_host_environment(
     host: &str,
     bytes: &[u8],
     destination: Option<&Path>,
-) -> Result<bool> {
+) -> EnvironmentHandoff {
+    try_export(host, bytes, destination).unwrap_or(EnvironmentHandoff::Unavailable)
+}
+
+fn try_export(host: &str, bytes: &[u8], destination: Option<&Path>) -> Result<EnvironmentHandoff> {
     let Some(destination) = destination.filter(|_| host == "claude") else {
-        return Ok(false);
+        return Ok(EnvironmentHandoff::NotRequested);
     };
     let input = decode_input(host, bytes)?;
     if input.hook_event_name != "SessionStart" {
-        return Ok(false);
+        return Ok(EnvironmentHandoff::NotRequested);
     }
     append_identity(destination, &input.session_id)?;
-    Ok(true)
+    Ok(EnvironmentHandoff::Exported)
 }
 
 fn append_identity(destination: &Path, session_id: &str) -> Result<()> {
