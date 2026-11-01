@@ -195,7 +195,9 @@ exact metric literals survive presentation; preview omissions are labeled.
 and the closed mapping from browser queries to existing service reads. Scope or
 filter changes invalidate obsolete responses, polling does not overlap an active
 read, and failures retain the last successful snapshot with an explicit stale
-notice. Counts remain unavailable until a successful response. Pagination uses
+notice. The browser obtains `ui.refresh_interval_ms` from an authenticated
+coordination read and retains it across pages, including direct links; Refresh
+retries a failed configuration read. Counts remain unavailable until a successful response. Pagination uses
 server cursors rather than reconstructing IDs or treating a bounded page as an
 export. Login expiry returns to authentication without widening privileges.
 

@@ -11,6 +11,7 @@ import { renderChart } from "../src/charts";
 interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; filter?: Record<string, string> } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
+let configuredInterval = 30000;
 function fixture(name: string): string {
   return readFileSync(new NodeUrl(`./fixtures/${name}.json`, import.meta.url), "utf8");
 }
@@ -23,6 +24,7 @@ function response(url: string, body: RequestBody): string {
 function readFixture(body: RequestBody): string {
   if (!body.query) throw new Error("Browser read omitted its closed query");
   const query = body.query;
+  if (query.kind === "coordination") return JSON.stringify({ ...JSON.parse(fixture("coordination")), refresh_interval_ms: configuredInterval });
   if (query.kind === "work_dashboard" && query.work_session_id) return fixture("work-session");
   if (query.kind === "eval_dashboard" && query.group_id) return fixture("eval-group");
   return fixture(query.kind);
@@ -152,4 +154,36 @@ it("runs the actual Elm login, nine screens, work selection and exact eval value
   expect(requests.at(-1)?.url).toBe("/ui/api/logout");
   expect(requests.at(-1)?.timeout).toBe(20000);
   vi.unstubAllGlobals();
+});
+
+function readCount(kind: string): number {
+  return requests.filter(request => request.body.query?.kind === kind).length;
+}
+async function pollingTick(kind: string): Promise<void> {
+  const before = readCount(kind);
+  await vi.advanceTimersByTimeAsync(750);
+  await vi.waitFor(() => expect(readCount(kind)).toBe(before + 1));
+}
+
+it("honors configured refresh cadence after direct Work login and retains it across navigation", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  const intervals = vi.spyOn(globalThis, "setInterval");
+  configuredInterval = 750;
+  requests.length = 0; completions.length = 0;
+  window.history.replaceState(null, "", "/ui/work");
+  try {
+    await loginProgram();
+    await vi.waitFor(() => expect(intervals).toHaveBeenCalledWith(expect.any(Function), 750));
+    await pollingTick("work_dashboard");
+    await navigate("evals", "Router / claude + codex");
+    await pollingTick("eval_dashboard");
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
+    await content("Welcome to Nexus");
+    const beforeLogout = requests.length;
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(requests.length).toBe(beforeLogout);
+  } finally {
+    configuredInterval = 30000;
+    vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
+  }
 });

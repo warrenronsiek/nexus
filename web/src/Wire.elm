@@ -1,7 +1,7 @@
 -- @feature observability-ui
 -- @spec docs/features/observability-ui.md
 -- @boundary browser-json: validate the closed response envelopes and presentation records; retain original response text for exact immutable evidence.
-module Wire exposing (Bar, Document, Interval, Metric, Point, Row, decode, field, list, number, str, strings, valueAt)
+module Wire exposing (Bar, Document, Interval, Metric, Point, Row, decode, field, list, number, refreshInterval, str, strings, valueAt)
 
 import Json.Decode as D exposing (Decoder, Value)
 import Json.Encode as E
@@ -60,6 +60,21 @@ list key root =
 strings : String -> Value -> List String
 strings key root =
     D.decodeValue (D.field key (D.list D.string)) root |> Result.withDefault []
+
+
+refreshInterval : Value -> Result String Float
+refreshInterval root =
+    D.decodeValue
+        (D.field "refresh_interval_ms" D.int
+            |> D.andThen
+                (\milliseconds ->
+                    if milliseconds > 0 && milliseconds <= 2147483647 then
+                        D.succeed (toFloat milliseconds)
+                    else
+                        D.fail "The configured refresh interval is outside the browser timer range."
+                )
+        ) root
+        |> Result.mapError D.errorToString
 
 
 nullable : String -> Decoder (Maybe String)

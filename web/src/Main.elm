@@ -53,6 +53,7 @@ type alias Model =
     , projectsPartial : Bool
     , projectDraft : String
     , data : State.Remote Document
+    , polling : State.Remote Float
     , supplemental : Dict String Document
     , query : Query
     , trail : List Query
@@ -84,6 +85,7 @@ type Msg
     | Refresh
     | Tick Time.Posix
     | Received Int String Bool (Result Http.Error String)
+    | PollingReceived Int (Result Http.Error String)
     | Open Row
     | SelectNode String
     | SelectMetric String
@@ -105,7 +107,7 @@ main =
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "" }
+    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "" }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -267,7 +269,7 @@ update msg model =
         Session result ->
             case result |> Result.mapError httpError |> Result.andThen sessionDecoder of
                 Ok ( True, username ) ->
-                    ( { model | authenticated = Just True, username = username }, read Nothing (query "projects") Projects )
+                    authenticate username model
 
                 Ok _ ->
                     ( { model | authenticated = Just False }, Cmd.none )
@@ -278,7 +280,7 @@ update msg model =
         LoggedIn result ->
             case result |> Result.mapError httpError |> Result.andThen sessionDecoder of
                 Ok ( True, username ) ->
-                    ( { model | authenticated = Just True, username = username, password = "", loginError = Nothing }, read Nothing (query "projects") Projects )
+                    authenticate username model
 
                 Err reason ->
                     ( { model | authenticated = Just False, password = "", loginError = Just reason }, Cmd.none )
@@ -292,7 +294,7 @@ update msg model =
         LoggedOut result ->
             case result of
                 Ok _ ->
-                    ( { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, selected = Nothing }, Cmd.none )
+                    ( signedOut model, Cmd.none )
 
                 Err error ->
                     ( { model | loginError = Just (httpError error) }, Cmd.none )
@@ -323,7 +325,11 @@ update msg model =
                     reset model.screen model
 
         Refresh ->
-            load model.query model
+            let
+                ( loaded, reading ) = load model.query model
+                ( refreshed, configuration ) = if model.polling.error /= Nothing && not model.polling.loading then bootstrapPolling loaded else ( loaded, Cmd.none )
+            in
+            ( refreshed, Cmd.batch [ reading, configuration ] )
 
         Tick _ ->
             if model.authenticated == Just True && not model.data.loading && model.selected == Nothing then
@@ -339,7 +345,8 @@ update msg model =
             else
                 case result of
                     Err (Http.BadStatus 401) ->
-                        ( { model | authenticated = Just False, data = State.empty, supplemental = Dict.empty, selected = Nothing, password = "", loginError = Just "Your session expired. Sign in to continue." }, Cmd.none )
+                        let expired = signedOut model in
+                        ( { expired | loginError = Just "Your session expired. Sign in to continue." }, Cmd.none )
 
                     _ ->
                         let
@@ -347,6 +354,19 @@ update msg model =
                             updated = if isPrimary then { model | data = State.accept generation decoded model.data } else { model | supplemental = decoded |> Result.map (\doc -> Dict.insert kind doc model.supplemental) |> Result.withDefault model.supplemental }
                         in
                         ( updated, draw updated )
+
+        PollingReceived generation result ->
+            if model.authenticated /= Just True || generation /= model.polling.generation then
+                ( model, Cmd.none )
+            else
+                case result of
+                    Err (Http.BadStatus 401) ->
+                        let expired = signedOut model in
+                        ( { expired | loginError = Just "Your session expired. Sign in to continue." }, Cmd.none )
+
+                    _ ->
+                        let decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode "coordination") |> Result.andThen (.root >> Wire.refreshInterval) in
+                        ( { model | polling = State.accept generation decoded model.polling }, Cmd.none )
 
         Open row ->
             open row model
@@ -413,6 +433,25 @@ update msg model =
 sessionDecoder : String -> Result String ( Bool, String )
 sessionDecoder raw =
     D.decodeString (D.map2 Tuple.pair (D.field "authenticated" D.bool) (D.oneOf [ D.field "username" D.string, D.succeed "" ])) raw |> Result.mapError D.errorToString
+
+
+authenticate : String -> Model -> ( Model, Cmd Msg )
+authenticate username model =
+    let
+        ( configured, configuration ) = bootstrapPolling { model | authenticated = Just True, username = username, password = "", loginError = Nothing }
+    in
+    ( configured, Cmd.batch [ read Nothing (query "projects") Projects, configuration ] )
+
+
+bootstrapPolling : Model -> ( Model, Cmd Msg )
+bootstrapPolling model =
+    let pending = State.begin model.polling in
+    ( { model | polling = pending }, read Nothing (query "coordination") (PollingReceived pending.generation) )
+
+
+signedOut : Model -> Model
+signedOut model =
+    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
 
 
 httpError : Http.Error -> String
@@ -552,7 +591,7 @@ keyboard key model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [ chartSelection ChartSelected, if model.authenticated == Just True then Time.every 30000 Tick else Sub.none ]
+    Sub.batch [ chartSelection ChartSelected, if model.authenticated == Just True then model.polling.value |> Maybe.map (\interval -> Time.every interval Tick) |> Maybe.withDefault Sub.none else Sub.none ]
 
 
 selectedMetric : Model -> Maybe Wire.Metric
@@ -695,6 +734,7 @@ statusView model =
     div [ attribute "aria-live" "polite" ]
         [ model.data.error |> Maybe.map (\reason -> div [ class "notice error" ] [ text reason, if model.data.value /= Nothing then span [] [ text " · Showing the last successful snapshot." ] else text "" ]) |> Maybe.withDefault (text "")
         , model.loginError |> Maybe.map (\reason -> div [ class "notice error" ] [ text reason ]) |> Maybe.withDefault (text "")
+        , model.polling.error |> Maybe.map (\reason -> div [ class "notice" ] [ text ("Automatic refresh configuration is unavailable. " ++ reason ++ " Use Refresh to retry.") ]) |> Maybe.withDefault (text "")
         ]
 
 

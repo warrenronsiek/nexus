@@ -41,3 +41,9 @@ Tests cover request generation and retained stale snapshots, malformed response
 rejection, exact metric strings, distinct metric revisions, semantic-versus-work
 identity, unknown duration coverage, parent/concurrency layout and real SVG
 selection with hostile source text.
+
+After authentication, a bounded coordination read retrieves the configured
+`ui.refresh_interval_ms` for every route, including a direct Work or Evals URL.
+Elm retains that validated interval across navigation and skips overlapping
+refreshes. Configuration reads have their own generation; stale reads cannot
+revive polling after logout. A failed bootstrap is explicit and Refresh retries it.

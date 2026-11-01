@@ -116,3 +116,7 @@ another agent can inspect the same history without rerunning the workload.
 
 Pi's installed extension remains headless: it captures tool/skill events,
 availability, and automatic memory context without a `/nexus` terminal command.
+
+The browser obtains `[ui].refresh_interval_ms` through an authenticated
+coordination read and retains it across pages and direct links; Refresh retries
+a failed configuration read.
