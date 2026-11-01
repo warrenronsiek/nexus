@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "observed_calls": 4,
+  "identified_actions": 5,
+  "classified_actions": 5,
+  "unclassified_actions": 0,
+  "activities": [
+    {
+      "category_id": "research",
+      "name": "Code research",
+      "calls": 4,
+      "actions": 5,
+      "sessions": 1,
+      "improvised_actions": 1
+    }
+  ],
+  "truncated": false,
+  "window_started_at": "2026-10-25T00:00:00Z",
+  "window_ended_at": "2026-11-01T00:00:00Z",
+  "counting": "Calls can contain several operations"
+}

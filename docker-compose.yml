@@ -54,6 +54,8 @@ services:
       NEXUS_DATABASE_URL: postgres://nexus:${POSTGRES_PASSWORD:-nexus-development-only}@postgres:5432/nexus
       NEXUS_SECRET: ${NEXUS_SECRET:-}
       NEXUS_SECRET_FILE: /var/lib/nexus/service.secret
+      NEXUS_WEB_CREDENTIALS_FILE: /var/lib/nexus/web-credentials.json
+      NEXUS_WEB_ORIGIN: ${NEXUS_WEB_ORIGIN:-}
       NEXUS_IMPORT_SQLITE_IF_PRESENT: /var/lib/nexus-import/nexus.db
       NEXUS_HEALTH_STARTUP_FAILURE_LIMIT: ${NEXUS_HEALTH_STARTUP_FAILURE_LIMIT:-12}
     ports:

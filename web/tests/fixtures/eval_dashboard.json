@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "action": "dashboard",
+  "groups": [
+    {
+      "id": "router-eval",
+      "label": "Router / claude + codex",
+      "suite_identity": "routing-cases",
+      "target_identity": "router",
+      "suite_revision_ids": [
+        "suite-v1"
+      ],
+      "target_revision_ids": [
+        "target-v1"
+      ],
+      "components": [
+        "router",
+        "agent"
+      ],
+      "repository": [
+        "fixture"
+      ],
+      "models": [
+        "claude",
+        "codex"
+      ],
+      "latest_at": "2026-11-01T00:00:00Z",
+      "run_count": 1,
+      "result_count": 1,
+      "statuses": {
+        "completed": 1
+      }
+    }
+  ],
+  "selected_group_id": null,
+  "series": [],
+  "run_count": 1,
+  "result_count": 1,
+  "scanned_records": 10,
+  "source_limit": 4096,
+  "truncated": false,
+  "notices": []
+}

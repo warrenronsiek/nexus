@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "issues": [
+    {
+      "id": "sos-id",
+      "title": "Unexpected live email",
+      "summary": "Recorded unusual input",
+      "importance_count": 3,
+      "last_reported_at": "2026-11-01T00:00:00Z"
+    }
+  ],
+  "untriaged_report_count": 1,
+  "truncated": false
+}

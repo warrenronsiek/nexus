@@ -46,57 +46,25 @@ fn machine_setup_installs_integrations_idempotently() {
     }
     assert_machine_setup(&home, &codex_home, &host_log);
     assert_unique_work_hooks(&codex_home);
-    assert!(home.join(".pi/agent/extensions/nexus/index.ts").is_file());
-    assert!(home
-        .join(".pi/agent/extensions/nexus/component.ts")
-        .is_file());
-    assert!(home.join(".pi/agent/extensions/nexus/capture.ts").is_file());
-    assert!(home.join(".pi/agent/extensions/nexus/display.ts").is_file());
-    let launch_context =
-        fs::read_to_string(home.join(".pi/agent/extensions/nexus/launch-context.ts")).unwrap();
-    assert!(launch_context.contains(env!("CARGO_BIN_EXE_nexus")));
-    assert!(!launch_context.contains("config:"));
-    assert!(home.join(".pi/agent/extensions/nexus/usage.ts").is_file());
-    assert!(home
-        .join(".pi/agent/extensions/nexus/usage-pane.ts")
-        .is_file());
-    for sos_module in ["sos.ts", "sos-pane.ts"] {
-        assert!(
-            home.join(".pi/agent/extensions/nexus")
-                .join(sos_module)
-                .is_file(),
-            "machine setup did not install {sos_module}"
-        );
-    }
-    for eval_module in [
-        "evals.ts",
-        "evals-pane.ts",
-        "evals-view.ts",
-        "evals-state.ts",
-        "evals-requests.ts",
-    ] {
-        assert!(
-            home.join(".pi/agent/extensions/nexus")
-                .join(eval_module)
-                .is_file(),
-            "machine setup did not install {eval_module}"
-        );
-    }
-    for memory_module in [
+    let installed = home.join(".pi/agent/extensions/nexus");
+    for module in [
+        "index.ts",
+        "capture.ts",
         "host-context.ts",
+        "inventory-capture.ts",
         "mcp-client.ts",
         "memory-context.ts",
-        "memory-pane.ts",
-        "memory-prompts.ts",
-        "memory.ts",
+        "launch-context.ts",
     ] {
         assert!(
-            home.join(".pi/agent/extensions/nexus")
-                .join(memory_module)
-                .is_file(),
-            "machine setup did not install {memory_module}"
+            installed.join(module).is_file(),
+            "setup omitted capture module {module}"
         );
     }
+    assert!(!installed.join("component.ts").exists());
+    let launch_context = fs::read_to_string(installed.join("launch-context.ts")).unwrap();
+    assert!(launch_context.contains(env!("CARGO_BIN_EXE_nexus")));
+    assert!(!launch_context.contains("config:"));
 }
 
 fn assert_unique_work_hooks(codex_home: &Path) {
@@ -465,29 +433,29 @@ fn run(command: &mut Command) {
 }
 
 #[test]
-fn machine_setup_refreshes_waterfall_helper_modules() {
+fn machine_setup_retires_only_former_nexus_terminal_modules() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path().join("home");
     let codex_home = home.join(".codex");
     let commands = temporary.path().join("commands");
     let installed = home.join(".pi/agent/extensions/nexus");
+    let other = home.join(".pi/agent/extensions/other");
     fs::create_dir_all(&commands).unwrap();
     fs::create_dir_all(&installed).unwrap();
+    fs::create_dir_all(&other).unwrap();
     fake_host(&commands, "codex");
     fake_host(&commands, "pi");
-    let helpers = [
-        (
-            "work-activity-style.ts",
-            include_str!("../pi-extension/src/work-activity-style.ts"),
-        ),
-        (
-            "work-waterfall-metadata.ts",
-            include_str!("../pi-extension/src/work-waterfall-metadata.ts"),
-        ),
-    ];
-    for (module, _) in helpers {
-        fs::write(installed.join(module), "stale installed helper").unwrap();
+    for module in [
+        "component.ts",
+        "work-activity-style.ts",
+        "work-waterfall-metadata.ts",
+        "memory-pane.ts",
+    ] {
+        fs::write(installed.join(module), "retired Nexus terminal module").unwrap();
     }
+    fs::write(installed.join("capture.ts"), "old capture module").unwrap();
+    fs::write(installed.join("custom.ts"), "user extension helper").unwrap();
+    fs::write(other.join("component.ts"), "other extension").unwrap();
     let setup = nexus_command(
         &home,
         &codex_home,
@@ -495,13 +463,32 @@ fn machine_setup_refreshes_waterfall_helper_modules() {
         &temporary.path().join("hosts.log"),
     )
     .arg("setup")
-    .env("PATH", &commands)
     .output()
     .unwrap();
     assert_success(&setup);
-    for (module, source) in helpers {
-        assert_eq!(fs::read_to_string(installed.join(module)).unwrap(), source);
+    for module in [
+        "component.ts",
+        "work-activity-style.ts",
+        "work-waterfall-metadata.ts",
+        "memory-pane.ts",
+    ] {
+        assert!(
+            !installed.join(module).exists(),
+            "setup retained retired UI module {module}"
+        );
     }
+    assert_eq!(
+        fs::read_to_string(installed.join("capture.ts")).unwrap(),
+        include_str!("../pi-extension/src/capture.ts")
+    );
+    assert_eq!(
+        fs::read_to_string(installed.join("custom.ts")).unwrap(),
+        "user extension helper"
+    );
+    assert_eq!(
+        fs::read_to_string(other.join("component.ts")).unwrap(),
+        "other extension"
+    );
 }
 
 #[test]
@@ -540,11 +527,20 @@ fn installed_pi_extension_contains_its_complete_local_module_dependency_closure(
         }
     }
     assert!(
-        visited.contains("work-pane.ts"),
-        "the installed entry point must reach Work"
+        visited.contains("capture.ts"),
+        "the installed entry point must capture host lifecycle events"
     );
     assert!(
-        visited.contains("concerns-pane.ts"),
-        "the installed entry point must reach Code concerns"
+        visited.contains("inventory-capture.ts"),
+        "the installed entry point must capture capability availability"
+    );
+    assert!(
+        visited.contains("memory-context.ts"),
+        "the installed entry point must activate memory"
+    );
+    assert_eq!(
+        visited.len(),
+        7,
+        "Pi installs only the capture and memory activation closure"
     );
 }

@@ -69,7 +69,7 @@ flowchart TD
 
 `src/sos/` owns the domain model, dynamic metadata boundary, status and transition enums, and validation limits. `src/persistence/sos/` owns typed Diesel rows, source insertion, atomic triage application, lifecycle changes, bounded candidate/list queries, detail projection, and complete registry export. SQLite and PostgreSQL receive the same version-nine logical schema through backend-specific migration directories.
 
-`src/agents/sos.rs` owns the strict one-shot model contract. `src/coordination/api/sos.rs` defines the tagged command and response boundary. `src/coordination/service/sos.rs` resolves project identity, records reporter provenance, and prepares background work. Runtime dispatch schedules that work outside request latency using the shared bounded issue-work queue. MCP, CLI, and the Pi terminal UI consume the same typed service contract.
+`src/agents/sos.rs` owns the strict one-shot model contract. `src/coordination/api/sos.rs` defines the tagged command and response boundary. `src/coordination/service/sos.rs` resolves project identity, records reporter provenance, and prepares background work. Runtime dispatch schedules that work outside request latency using the shared bounded issue-work queue. MCP, CLI, and the authenticated read-only web interface consume the same typed service contract. Browser queries admit only list/detail reads; reports and lifecycle mutations remain agent API operations.
 
 The schema intentionally separates four concerns:
 

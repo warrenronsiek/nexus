@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "project_id": "fixture-project",
+  "window_started_at": "2026-10-25T00:00:00Z",
+  "window_ended_at": "2026-11-01T00:00:00Z",
+  "tools": [
+    {
+      "kind": "tool",
+      "name": "Named Git script",
+      "count": 2,
+      "sessions": 1
+    }
+  ],
+  "skills": [
+    {
+      "kind": "skill",
+      "name": "nexus-work-history",
+      "count": 3,
+      "sessions": 2
+    }
+  ],
+  "truncated": false,
+  "capture_health": {}
+}

@@ -1,6 +1,4 @@
-// @feature observability-ui
 // @feature usage-analytics
-// @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";

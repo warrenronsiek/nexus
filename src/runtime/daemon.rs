@@ -207,18 +207,36 @@ async fn handle_connection(
             return Ok(());
         }
         let response = match request {
-            Ok(request) => match ServiceRequest::decode(&request.method, request.params) {
-                Ok(request) => dispatch::handle(service.clone(), &model_work, request, None).await,
-                Err(error) if ServiceRequest::is_lifecycle_method(&request.method) => {
-                    ServiceResponse::Hook(HookResponse::fail_open(error))
+            Ok(request) => {
+                match decode_bound_request(&request.method, request.params, request.project_id) {
+                    Ok((request, project)) => {
+                        dispatch::handle(service.clone(), &model_work, request, project).await
+                    }
+                    Err(error) if ServiceRequest::is_lifecycle_method(&request.method) => {
+                        ServiceResponse::Hook(HookResponse::fail_open(error))
+                    }
+                    Err(error) => ServiceResponse::error(error),
                 }
-                Err(error) => ServiceResponse::error(error),
-            },
+            }
             Err(error) => ServiceResponse::error(format!("invalid request: {error}")),
         };
         write_json_line(&mut writer, &response).await?;
     }
     Ok(())
+}
+
+fn decode_bound_request(
+    method: &str,
+    params: Value,
+    project: Option<String>,
+) -> Result<(ServiceRequest, Option<String>)> {
+    let project = project
+        .as_deref()
+        .map(crate::config::canonical_project_id)
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid request project_id"))?
+        .map(str::to_owned);
+    Ok((ServiceRequest::decode(method, params)?, project))
 }
 
 async fn reply_to_control(
@@ -268,14 +286,19 @@ where
 }
 
 pub async fn request(socket_path: &Path, request: &ServiceRequest) -> Result<Value> {
+    request_in_project(socket_path, request, None).await
+}
+
+pub(crate) async fn request_in_project(
+    socket_path: &Path,
+    request: &ServiceRequest,
+    project_id: Option<&str>,
+) -> Result<Value> {
     let mut stream = UnixStream::connect(socket_path)
         .await
         .with_context(|| format!("connect {}", socket_path.display()))?;
-    let request = WireRequest::from_service(request, None)?;
-    stream
-        .write_all(serde_json::to_string(&request)?.as_bytes())
-        .await?;
-    stream.write_all(b"\n").await?;
+    let request = WireRequest::from_service(request, project_id)?;
+    write_json_line(&mut stream, &request).await?;
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).await?;
     serde_json::from_str(&line).context("decode daemon response")

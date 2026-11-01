@@ -18,14 +18,14 @@ Read the returned specification and entry-point files before editing. The curren
 - `complexity-analysis`: feature-scoped structural metrics, repetition analysis, and regression gates.
 - `commit-review`: parallel cross-model architecture and deletion review for staged commits.
 - `installation`: one-command machine setup and repository onboarding.
-- `observability-ui`: native and Pi terminal coordination, analytics, and memory visibility over local MCP.
+- `observability-ui`: authenticated read-only Elm/D3 browser coordination, analytics, memory, eval, and work visualization.
 - `usage-analytics`: observed tool, skill, and script usage capture and seven-day reporting.
 - `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
 - `papercuts`: timestamped development-friction reports, upvotes, duplicate review, consolidation, resolution, and complete registry export.
 - `sos`: unusual situations reported by agents inside running applications, repeated-report aggregation, lifecycle tracking, and triage history.
 - `code-concerns`: attributable code problems, area recurrence, attempted remedies, Git locations, and historical review evidence.
-- `evals`: Git-backed evaluation definitions, motivations, caller-owned results, grading history, artifacts, comparisons, and terminal retrieval.
-- `work-history`: durable work sessions, nested activity timing, deterministic capture, caller-owned delivery evidence, and terminal timelines.
+- `evals`: Git-backed evaluation definitions, motivations, caller-owned results, grading history, artifacts, comparisons, and browser retrieval.
+- `work-history`: durable work sessions, nested activity timing, deterministic capture, caller-owned delivery evidence, and browser waterfalls.
 
 The bundled [Nexus skill](skills/nexus/SKILL.md) maps every feature to focused
 usage and integration guidance. `nexus setup` installs it and the linked skills

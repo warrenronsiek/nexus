@@ -6,10 +6,15 @@
 // @spec docs/features/sos.md
 // @entrypoint serve_listener
 // @boundary dynamic-json
+mod browser;
 mod listener;
 mod mcp_http;
 mod secret;
 
+pub use browser::{
+    configure_credentials, default_credentials_path, read_password_file, serve_browser_listener,
+    BrowserConfig,
+};
 pub use secret::{load_or_generate_secret, LoadedServerSecret, ServerSecret};
 
 use super::{dispatch, protocol::WireRequest};
@@ -161,6 +166,7 @@ pub async fn serve_listener(
     service: Arc<NexusService>,
     secret: ServerSecret,
     allowed_origins: Vec<String>,
+    browser: BrowserConfig,
 ) -> Result<()> {
     let _memory_scheduler = dispatch::MemoryConsolidationScheduler::start(service.clone());
     let model_work = dispatch::ModelWorkScheduler::start(service.clone());
@@ -190,9 +196,14 @@ pub async fn serve_listener(
         )
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
-            state,
+            state.clone(),
             protect_remote_request,
         ));
+    let router = router.merge(browser::service_router(
+        browser,
+        state.service.clone(),
+        state.blocking_execution.clone(),
+    ));
     listener::serve(listener, router)
         .await
         .context("serve Nexus HTTP endpoint")

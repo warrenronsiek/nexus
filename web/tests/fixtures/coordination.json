@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "project_id": "fixture-project",
+  "generated_at": "2026-11-01T00:00:00Z",
+  "refresh_interval_ms": 30000,
+  "counts": {
+    "active_sessions": 1,
+    "active_claims": 0,
+    "open_conflicts": 0,
+    "events": 0
+  },
+  "sessions": {
+    "items": [
+      {
+        "session_id": "host-id",
+        "agent": "codex",
+        "display_name": "Improve the router",
+        "task_summary": "Session evidence",
+        "project_id": "fixture-project",
+        "status": "active",
+        "worktree": "/fixture/repository",
+        "last_seen_at": "2026-11-01T00:00:00Z"
+      }
+    ],
+    "truncated": false
+  },
+  "claims": {
+    "items": [],
+    "truncated": false
+  },
+  "conflicts": {
+    "items": [],
+    "truncated": false
+  },
+  "events": {
+    "items": [],
+    "truncated": false
+  }
+}

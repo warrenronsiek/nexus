@@ -25,7 +25,7 @@ flowchart TD
     O --> D[(SQLite or PostgreSQL)]
     D --> P[Derive hierarchy and disclose conflicts or gaps]
     P --> Q[Bounded queries and portable export]
-    Q --> U[CLI, MCP and read-only terminal tree]
+    Q --> U[CLI, MCP and read-only web waterfall]
 ```
 
 `src/work_history` defines the closed typed event, relationship, query, and
@@ -92,7 +92,7 @@ automatic capture does not retain raw arguments, prompts, outputs, or environmen
 values. Intentional evidence links use the existing Git-first eval artifact policy.
 
 See [design and acceptance criteria](../design/workflow-history.md) for delivery,
-instrumentation, and terminal behavior.
+instrumentation, and web inspection behavior.
 
 ## Automatic capture and caller integration
 
@@ -175,7 +175,7 @@ extend the generic lifecycle callback budget; a timed-out wait still makes no
 durability promise.
 The `nexus_capture_health` MCP tool exposes this local companion's capture health
 even when the history service is remote. A direct service MCP connection reports
-local capture as unavailable. The TUI labels these counters separately from the
+local capture as unavailable. These local counters are distinct from the
 selected project's accounting; one producer's health cannot prove global coverage.
 
 Repository validation has named check intervals and concurrent review workers
@@ -215,7 +215,7 @@ these differ from the database-wide portable format-five stream. `schema` prints
 the `WorkAction` contract used by the `nexus_work` MCP tool. CLI `show` maps to
 MCP `get`; recording conveniences submit the corresponding typed observations.
 
-The native and Pi Work tab defaults to a visual overview: qualified session
+The authenticated web Work view defaults to a visual overview: qualified session
 counts, total/mean observed session durations, activity-kind inclusive-duration
 bars, and UTC-day means/totals across time. Selecting a parent session shows its
 own interval, qualified accounting, and a vertically scrollable waterfall of
@@ -232,11 +232,11 @@ immediately below shows kind/category, state/outcome, source and elapsed/queue
 timing, executor, parent, gaps, and conflicts without opening a separate record.
 Colors group recorded kind families as subagents, tests, scripts, reviews,
 tools/commands, or generic work/sessions. Custom kinds remain Other; titles do not
-drive classification. The legend and textual labels also work with `NO_COLOR`.
-The same view is available with `g`
-from a session reached through ordinary paginated source browsing. The
-secondary record list preserves hierarchy, filters, details, links, and immutable
-observations for audit work. See [terminal UI](observability-ui.md) for keys.
+drive classification. The legend and textual labels retain meaning independently of color.
+The same view is available from a session reached through ordinary paginated
+source browsing. The secondary record list preserves hierarchy, filters, details, links, and immutable
+observations for audit work. See [web observability](observability-ui.md) for the
+read-only inspection and authentication boundary.
 
 ## Visual duration reads
 
@@ -292,8 +292,8 @@ query, bounded to 129 scope/identity pairs for at most 64 requested subjects.
 Session membership and activity parent edges retain their distinct meanings.
 
 
-Selected-session accounting uses one shared projection for CLI/MCP and both
-terminal hosts. `occupied_wall` is the clipped union of qualified queue intervals
+Selected-session accounting uses one shared projection for CLI/MCP and the
+authenticated web interface. `occupied_wall` is the clipped union of qualified queue intervals
 and intervals explicitly labeled `nexus.accounting.role=execution` or `wait`; containers and unknown roles
 cannot make work look fully attributed. `unobserved` is the remaining qualified
 session interval, with exact UTC gap boundaries. It is not inferred idle, model
@@ -375,7 +375,7 @@ the original entries for idempotent retry.
 
 The dashboard query accepts `session_origin: "host"` to select automatic harness
 roots by their recorded `nexus.capture.host` adapter metadata. Omitting the field
-keeps all caller-owned work sessions available. The terminal overview requests
+keeps all caller-owned work sessions available. The web overview requests
 harness roots by default; its source browser retains standalone commands, shared
 logical work, and unlinked activities. Operation traffic cannot displace roots
 from their independent source window. Both windows and display caps remain

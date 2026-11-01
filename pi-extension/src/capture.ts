@@ -1,6 +1,4 @@
-// @feature observability-ui
 // @feature usage-analytics
-// @spec docs/features/observability-ui.md
 // @spec docs/features/usage-analytics.md
 // @boundary dynamic-json
 import type {

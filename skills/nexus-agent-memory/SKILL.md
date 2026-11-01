@@ -72,7 +72,8 @@ useful without provider credentials. Provider failure does not justify inventing
 a summary or rerunning a task to reconstruct allegedly original knowledge.
 
 Use status to distinguish pending consolidation, provider degradation, and
-context omissions from absent knowledge. User-facing CLI/TUI administration can
+context omissions from absent knowledge. The read-only web Memory view browses
+context, raw search, summary children, and health. User-facing CLI administration can
 request `nexus memory consolidate` or invalidate a derived node with
 `nexus memory invalidate "$SUMMARY_ID"`. Invalidation removes that summary and
 its stored ancestors, preserving all raw notes. The advertised agent tool set

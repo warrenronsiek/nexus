@@ -108,4 +108,4 @@ candidates; inspect source evidence before treating a generated summary as a
 verified root cause.
 
 Use [nexus-observability](../nexus-observability/SKILL.md) for the SOS list/detail
-terminal view and [nexus](../nexus/SKILL.md) for feature selection.
+authenticated read-only web view and [nexus](../nexus/SKILL.md) for feature selection.

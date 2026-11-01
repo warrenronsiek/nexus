@@ -125,3 +125,25 @@ pub struct MemoryConsolidationReport {
     pub stale: usize,
     pub fallback_uses: usize,
 }
+
+/// Explicit observational reads preserve project binding without host or filesystem inference.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum MemoryInspection {
+    Status {
+        project_id: String,
+    },
+    Context {
+        project_id: Option<String>,
+        #[serde(default)]
+        scope: MemoryReadScopeArg,
+    },
+    Search {
+        project_id: Option<String>,
+        #[serde(default)]
+        scope: MemoryReadScopeArg,
+        regex: String,
+        #[serde(default = "default_memory_search_limit")]
+        limit: usize,
+    },
+}

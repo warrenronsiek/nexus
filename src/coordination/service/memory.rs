@@ -8,9 +8,9 @@ use crate::agents::model::{self, MemoryConsolidationFailureKind};
 use crate::config::ModelProvider;
 use crate::coordination::api::{
     MemoryAddCommand, MemoryConsolidationReport, MemoryContextQuery, MemoryContextResponse,
-    MemoryEntriesResponse, MemoryInvalidationResponse, MemoryNodesResponse, MemoryReadScopeArg,
-    MemoryScopeArg, MemorySearchQuery, MemoryStatusQuery, MemoryStatusResponse, MemorySummaryQuery,
-    MemoryWriteResponse, ServiceResponse,
+    MemoryEntriesResponse, MemoryInspection, MemoryInvalidationResponse, MemoryNodesResponse,
+    MemoryReadScopeArg, MemoryScopeArg, MemorySearchQuery, MemoryStatusQuery, MemoryStatusResponse,
+    MemorySummaryQuery, MemoryWriteResponse, ServiceResponse,
 };
 use crate::coordination::domain::ToolHookInput;
 use crate::coordination::workspace;
@@ -132,6 +132,56 @@ impl NexusService {
                 ServiceResponse::MemoryContext(MemoryContextResponse { ok: true, context })
             }
             Err(error) => ServiceResponse::error(error),
+        }
+    }
+
+    pub(super) fn inspect_memory(&self, query: MemoryInspection) -> ServiceResponse {
+        match query {
+            MemoryInspection::Status { project_id } => {
+                match inspection_binding(Some(project_id), MemoryReadScopeArg::Project) {
+                    Ok(binding) => self.memory_status(MemoryStatusQuery::default(), &binding),
+                    Err(error) => ServiceResponse::error(error),
+                }
+            }
+            MemoryInspection::Search {
+                project_id,
+                scope,
+                regex,
+                limit,
+            } => {
+                if regex.len() > crate::coordination::api::MAX_MEMORY_SEARCH_REGEX_BYTES {
+                    return ServiceResponse::error("memory search regex exceeds its limit");
+                }
+                let binding = match inspection_binding(project_id, scope) {
+                    Ok(binding) => binding,
+                    Err(error) => return ServiceResponse::error(error),
+                };
+                self.memory_search(
+                    MemorySearchQuery {
+                        scope,
+                        regex,
+                        limit,
+                        project_root: None,
+                    },
+                    &binding,
+                )
+            }
+            MemoryInspection::Context { project_id, scope } => {
+                let result = (|| -> Result<_> {
+                    let binding = inspection_binding(project_id, scope)?;
+                    let scope = memory_read_scope(&binding, scope, None)?;
+                    self.store
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                        .inspect_memory_context(&scope, self.memory_context_limits())
+                })();
+                match result {
+                    Ok(context) => {
+                        ServiceResponse::MemoryContext(MemoryContextResponse { ok: true, context })
+                    }
+                    Err(error) => ServiceResponse::error(error),
+                }
+            }
         }
     }
 
@@ -496,3 +546,17 @@ fn memory_read_scope(
 
 #[cfg(test)]
 mod tests;
+
+fn inspection_binding(
+    project_id: Option<String>,
+    scope: MemoryReadScopeArg,
+) -> Result<ProjectBinding> {
+    let project_id = match (project_id, scope) {
+        (Some(project), _) => crate::config::canonical_project_id(&project)
+            .map_err(|_| anyhow::anyhow!("invalid memory inspection project"))?
+            .to_owned(),
+        (None, MemoryReadScopeArg::Global) => "browser-global-memory".into(),
+        (None, _) => bail!("select a project for memory inspection"),
+    };
+    Ok(ProjectBinding::Remote { project_id })
+}

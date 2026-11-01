@@ -26,7 +26,8 @@ fn watch_source(root: &Path) {
         "src",
         "skills",
         "migrations",
-        "pi-extension/dist",
+        "pi-extension/src",
+        "web/dist",
         "Cargo.toml",
     ] {
         println!("cargo:rerun-if-changed={path}");

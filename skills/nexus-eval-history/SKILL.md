@@ -7,7 +7,7 @@ description: Retrieve and explain Nexus evaluation history, including why cases 
 
 Read [the Nexus record and evidence contract](references/nexus-evals.md) for available commands, record structure, evidence capture, and import/export behavior.
 
-For a human overview, open `nexus tui` or Pi `/nexus` and select Evals. The default view groups suites, targets, repositories and model compositions; Enter shows result trends, `[ ]` changes the metric, and `b` opens the secondary immutable record browser. Metric revisions and assessment scopes remain separate. Charts summarize captured evidence and disclose partial history; they do not establish which result is better.
+For a human overview, open the authenticated web interface through `nexus web` or the Compose service and select Evals. Choose a suite/target/repository/model set, then a metric to see trends alongside its definition, units, calculation, and exact values. Source records, rationale/history, and typed links retain the evidence. Metric revisions and assessment scopes remain separate. Charts disclose partial history and do not establish which result is better.
 
 Start with the user's question: a behavior, repository, model, run, case, or decision. List with the narrowest useful filters, follow pagination, then inspect records and their rationale links. Use `why` to traverse motivating evidence; the attached rationale explains a change, while a later summary is an interpretation of it.
 

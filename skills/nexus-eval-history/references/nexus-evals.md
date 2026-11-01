@@ -34,11 +34,10 @@ For MCP, these are `{"action":"list","kind":"case","search":"regression","limit"
 
 ## See the overall result history
 
-The Evals tab in `nexus tui` and Pi `/nexus` starts with evaluation sets grouped
+The authenticated web Evals view starts with evaluation sets grouped
 by stable suite and target identities and exact observed repository/model
 compositions. This keeps a router and its agents visible together. Select a set
-with Up/Down and Enter; change metrics with `[ ]` or Up/Down. Each metric view
-shows its exact definition, unit, assessment scope, calculation, occurrence-time
+and choose a metric. Each metric view shows its exact definition, unit, assessment scope, calculation, occurrence-time
 trend and latest exact value. Overview repository/model/search filters narrow the
 set list; the totals labeled “All captured history” retain the full captured
 population. Suite revisions remain linked from every result.
@@ -64,8 +63,8 @@ history and are counted separately from current frontiers. Conflicting branches
 remain evidence, without choosing a winner. The interface defines no preferred
 optimization direction and does not execute a metric calculation.
 
-Press `b` for records and `d` for a metric's latest source record. Record detail
-still supports `w` why/history and `l` typed links. These secondary views retain
+Open the record browser or a metric's latest source record for detail,
+rationale/history, and typed links. These secondary views retain
 motivations, evidence and artifact coordinates without automatically retrieving
 blob contents.
 

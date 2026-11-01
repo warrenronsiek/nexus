@@ -11,6 +11,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 sqlite_path="${NEXUS_SQLITE_PATH:-}"
 disable_discovery=false
+web_credentials=""
 
 while (($# > 0)); do
   case "$1" in
@@ -22,13 +23,21 @@ while (($# > 0)); do
       sqlite_path="$2"
       shift 2
       ;;
+    --web-credentials)
+      (($# >= 2)) || {
+        echo "--web-credentials requires a setup-generated credential file" >&2
+        exit 2
+      }
+      web_credentials="$2"
+      shift 2
+      ;;
     --no-import)
       disable_discovery=true
       sqlite_path=""
       shift
       ;;
     *)
-      echo "usage: $0 [--sqlite /path/to/nexus.db] [--no-import]" >&2
+      echo "usage: $0 [--sqlite /path/to/nexus.db] [--no-import] [--web-credentials /private/viewer.json]" >&2
       exit 2
       ;;
   esac
@@ -74,7 +83,15 @@ else
   echo "Starting Nexus without a SQLite import source"
 fi
 
-docker compose --file "${repository_root}/docker-compose.yml" up --build --detach
+compose=(docker compose --file "${repository_root}/docker-compose.yml")
+if [[ -n "${web_credentials}" ]]; then
+  python3 "${repository_root}/scripts/compose_web_credentials.py" --check "${web_credentials}"
+  "${compose[@]}" build nexus
+  python3 "${repository_root}/scripts/compose_web_credentials.py" "${web_credentials}" -- "${compose[@]}"
+  "${compose[@]}" up --detach --force-recreate nexus
+else
+  "${compose[@]}" up --build --detach
+fi
 
 if command -v nexus >/dev/null 2>&1; then
   nexus_service_host="${NEXUS_BIND_ADDRESS:-127.0.0.1}"

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# @feature observability-ui
+# @spec docs/features/observability-ui.md
 # @feature architecture-tooling
 # @feature runtime
 # @feature persistence
@@ -30,6 +32,7 @@ export NEXUS_BIND_ADDRESS="127.0.0.1"
 export NEXUS_PORT="${NEXUS_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')}"
 export POSTGRES_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
 export NEXUS_SECRET=""
+export NEXUS_WEB_ORIGIN=""
 
 cleanup() {
   local status=$?
@@ -200,7 +203,13 @@ mcp_request() {
 }
 
 echo "Building and starting isolated Nexus Compose project ${compose_project}"
-"${compose[@]}" up --build --detach \
+# This committed fixture has a public test-only password and is never a default.
+cp tests/fixtures/web-credentials.fixture.json "${smoke_directory}/viewer.json"
+chmod 600 "${smoke_directory}/viewer.json"
+"${compose[@]}" build nexus sqlite-import || fail "Docker Compose build failed"
+python3 scripts/compose_web_credentials.py "${smoke_directory}/viewer.json" -- "${compose[@]}" \
+  || fail "browser fixture provisioning failed"
+"${compose[@]}" up --detach \
   || fail "Docker Compose startup failed"
 wait_for_ready
 wait_for_healthy
@@ -211,6 +220,8 @@ service_secret="$(read_service_secret)" \
   || fail "generated service secret does not have the expected 64-character form"
 assert_service_secret_metadata
 assert_authenticated_api
+NEXUS_TEST_SERVICE_SECRET="${service_secret}" python3 scripts/test-browser-service.py "${base_url}" \
+  || fail "browser service smoke failed"
 
 mcp_initialize
 mcp_request '{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"nexus://status"}}'
@@ -264,6 +275,8 @@ assert any(memory.get("content") == marker for memory in memories), response
 }
 
 assert_memory_persisted
+NEXUS_TEST_SERVICE_SECRET="${service_secret}" python3 scripts/test-browser-service.py "${base_url}" \
+  || fail "browser credentials or assets did not survive Nexus restart"
 
 nexus_restarts_before_postgres="$(nexus_restart_count)"
 "${compose[@]}" restart postgres >/dev/null \
@@ -278,4 +291,4 @@ service_secret="$(read_service_secret)" \
 assert_authenticated_api
 assert_memory_persisted
 
-echo "Docker service smoke test passed: auth, MCP, persistence, and PostgreSQL recovery"
+echo "Docker service smoke test passed: browser/agent auth separation, read-only UI, MCP, persistence, and PostgreSQL recovery"

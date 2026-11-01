@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "projects": [
+    {
+      "project_id": "fixture-project",
+      "worktrees": [
+        "/fixture/repository"
+      ],
+      "agents": [
+        "codex"
+      ],
+      "last_seen_at": "2026-11-01T00:00:00Z"
+    }
+  ],
+  "truncated": true
+}

@@ -60,6 +60,7 @@ impl RunningService {
                 service,
                 ServerSecret::new(TEST_SECRET).unwrap(),
                 allowed_origins,
+                server::BrowserConfig::disabled(),
             )
             .await
             .unwrap();

@@ -9,7 +9,8 @@
 use super::{sqlite_import, Args, ServerMode};
 use anyhow::{bail, Context, Result};
 use nexus::runtime::server::{
-    disable_in_process_model_providers, load_or_generate_secret, serve_listener, ServerSecret,
+    default_credentials_path, disable_in_process_model_providers, load_or_generate_secret,
+    serve_listener, BrowserConfig, ServerSecret,
 };
 use nexus::{Config, NexusService};
 use std::net::SocketAddr;
@@ -44,6 +45,8 @@ struct StartupInputs {
     secret: Option<String>,
     secret_file: Option<PathBuf>,
     allowed_origins: Vec<String>,
+    web_credentials_file: PathBuf,
+    web_origin: Option<String>,
     config: Option<PathBuf>,
     import_sqlite: Option<PathBuf>,
 }
@@ -65,6 +68,15 @@ impl StartupInputs {
                 .secret_file
                 .or_else(|| std::env::var_os("NEXUS_SECRET_FILE").map(PathBuf::from)),
             allowed_origins: args.allowed_origins,
+            web_credentials_file: args
+                .web_credentials_file
+                .or_else(|| std::env::var_os("NEXUS_WEB_CREDENTIALS_FILE").map(PathBuf::from))
+                .map(Ok)
+                .unwrap_or_else(default_credentials_path)?,
+            web_origin: args
+                .web_origin
+                .or_else(|| std::env::var("NEXUS_WEB_ORIGIN").ok())
+                .filter(|value| !value.is_empty()),
             config: args.config,
             import_sqlite: args.import_sqlite,
         })
@@ -80,6 +92,12 @@ impl StartupInputs {
                 .expect("generated server credentials always have a secret file");
             eprintln!("generated Nexus bearer secret at {}", path.display());
         }
+        let browser = BrowserConfig::load(&self.web_credentials_file, self.web_origin.as_deref())?;
+        if !browser.configured() {
+            eprintln!(
+                "Browser login is disabled until credentials are configured with nexus setup"
+            );
+        }
         let loaded = Config::load(self.config.as_deref(), None)?;
         let service = Arc::new(NexusService::connect(loaded, &self.database_url)?);
         let listener = tokio::net::TcpListener::bind(self.listen)
@@ -91,6 +109,7 @@ impl StartupInputs {
             service,
             secret: loaded_secret.verifier(),
             allowed_origins: self.allowed_origins,
+            browser,
         })
     }
 }
@@ -100,6 +119,7 @@ struct PreparedServer {
     service: Arc<NexusService>,
     secret: ServerSecret,
     allowed_origins: Vec<String>,
+    browser: BrowserConfig,
 }
 
 impl PreparedServer {
@@ -119,6 +139,7 @@ impl PreparedServer {
                 self.service,
                 self.secret,
                 self.allowed_origins,
+                self.browser,
             ) => result,
             result = termination_signal() => {
                 result?;

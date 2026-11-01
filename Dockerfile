@@ -36,6 +36,7 @@ COPY --chmod=0755 scripts/docker-import-sqlite.sh /usr/local/bin/nexus-import-sq
 
 USER nexus
 ENV NEXUS_SECRET_FILE=/var/lib/nexus/service.secret
+ENV NEXUS_WEB_CREDENTIALS_FILE=/var/lib/nexus/web-credentials.json
 ENV NEXUS_HEALTH_URL=http://127.0.0.1:7337/readyz
 ENV NEXUS_HEALTH_READY_FILE=/tmp/nexus-readiness-observed
 ENV NEXUS_IMPORT_SQLITE_IF_PRESENT=/var/lib/nexus-import/nexus.db

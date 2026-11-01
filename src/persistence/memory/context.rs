@@ -11,11 +11,19 @@ impl Store {
         scope: &MemoryReadScope,
         limits: MemoryContextLimits,
     ) -> Result<MemoryContextStatus> {
-        let limits = hard_bounded_limits(limits);
         self.repair_context_snapshots(scope)?;
-        self.prepare_memory_context(scope, limits)?
+        self.inspect_memory_context(scope, limits)
+    }
+
+    /// Browser inspection never repairs a snapshot or records an activation.
+    pub fn inspect_memory_context(
+        &mut self,
+        scope: &MemoryReadScope,
+        limits: MemoryContextLimits,
+    ) -> Result<MemoryContextStatus> {
+        self.prepare_memory_context(scope, hard_bounded_limits(limits))?
             .map(|prepared| prepared.status)
-            .context("memory frontier changed while it was being rebuilt")
+            .context("memory frontier is stale; awaiting background repair")
     }
 
     pub fn repair_memory_frontier(&mut self, scope: &MemoryScope) -> Result<bool> {
@@ -383,4 +391,66 @@ fn read_scope_parts(scope: &MemoryReadScope) -> (&'static str, Option<&str>) {
 fn activation_scope_key(scope: &MemoryReadScope) -> String {
     let (scope, project_id) = read_scope_parts(scope);
     format!("{scope}:{}", project_id.unwrap_or_default())
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod inspection_tests {
+    use super::*;
+
+    #[test]
+    fn inspection_never_repairs_a_stale_frontier_or_records_activation() {
+        let mut store = Store::open_memory().unwrap();
+        let scope = MemoryScope::project("browser-project");
+        let provenance = MemoryProvenance {
+            agent: "codex".into(),
+            session_id: "original-session".into(),
+            model_id: None,
+            config_hash: "source-config".into(),
+        };
+        store
+            .add_memory(&scope, "Retain this raw note", &provenance)
+            .unwrap();
+        let space = find_space(&mut store.connection, &scope).unwrap().unwrap();
+        diesel::update(memory_spaces::table.find(&space.id))
+            .set(memory_spaces::revision.eq(memory_spaces::revision + 1))
+            .execute(&mut store.connection)
+            .unwrap();
+        let before = memory_frontier_snapshots::table
+            .filter(memory_frontier_snapshots::space_id.eq(&space.id))
+            .select(memory_frontier_snapshots::revision)
+            .first::<i64>(&mut store.connection)
+            .unwrap();
+        assert!(store
+            .inspect_memory_context(
+                &MemoryReadScope::project("browser-project"),
+                MemoryContextLimits::default()
+            )
+            .is_err());
+        let after = memory_frontier_snapshots::table
+            .filter(memory_frontier_snapshots::space_id.eq(&space.id))
+            .select(memory_frontier_snapshots::revision)
+            .first::<i64>(&mut store.connection)
+            .unwrap();
+        assert_eq!(before, after, "browser inspection repaired stored state");
+        assert_eq!(
+            memory_activations::table
+                .count()
+                .get_result::<i64>(&mut store.connection)
+                .unwrap(),
+            0
+        );
+        let repaired = store
+            .memory_context(
+                &MemoryReadScope::project("browser-project"),
+                MemoryContextLimits::default(),
+            )
+            .unwrap();
+        let inspected = store
+            .inspect_memory_context(
+                &MemoryReadScope::project("browser-project"),
+                MemoryContextLimits::default(),
+            )
+            .unwrap();
+        assert_eq!(inspected.nodes.len(), repaired.nodes.len());
+    }
 }

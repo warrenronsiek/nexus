@@ -1,0 +1,71 @@
+{
+  "ok": true,
+  "response": "dashboard",
+  "work_session_id": null,
+  "selected_session": null,
+  "sessions": [
+    {
+      "subject": {
+        "scope": "session",
+        "id": "work-id"
+      },
+      "title": "Improve the router",
+      "kind": "host.session",
+      "work_session_ids": [
+        "work-id"
+      ],
+      "parent_activity_id": null,
+      "has_children": true,
+      "state": "finished",
+      "outcome": "succeeded",
+      "started_at": "2026-11-01T00:00:00Z",
+      "finished_at": "2026-11-01T00:01:00Z",
+      "elapsed": {
+        "nanoseconds": "60000000000",
+        "method": "monotonic",
+        "clock_id": "fixture"
+      },
+      "conflicts": [],
+      "gaps": [],
+      "context": {
+        "host_session_id": "host-id",
+        "repository": "fixture",
+        "environment": "dev",
+        "external": [],
+        "labels": {}
+      }
+    }
+  ],
+  "activities": [],
+  "session_duration": {
+    "count": 1,
+    "known_count": 1,
+    "total_seconds": 60,
+    "average_seconds": 60
+  },
+  "activity_kinds": [
+    {
+      "kind": "test.unit",
+      "count": 1,
+      "known_count": 1,
+      "total_seconds": 30,
+      "average_seconds": 30
+    }
+  ],
+  "daily": [
+    {
+      "date": "2026-11-01",
+      "session_count": 1,
+      "known_count": 1,
+      "total_seconds": 60,
+      "average_seconds": 60
+    }
+  ],
+  "activity_daily": [],
+  "scanned_subjects": 2,
+  "source_limit": 4096,
+  "truncated": false,
+  "notices": [],
+  "intervals": [],
+  "accounting": null
+}

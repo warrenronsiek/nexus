@@ -37,9 +37,17 @@ paths. Client-side Git/script/skill enrichment is performed by the companion
 beside the checkout.
 
 The service uses PostgreSQL and exposes authenticated `/api/v1/request` and
-Streamable HTTP MCP `/mcp`. It is infrastructure, not a web application.
+Streamable HTTP MCP `/mcp`, alongside an authenticated read-only Elm/D3 web
+application at `/`. Browser credentials and session cookies are independent of
+agent bearer secrets. Configure the viewer with `nexus setup --web-user USER
+--web-password-file PATH`, then provision its private verifier into the service
+volume with `scripts/start-docker-service.sh --web-credentials FILE` from a
+Nexus checkout. `nexus web` serves the same UI against configured local or remote
+transport without a checkout. Browser operations cannot write feature data.
 The built-in listener is plain HTTP; same-host deployment binds loopback, while
-cross-host traffic needs a protected private network or trusted TLS proxy.
+cross-host agent traffic needs a protected private network or trusted TLS proxy.
+For browser access outside loopback, terminate TLS and set `NEXUS_WEB_ORIGIN`
+to the exact public HTTPS origin; do not treat a forwarded header as proof of TLS.
 Provider subprocesses are disabled in the shared server by default. Do not
 enable local providers merely to make deterministic ingestion work: that flag
 requires an externally isolated provider command because same-user child

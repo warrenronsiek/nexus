@@ -24,8 +24,9 @@ nexus doctor
 
 `setup` installs bundled skills into both Codex and Claude skill directories,
 registers the `nexus` MCP companion and merges lifecycle hooks for installed
-Codex/Claude hosts, and installs the Pi extension when Pi is present. It requires
-at least one of Codex or Claude. Rerunning refreshes bundled resources and
+Codex/Claude hosts, and installs headless Pi capture when Pi is present. Ordinary agent setup requires
+at least one of Codex or Claude; viewer credential setup and `--refresh` also
+support headless machines. Rerunning refreshes bundled resources and
 preserves unrelated host settings and adjacent user files. Use `CODEX_HOME` or
 `CLAUDE_CONFIG_DIR` when those hosts use nondefault configuration directories.
 
@@ -40,6 +41,34 @@ non-secret values, sources, and stable hash. `doctor` checks selected transport
 and storage prerequisites: local success verifies the database, not every host
 hook; remote success verifies service readiness. Use `status` and a representative
 host event to verify the entire connection.
+
+## Configure the read-only browser
+
+```sh
+nexus setup --web-user viewer --web-password-file /absolute/private/password-file
+nexus web
+```
+
+The password file must be owned, regular, not a symlink, and no broader than
+`0600`. Use `--web-password-file -` to read stdin; never put the password in argv,
+environment, TOML, or a tracked script. Passwords are 12–1024 UTF-8 bytes and
+usernames contain 1–64 ASCII letters, digits, dots, underscores, or hyphens.
+Setup reports a credential-file path containing only a salted Argon2id verifier.
+Open the printed loopback URL (default port 7338), then sign in. The normal
+local/remote transport selects the data authority. All browser features,
+including Memory, are read-only. Use the existing CLI/MCP for authored changes.
+
+For a source-managed Compose stack, pass that path to
+`scripts/start-docker-service.sh --web-credentials /absolute/path/to/web-credentials.json`.
+The helper installs it privately in the persistent volume before startup. The
+browser shares service port 7337. No viewer credential is configured by default;
+agent bearer secrets are separate. Set the exact HTTPS `NEXUS_WEB_ORIGIN` behind
+a reverse proxy, or `nexus web --public-origin` for a local viewer. Plain HTTP
+access is loopback-only. Project filters are not access-control boundaries.
+A native remote-configured launcher starts with its configured project and
+requires project selection for coordination and usage reads. Open the Compose
+service directly when global project inspection is needed.
+See [observability](../nexus-observability/SKILL.md) for navigation and charts.
 
 ## Keep an installation current
 
@@ -123,7 +152,7 @@ Use the feature skill matching the next integration:
 [usage analytics](../nexus-usage-analytics/SKILL.md) for host inventory and semantic
 usage, [work history](../nexus-work-history/SKILL.md) for task boundaries and
 scripts, [eval history](../nexus-eval-history/SKILL.md) for caller-run results and
-artifacts, and [observability](../nexus-observability/SKILL.md) for terminal views.
+artifacts, and [observability](../nexus-observability/SKILL.md) for authenticated browser views.
 Use [Nexus development](../nexus-development/SKILL.md) when modifying Nexus itself.
 Verify one real workflow,
 its scope and attribution, plus behavior when Nexus is unavailable; missing
