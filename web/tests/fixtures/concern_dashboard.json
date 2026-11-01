@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "response": "dashboard",
+  "project_id": "fixture-project",
+  "query": {},
+  "counts": {
+    "raw_observations": 0,
+    "known_source_occurrences": 0,
+    "work_sessions": 0,
+    "host_sessions": 0,
+    "unknown_source_observations": 0,
+    "unknown_work_observations": 0,
+    "unknown_host_observations": 0,
+    "unknown_source_time_observations": 0,
+    "concerns": 0,
+    "returns_after_resolution": 0
+  },
+  "areas": [
+    {
+      "area": {
+        "id": "router-area",
+        "repository": "fixture",
+        "kind": "subsystem",
+        "key": "router/cache",
+        "display_name": "Router cache",
+        "discriminator": null
+      },
+      "counts": {
+        "raw_observations": 0,
+        "known_source_occurrences": 0,
+        "work_sessions": 2,
+        "host_sessions": 0,
+        "unknown_source_observations": 0,
+        "unknown_work_observations": 0,
+        "unknown_host_observations": 0,
+        "unknown_source_time_observations": 0,
+        "concerns": 0,
+        "returns_after_resolution": 0
+      },
+      "open_concern_count": 1,
+      "last_observed_at": "2026-11-01T00:00:00Z"
+    }
+  ],
+  "daily": [],
+  "next_cursor": null,
+  "partial": false,
+  "notices": []
+}

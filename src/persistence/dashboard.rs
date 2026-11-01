@@ -3,7 +3,7 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/persistence.md
 // @boundary persisted-event-json
-use super::models::{conflict_from_row, parse_time, ConflictRow, SessionRow};
+use super::models::{conflict_from_row, ConflictRow, SessionRow};
 use super::schema::{claims, conflicts, events, sessions};
 use super::Store;
 use crate::coordination::domain::{
@@ -11,8 +11,12 @@ use crate::coordination::domain::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use diesel::dsl::{count_star, max};
+use diesel::dsl::count_star;
 use diesel::prelude::*;
+
+#[cfg(all(test, feature = "sqlite"))]
+mod project_tests;
+mod projects;
 
 #[cfg(all(test, feature = "postgres"))]
 mod tests;
@@ -23,19 +27,7 @@ impl Store {
     }
 
     pub(crate) fn list_projects_window(&mut self) -> Result<RecordWindow<ProjectSummary>> {
-        let project_rows = sessions::table
-            .group_by(sessions::project_id)
-            .select((sessions::project_id, max(sessions::last_seen_at)))
-            .order((
-                max(sessions::last_seen_at).desc(),
-                sessions::project_id.asc(),
-            ))
-            .limit(query_window_limit(
-                crate::coordination::api::MAX_PROJECT_RESULTS,
-            ))
-            .load::<(String, Option<String>)>(&mut self.connection)?;
-        let project_window =
-            RecordWindow::bounded(project_rows, crate::coordination::api::MAX_PROJECT_RESULTS);
+        let project_window = projects::recent_projects(&mut self.connection)?;
         let mut truncated = project_window.truncated;
         let mut projects = Vec::with_capacity(project_window.items.len());
         for (project_id, last_seen_at) in project_window.items {
@@ -66,7 +58,7 @@ impl Store {
                 project_id,
                 worktrees,
                 agents,
-                last_seen_at: parse_time(last_seen_at.as_deref().unwrap_or_default())?,
+                last_seen_at,
             });
         }
         Ok(RecordWindow {

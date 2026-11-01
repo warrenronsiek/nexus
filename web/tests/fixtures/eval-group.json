@@ -1,0 +1,69 @@
+{
+  "ok": true,
+  "action": "dashboard",
+  "groups": [
+    {
+      "id": "router-eval",
+      "label": "Router / claude + codex",
+      "suite_identity": "routing-cases",
+      "target_identity": "router",
+      "suite_revision_ids": [
+        "suite-v1"
+      ],
+      "target_revision_ids": [
+        "target-v1"
+      ],
+      "components": [
+        "router",
+        "agent"
+      ],
+      "repository": [
+        "fixture"
+      ],
+      "models": [
+        "claude",
+        "codex"
+      ],
+      "latest_at": "2026-11-01T00:00:00Z",
+      "run_count": 1,
+      "result_count": 1,
+      "statuses": {
+        "completed": 1
+      }
+    }
+  ],
+  "selected_group_id": "router-eval",
+  "series": [
+    {
+      "id": "metric-v1",
+      "label": "Latency",
+      "unit": "seconds",
+      "definition_id": "metric-definition",
+      "description": "Wall duration",
+      "calculation": "finish minus start",
+      "subject_scope": "run",
+      "superseded_count": 0,
+      "points": [
+        {
+          "record_id": "result-id",
+          "run_id": "run-id",
+          "suite_revision_id": "suite-v1",
+          "target_revision_id": "target-v1",
+          "occurred_at": "2026-11-01T00:00:00Z",
+          "value": {
+            "storage": "inline",
+            "text": "9007199254740993.0000000001"
+          },
+          "numeric_value": 7,
+          "replaces": null
+        }
+      ]
+    }
+  ],
+  "run_count": 1,
+  "result_count": 1,
+  "scanned_records": 10,
+  "source_limit": 4096,
+  "truncated": false,
+  "notices": []
+}

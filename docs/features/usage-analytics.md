@@ -6,7 +6,7 @@ feature: usage-analytics
 
 ## What this feature does
 
-Usage analytics records the tools, skills, and repository scripts that Nexus observes agent hosts using. It presents a rolling seven-day summary in the Pi `/nexus` and native `nexus tui` interfaces so a person can assess whether installed tools and skills are changing agent behavior.
+Usage analytics records the tools, skills, and repository scripts that Nexus observes agent hosts using. It presents a rolling seven-day summary in the authenticated read-only web interface so a person can assess whether installed tools and skills are changing agent behavior.
 
 The metrics are explicitly observational. Nexus captures client-side lifecycle events exposed by Codex, Claude, and Pi whether the companion uses a local daemon or shared service, but does not claim visibility into hosted tools or processes launched beneath an opaque command.
 
@@ -26,7 +26,7 @@ flowchart LR
     D --> E[Idempotent capability projection]
     E --> F[Rolling seven-day query]
     F --> G[Read-only usage API]
-    G --> H[Terminal Tools and Skills tabs]
+    G --> H[Web Tools and Skills views]
 ```
 
 ## Required behavior
@@ -39,7 +39,7 @@ flowchart LR
 - Queries use a server-defined rolling seven-day window, support global and project scope, return deterministic count ordering, and expose whether the bounded result was truncated.
 - Local mode scopes facts by derived Git identity; remote clients configured with the same explicit project ID contribute to one shared project summary across clones.
 - Lifecycle capture is advisory and fail open. Charts are labeled as observed by Nexus, and capture health exposes received, recorded, and dropped observations without claiming visibility into events that never reached Nexus.
-- The Pi extension captures events whenever loaded, independently of whether `/nexus` is open. Capture uses a bounded asynchronous queue and cannot change a tool result.
+- The headless Pi extension captures events whenever loaded, independently of browser use. Capture uses a bounded asynchronous queue and cannot change a tool result.
 - `nexus exec -- PROGRAM [ARG ...]` is an exact fallback for scripts that automatic shell-command inference cannot identify. It preserves child stdio and exit behavior.
 
 ## Implementation details
@@ -48,7 +48,7 @@ Persistence owns the normalized capability projection and typed Diesel aggregate
 
 The usage read first selects the 64 highest-count `(kind, name)` dimensions in deterministic order. It then loads only bounded aggregate detail and at most 4,096 distinct session-identity rows for those dimensions. If dimension or session-identity capacity is exceeded, the response is marked `truncated` instead of allocating an unbounded history.
 
-Runtime exposes lifecycle ingestion and typed usage reads through MCP. Direct Streamable HTTP clients do not receive filesystem-derived evidence automatically because the remote service never opens `X-Nexus-Project-Root`; they must use or reproduce the companion-side observation contract if they need it. The Pi extension modules own automatic host-event forwarding, independent analytics polling, shared tab state, and terminal bar rendering for Pi and the bundled native host.
+Runtime exposes lifecycle ingestion and typed usage reads through MCP. Direct Streamable HTTP clients do not receive filesystem-derived evidence automatically because the remote service never opens `X-Nexus-Project-Root`; they must use or reproduce the companion-side observation contract if they need it. The headless Pi extension owns automatic host-event forwarding and availability inventory. The Elm web application owns inspection state and polling; D3 renders charts from the same typed analytics projections.
 
 Existing dashboard event windows are not an analytics source. Usage aggregation runs separately and less frequently so the high-frequency coordination dashboard does not increase lifecycle-store contention.
 
@@ -73,7 +73,7 @@ flowchart LR
     A --> Q
     E --> Q
     Q --> O[Recurring alternative implementations]
-    Q --> T[Terminal summary, lists, and paged details]
+    Q --> T[Web charts, lists, and paged details]
     O --> T
 ```
 
@@ -91,6 +91,6 @@ The server reserves at most one attempt per project/pattern/policy/day and enfor
 
 `nexus_analytics` exposes summary, catalog, opportunities, examples, categories, inventory, classification reservation/reporting, rename, and merge actions. Reads respect authenticated project binding. The catalog pages 32 resources by default (maximum 64), including zero-use entries; implementations page 32 records. Summaries expose their top-64 truncation. Opportunity matching uses up to 4,096 session/category memberships and offered-resource memberships and marks truncation. Suggestions compare categories only in matching observed sessions; a category match is a lead, not a guarantee of suitability. A CLI is identified as a standard CLI, not mislabeled as an agent-written program.
 
-Migration V11 adds separate call, operation, resource, exposure, category, and revision projections on SQLite and PostgreSQL. Portable stream version 3 includes all six tables and still accepts complete version-2 streams. Both terminal hosts share the same browser and polling lifecycle, abort scope changes and superseded requests, preserve successful data on errors, sanitize terminal text, and disclose provenance/model metadata on demand.
+Migration V11 adds separate call, operation, resource, exposure, category, and revision projections on SQLite and PostgreSQL. Portable stream version 3 includes all six tables and still accepts complete version-2 streams. The web application rejects superseded scope responses, preserves successful data on read errors with a stale notice, renders retained text safely, and discloses provenance/model metadata on demand.
 
 The initial built-in category catalog is seeded in one database transaction. Concurrent readers cannot observe a partially seeded taxonomy, and the first lifecycle hook pays for one catalog commit rather than one durable commit per category.

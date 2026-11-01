@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "response": "page",
+  "project_id": "fixture-project",
+  "query": {
+    "area_id": "router-area"
+  },
+  "items": [
+    {
+      "id": "router-concern",
+      "canonical_id": "router-concern",
+      "title": "Router cache race",
+      "description": "Source evidence",
+      "status": "open",
+      "counts": {
+        "raw_observations": 0,
+        "known_source_occurrences": 0,
+        "work_sessions": 0,
+        "host_sessions": 0,
+        "unknown_source_observations": 0,
+        "unknown_work_observations": 0,
+        "unknown_host_observations": 0,
+        "unknown_source_time_observations": 0,
+        "concerns": 0,
+        "returns_after_resolution": 0
+      },
+      "last_observed_at": "2026-11-01T00:00:00Z",
+      "created_at": "2026-11-01T00:00:00Z",
+      "resolved_at": null,
+      "hypothesis": null,
+      "impact": null,
+      "lifecycle_qualification": null,
+      "areas": []
+    }
+  ],
+  "next_cursor": "32",
+  "total": 2,
+  "partial": false
+}

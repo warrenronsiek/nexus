@@ -5,12 +5,14 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/evals.md
 // @feature runtime
+// @feature observability-ui
 // @feature commit-review
 // @feature usage-analytics
 // @feature agent-memory
 // @feature papercuts
 // @feature sos
 // @spec docs/features/runtime.md
+// @spec docs/features/observability-ui.md
 // @spec docs/features/commit-review.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/agent-memory.md
@@ -30,6 +32,8 @@ mod history_transfer;
 mod sos_cli;
 #[path = "main/update.rs"]
 mod update_cli;
+#[path = "main/web.rs"]
+mod web_cli;
 #[path = "main/work.rs"]
 mod work_cli;
 
@@ -46,7 +50,7 @@ use nexus::coordination::api::{
 use nexus::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use nexus::installation;
 use nexus::papercuts::PapercutReviewDecision;
-use nexus::runtime::{client::NexusClient, daemon, hooks, mcp, terminal};
+use nexus::runtime::{client::NexusClient, daemon, hooks, mcp};
 use nexus::{Config, LoadedConfig};
 use sos_cli::SosCliCommand;
 use std::path::{Path, PathBuf};
@@ -69,6 +73,8 @@ struct Cli {
 enum Command {
     /// Configure installed agent hosts and bundled review skills on this machine.
     Setup(update_cli::SetupArgs),
+    /// Serve the authenticated read-only web UI for the configured Nexus service.
+    Web(web_cli::WebArgs),
     /// Install the verified main release and restart a provably managed service.
     Update(update_cli::UpdateArgs),
     #[command(hide = true)]
@@ -96,8 +102,6 @@ enum Command {
         #[arg(long)]
         agent: String,
     },
-    /// Open the bundled interactive terminal dashboard.
-    Tui,
     /// Execute a script while recording one privacy-limited usage observation.
     Exec(work_cli::ExecArgs),
     /// Show service status and projection counts.
@@ -332,6 +336,7 @@ async fn run_configured(invocation: CliInvocation) -> Result<()> {
     } = invocation;
     match command {
         Command::Setup(args) => args.run(&loaded, explicit_config.as_deref()),
+        Command::Web(args) => web_cli::run(args, loaded, explicit_config.as_deref()).await,
         Command::Update(args) => update_cli::run(args, &loaded, explicit_config.as_deref()).await,
         Command::Install { share_project_with } => {
             let report = installation::install_repository(
@@ -348,7 +353,6 @@ async fn run_configured(invocation: CliInvocation) -> Result<()> {
             hooks::session_end(&loaded, explicit_config.as_deref(), &agent).await;
             Ok(())
         }
-        Command::Tui => terminal::open(explicit_config.as_deref(), &root).await,
         Command::Exec(args) => {
             let code = args.run(&loaded, explicit_config.as_deref(), &root).await?;
             std::process::exit(code);

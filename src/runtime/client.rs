@@ -127,6 +127,39 @@ impl NexusClient {
         self.send_request(request, LocalServicePolicy::RequireRunning)
             .await
     }
+    /// Browser reads carry an explicit selected project without usage observation.
+    pub(crate) async fn inspect_in_project(
+        &self,
+        request: &ServiceRequest,
+        project_id: Option<&str>,
+    ) -> Result<Value> {
+        let project_id = project_id
+            .map(crate::config::canonical_project_id)
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("invalid inspection project_id"))?;
+        match &self.loaded.config.client {
+            ClientConfig::Local => {
+                daemon::request_in_project(
+                    &self.loaded.config.runtime.socket_path,
+                    request,
+                    project_id,
+                )
+                .await
+            }
+            ClientConfig::Remote(remote) => {
+                let project_id = project_id.unwrap_or(remote.project_id.trim());
+                let wire = WireRequest::from_service(request, Some(project_id))?;
+                self.send_remote(
+                    remote,
+                    &wire,
+                    REMOTE_REQUEST_TIMEOUT,
+                    RemoteResponsePolicy::Bounded,
+                )
+                .await
+            }
+        }
+    }
+
     pub async fn ensure_and_request(&self, request: &ServiceRequest) -> Result<Value> {
         self.send_request(request, LocalServicePolicy::EnsureRunning)
             .await

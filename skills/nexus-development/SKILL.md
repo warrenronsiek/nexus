@@ -7,7 +7,7 @@ description: Develop Nexus through feature discovery, typed persistence, structu
 
 Nexus connects durable observations to the work that produced them. Its source
 tooling keeps those features understandable as they cross domain, persistence,
-runtime, and terminal interfaces. Preserve the owning feature's invariants while
+runtime, and browser interfaces. Preserve the owning feature's invariants while
 changing that flow; a new transport or screen should not invent different domain
 rules. Lifecycle capture remains advisory and fails open.
 
@@ -52,8 +52,9 @@ the reference explains how to connect it to a caller-owned hook.
 Trace an observable operation from its host adapter through typed domain/service
 logic to storage and back to retrieval. Preserve project scoping, identity,
 replay, privacy, pagination, timing, and history semantics where the owning
-feature defines them. Review the native/Pi terminal surface when new durable data
-needs to be visible. Do not require callers to access Diesel tables or reconstruct
+feature defines them. Review the authenticated read-only web surface when new durable data
+needs to be visible. Keep application state and metadata in Elm, D3 limited to
+visualizations, and browser read actions separate from the agent write APIs. Do not require callers to access Diesel tables or reconstruct
 private rows themselves.
 
 For integration contracts, consult the relevant installed domain skill before

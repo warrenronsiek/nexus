@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "health": {
+    "scopes": [],
+    "providers": [],
+    "pending_summaries": 0,
+    "failed_attempts": 0,
+    "cooling_down_attempts": 0,
+    "fallback_uses": 0,
+    "degraded": false,
+    "last_activation_at": null
+  }
+}

@@ -27,7 +27,7 @@ use std::process::{Command, Stdio};
 
 #[path = "installation_assets.rs"]
 mod assets;
-use assets::{PI_EXTENSION_FILES, SKILL_FILES, SKILL_NAMES};
+use assets::{PI_EXTENSION_FILES, RETIRED_PI_UI_FILES, SKILL_FILES, SKILL_NAMES};
 
 const PROJECT_CONFIG: &str = "schema_version = 1\n";
 
@@ -147,7 +147,19 @@ fn install_pi_extension(
 ) -> Result<()> {
     install_embedded_files(root, &PI_EXTENSION_FILES)?;
     let launch_context = pi_launch_context(executable, explicit_config)?;
-    install_embedded_files(root, &[("launch-context.ts", launch_context.as_str())])
+    install_embedded_files(root, &[("launch-context.ts", launch_context.as_str())])?;
+    for module in RETIRED_PI_UI_FILES {
+        let path = root.join(module);
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("remove retired Nexus module {}", path.display()))
+            }
+        }
+    }
+    Ok(())
 }
 
 fn pi_launch_context(executable: &Path, explicit_config: Option<&Path>) -> Result<String> {

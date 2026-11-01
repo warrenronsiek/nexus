@@ -1,5 +1,3 @@
-// @feature observability-ui
-// @spec docs/features/observability-ui.md
 // @feature runtime
 // @feature usage-analytics
 // @feature agent-memory
@@ -134,11 +132,6 @@ export class NexusMcpClient {
     signal?: AbortSignal,
   ): Promise<unknown> {
     return this.request(toolName, argumentsValue, cwd, 5_000, signal);
-  }
-
-  /** A caller-owned inspection waits through the companion's bounded service read. */
-  inspect(toolName: string, argumentsValue: Record<string, unknown>, cwd: string, signal?: AbortSignal): Promise<unknown> {
-    return this.request(toolName, argumentsValue, cwd, 20_000, signal);
   }
 
   private request(toolName: string, argumentsValue: Record<string, unknown>, cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {

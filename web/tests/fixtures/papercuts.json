@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "action": "listed",
+  "papercuts": [
+    {
+      "id": "friction-id",
+      "project_id": "fixture-project",
+      "title": "Slow local fixture",
+      "description": "A recorded development problem",
+      "status": "open",
+      "upvote_count": 2,
+      "last_upvoted_at": "2026-11-01T00:00:00Z",
+      "created_at": "2026-11-01T00:00:00Z",
+      "updated_at": "2026-11-01T00:00:00Z",
+      "resolution": null,
+      "consolidated_into": null
+    }
+  ],
+  "truncated": false
+}

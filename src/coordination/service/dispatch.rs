@@ -84,6 +84,7 @@ impl NexusService {
             | ServiceRequest::Usage(_)
             | ServiceRequest::MemoryStatus(_)
             | ServiceRequest::MemoryContext(_)
+            | ServiceRequest::MemoryInspect(_)
             | ServiceRequest::MemorySearch(_)
             | ServiceRequest::MemoryExpand(_)
             | ServiceRequest::Config) => self.handle_read(request, project),
@@ -137,6 +138,7 @@ impl NexusService {
             ServiceRequest::Usage(query) => self.usage(query, project),
             ServiceRequest::MemoryStatus(query) => self.memory_status(query, project),
             ServiceRequest::MemoryContext(query) => self.memory_context(query, project),
+            ServiceRequest::MemoryInspect(query) => self.inspect_memory(query),
             ServiceRequest::MemorySearch(query) => self.memory_search(query, project),
             ServiceRequest::MemoryExpand(query) => self.memory_expand(query),
             ServiceRequest::Config => ServiceResponse::Config(Box::new(ConfigResponse {

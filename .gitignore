@@ -1,5 +1,7 @@
 /target/
 /pi-extension/node_modules/
+/web/node_modules/
+/web/elm-stuff/
 __pycache__/
 *.pyc
 *.db

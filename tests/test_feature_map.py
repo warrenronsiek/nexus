@@ -25,6 +25,31 @@ def load_feature_map() -> ModuleType:
 
 
 class FeatureMapTests(unittest.TestCase):
+    def test_explores_elm_application_and_browser_sources_without_generated_elm(self) -> None:
+        feature_map = load_feature_map()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            elm = root / "web" / "src" / "Main.elm"
+            elm.parent.mkdir(parents=True)
+            elm.write_text(
+                "-- @feature observability-ui\n-- @spec docs/features/observability-ui.md\n"
+                "-- @entrypoint Main.main\nport module Main exposing (main)\n"
+                "type alias Session = { name : String }\ntype Msg = Refresh\n"
+                "port chart : String -> Cmd msg\nmain : Program () Session Msg\n"
+                "main = application\n",
+                encoding="utf-8",
+            )
+            (elm.parent / "app.css").write_text("/* @feature observability-ui */\n", encoding="utf-8")
+            (root / "web" / "index.html").write_text("<!-- @feature observability-ui -->\n", encoding="utf-8")
+            generated = root / "web" / "elm-stuff" / "Generated.elm"
+            generated.parent.mkdir()
+            generated.write_text("generated : String\ngenerated = \"skip\"\n", encoding="utf-8")
+            sources = feature_map.read_sources(root)
+            self.assertEqual([str(source.path) for source in sources], ["web/index.html", "web/src/Main.elm", "web/src/app.css"])
+            source = next(source for source in sources if source.path.suffix == ".elm")
+            self.assertEqual([(symbol.kind, symbol.name) for symbol in source.symbols], [("alias", "Session"), ("type", "Msg"), ("port", "chart"), ("value", "main")])
+            self.assertEqual(source.features, ("observability-ui",))
+
     def test_discovers_typescript_symbols_but_skips_generated_output(self) -> None:
         feature_map = load_feature_map()
         with tempfile.TemporaryDirectory() as directory:

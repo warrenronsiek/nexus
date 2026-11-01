@@ -39,6 +39,12 @@ struct Args {
     /// Read or atomically create a mode-0600 bearer secret at this path.
     #[arg(long)]
     secret_file: Option<PathBuf>,
+    /// Browser verifier file, separate from the agent bearer secret.
+    #[arg(long)]
+    web_credentials_file: Option<PathBuf>,
+    /// Explicit HTTPS browser origin when served behind a reverse proxy.
+    #[arg(long)]
+    web_origin: Option<String>,
     /// Accept this Origin header on authenticated HTTP requests.
     #[arg(long = "allow-origin")]
     allowed_origins: Vec<String>,

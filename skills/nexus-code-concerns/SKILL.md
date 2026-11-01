@@ -41,7 +41,7 @@ filters include repository, area, lifecycle status, search, occurrence bounds,
 and sorts `recent`, `work_sessions`, or `returns`. Counts describe the selected
 population, not only loaded rows.
 
-The native `nexus tui` and Pi `/nexus` Code concerns tab starts with ranked area
+The authenticated web interface's Code concerns view starts with ranked area
 bars and recurrence trends. Select an area for its distinct concerns, then a
 concern for the encounter/remedy/return timeline and evidence metadata. These
 views are read-only. Overlapping areas are not additive defect totals, and

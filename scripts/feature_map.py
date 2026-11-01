@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 SUPPORTED_SUFFIXES = {
+    ".css",
+    ".elm",
     ".go",
+    ".html",
     ".java",
     ".js",
     ".jsx",
@@ -40,6 +43,7 @@ SKIPPED_DIRECTORIES = {
     "__pycache__",
     "dist",
     "docs",
+    "elm-stuff",
     "node_modules",
     "target",
     "vendor",
@@ -160,13 +164,29 @@ def discover_typescript_symbols(text: str) -> list[Symbol]:
     ]
 
 
+def discover_elm_symbols(text: str) -> list[Symbol]:
+    """List top-level declarations, treating value annotations as definitions."""
+    definitions = re.compile(
+        r"^(?:(type alias|type|port)\s+(?!module\b)([A-Za-z][A-Za-z0-9_]*)"
+        r"|([a-z][A-Za-z0-9_]*)\s*:)"
+    )
+    symbols: list[Symbol] = []
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if match := definitions.match(line):
+            kind = "alias" if match.group(1) == "type alias" else match.group(1)
+            symbols.append(Symbol(kind or "value", match.group(2) or match.group(3), line_number))
+    return symbols
+
+
 def discover_symbols(path: Path, text: str) -> tuple[Symbol, ...]:
-    if path.suffix == ".rs":
-        return tuple(discover_rust_symbols(text))
-    if path.suffix == ".py":
-        return tuple(discover_python_symbols(text))
-    if path.suffix in {".js", ".jsx", ".mjs", ".ts", ".tsx"}:
-        return tuple(discover_typescript_symbols(text))
+    discoverers = {
+        ".rs": discover_rust_symbols,
+        ".py": discover_python_symbols,
+        ".elm": discover_elm_symbols,
+        **dict.fromkeys((".js", ".jsx", ".mjs", ".ts", ".tsx"), discover_typescript_symbols),
+    }
+    if discover := discoverers.get(path.suffix):
+        return tuple(discover(text))
     if path.suffix == ".sql":
         pattern = re.compile(
             r"^\s*CREATE\s+(TABLE|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(]+)",

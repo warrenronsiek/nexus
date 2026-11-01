@@ -140,162 +140,16 @@ pub(super) const SKILL_FILES: [(&str, &str); 28] = [
         include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
-pub(super) const PI_EXTENSION_FILES: [(&str, &str); 57] = [
-    ("index.ts", include_str!("../pi-extension/src/index.ts")),
-    (
-        "dashboard-options.ts",
-        include_str!("../pi-extension/src/dashboard-options.ts"),
-    ),
-    (
-        "concerns.ts",
-        include_str!("../pi-extension/src/concerns.ts"),
-    ),
-    (
-        "concerns-pane.ts",
-        include_str!("../pi-extension/src/concerns-pane.ts"),
-    ),
-    (
-        "concerns-state.ts",
-        include_str!("../pi-extension/src/concerns-state.ts"),
-    ),
-    (
-        "concerns-requests.ts",
-        include_str!("../pi-extension/src/concerns-requests.ts"),
-    ),
-    (
-        "concerns-view.ts",
-        include_str!("../pi-extension/src/concerns-view.ts"),
-    ),
-    (
-        "concerns-evidence.ts",
-        include_str!("../pi-extension/src/concerns-evidence.ts"),
-    ),
-    ("charts.ts", include_str!("../pi-extension/src/charts.ts")),
-    (
-        "work-waterfall.ts",
-        include_str!("../pi-extension/src/work-waterfall.ts"),
-    ),
-    (
-        "work-activity-style.ts",
-        include_str!("../pi-extension/src/work-activity-style.ts"),
-    ),
-    (
-        "work-waterfall-metadata.ts",
-        include_str!("../pi-extension/src/work-waterfall-metadata.ts"),
-    ),
-    (
-        "work-interval.ts",
-        include_str!("../pi-extension/src/work-interval.ts"),
-    ),
-    (
-        "work-dashboard.ts",
-        include_str!("../pi-extension/src/work-dashboard.ts"),
-    ),
-    (
-        "work-dashboard-wire.ts",
-        include_str!("../pi-extension/src/work-dashboard-wire.ts"),
-    ),
-    (
-        "evals-dashboard.ts",
-        include_str!("../pi-extension/src/evals-dashboard.ts"),
-    ),
-    (
-        "evals-dashboard-view.ts",
-        include_str!("../pi-extension/src/evals-dashboard-view.ts"),
-    ),
-    (
-        "history-pane.ts",
-        include_str!("../pi-extension/src/history-pane.ts"),
-    ),
-    (
-        "text-filter.ts",
-        include_str!("../pi-extension/src/text-filter.ts"),
-    ),
-    (
-        "wire-values.ts",
-        include_str!("../pi-extension/src/wire-values.ts"),
-    ),
-    (
-        "work-navigation.ts",
-        include_str!("../pi-extension/src/work-navigation.ts"),
-    ),
-    (
-        "work-requests.ts",
-        include_str!("../pi-extension/src/work-requests.ts"),
-    ),
-    (
-        "analytics-data.ts",
-        include_str!("../pi-extension/src/analytics-data.ts"),
-    ),
-    (
-        "analytics-requests.ts",
-        include_str!("../pi-extension/src/analytics-requests.ts"),
-    ),
-    (
-        "analytics-view.ts",
-        include_str!("../pi-extension/src/analytics-view.ts"),
-    ),
-    (
-        "analytics.ts",
-        include_str!("../pi-extension/src/analytics.ts"),
-    ),
-    (
-        "inventory-capture.ts",
-        include_str!("../pi-extension/src/inventory-capture.ts"),
-    ),
-    (
-        "papercuts-pane.ts",
-        include_str!("../pi-extension/src/papercuts-pane.ts"),
-    ),
-    (
-        "papercuts.ts",
-        include_str!("../pi-extension/src/papercuts.ts"),
-    ),
-    (
-        "work-pane.ts",
-        include_str!("../pi-extension/src/work-pane.ts"),
-    ),
-    (
-        "work-state.ts",
-        include_str!("../pi-extension/src/work-state.ts"),
-    ),
-    (
-        "work-view.ts",
-        include_str!("../pi-extension/src/work-view.ts"),
-    ),
-    ("work.ts", include_str!("../pi-extension/src/work.ts")),
+pub(super) const PI_EXTENSION_FILES: [(&str, &str); 6] = [
     ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
-    ("client.ts", include_str!("../pi-extension/src/client.ts")),
-    (
-        "component.ts",
-        include_str!("../pi-extension/src/component.ts"),
-    ),
-    (
-        "connection.ts",
-        include_str!("../pi-extension/src/connection.ts"),
-    ),
-    ("display.ts", include_str!("../pi-extension/src/display.ts")),
-    ("domain.ts", include_str!("../pi-extension/src/domain.ts")),
-    ("evals.ts", include_str!("../pi-extension/src/evals.ts")),
-    (
-        "evals-pane.ts",
-        include_str!("../pi-extension/src/evals-pane.ts"),
-    ),
-    (
-        "evals-view.ts",
-        include_str!("../pi-extension/src/evals-view.ts"),
-    ),
-    (
-        "evals-state.ts",
-        include_str!("../pi-extension/src/evals-state.ts"),
-    ),
-    (
-        "evals-requests.ts",
-        include_str!("../pi-extension/src/evals-requests.ts"),
-    ),
     (
         "host-context.ts",
         include_str!("../pi-extension/src/host-context.ts"),
+    ),
+    ("index.ts", include_str!("../pi-extension/src/index.ts")),
+    (
+        "inventory-capture.ts",
+        include_str!("../pi-extension/src/inventory-capture.ts"),
     ),
     (
         "mcp-client.ts",
@@ -305,29 +159,59 @@ pub(super) const PI_EXTENSION_FILES: [(&str, &str); 57] = [
         "memory-context.ts",
         include_str!("../pi-extension/src/memory-context.ts"),
     ),
-    (
-        "memory-pane.ts",
-        include_str!("../pi-extension/src/memory-pane.ts"),
-    ),
-    (
-        "memory-prompts.ts",
-        include_str!("../pi-extension/src/memory-prompts.ts"),
-    ),
-    ("memory.ts", include_str!("../pi-extension/src/memory.ts")),
-    (
-        "navigation.ts",
-        include_str!("../pi-extension/src/navigation.ts"),
-    ),
-    ("polling.ts", include_str!("../pi-extension/src/polling.ts")),
-    (
-        "sos-pane.ts",
-        include_str!("../pi-extension/src/sos-pane.ts"),
-    ),
-    ("sos.ts", include_str!("../pi-extension/src/sos.ts")),
-    ("theme.ts", include_str!("../pi-extension/src/theme.ts")),
-    (
-        "usage-pane.ts",
-        include_str!("../pi-extension/src/usage-pane.ts"),
-    ),
-    ("usage.ts", include_str!("../pi-extension/src/usage.ts")),
+];
+
+// Remove only modules installed by the retired Nexus terminal interface.
+pub(super) const RETIRED_PI_UI_FILES: [&str; 51] = [
+    "dashboard-options.ts",
+    "concerns.ts",
+    "concerns-pane.ts",
+    "concerns-state.ts",
+    "concerns-requests.ts",
+    "concerns-view.ts",
+    "concerns-evidence.ts",
+    "charts.ts",
+    "work-waterfall.ts",
+    "work-activity-style.ts",
+    "work-waterfall-metadata.ts",
+    "work-interval.ts",
+    "work-dashboard.ts",
+    "work-dashboard-wire.ts",
+    "evals-dashboard.ts",
+    "evals-dashboard-view.ts",
+    "history-pane.ts",
+    "text-filter.ts",
+    "wire-values.ts",
+    "work-navigation.ts",
+    "work-requests.ts",
+    "analytics-data.ts",
+    "analytics-requests.ts",
+    "analytics-view.ts",
+    "analytics.ts",
+    "papercuts-pane.ts",
+    "papercuts.ts",
+    "work-pane.ts",
+    "work-state.ts",
+    "work-view.ts",
+    "work.ts",
+    "client.ts",
+    "component.ts",
+    "connection.ts",
+    "display.ts",
+    "domain.ts",
+    "evals.ts",
+    "evals-pane.ts",
+    "evals-view.ts",
+    "evals-state.ts",
+    "evals-requests.ts",
+    "memory-pane.ts",
+    "memory-prompts.ts",
+    "memory.ts",
+    "navigation.ts",
+    "polling.ts",
+    "sos-pane.ts",
+    "sos.ts",
+    "theme.ts",
+    "usage-pane.ts",
+    "usage.ts",
 ];

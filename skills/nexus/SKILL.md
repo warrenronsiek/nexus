@@ -34,7 +34,7 @@ source checkout is required only for source-development commands.
 | `sos` | Record unusual situations encountered by agents inside a running application, retaining evidence and triage. | [nexus-sos](../nexus-sos/SKILL.md) |
 | `code-concerns` | Learn which code problems recur across areas and sessions, what was tried, and why. | [nexus-code-concerns](../nexus-code-concerns/SKILL.md) |
 | `usage-analytics` | Understand available versus used tools, skills, scripts, and semantic activity categories. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
-| `observability-ui` | Inspect current coordination and historical records through the native or Pi terminal interface. | [nexus-observability](../nexus-observability/SKILL.md) |
+| `observability-ui` | Inspect current coordination and historical records through the authenticated read-only web interface. | [nexus-observability](../nexus-observability/SKILL.md) |
 | `work-history` | Preserve logical work, nested attempts, agents, timing, CI, and delivery evidence across sessions. | [nexus-work-history](../nexus-work-history/SKILL.md) |
 | `evals` | Retain eval versions, reasons for change, call context, flexible metrics, artifacts, and caller-run results. | [nexus-eval-history](../nexus-eval-history/SKILL.md) |
 | `architecture-tooling` | Find and maintain feature-shaped source ownership and specifications when changing Nexus. | [nexus-development](../nexus-development/SKILL.md) |
@@ -73,6 +73,6 @@ from workload outcomes. Nexus advisories and model reviews inform decisions;
 the caller retains execution policy, success criteria, retry policy, and
 deployment authority.
 
-Inspect the resulting records with the relevant CLI/MCP reads or terminal
+Inspect the resulting records with the relevant CLI/MCP reads or authenticated web
 views. Hand over project and record identifiers, integration locations,
 verified coverage, and known gaps so the next agent can continue from evidence.

@@ -340,9 +340,8 @@ fn supported_tool_method(name: &str) -> Option<&str> {
         .as_array()?
         .iter()
         .any(|definition| definition.get("name").and_then(Value::as_str) == Some(name));
-    // Native and Pi terminal surfaces use these administrative operations over their
-    // private companion process. They remain callable for that established interface but
-    // are deliberately omitted from agent discovery.
+    // Preserve explicit maintenance clients' administrative calls outside agent discovery.
+    // Browser inspection uses its separate closed read catalog and cannot call these tools.
     (advertised
         || matches!(
             method,

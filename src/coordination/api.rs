@@ -80,6 +80,7 @@ pub enum ServiceRequest {
     Usage(UsageQuery),
     MemoryStatus(MemoryStatusQuery),
     MemoryContext(MemoryContextQuery),
+    MemoryInspect(MemoryInspection),
     MemoryAdd(MemoryAddCommand),
     MemorySearch(MemorySearchQuery),
     MemoryExpand(MemorySummaryQuery),
@@ -243,6 +244,7 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
         }
         "memory_status" => decode(params).map(ServiceRequest::MemoryStatus),
         "memory_context" => decode(params).map(ServiceRequest::MemoryContext),
+        "memory_inspect" => decode(params).map(ServiceRequest::MemoryInspect),
         "memory_search" => {
             let query: MemorySearchQuery = decode(params)?;
             if query.regex.len() > MAX_MEMORY_SEARCH_REGEX_BYTES {
@@ -346,6 +348,7 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Conflicts(_)
         | ServiceRequest::MemoryStatus(_)
         | ServiceRequest::MemoryContext(_)
+        | ServiceRequest::MemoryInspect(_)
         | ServiceRequest::MemorySearch(_)
         | ServiceRequest::MemoryExpand(_) => RequestFamily::Read,
         ServiceRequest::Resolve(_)
@@ -387,6 +390,7 @@ fn read_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)> {
         ServiceRequest::Conflicts(query) => encode("conflicts", query),
         ServiceRequest::MemoryStatus(query) => encode("memory_status", query),
         ServiceRequest::MemoryContext(query) => encode("memory_context", query),
+        ServiceRequest::MemoryInspect(query) => encode("memory_inspect", query),
         ServiceRequest::MemorySearch(query) => encode("memory_search", query),
         ServiceRequest::MemoryExpand(query) => encode("memory_expand", query),
         _ => unreachable!("request family was selected before encoding"),
@@ -438,6 +442,7 @@ const READ_METHODS: &[&str] = &[
     "conflicts",
     "memory_status",
     "memory_context",
+    "memory_inspect",
     "memory_search",
     "memory_expand",
 ];

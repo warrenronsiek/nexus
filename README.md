@@ -71,7 +71,7 @@ nexus eval import history.jsonl
 
 The `nexus_evals` MCP tool exposes the same record, list, detail, and rationale workflow. Callers keep their existing runner and provider: Nexus records the evidence they submit without executing an eval. Pinned Git and Git LFS references retain existing repository content; verified content-addressed uploads retain generated or otherwise unavailable bytes. Per-call context can link the prompts, files, tool definitions, skills, model parameters, and outputs that produced a result, with explicit capture gaps where the caller cannot observe everything. Full-content eval evidence is deliberately submitted; normal privacy-safe usage analytics does not begin collecting raw content.
 
-Repository and model filters identify participation in a recorded target or observation. For a composed target they do not assign its overall score to an individual worker. The Evals TUI starts with evaluation sets and metric trends over time, grouped by suite/target identity, repository, and model composition. Each series shows its definition, unit, calculation, and latest exact value. `b` opens the secondary record browser for linked evidence and motivation history.
+Repository and model filters identify participation in a recorded target or observation. For a composed target they do not assign its overall score to an individual worker. The browser Evals view shows evaluation sets and D3 metric trends over time, grouped by suite/target identity, repository, and model composition. Each series retains its definition, unit, calculation, and exact values, with linked evidence and motivation history.
 
 Use `nexus eval upload FILE` for necessary new bytes and `nexus eval download DIGEST OUTPUT` to retrieve verified content. An interrupted upload can resume; `nexus eval abort-upload DIGEST` discards an unfinished upload with incorrect chunks before retrying. Verified blobs remain immutable. Reference exports include required stored bytes and preserve Git dependencies as pinned external references.
 
@@ -83,7 +83,7 @@ Nexus keeps a logical work session across prompts, agents, PRs, and delivery ste
 Each test, command, review, or subagent task is a separate activity with preserved
 parent/descendant relationships. Repeated attempts retain their outcomes; shared
 CI runs and releases can link to several sessions without duplicating execution.
-The Work TUI tab starts with session totals, averages, daily trends, and activity-kind charts. Select a session and Enter for a vertical waterfall: time runs down, child tasks branch right at their start, and parallel spans retain separate lanes. Arrows and Page Up/Down pan time, `+`/`-` zoom, Left/Right pan lanes, and `j`/`k` selects a task for Enter to open its evidence. Host session names follow recorded Codex/Claude names. Attributed execution/wait time, unobserved time, missing boundaries, and local capture losses remain visible. `d` opens source records; `g` opens the same waterfall for a session found there.
+The browser Work view starts with session totals, averages, daily trends, and activity-kind charts. Select a session for a vertically scrolling D3 waterfall: time runs down, child tasks branch right at their start, and parallel spans retain separate lanes. Select a color-coded task to inspect metadata below the chart; zoom and parent/child navigation preserve context. Host session names follow recorded Codex/Claude names. Attributed execution/wait time, unobserved time, missing boundaries, and capture losses remain visible.
 
 ```sh
 nexus work open "Improve router fallback" --id router-change
@@ -126,14 +126,14 @@ do not need a Nexus source checkout. See [the skill](skills/nexus-work-history/S
 skills for every feature, for both Codex and Claude. Start with the guide when
 choosing capabilities for an existing workflow. It routes to setup/transport,
 coordination and conflict analysis, memory, papercuts, SOS, usage analytics,
-terminal observability, work history, evals, and Nexus source development.
+browser observability, work history, evals, and Nexus source development.
 Each skill explains the feature's intent, its integration boundaries, and how
 to use it alongside existing scripts, agents, and tools. Related implementation
 features share a guide rather than requiring every agent to read every skill.
 
 ## Install
 
-For same-machine development, one command from a Nexus source checkout installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, the Pi terminal extension when Pi is present, and the migrated SQLite store. Source builds require Rust 1.88 or newer:
+For same-machine development, one command from a Nexus source checkout installs the locked Rust build, bundled agent skills, MCP registrations, lifecycle hooks, headless Pi capture when Pi is present, and the migrated SQLite store. Source builds require Rust 1.88 or newer:
 
 ```sh
 ./scripts/install.sh
@@ -226,7 +226,7 @@ project_id = "organization/repository"
 secret_file = "/absolute/path/to/nexus-client.secret"
 ```
 
-`NEXUS_ENDPOINT`, `NEXUS_PROJECT_ID`, and `NEXUS_CLIENT_SECRET_FILE` provide equivalent non-secret client overrides. `NEXUS_SECRET` supplies the client bearer value directly and takes precedence over `client.secret_file`; the secret itself is deliberately excluded from typed configuration, `nexus config show`, and the configuration hash. The configured `nexus` CLI, generated hooks, `nexus mcp`, `nexus tui`, and Pi extension keep their existing commands and tools while routing through the remote service instead of starting a local daemon.
+`NEXUS_ENDPOINT`, `NEXUS_PROJECT_ID`, and `NEXUS_CLIENT_SECRET_FILE` provide equivalent non-secret client overrides. `NEXUS_SECRET` supplies the client bearer value directly and takes precedence over `client.secret_file`; the secret itself is deliberately excluded from typed configuration, `nexus config show`, and the configuration hash. The configured `nexus` CLI, generated hooks, `nexus mcp`, `nexus web`, and Pi capture keep their existing commands and tools while routing through the remote service instead of starting a local daemon.
 
 The remote `project_id` is the stable cross-environment identity. Two unrelated filesystem paths or Git clones share coordination, memory, usage, and papercuts only when they use the same value. Omitted read scopes default to this envelope project; read commands such as `sessions`, `claims`, `conflicts`, and `events` accept `--project-id` for explicit cross-project inspection by holders of the service-wide secret. Choose a durable, collision-resistant name and treat changing it as moving to a different Nexus project. The server never treats a client worktree path as a server-readable filesystem path.
 
@@ -254,14 +254,38 @@ nexus status
 nexus sessions
 nexus claims
 nexus conflicts
-nexus tui
 ```
 
-Nexus bundles the Pi terminal renderer and opens the dashboard without installing or starting Pi. It uses an existing Node 22.19+ runtime when available; otherwise it downloads and verifies its own pinned runtime on the first launch, then caches it for offline use. The command starts the daemon in local mode or uses the configured remote endpoint, and honors the current repository and `--config` settings. Press `q` or Ctrl-C to return to your shell.
+Configure a viewer account and start the browser application:
 
-The first screen shows project scope and health counts. Tab and Shift-Tab move through Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals, and Work. Coordination, SOS, analytics, Evals, and Work remain read-only. In SOS, Enter drills from importance-ranked aggregates into retained reports and triage/lifecycle history. In Papercuts, `n` loads the next page of older open reports, Enter shows the full observation, and `r` refreshes or retries a failed read. In Memory, Enter expands a summary or inspects a raw note, `/` searches raw notes, `a` adds an explicitly scoped note, `f` confirms summary invalidation, `c` requests consolidation, and `r` refreshes. Raw notes cannot be edited or deleted.
+```sh
+nexus setup --web-user viewer --web-password-file /absolute/private/password-file
+nexus web
+```
 
-For people who already use Pi, `nexus setup` also installs the `/nexus` extension inside Pi. Both entry points use the same dashboard components.
+Open `http://127.0.0.1:7338` and sign in. Password files must be owned regular
+files with permissions no broader than `0600`; `--web-password-file -` reads
+stdin. Passwords are 12–1024 UTF-8 bytes. Setup stores a private salted Argon2id
+verifier and reports its path without printing secrets. Node, Elm, and Pi are
+not needed to open the installed viewer. The native viewer follows normal
+`--config` and repository scope and reaches the configured SQLite daemon or
+remote service.
+
+For Compose, pass the reported verifier path to
+`./scripts/start-docker-service.sh --web-credentials /absolute/path/to/web-credentials.json`.
+The browser shares `http://127.0.0.1:7337` with the service. Provisioning streams
+the verifier privately into the persistent volume; later starts and updates
+preserve it. Set `NEXUS_WEB_ORIGIN=https://nexus.example` behind an HTTPS reverse
+proxy, or `nexus web --public-origin https://nexus.example`. Plain HTTP browser
+access is loopback-only. Browser sessions are independent of agent bearer
+credentials, and project filters are within one service-wide trust domain.
+
+The application includes Coordination, SOS, Tools, Skills, Memory, Papercuts,
+Code concerns, Evals, and Work. Elm owns navigation, login, filters, and evidence;
+D3 renders charts and the scrollable session waterfall. Every feature view is
+read-only, including Memory. Authenticated reads use a closed query catalog;
+feature writes remain on the existing CLI/MCP surfaces. `nexus tui` and Pi's
+`/nexus` dashboard are retired; Pi retains automatic capture and memory context.
 
 The MCP stdio server is the companion adapter used by installed hosts. It starts the daemon in local mode and forwards to `/api/v1/request` in remote mode. Remote connects are limited to three seconds, ordinary requests to fifteen seconds, and explicit analysis to the configured analyst timeout plus a five-second transport margin. Lifecycle hooks keep a stricter 2.5-second fail-open budget:
 
@@ -275,7 +299,7 @@ Authentication and Origin checks run before body collection. Authenticated `/api
 
 `GET /healthz` is a process liveness check and `GET /readyz` verifies that the service can reach its store. PostgreSQL readiness always uses an independent probe connection, so a slow or canceled health query cannot seize the application store and short legitimate contention does not produce a false restart. A continuously held application-store guard becomes unhealthy after 30 seconds, and a poisoned application-store mutex fails immediately, rather than either condition being hidden by the independent probe; this lets the post-ready healthcheck restart an unusable service. The server clears its readiness marker on startup and writes it only after database initialization, migrations, and listener binding succeed. Before that marker exists, twelve consecutive failed health checks send `SIGKILL` to PID 1 because a container init process can ignore default-action `SIGTERM` before Nexus installs its handler; this lets Compose recover from a database connect or migration that never returns. After the marker exists, three consecutive genuine readiness failures send handled `SIGTERM` so Compose establishes a fresh PostgreSQL connection. The counters are separate and clear on success; the production smoke and shell regressions exercise post-ready recovery and the startup watchdog. The typed companion API at `POST /api/v1/request` also requires the bearer secret and carries `project_id` outside the feature request payload.
 
-The Tools tab starts with Activities, which describes work such as checking CI, searching code, or inspecting version control. Keys `1`–`4` select Activities, Capabilities, Opportunities, and Legacy. Capabilities retain exact tool and script identities and include unused resources when inventory is available. Opportunities show recurring inline/CLI work and same-category capabilities offered in the observed sessions. Enter opens implementations and provenance; `n`/`p` pages results. Availability that a host does not expose stays unknown. Older shell observations remain in Legacy because their arguments were never stored.
+The Tools view starts with Activities, describing work such as checking CI, searching code, or inspecting version control. Capabilities retain exact tool/script identities and show unused supplied resources when inventory is available. Opportunities reveal recurring work without an official capability. Legacy retains older observations whose arguments were never stored. Availability absent from a host remains unknown.
 
 Opaque work is classified asynchronously by the local companion using the configured analyst provider/model, with tools and hooks disabled. Redacted bounded inputs stay in memory; analytics persists labels and fingerprints. `[analytics]` controls enablement, timeout (30 seconds), and the shared daily attempt budget (128). See [the analytics contract](docs/features/usage-analytics.md) for counting, coverage, privacy, and category maintenance.
 
@@ -321,7 +345,7 @@ nexus config show
 
 Agent autonomy is not a configurable property. There is intentionally no enforcement or blocking mode.
 
-The `[ui]` properties select the terminal dashboards' polling interval and bounded event/record windows. Nexus rejects zero limits.
+The `[ui]` properties select the browser's refresh interval and bounded event/record windows. Nexus rejects zero limits.
 
 ## Optional conflict analyst
 
@@ -365,7 +389,8 @@ The source tree follows capability boundaries rather than a flat layer list:
 - `runtime/` owns the configured client, Unix-socket daemon, authenticated HTTP service, and MCP stdio/Streamable HTTP adapters.
 - `agents/` owns optional conflict and papercut reviewer processes plus host integration generation.
 - `papercuts/` owns the durable registry's domain states and timestamped observation types.
-- `pi-extension/` owns the terminal-native progressive-disclosure view. Coordination, usage, and memory use one correlated local MCP child, which follows the configured local or remote client transport.
+- `web/` owns the Elm application, D3 charts, Vite build, and tracked embedded assets.
+- `pi-extension/` owns headless capture, capability inventory, and automatic memory context over a bounded MCP companion.
 
 JSON is decoded at runtime boundaries into the closed `ServiceRequest` enum. Open-ended tool input remains isolated in the named `ToolPayload` boundary type; coordination and persistence APIs use explicit records and enums. Behavioral choices such as record scope, conflict scope, completion state, and release target are enums rather than boolean arguments.
 
@@ -412,7 +437,7 @@ uv tool install big-code-analysis-cli==2.2.0
 ./scripts/check.sh
 ```
 
-Pi extension development also requires Node 24 and uses the locked `pi-extension/package-lock.json`; `scripts/check.sh` installs that tree, type-checks the TypeScript sources, and runs the terminal UI tests.
+Frontend and Pi capture development require Node 24 and their locked npm dependency trees. `scripts/check.sh` runs TypeScript, Elm, D3 geometry, and capture tests, rebuilds `web/dist`, and rejects tracked asset drift. Cargo, Docker, and release builds embed this validated bundle without independently rebuilding it.
 
 If `uv` is unavailable, `python3 -m pip install big-code-analysis-cli==2.2.0` installs the same pinned CLI.
 

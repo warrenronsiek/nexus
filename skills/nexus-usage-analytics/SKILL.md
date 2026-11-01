@@ -79,7 +79,8 @@ descriptions and persisted category/purpose labels generic and free of secrets.
 
 ## Inspect evidence and counting semantics
 
-Open `nexus tui` or Pi `/nexus`. Tools provides **Activities**, **Capabilities**,
+Open the authenticated web interface through `nexus web` or the Compose service.
+Tools provides **Activities**, **Capabilities**,
 **Opportunities**, and **Legacy**; Skills has its own tab. All use rolling
 seven-day observations. For agents, discover and call `nexus_analytics`:
 
@@ -94,7 +95,7 @@ Pass `project_id` when explicitly inspecting a project; an omitted scope follows
 the configured transport's read binding. Page catalog and implementation examples
 instead of treating the first page as a complete registry. `nexus_usage` exposes
 legacy tool/script/skill counts and capture health. There is no separate
-`nexus analytics` CLI command; use MCP or the terminal.
+`nexus analytics` CLI command; use MCP or the web interface.
 
 Report invocation counts separately from identified operations: one call may
 contain multiple operations/categories, and a parent with observed child calls

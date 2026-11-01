@@ -86,7 +86,7 @@ flowchart TD
     O --> I[Rebuild normalized concern, encounter, area and decision indexes]
     I --> L[Source-time lifecycle projection]
     L --> Q[Scoped SQL aggregation and bounded pages]
-    Q --> T[CLI, MCP and read-only terminal overview]
+    Q --> T[CLI, MCP and authenticated read-only web overview]
     O --> X[Complete dump or paged export]
 ```
 
@@ -95,7 +95,7 @@ The [typed records](../../src/code_concerns/records.rs),
 [validation](../../src/code_concerns/validation.rs) are the domain entry points.
 [Store::concern_command](../../src/persistence/code_concerns/mod.rs) owns the
 transactional persistence boundary. CLI and MCP bind caller context before
-invoking it; terminal reads use the same response contract.
+invoking it; browser reads use the same response contract through a closed read-only adapter.
 
 ## Storage and projections
 
@@ -151,7 +151,7 @@ at 32. Opaque cursors retain a receipt cutoff and stable event-ID tie break.
 Exports page immutable IDs in ascending order. `dump` is explicitly complete;
 large script integrations should stream the paged export instead.
 
-The terminal view starts with reported recurrence and area rankings, provides an
+The authenticated web view starts with reported recurrence and area rankings, provides an
 all-concerns fallback for unlocated reports, and shows selected histories and Git
 metadata. Session names are optional current read-time enrichment on detail,
 never added to immutable observations or exports. No reports means no reported

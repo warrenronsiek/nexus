@@ -142,7 +142,7 @@ explicit. Equivalent V12 migrations support SQLite and PostgreSQL.
 
 ## Visual history reads
 
-The `dashboard` action of `nexus_evals` supplies the native/Pi terminal overview
+The `dashboard` action of `nexus_evals` supplies the authenticated web overview
 without client-side record fanout. Groups retain stable suite and target
 identities across revisions, plus the exact indexed repository and model-label
 sets of each result. Stable component/role-to-declared-model and repository

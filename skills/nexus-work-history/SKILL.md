@@ -97,25 +97,20 @@ queued-versus-acknowledged state separately.
 Inspect roots with `work list`, invocations with `work activities`, and immediate
 children with `work timeline`. Follow cursors; use `show` and `events` for source
 observations, conflicts, and gaps. Root filters apply to root attributes; use
-activity search for task-kind filters. Native and Pi Work tabs open a duration
-dashboard: qualified session totals/means, activity-kind bars, and daily trends.
-Choose a parent session to see every retained descendant on one visual time
-axis, with nested and parallel intervals preserved. Use `m` for mean/total,
-`t` for session/activity trends, and `[` / `]` to choose an activity kind. The
-`d` source browser retains filters, hierarchy, links, and original observations.
+activity search for task-kind filters. The authenticated web Work view opens a
+qualified duration dashboard: session totals/means, activity-kind summaries, and
+UTC-day trends. Select a parent session for a vertically scrollable waterfall of
+its retained descendants. Time runs down; child tasks branch right at source
+admission/start and parallel spans keep separate lanes. Select a node to highlight
+its span and inspect kind/category, state/outcome, source and elapsed/queue timing,
+executor, parent, gaps, and conflicts directly below. Zoom and pan preserve source
+boundaries. Colors, labels, and the legend distinguish recorded kind families;
+custom kinds remain Other. Source browsing retains filters, hierarchy, links,
+original observations, and older sessions.
+
 Dashboard samples are capped and explicitly partial when a history or display
 bound applies. A mean uses timed, conflict-free samples; an unknown interval is
 not zero. Inclusive sums are not total effort or prompt-to-production lead time.
-The selected session is a vertical waterfall. Up/Down or `j`/`k` selects the root or tasks;
-Left selects the recorded parent and Right its first recorded child. Selection
-reveals and highlights the span, with kind/category, state/outcome, source and
-elapsed/queue timing, executor, parent, gaps, and conflicts directly below it.
-Page Up/Down pans time, Shift+Left/Right or `H`/`L` pans lanes, `+`/`-` zooms, Home/End jumps
-to source bounds, and Enter opens source evidence. Colors distinguish recorded
-subagent, test, script, review, tool/command, and generic work/session kind families.
-Custom kinds remain Other; use explicit task kinds rather than relying on titles to imply
-categories. A legend and text preserve meaning with `NO_COLOR`.
-`g` opens that view for a session found in the source browser.
 Qualified queue waits and explicitly labeled execution/wait intervals contribute
 to attributed wall time; label containers `nexus.accounting.role=container` and retain unknown roles
 when their meaning is unavailable. Unobserved time is not inferred idle or model
@@ -153,7 +148,7 @@ represent an uncertain acknowledgment. Confirm the exact canonical observation
 before treating such a receipt as already delivered.
 
 The Work dashboard starts with harness-owned sessions, then opens their recorded
-operations and qualified durations. `d` keeps all caller-owned source records
+operations and qualified durations. Source browsing keeps all caller-owned records
 accessible, including standalone invocations and shared logical work. The API's
 `dashboard` action defaults to all roots; `session_origin: "host"` selects roots
 with recorded harness adapter metadata. Roots and operations have independent

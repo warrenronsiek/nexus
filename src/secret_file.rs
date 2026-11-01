@@ -62,17 +62,22 @@ impl OpenedSecretFile {
         Ok(Self { file, metadata })
     }
 
-    pub(crate) fn read_utf8(mut self) -> std::io::Result<String> {
-        if self.metadata.len() > MAX_SECRET_SOURCE_BYTES as u64 {
-            return Err(secret_too_large());
+    pub(crate) fn read_utf8(self) -> std::io::Result<String> {
+        self.read_utf8_bounded(MAX_SECRET_SOURCE_BYTES)
+    }
+
+    pub(crate) fn read_utf8_bounded(mut self, maximum: usize) -> std::io::Result<String> {
+        let maximum = maximum.min(MAX_SECRET_SOURCE_BYTES);
+        if self.metadata.len() > maximum as u64 {
+            return Err(secret_too_large(maximum));
         }
         let mut bytes = Vec::with_capacity(self.metadata.len() as usize);
         self.file
             .by_ref()
-            .take((MAX_SECRET_SOURCE_BYTES + 1) as u64)
+            .take((maximum + 1) as u64)
             .read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_SECRET_SOURCE_BYTES {
-            return Err(secret_too_large());
+        if bytes.len() > maximum {
+            return Err(secret_too_large(maximum));
         }
         String::from_utf8(bytes)
             .map_err(|_| Error::new(ErrorKind::InvalidData, "secret file must contain UTF-8"))
@@ -129,10 +134,10 @@ fn effective_user_id() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-fn secret_too_large() -> Error {
+fn secret_too_large(maximum: usize) -> Error {
     Error::new(
         ErrorKind::InvalidData,
-        format!("secret file exceeds {MAX_SECRET_SOURCE_BYTES} bytes"),
+        format!("secret file exceeds {maximum} bytes"),
     )
 }
 
