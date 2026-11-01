@@ -104,6 +104,15 @@ HTTPS origin. Host and Origin checks do not trust forwarded headers to establish
 that origin. Browser sessions grant inspection access to the configured service;
 project IDs remain namespaces, not independent authorization boundaries.
 
+Compose and a native launcher using a local daemon support global project reads.
+A native launcher using the remote agent transport requires an explicit project
+for coordination and usage reads: that transport supplies omitted scopes from
+its configured project. Authenticated session metadata identifies this limit and
+the configured default project. Elm selects that project and omits the misleading
+All projects choice; the browser API rejects binding-dependent unscoped reads.
+Project discovery, category definitions, and explicit global memory reads retain
+their global meaning. The Compose browser supports global inspection directly.
+
 The same release image serves both API and application assets. Versioned updates
 therefore replace and roll back the existing `nexus` service as one unit, retaining
 its credential volume and deployment configuration. Installed users need no Node,

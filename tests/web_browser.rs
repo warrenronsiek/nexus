@@ -13,6 +13,9 @@ use std::sync::Arc;
 const AGENT_SECRET: &str = "independent-agent-secret-long-enough";
 const PASSWORD: &[u8] = b"long browser password only";
 
+#[path = "web_browser/remote_scope.rs"]
+mod remote_scope;
+
 struct Browser {
     _temporary: tempfile::TempDir,
     origin: String,
@@ -134,7 +137,10 @@ async fn browser_cookie_reads_are_separate_from_agent_writes_and_revoked_at_logo
         .json()
         .await
         .unwrap();
-    assert_eq!(session, json!({"authenticated":true,"username":"viewer"}));
+    assert_eq!(
+        session,
+        json!({"authenticated":true,"username":"viewer","default_project_id":null,"global_project_reads":true})
+    );
     let response = app.read(&cookie, json!({"kind":"projects"})).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.json::<Value>().await.unwrap()["ok"], true);

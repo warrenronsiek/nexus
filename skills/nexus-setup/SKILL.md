@@ -65,6 +65,9 @@ browser shares service port 7337. No viewer credential is configured by default;
 agent bearer secrets are separate. Set the exact HTTPS `NEXUS_WEB_ORIGIN` behind
 a reverse proxy, or `nexus web --public-origin` for a local viewer. Plain HTTP
 access is loopback-only. Project filters are not access-control boundaries.
+A native remote-configured launcher starts with its configured project and
+requires project selection for coordination and usage reads. Open the Compose
+service directly when global project inspection is needed.
 See [observability](../nexus-observability/SKILL.md) for navigation and charts.
 
 ## Keep an installation current

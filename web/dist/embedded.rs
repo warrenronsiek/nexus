@@ -16,8 +16,8 @@ pub(super) fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
         "/ui/sos" => Some(("text/html; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/index.html")))),
         "/ui/memory" => Some(("text/html; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/index.html")))),
         "/THIRD_PARTY_LICENSES.txt" => Some(("text/plain; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/THIRD_PARTY_LICENSES.txt")))),
-        "/assets/index-BuXv-DhZ.js" => Some(("text/javascript; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/index-BuXv-DhZ.js")))),
         "/assets/index-CL2CfQBZ.css" => Some(("text/css; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/index-CL2CfQBZ.css")))),
+        "/assets/index-DrSU9wxG.js" => Some(("text/javascript; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/index-DrSU9wxG.js")))),
         "/index.html" => Some(("text/html; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/index.html")))),
         _ => None,
     }

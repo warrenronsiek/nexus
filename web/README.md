@@ -47,3 +47,7 @@ After authentication, a bounded coordination read retrieves the configured
 Elm retains that validated interval across navigation and skips overlapping
 refreshes. Configuration reads have their own generation; stale reads cannot
 revive polling after logout. A failed bootstrap is explicit and Refresh retries it.
+Authenticated session metadata selects a native remote client's configured project
+and omits the global project option when its transport requires explicit scope.
+The project catalog remains discoverable, while an uncatalogued configured project
+stays visible and subsequent explicit selections retain their own scope.

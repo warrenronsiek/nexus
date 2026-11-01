@@ -41,6 +41,10 @@ type alias Query =
     { kind : String, fields : List ( String, E.Value ) }
 
 
+type alias ViewerSession =
+    { authenticated : Bool, username : String, defaultProjectId : Maybe String, globalProjectReads : Bool }
+
+
 type alias Model =
     { key : Nav.Key
     , screen : Screen
@@ -49,6 +53,8 @@ type alias Model =
     , password : String
     , loginError : Maybe String
     , project : Maybe String
+    , defaultProjectId : Maybe String
+    , globalProjectReads : Bool
     , projects : List Row
     , projectsPartial : Bool
     , projectDraft : String
@@ -107,7 +113,7 @@ main =
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "" }
+    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "" }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -268,25 +274,22 @@ update msg model =
 
         Session result ->
             case result |> Result.mapError httpError |> Result.andThen sessionDecoder of
-                Ok ( True, username ) ->
-                    authenticate username model
-
-                Ok _ ->
-                    ( { model | authenticated = Just False }, Cmd.none )
+                Ok session ->
+                    if session.authenticated then authenticate session model else ( { model | authenticated = Just False }, Cmd.none )
 
                 Err reason ->
                     ( { model | authenticated = Just False, loginError = Just reason }, Cmd.none )
 
         LoggedIn result ->
             case result |> Result.mapError httpError |> Result.andThen sessionDecoder of
-                Ok ( True, username ) ->
-                    authenticate username model
+                Ok session ->
+                    if session.authenticated then
+                        authenticate session model
+                    else
+                        ( { model | authenticated = Just False, password = "", loginError = Just "Sign-in failed. Check your configured credentials." }, Cmd.none )
 
                 Err reason ->
                     ( { model | authenticated = Just False, password = "", loginError = Just reason }, Cmd.none )
-
-                Ok _ ->
-                    ( { model | authenticated = Just False, password = "", loginError = Just "Sign-in failed. Check your configured credentials." }, Cmd.none )
 
         Logout ->
             ( model, request "logout" (E.object []) LoggedOut )
@@ -308,7 +311,10 @@ update msg model =
                     ( { model | data = { value = Nothing, generation = model.data.generation + 1, error = Just reason, loading = False } }, Cmd.none )
 
         ChangeProject project ->
-            reset model.screen { model | project = if project == "" then Nothing else Just project, projectDraft = "" }
+            if project == "" && not model.globalProjectReads then
+                ( model, Cmd.none )
+            else
+                reset model.screen { model | project = if project == "" then Nothing else Just project, projectDraft = "" }
 
         ProjectDraft project ->
             ( { model | projectDraft = project }, Cmd.none )
@@ -430,15 +436,22 @@ update msg model =
             ( next, draw next )
 
 
-sessionDecoder : String -> Result String ( Bool, String )
+sessionDecoder : String -> Result String ViewerSession
 sessionDecoder raw =
-    D.decodeString (D.map2 Tuple.pair (D.field "authenticated" D.bool) (D.oneOf [ D.field "username" D.string, D.succeed "" ])) raw |> Result.mapError D.errorToString
+    D.decodeString
+        (D.map4 ViewerSession
+            (D.field "authenticated" D.bool)
+            (D.oneOf [ D.field "username" D.string, D.succeed "" ])
+            (Wire.optional "default_project_id" (D.nullable D.string) Nothing)
+            (Wire.optional "global_project_reads" D.bool True)
+        ) raw
+        |> Result.mapError D.errorToString
 
 
-authenticate : String -> Model -> ( Model, Cmd Msg )
-authenticate username model =
+authenticate : ViewerSession -> Model -> ( Model, Cmd Msg )
+authenticate session model =
     let
-        ( configured, configuration ) = bootstrapPolling { model | authenticated = Just True, username = username, password = "", loginError = Nothing }
+        ( configured, configuration ) = bootstrapPolling { model | authenticated = Just True, username = session.username, password = "", loginError = Nothing, project = model.project |> orElse session.defaultProjectId, defaultProjectId = session.defaultProjectId, globalProjectReads = session.globalProjectReads }
     in
     ( configured, Cmd.batch [ read Nothing (query "projects") Projects, configuration ] )
 
@@ -446,7 +459,7 @@ authenticate username model =
 bootstrapPolling : Model -> ( Model, Cmd Msg )
 bootstrapPolling model =
     let pending = State.begin model.polling in
-    ( { model | polling = pending }, read Nothing (query "coordination") (PollingReceived pending.generation) )
+    ( { model | polling = pending }, read (if model.globalProjectReads then Nothing else model.defaultProjectId) (query "coordination") (PollingReceived pending.generation) )
 
 
 signedOut : Model -> Model
@@ -712,13 +725,14 @@ toolbar model =
     in
     div []
         [ div [ class "toolbar" ]
-            [ div [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] (choice current "" "All projects" :: custom ++ catalog) ]
+            [ div [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
             , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ text "← Back" ], button [ onClick Refresh, disabled model.data.loading ] [ text (if model.data.loading then "Refreshing…" else "↻ Refresh") ] ]
             ]
+        , if model.globalProjectReads then text "" else div [ class "notice subtle" ] [ text "This remote viewer requires a project selection." ]
         , if model.projectsPartial then
             div [ class "notice subtle project-catalog" ]
                 [ p [] [ text "Project discovery is bounded. Enter a known project ID to inspect another project." ]
-                , form [ onSubmit (ChangeProject model.projectDraft) ] [ input [ name "project_id", attribute "aria-label" "Another project ID", value model.projectDraft, onInput ProjectDraft, placeholder "Project ID", attribute "required" "true" ] [], button [ type_ "submit" ] [ text "Use project" ] ]
+                , form [ onSubmit (ChangeProject model.projectDraft) ] [ input [ name "project_id", attribute "aria-label" "Another project ID", value model.projectDraft, onInput ProjectDraft, placeholder "Project ID", attribute "required" "true" ] [], button [ type_ "submit", disabled (not model.globalProjectReads && String.isEmpty model.projectDraft) ] [ text "Use project" ] ]
                 ]
           else text ""
         ]

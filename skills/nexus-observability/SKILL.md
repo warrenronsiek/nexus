@@ -96,6 +96,12 @@ intended write or CLI administration; the browser offers neither.
 
 ## Preserve scope, freshness, and uncertainty
 
+With a remote-configured `nexus web`, select a project. The launcher starts with
+its configured project and omits All projects because the agent transport binds
+omitted scopes to that default. Use the Compose service's browser for global
+coordination and usage inspection. Global catalogs and explicit global memory
+remain available through either transport.
+
 Treat sample counts, truncation, continuation cursors, coverage, stale notices,
 and preview omissions as part of every answer. Changing scope or filters
 invalidates obsolete responses. A failed refresh retains the last successful

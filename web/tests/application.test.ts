@@ -12,12 +12,13 @@ interface RequestBody { project_id?: string; username?: string; password?: strin
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 let configuredInterval = 30000;
+let remoteViewer: { default_project_id: string; global_project_reads: false } | null = null;
 function fixture(name: string): string {
   return readFileSync(new NodeUrl(`./fixtures/${name}.json`, import.meta.url), "utf8");
 }
 function response(url: string, body: RequestBody): string {
   if (url.endsWith("/session")) return '{"authenticated":false}';
-  if (url.endsWith("/login")) return JSON.stringify({ authenticated: body.username === "observer" && body.password === "fixture-password", username: "observer" });
+  if (url.endsWith("/login")) return JSON.stringify({ authenticated: body.username === "observer" && body.password === "fixture-password", username: "observer", ...remoteViewer });
   if (url.endsWith("/logout")) return '{"authenticated":false}';
   return readFixture(body);
 }
@@ -70,7 +71,7 @@ function filterInput(caption: string, value: string): void {
   input.value = value; input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-async function loginProgram(): Promise<void> {
+async function loginProgram(expectedProject = "fixture-project"): Promise<void> {
   vi.stubGlobal("XMLHttpRequest", FixtureXhr);
   document.body.replaceChildren(Object.assign(document.createElement("div"), { id: "app" }));
   const app = Elm.Main.init({ node: document.getElementById("app")!, flags: null });
@@ -82,8 +83,8 @@ async function loginProgram(): Promise<void> {
   input("username", "observer"); input("password", "fixture-password");
   document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await content("Improve the router");
-  expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.value).toBe("fixture-project");
-  expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.options[0].value).toBe("");
+  expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.value).toBe(expectedProject);
+  if (!remoteViewer) expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.options[0].value).toBe("");
   await content("Project discovery is bounded");
 }
 async function inspectWork(): Promise<void> {
@@ -161,7 +162,7 @@ function readCount(kind: string): number {
 }
 async function pollingTick(kind: string): Promise<void> {
   const before = readCount(kind);
-  await vi.advanceTimersByTimeAsync(750);
+  await vi.advanceTimersByTimeAsync(configuredInterval);
   await vi.waitFor(() => expect(readCount(kind)).toBe(before + 1));
 }
 
@@ -184,6 +185,45 @@ it("honors configured refresh cadence after direct Work login and retains it acr
     expect(requests.length).toBe(beforeLogout);
   } finally {
     configuredInterval = 30000;
+    vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
+  }
+});
+
+async function switchRemoteProject(): Promise<void> {
+  const scope = document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!;
+  expect([...scope.options].some(option => option.value === "")).toBe(false);
+  expect(requests.filter(request => ["coordination", "work_dashboard"].includes(request.body.query?.kind ?? "")).every(request => request.body.project_id === "remote-project-a")).toBe(true);
+  scope.value = "fixture-project"; scope.dispatchEvent(new Event("input", { bubbles: true }));
+  await vi.waitFor(() => expect(requests.at(-1)?.body.project_id).toBe("fixture-project"));
+  await content("Sessions measured");
+  await pollingTick("work_dashboard");
+  expect(requests.at(-1)?.body.project_id).toBe("fixture-project");
+}
+async function rejectEmptyRemoteProject(): Promise<void> {
+  input("project_id", "");
+  document.querySelector(".project-catalog form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.advanceTimersByTimeAsync(50);
+  await content("Sessions measured");
+  expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.value).toBe("fixture-project");
+}
+
+it("keeps native remote reads honestly scoped to the configured project and later selection", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  const intervals = vi.spyOn(globalThis, "setInterval");
+  configuredInterval = 900;
+  remoteViewer = { default_project_id: "remote-project-a", global_project_reads: false };
+  requests.length = 0; completions.length = 0;
+  window.history.replaceState(null, "", "/ui/work");
+  try {
+    await loginProgram("remote-project-a");
+    await content("This remote viewer requires a project selection");
+    await vi.waitFor(() => expect(intervals).toHaveBeenCalledWith(expect.any(Function), 900));
+    await switchRemoteProject();
+    await rejectEmptyRemoteProject();
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
+    await content("Welcome to Nexus");
+  } finally {
+    remoteViewer = null; configuredInterval = 30000;
     vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
   }
 });

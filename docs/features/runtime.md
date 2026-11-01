@@ -200,6 +200,11 @@ Local `nexus web` ensures the configured daemon is running before serving, then
 uses `NexusClient::inspect_in_project` to preserve the selected
 canonical project in the normal envelope without producing usage observations.
 The daemon honors that explicit project just as the remote service does. The
+native remote browser advertises its configured default project and lack of
+global project reads in authenticated session metadata. It rejects unscoped reads
+that the agent transport would otherwise silently bind to that default; global
+catalogs and explicit global memory reads retain their semantics. Direct service
+and local daemon browsers preserve global project inspection. The
 new typed memory inspection request assembles existing context without repairing
 snapshots, activating memory, invalidating summaries, or running providers;
 existing agent memory-context behavior remains unchanged. See

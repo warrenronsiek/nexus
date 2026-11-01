@@ -9,6 +9,7 @@ mod credentials;
 mod origin;
 mod read;
 mod routes;
+mod scope;
 #[cfg(test)]
 mod tests;
 
@@ -82,13 +83,19 @@ struct BrowserState {
     auth: auth::Auth,
     origin: origin::BrowserOrigin,
     dispatcher: ReadDispatcher,
+    project_scope: scope::ProjectScope,
     requests: Arc<Semaphore>,
 }
-fn router(config: BrowserConfig, dispatcher: ReadDispatcher) -> Router {
+fn router(
+    config: BrowserConfig,
+    dispatcher: ReadDispatcher,
+    project_scope: scope::ProjectScope,
+) -> Router {
     let state = Arc::new(BrowserState {
         auth: auth::Auth::new(config.credentials),
         origin: config.origin,
         dispatcher,
+        project_scope,
         requests: Arc::new(Semaphore::new(16)),
     });
     Router::new()
@@ -109,7 +116,11 @@ pub(super) fn service_router(
     service: Arc<NexusService>,
     gate: dispatch::BlockingExecutionGate,
 ) -> Router {
-    router(config, ReadDispatcher::Service { service, gate })
+    router(
+        config,
+        ReadDispatcher::Service { service, gate },
+        scope::ProjectScope::Global,
+    )
 }
 
 /// A read-only local/proxy origin reuses the configured service rather than opening another store.
@@ -120,8 +131,13 @@ pub async fn serve_browser_listener(
     browser: BrowserConfig,
 ) -> Result<()> {
     origin::validate_listener(listener.local_addr()?, &browser.origin)?;
+    let project_scope = scope::ProjectScope::for_client(&loaded.config.client);
     let client = NexusClient::without_analytics(Arc::new(loaded), explicit_config);
-    let router = router(browser, ReadDispatcher::Client(Box::new(client)));
+    let router = router(
+        browser,
+        ReadDispatcher::Client(Box::new(client)),
+        project_scope,
+    );
     super::listener::serve(listener, router).await
 }
 const BODY_TIMEOUT: Duration = Duration::from_secs(5);

@@ -168,6 +168,12 @@ pub(super) async fn read(State(state): State<Arc<BrowserState>>, request: Reques
             )
         }
     };
+    if !state.project_scope.permits(&query, project.as_deref()) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "select a project for this read; native remote browser transport cannot read all projects",
+        );
+    }
     match tokio::time::timeout(
         Duration::from_secs(15),
         state.dispatcher.read(query, project),
@@ -247,7 +253,13 @@ fn authenticated(state: &BrowserState) -> Response {
         .as_ref()
         .expect("session has configured credentials")
         .username;
-    Json(json!({"authenticated":true,"username":username})).into_response()
+    Json(json!({
+        "authenticated":true,
+        "username":username,
+        "default_project_id":state.project_scope.default_project_id(),
+        "global_project_reads":state.project_scope.global_project_reads()
+    }))
+    .into_response()
 }
 fn error(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({"error":message}))).into_response()
