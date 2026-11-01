@@ -11,6 +11,7 @@ import Html exposing (Html, a, aside, button, code, dd, details, div, dl, dt, fo
 import Html.Attributes exposing (attribute, autocomplete, class, disabled, href, id, name, placeholder, selected, type_, value)
 import Html.Events exposing (on, onClick, onInput, onSubmit)
 import Http
+import Icon
 import Json.Decode as D
 import Json.Encode as E
 import State
@@ -70,6 +71,7 @@ type alias Model =
     , mode : String
     , durationMode : String
     , trendKind : String
+    , navigationOpen : Bool
     }
 
 
@@ -104,6 +106,7 @@ type Msg
     | More
     | DurationMode String
     | TrendKind String
+    | ToggleNavigation
 
 
 main : Program () Model Msg
@@ -113,7 +116,7 @@ main =
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "" }
+    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "", navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -248,12 +251,15 @@ load wanted model =
 
 reset : Screen -> Model -> ( Model, Cmd Msg )
 reset screen model =
-    load (primary screen) { model | screen = screen, data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }, supplemental = Dict.empty, trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "" }
+    load (primary screen) { model | screen = screen, data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }, supplemental = Dict.empty, trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", navigationOpen = False }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ToggleNavigation ->
+            ( { model | navigationOpen = not model.navigationOpen }, Cmd.none )
+
         UrlRequested (Browser.Internal url) ->
             ( model, Nav.pushUrl model.key (Url.toString url) )
 
@@ -661,7 +667,7 @@ view model =
     { title = "Nexus · " ++ title model.screen
     , body =
         [ case model.authenticated of
-            Nothing -> div [ class "connection" ] [ div [ class "brand-mark" ] [ text "N" ], h2 [] [ text "Connecting to Nexus" ], p [] [ text "Opening your observation workspace…" ] ]
+            Nothing -> div [ class "connection" ] [ div [ class "brand-mark" ] [ Icon.view Icon.Layers ], h2 [] [ text "Connecting to Nexus" ], p [] [ text "Opening your observation workspace…" ] ]
             Just False -> loginView model
             Just True -> workspace model
         ]
@@ -671,49 +677,61 @@ view model =
 loginView : Model -> Html Msg
 loginView model =
     main_ [ class "login-shell" ]
-        [ div [ class "login-story" ]
-            [ div [ class "wordmark" ] [ span [ class "brand-mark" ] [ text "N" ], text "nexus" ]
-            , div [] [ span [ class "eyebrow" ] [ text "AGENT INTELLIGENCE" ], h1 [] [ text "A clearer view of", Html.br [] [], text "the work behind", Html.br [] [], span [] [ text "the outcome." ] ], p [] [ text "One durable history of agent work, evaluations, and the evidence that connects them." ] ]
-            , small [] [ text "Observe. Understand. Improve." ]
-            ]
-        , div [ class "login-side" ]
-            [ form [ class "login-card", onSubmit Login ]
-                [ span [ class "eyebrow" ] [ text "YOUR WORKSPACE" ], h2 [] [ text "Welcome to Nexus" ], p [ class "muted" ] [ text "Sign in with the credentials configured during setup." ]
+        [ div [ class "login-side" ]
+            [ div [ class "login-brand wordmark" ] [ Icon.view Icon.Layers, text "nexus", small [] [ text "Observability" ] ]
+            , form [ class "login-card", onSubmit Login ]
+                [ h1 [] [ text "Welcome to Nexus" ], p [ class "muted" ] [ text "Sign in to inspect your agent workspace." ]
                 , label [] [ text "Username", input [ name "username", autocomplete True, attribute "autocomplete" "username", value model.username, onInput Username, attribute "required" "true" ] [] ]
                 , label [] [ text "Password", input [ name "password", type_ "password", attribute "autocomplete" "current-password", value model.password, onInput Password, attribute "required" "true" ] [] ]
                 , model.loginError |> Maybe.map (\reason -> div [ class "notice error", attribute "role" "alert" ] [ text reason ]) |> Maybe.withDefault (text "")
-                , button [ class "primary", type_ "submit" ] [ text "Sign in →" ]
-                , div [ class "login-note" ] [ span [ class "status-dot" ] [], text "Read-only access · Your evidence stays unchanged" ]
+                , button [ class "primary", type_ "submit" ] [ text "Sign in", Icon.view Icon.Forward ]
+                , div [ class "login-note" ] [ Icon.view Icon.Lock, text "Read-only access. Credentials are configured at setup." ]
                 ]
+            , p [ class "login-footer" ] [ text "Sessions, evaluations, and the evidence behind them." ]
             ]
         ]
 
 
 workspace : Model -> Html Msg
 workspace model =
-    div [ class "workspace" ]
-        [ aside [ class "sidebar" ]
-            [ a [ class "wordmark", href "/ui/coordination" ] [ span [ class "brand-mark" ] [ text "N" ], text "nexus", small [] [ text "OBSERVE" ] ]
-            , div [ class "nav-caption" ] [ text "WORKSPACE" ]
-            , nav [] (List.indexedMap (\index screen -> a [ href ("/ui/" ++ slug screen), class (if model.screen == screen then "nav-item active" else "nav-item"), attribute "aria-current" (if model.screen == screen then "page" else "false") ] [ span [ class "nav-symbol" ] [ text (List.drop index [ "◈", "⌁", "◬", "⬡", "◇", "◎", "◌", "⚑", "▤" ] |> List.head |> Maybe.withDefault "·") ], text (title screen) ]) screens)
-            , div [ class "sidebar-bottom" ] [ div [ class "read-only" ] [ span [ class "status-dot" ] [], text "Read-only workspace" ], p [] [ text "Evidence, never assumptions." ] ]
+    div [ class (if model.navigationOpen then "workspace navigation-open" else "workspace") ]
+        [ aside [ class "sidebar", id "workspace-navigation" ]
+            [ a [ class "wordmark", href "/ui/coordination" ] [ Icon.view Icon.Layers, text "nexus", small [] [ text "Observe" ] ]
+            , div [ class "nav-caption" ] [ text "Workspace" ]
+            , nav [ attribute "aria-label" "Workspace" ] (List.map (\screen -> a [ href ("/ui/" ++ slug screen), class (if model.screen == screen then "nav-item active" else "nav-item"), attribute "aria-current" (if model.screen == screen then "page" else "false") ] [ Icon.view (screenIcon screen), span [] [ text (title screen) ] ]) screens)
+            , div [ class "sidebar-bottom" ] [ div [ class "read-only" ] [ Icon.view Icon.Lock, text "Read-only workspace" ], p [] [ text "Durable agent evidence" ] ]
             ]
         , div [ class "main-shell" ]
             [ header [ class "topbar" ]
-                [ div [ class "breadcrumb" ] [ text "Workspace", span [] [ text "/" ], text (title model.screen) ]
-                , div [ class "top-actions" ] [ span [ class "account" ] [ text model.username ], button [ onClick Logout, class "quiet" ] [ text "Sign out" ] ]
+                [ button [ class "navigation-toggle quiet", onClick ToggleNavigation, attribute "aria-label" "Toggle workspace navigation", attribute "aria-controls" "workspace-navigation", attribute "aria-expanded" (if model.navigationOpen then "true" else "false") ] [ Icon.view (if model.navigationOpen then Icon.Close else Icon.Menu), text "Menu" ]
+                , div [ class "breadcrumb" ] [ text "Workspace", span [] [ text "/" ], text (title model.screen) ]
+                , div [ class "top-actions" ] [ span [ class "account" ] [ text model.username ], button [ onClick Logout, class "quiet" ] [ Icon.view Icon.Logout, text "Sign out" ] ]
                 ]
             , main_ [ class "content" ]
-                [ div [ class "page-heading" ] [ div [] [ span [ class "eyebrow" ] [ text "NEXUS / OBSERVABILITY" ], h1 [] [ text (title model.screen) ], p [] [ text (intro model.screen) ] ], div [ class "live-label" ] [ span [ class "status-dot" ] [], text "Recorded evidence" ] ]
+                [ div [ class "page-heading" ] [ div [] [ h1 [] [ text (title model.screen) ], p [] [ text (intro model.screen) ] ], div [ class "live-label" ] [ span [ class "status-dot" ] [], text "Recorded evidence" ] ]
                 , toolbar model
                 , statusView model
                 , case model.data.value of
-                    Nothing -> div [ class "empty-state" ] [ div [ class "empty-glyph" ] [ text "◈" ], h2 [] [ text (if model.data.loading then "Loading observations" else "Ready when you are") ], p [] [ text (if model.data.loading then "Retrieving the latest retained evidence…" else "Select a project or refresh to retrieve evidence.") ] ]
+                    Nothing -> div [ class "empty-state" ] [ div [ class "empty-glyph" ] [ Icon.view Icon.Inbox ], h2 [] [ text (if model.data.loading then "Loading observations" else "Ready when you are") ], p [] [ text (if model.data.loading then "Retrieving the latest retained evidence…" else "Select a project or refresh to retrieve evidence.") ] ]
                     Just doc -> documentView model doc
                 ]
             , footer [ class "page-footer" ] [ text "Nexus · Durable agent evidence", span [] [ text "Read-only · Unknown and partial capture remain explicit" ] ]
             ]
         ]
+
+
+screenIcon : Screen -> Icon.Icon
+screenIcon screen =
+    case screen of
+        Coordination -> Icon.Activity
+        Work -> Icon.Branch
+        Evals -> Icon.Flask
+        Tools -> Icon.Tools
+        Skills -> Icon.Book
+        Concerns -> Icon.Bug
+        Papercuts -> Icon.Warning
+        Sos -> Icon.Siren
+        Memory -> Icon.Memory
 
 
 toolbar : Model -> Html Msg
@@ -726,7 +744,7 @@ toolbar model =
     div []
         [ div [ class "toolbar" ]
             [ div [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
-            , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ text "← Back" ], button [ onClick Refresh, disabled model.data.loading ] [ text (if model.data.loading then "Refreshing…" else "↻ Refresh") ] ]
+            , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
             ]
         , if model.globalProjectReads then text "" else div [ class "notice subtle" ] [ text "This remote viewer requires a project selection." ]
         , if model.projectsPartial then
@@ -801,7 +819,7 @@ filtersView model =
             _ -> []
     in
     if List.isEmpty fields then text "" else
-        details [ class "filter-panel" ] [ summary [] [ text "⌕ Search and filters", if Dict.isEmpty model.filters then text "" else span [ class "badge" ] [ text (String.fromInt (Dict.size model.filters)) ] ], form [ onSubmit ApplyFilters ] (List.map (\( key, caption ) -> label [] [ text caption, input [ value (Dict.get key model.filters |> Maybe.withDefault ""), onInput (Filter key), placeholder caption ] [] ]) fields ++ [ button [ type_ "submit", class "primary" ] [ text "Apply filters" ] ]) ]
+        details [ class "filter-panel" ] [ summary [] [ Icon.view Icon.Search, text "Search and filters", if Dict.isEmpty model.filters then text "" else span [ class "badge" ] [ text (String.fromInt (Dict.size model.filters)) ] ], form [ onSubmit ApplyFilters ] (List.map (\( key, caption ) -> label [] [ text caption, input [ value (Dict.get key model.filters |> Maybe.withDefault ""), onInput (Filter key), placeholder caption ] [] ]) fields ++ [ button [ type_ "submit", class "primary" ] [ text "Apply filters" ] ]) ]
 
 
 coverage : Document -> Html Msg
@@ -864,7 +882,7 @@ workView model doc =
                 , stat "Worker occupancy" (knownDuration "seconds" (Wire.field "worker_occupancy" accounting)) "Inclusive across executors; not effort"
                 ]
             , panel (Wire.str "title" root) "Time flows downward. Children branch right at their source admission/start. Select any task to inspect its metadata below."
-                [ div [ class "graph-controls" ] [ div [ class "legend" ] (List.map (\( css, caption ) -> span [ class css ] [ text ("● " ++ caption) ]) [ ( "agent", "Subagent" ), ( "test", "Test" ), ( "script", "Script" ), ( "review", "Review" ), ( "tool", "Tool / command" ), ( "session", "Session / other" ) ]), div [] [ button [ onClick (Zoom 0.7), attribute "aria-label" "Zoom out" ] [ text "−" ], button [ onClick (Zoom 1.4), attribute "aria-label" "Zoom in" ] [ text "+" ] ] ]
+                [ div [ class "graph-controls" ] [ div [ class "legend" ] (List.map (\( css, caption ) -> span [ class css ] [ span [ class "legend-swatch", attribute "aria-hidden" "true" ] [], text caption ]) [ ( "agent", "Subagent" ), ( "test", "Test" ), ( "script", "Script" ), ( "review", "Review" ), ( "tool", "Tool / command" ), ( "session", "Session / other" ) ]), div [] [ button [ onClick (Zoom 0.7), attribute "aria-label" "Zoom out" ] [ Icon.view Icon.ZoomOut ], button [ onClick (Zoom 1.4), attribute "aria-label" "Zoom in" ] [ Icon.view Icon.ZoomIn ] ] ]
                 , div [ class "waterfall-scroll", attribute "tabindex" "0", on "keydown" (D.field "key" D.string |> D.map Keyboard), attribute "aria-label" "Session task waterfall. Arrow keys select tasks, parents and children." ] [ chart "work-waterfall" ]
                 , p [ class "chart-note" ] [ text "Solid span: known source boundaries · dashed span: unknown finish · dotted span: queue wait · arrow keys: task / parent / child · scroll to pan" ]
                 ]
@@ -884,8 +902,10 @@ workView model doc =
                 [ label [] [ text "Duration aggregation", select [ onInput DurationMode ] [ choice model.durationMode "average" "Average known duration", choice model.durationMode "total" "Total known duration" ] ]
                 , label [] [ text "Time series", select [ onInput TrendKind ] (choice model.trendKind "" "Session duration" :: List.map (\bar -> choice model.trendKind bar.id (bar.label ++ " activities")) doc.bars) ]
                 ]
-            , panel "Duration over time" (model.durationMode ++ " known elapsed duration by UTC source day · seconds") [ chart "summary-trend" ]
-            , panel "Where time goes" (model.durationMode ++ " elapsed duration by activity kind. Parent and child durations overlap.") [ chart "summary-bars" ]
+            , div [ class "analytics-grid" ]
+                [ panel "Duration over time" (model.durationMode ++ " known elapsed duration by UTC source day · seconds") [ chart "summary-trend" ]
+                , panel "Where time goes" (model.durationMode ++ " elapsed duration by activity kind. Parent and child durations overlap.") [ chart "summary-bars" ]
+                ]
             ]
 
 
@@ -958,7 +978,7 @@ rowList model doc =
             if model.query.kind == "eval_dashboard" then List.filter (\row -> matches "search" [ "label", "suite_identity", "target_identity", "components" ] row && matches "repository" [ "repository" ] row && matches "model" [ "models" ] row) doc.rows else if model.query.kind == "usage" then List.filter (\row -> row.kind == (if model.screen == Skills then "skill" else "tool")) doc.rows else doc.rows
     in
     panel caption (String.fromInt (List.length visible) ++ " visible · " ++ String.fromInt (List.length doc.rows) ++ " retained records")
-        [ div [ class "record-list" ] (List.map (\row -> button [ class "record-row", onClick (Open row) ] [ div [ class "record-icon" ] [ text (String.left 1 (String.toUpper row.kind)) ], div [ class "record-copy" ] [ strongText row.title, small [] [ text row.subtitle ] ], span [ class "row-arrow" ] [ text "→" ] ]) visible) ]
+        [ div [ class "record-list" ] (List.map (\row -> button [ class "record-row", onClick (Open row) ] [ Icon.view (screenIcon model.screen), div [ class "record-copy" ] [ strongText row.title, small [] [ text row.subtitle ] ], span [ class "row-arrow" ] [ Icon.view Icon.Chevron ] ]) visible) ]
 
 
 selectedView : Model -> Row -> Html Msg
@@ -968,9 +988,9 @@ selectedView model row =
             div []
                 [ div [ class "selected-facts" ] [ stat "Elapsed" (exactElapsed row.body) "Exact recorded nanoseconds", stat "Kind" (Wire.str "kind" row.body) "Recorded category", stat "State / outcome" (Wire.str "state" row.body ++ " / " ++ defaultText "unknown" (Wire.str "outcome" row.body)) "Caller-reported boundaries" ]
                 , facts row.body
-                , button [ onClick (Navigate (Query "work_get" [ ( "subject", subject row.kind row.id ) ])) ] [ text "Open immutable task evidence →" ]
+                , button [ onClick (Navigate (Query "work_get" [ ( "subject", subject row.kind row.id ) ])) ] [ text "Open immutable task evidence", Icon.view Icon.Forward ]
                 ]
-          else div [] [ facts row.body, if row.kind == "eval_record" then button [ onClick (Navigate (query "eval_get" |> with "id" row.id)) ] [ text "Open result evidence →" ] else text "" ]
+          else div [] [ facts row.body, if row.kind == "eval_record" then button [ onClick (Navigate (query "eval_get" |> with "id" row.id)) ] [ text "Open result evidence", Icon.view Icon.Forward ] else text "" ]
         ]
 
 

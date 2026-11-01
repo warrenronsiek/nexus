@@ -126,3 +126,13 @@ availability, and automatic memory context without a `/nexus` terminal command.
 The browser obtains `[ui].refresh_interval_ms` through an authenticated
 coordination read and retains it across pages and direct links; Refresh retries
 a failed configuration read.
+
+## Read the developer metrics layout
+
+The interface uses compact graphite panels, a divided summary strip, labeled
+Lucide navigation, and tabular figures. On tablet and phone, Menu reveals all nine
+views and closes after navigation. Work's duration trend and activity summary sit
+beside each other on wide screens. Task colors are semantic and match the
+waterfall legend; use labels and metadata to distinguish kinds without color.
+All fonts and icons are served by Nexus itself. No chart color implies whether an
+eval result improved: its recorded definition and units determine its meaning.

@@ -7,10 +7,10 @@ import { actionable, attrs, element, type Group, type Svg } from "./chart-svg";
 import { layoutWaterfall } from "./waterfall-layout";
 import type { Chart, Choose, Placed } from "./chart-model";
 
-const COLORS: Record<string, string> = { agent: "#a797ff", subagent: "#a797ff", test: "#5edbb6", review: "#f697aa", script: "#eac47e", tool: "#75c6f3", command: "#75c6f3", session: "#8295ae" };
 function color(kind: string): string {
   const family = kind === "host.session" || kind === "work.session" ? "session" : kind.toLowerCase().split(".")[0];
-  return COLORS[family] ?? "#8295ae";
+  const semantic = family === "subagent" ? "agent" : family === "command" ? "tool" : ["agent", "test", "review", "script", "tool"].includes(family) ? family : "session";
+  return `var(--${semantic}, #a2a2ac)`;
 }
 interface Geometry { x: number; start: number | null; end: number | null; queued: number | null; bottom: number; ink: string; parentX: number | null; selected: boolean }
 interface Projection { y: d3.ScaleLinear<number, number>; bottom: number; selected: string | null }

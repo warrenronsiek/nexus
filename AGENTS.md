@@ -49,3 +49,11 @@ Enable the tracked hooks for this checkout once with:
 ```
 
 Update the feature annotation, specification, and relevant bundled skill in the same change as implementation behavior. Add new features to the Nexus skill's routing table. Application database access must continue to use Diesel's typed query DSL; SQL strings belong only in migrations. Lifecycle hooks must remain advisory and fail open.
+
+## Browser interface design
+
+For browser design or styling, load
+[the Nexus interface design skill](.agents/skills/nexus-interface-design/SKILL.md),
+which applies the pinned [Leonxlnx taste-skill](vendor/taste-skill/SKILL.md).
+The direction is a developer observability console (Grafana/SigNoz), with
+consistent Lucide icons and the evidence rules in [web/DESIGN.md](web/DESIGN.md).

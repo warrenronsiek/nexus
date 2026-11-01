@@ -26,6 +26,23 @@ port in Docker Compose; there is no separately versioned UI container. `nexus we
 serves the same interface using the invoking CLI's configured local SQLite daemon
 or remote service transport.
 
+## Developer metrics design
+
+The browser follows the pinned Leonxlnx taste-skill's data-terminal app direction:
+neutral graphite surfaces, compact panel headers, a divided metric strip,
+readable tabular figures, quiet chart grids, and one thin blue selection rule.
+Self-hosted Public Sans and IBM Plex Mono require no third-party font requests.
+One Lucide SVG set supplies all navigation and control icons; visible text keeps
+navigation understandable, and decorative SVGs are hidden from assistive naming.
+
+Desktop navigation stays labeled. Below 1100px, a keyboard-accessible Menu control
+expands the navigation; selecting a destination closes it. Duration trend and
+activity summaries share a desktop row and stack where neither would be readable.
+Charts and the branching session waterfall use shared semantic CSS colors; labels,
+source-time axes, and exact metadata retain meaning independently of color.
+Metric definitions, unknown values, bounded history and stale snapshots remain
+explicit. See `web/DESIGN.md` for tokens, exceptions, and verification guidance.
+
 ## Why it exists
 
 Humans need to recognize patterns across sessions and results: parallel work,

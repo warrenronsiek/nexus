@@ -13,3 +13,5 @@ __pycache__/
 !.env.example
 *.secret
 secrets/
+
+/.taste-skill/

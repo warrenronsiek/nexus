@@ -142,10 +142,29 @@ function assertReadOnly(): void {
   expect(requests.every(request => request.timeout === 20000)).toBe(true);
 }
 
+async function inspectNavigation(): Promise<HTMLButtonElement> {
+  const links = [...document.querySelectorAll<HTMLAnchorElement>("nav[aria-label='Workspace'] a")];
+  expect(links).toHaveLength(9);
+  expect(links.every(link => link.querySelector("svg[aria-hidden='true'] path"))).toBe(true);
+  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Evaluations", "Tool intelligence", "Skills", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
+  expect(links.find(link => link.getAttribute("aria-current") === "page")?.textContent).toBe("Coordination");
+  const menu = document.querySelector<HTMLButtonElement>("button[aria-controls='workspace-navigation']")!;
+  expect(menu).not.toBeNull();
+  expect(menu.getAttribute("aria-expanded")).toBe("false");
+  menu.click();
+  await vi.waitFor(() => expect(menu.getAttribute("aria-expanded")).toBe("true"));
+  return menu;
+}
+
 it("runs the actual Elm login, nine screens, work selection and exact eval values through read-only HTTP", async () => {
   await loginProgram();
+  const menu = await inspectNavigation();
   await inspectProjectCatalog();
   await inspectWork();
+  expect(menu.getAttribute("aria-expanded")).toBe("false");
+  const searchRing = document.querySelector(".filter-panel summary svg circle");
+  expect(searchRing?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+  expect(searchRing?.getAttribute("r")).toBe("8");
   await inspectEvals();
   await inspectOtherSurfaces();
   await inspectMemoryScope();
