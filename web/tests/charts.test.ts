@@ -50,3 +50,12 @@ import { layoutWaterfall, renderChart } from "../src/charts";
     const task = [...host.querySelectorAll<SVGGElement>("[role=button]")].find(group => group.textContent?.includes("Canceled queued task"))!;
     expect(task.querySelector("line")!.getAttribute("y2")).toBe("179");
   });
+
+it("shows a single date for one observed timestamp rather than repeating an artificial range", () => {
+  const host = document.createElement("div");
+  renderChart(host, { id: "single", type: "trend", points: [
+    { id: "run", label: "Recorded run", at: "2026-11-01T00:00:00Z", value: 12 },
+  ] }, () => {});
+  expect(host.querySelectorAll(".chart-axis:not(.grid) .tick")).toHaveLength(1);
+  expect(host.querySelector(".chart-axis:not(.grid)")!.textContent).toContain("Nov 01");
+});

@@ -51,3 +51,5 @@ Authenticated session metadata selects a native remote client's configured proje
 and omits the global project option when its transport requires explicit scope.
 The project catalog remains discoverable, while an uncatalogued configured project
 stays visible and subsequent explicit selections retain their own scope.
+
+Visual direction, icon provenance, typography, and QA are documented in [DESIGN.md](DESIGN.md).

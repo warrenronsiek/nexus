@@ -11,7 +11,7 @@ export type { Chart, ChartInput, ChartEvent } from "./chart-model";
 
 /** A render replaces presentation; only exact record selections return to Elm. */
 export function renderChart(host: HTMLElement, input: ChartInput, selected: (event: ChartEvent) => void): void {
-  const chart = positionedChart(input), width = Math.max(440, host.clientWidth || 800);
+  const chart = positionedChart(input), width = Math.max(300, host.clientWidth || 800);
   d3.select(host).selectAll("*").remove();
   const description = chart.type === "waterfall" ? "Session task waterfall; time flows downward" : "Recorded observations chart";
   const svg = d3.select(host).append("svg").attr("role", "img").attr("aria-label", description);
