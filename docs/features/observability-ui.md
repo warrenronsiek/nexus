@@ -237,5 +237,4 @@ and bounded MCP lifecycle; installation tests cover their full import closure
 and removal of known retired UI files while preserving unrelated extensions.
 
 Project discovery uses the V17 covering event receipt index so the per-project
-latest-event aggregate does not read historical payloads. The authenticated read
-deadline and the project selection semantics remain unchanged.
+latest-event aggregate does not read historical payloads.

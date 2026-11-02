@@ -177,4 +177,4 @@ without changing a domain projection's coverage or diagnostics.
 V17 adds the covering `(project_id, created_at DESC)` event receipt index for
 project discovery. The project picker keeps its existing full per-project maximum
 semantics and display bounds without reading historical event payloads for those
-maxima. Source rows, timestamps, and event identities remain unchanged.
+maxima.

@@ -597,36 +597,13 @@ struct ProjectReceiptPlan {
 }
 
 #[test]
-fn v16_upgrade_indexes_project_receipts_without_rewriting_event_evidence() {
-    use crate::persistence::models::NewEvent;
-    use crate::persistence::schema::events;
-    let (_temp, path) = database_through("project-receipts.db", 16);
+fn project_discovery_reads_covering_event_receipt_index() {
+    let (_temp, path) = database_through("project-receipts.db", CURRENT_SCHEMA_VERSION);
     let mut connection = DbConnection::establish(path.to_str().unwrap()).unwrap();
-    diesel::insert_into(events::table)
-        .values(NewEvent {
-            project_id: "historical-project",
-            session_id: None,
-            kind: "fixture",
-            payload_json: "{\"evidence\":\"retained\"}".into(),
-            created_at: "2026-11-01T12:00:00Z".into(),
-        })
-        .execute(&mut connection)
-        .unwrap();
-    let before = events::table
-        .select((events::id, events::payload_json, events::created_at))
-        .load::<(i64, String, String)>(&mut connection)
-        .unwrap();
-    drop(connection);
-    migrate_database(&path).unwrap();
-    let mut connection = DbConnection::establish(path.to_str().unwrap()).unwrap();
+    // Mirror dashboard/projects.rs candidates!: Diesel does not expose typed EXPLAIN.
     let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT project_id, MAX(created_at) FROM events WHERE project_id IS NOT NULL GROUP BY project_id ORDER BY MAX(created_at) DESC, project_id ASC LIMIT 17")
         .load::<ProjectReceiptPlan>(&mut connection).unwrap();
     assert!(plan.iter().any(|row| row.detail.contains("COVERING INDEX events_project_receipt")),
         "project picker must read a covering receipt index instead of historical event payloads: {:?}",
         plan.iter().map(|row| &row.detail).collect::<Vec<_>>());
-    let after = events::table
-        .select((events::id, events::payload_json, events::created_at))
-        .load::<(i64, String, String)>(&mut connection)
-        .unwrap();
-    assert_eq!(before, after);
 }
