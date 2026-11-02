@@ -3,7 +3,7 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 16;
+const CURRENT_SCHEMA_VERSION: u64 = 17;
 
 #[path = "work_history_tests.rs"]
 mod work_history;
@@ -588,4 +588,22 @@ fn upgrades_v10_with_empty_activity_projections() {
             .unwrap(),
     ];
     assert_eq!(counts, [0; 6]);
+}
+
+#[derive(diesel::QueryableByName)]
+struct ProjectReceiptPlan {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    detail: String,
+}
+
+#[test]
+fn project_discovery_reads_covering_event_receipt_index() {
+    let (_temp, path) = database_through("project-receipts.db", CURRENT_SCHEMA_VERSION);
+    let mut connection = DbConnection::establish(path.to_str().unwrap()).unwrap();
+    // Mirror dashboard/projects.rs candidates!: Diesel does not expose typed EXPLAIN.
+    let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT project_id, MAX(created_at) FROM events WHERE project_id IS NOT NULL GROUP BY project_id ORDER BY MAX(created_at) DESC, project_id ASC LIMIT 17")
+        .load::<ProjectReceiptPlan>(&mut connection).unwrap();
+    assert!(plan.iter().any(|row| row.detail.contains("COVERING INDEX events_project_receipt")),
+        "project picker must read a covering receipt index instead of historical event payloads: {:?}",
+        plan.iter().map(|row| &row.detail).collect::<Vec<_>>());
 }

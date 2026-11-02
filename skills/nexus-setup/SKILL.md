@@ -185,3 +185,8 @@ Claude's SessionStart command adapter exports its exact native identity through
 context` resolution without guessing by checkout. Existing sessions need a new
 supported SessionStart boundary or an explicit identity handoff; refreshing the
 binary cannot retroactively change a running shell's environment.
+
+A browser project-list timeout on a large event store may indicate an older
+service schema: V17 adds its covering event receipt index. Upgrade the service
+through its migrations; do not create an ad-hoc deployed index or discard event
+history to recover the picker.
