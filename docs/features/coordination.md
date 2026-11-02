@@ -183,5 +183,7 @@ bounded reconciliation batches. Browser reads, explicit feature commands, and
 background model work use the application connection, so their store mutex cannot
 consume the lifecycle acquisition budget. Both connections access the same
 transactional database; project identity, claim visibility, and history remain
-shared. Readiness checks both store locks for poison or prolonged holds and uses
+shared. Aggregate read-modify-write transactions serialize through a database-scoped
+transaction lock before reading mutable state, preserving memory and conflict
+history ordering across the connections. Readiness checks both store locks for poison or prolonged holds and uses
 its independent database probe. SQLite retains its single-store behavior.

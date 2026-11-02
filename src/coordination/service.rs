@@ -74,16 +74,31 @@ const POSTGRES_STORE_STALL_THRESHOLD: Duration = Duration::from_secs(30);
 pub struct NexusService {
     pub(super) loaded: LoadedConfig,
     pub(super) store: TrackedStoreMutex,
-    coordination_store: Option<TrackedStoreMutex>,
     pub(super) usage: UsageCapture,
     pub(super) memory_consolidation_in_flight: AtomicBool,
-    readiness: ServiceReadiness,
+    connections: StoreTopology,
 }
 
-enum ServiceReadiness {
-    SharedStore,
+enum StoreTopology {
+    Shared,
     #[cfg(feature = "postgres")]
-    Dedicated(Mutex<DatabaseReadinessProbe>),
+    Isolated(Box<IsolatedStores>),
+}
+
+#[cfg(feature = "postgres")]
+struct IsolatedStores {
+    lifecycle: TrackedStoreMutex,
+    probe: Mutex<DatabaseReadinessProbe>,
+}
+
+impl StoreTopology {
+    fn lifecycle<'a>(&'a self, primary: &'a TrackedStoreMutex) -> &'a TrackedStoreMutex {
+        match self {
+            Self::Shared => primary,
+            #[cfg(feature = "postgres")]
+            Self::Isolated(stores) => &stores.lifecycle,
+        }
+    }
 }
 
 impl NexusService {
@@ -95,40 +110,35 @@ impl NexusService {
     pub fn connect(loaded: LoadedConfig, database_url: &str) -> Result<Self> {
         let store = Store::connect(database_url)?;
         #[cfg(feature = "postgres")]
-        let coordination_store = Some(Store::connect(database_url)?);
+        let connections = StoreTopology::Isolated(Box::new(IsolatedStores {
+            lifecycle: TrackedStoreMutex::new(Store::connect(database_url)?),
+            probe: Mutex::new(DatabaseReadinessProbe::connect(database_url)?),
+        }));
         #[cfg(feature = "sqlite")]
-        let coordination_store = None;
-        #[cfg(feature = "postgres")]
-        let readiness =
-            ServiceReadiness::Dedicated(Mutex::new(DatabaseReadinessProbe::connect(database_url)?));
-        #[cfg(feature = "sqlite")]
-        let readiness = ServiceReadiness::SharedStore;
-        Ok(Self::from_parts_with_readiness(
+        let connections = StoreTopology::Shared;
+        Ok(Self::from_parts_with_connections(
             loaded,
             store,
-            coordination_store,
-            readiness,
+            connections,
         ))
     }
 
     fn from_parts(loaded: LoadedConfig, store: Store) -> Self {
-        Self::from_parts_with_readiness(loaded, store, None, ServiceReadiness::SharedStore)
+        Self::from_parts_with_connections(loaded, store, StoreTopology::Shared)
     }
 
-    fn from_parts_with_readiness(
+    fn from_parts_with_connections(
         loaded: LoadedConfig,
         store: Store,
-        coordination_store: Option<Store>,
-        readiness: ServiceReadiness,
+        connections: StoreTopology,
     ) -> Self {
         let usage = UsageCapture::new(loaded.hash.clone());
         Self {
             loaded,
             store: TrackedStoreMutex::new(store),
-            coordination_store: coordination_store.map(TrackedStoreMutex::new),
             usage,
             memory_consolidation_in_flight: AtomicBool::new(false),
-            readiness,
+            connections,
         }
     }
 
@@ -304,10 +314,11 @@ impl NexusService {
     ) -> Result<&'static str> {
         #[cfg(not(feature = "postgres"))]
         let _ = store_stall_threshold;
-        match &self.readiness {
+        match &self.connections {
             #[cfg(feature = "postgres")]
-            ServiceReadiness::Dedicated(probe) => {
-                for store in std::iter::once(&self.store).chain(self.coordination_store.iter()) {
+            StoreTopology::Isolated(stores) => {
+                let IsolatedStores { lifecycle, probe } = stores.as_ref();
+                for store in [&self.store, lifecycle] {
                     anyhow::ensure!(!store.is_poisoned(), "store lock poisoned");
                     if store.held_for_at_least(store_stall_threshold) {
                         anyhow::bail!(
@@ -322,7 +333,7 @@ impl NexusService {
                 probe.check()?;
                 Ok("ready")
             }
-            ServiceReadiness::SharedStore => match self.store.try_lock() {
+            StoreTopology::Shared => match self.store.try_lock() {
                 Ok(mut store) => {
                     store.counts(self.loaded.config.coordination.claim_ttl_seconds)?;
                     Ok("ready")
@@ -437,9 +448,8 @@ impl NexusService {
 
     pub(super) fn lifecycle_store(&self) -> Result<TrackedStoreGuard<'_>> {
         match self
-            .coordination_store
-            .as_ref()
-            .unwrap_or(&self.store)
+            .connections
+            .lifecycle(&self.store)
             .try_lock_for(LIFECYCLE_STORE_WAIT, LIFECYCLE_STORE_RETRY)
         {
             Ok(store) => Ok(store),

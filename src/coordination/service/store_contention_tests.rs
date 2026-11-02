@@ -163,7 +163,11 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
         )
         .unwrap(),
     );
-    let guard = service.coordination_store.as_ref().unwrap().lock().unwrap();
+    let guard = service
+        .connections
+        .lifecycle(&service.store)
+        .lock()
+        .unwrap();
     assert_eq!(service.readiness_status().unwrap(), "ready");
     std::thread::sleep(Duration::from_millis(10));
     let error = service
@@ -175,9 +179,8 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
     let poisoning_service = service.clone();
     assert!(std::thread::spawn(move || {
         let _guard = poisoning_service
-            .coordination_store
-            .as_ref()
-            .unwrap()
+            .connections
+            .lifecycle(&poisoning_service.store)
             .lock()
             .unwrap();
         panic!("poison the lifecycle store for the readiness regression");
@@ -216,9 +219,9 @@ fn postgres_readiness_always_uses_the_dedicated_probe() {
     assert!(started.elapsed() < Duration::from_secs(1));
     drop(application_guard);
 
-    let dedicated_guard = match &service.readiness {
-        super::ServiceReadiness::Dedicated(probe) => probe.lock().unwrap(),
-        super::ServiceReadiness::SharedStore => panic!("PostgreSQL must have a dedicated probe"),
+    let dedicated_guard = match &service.connections {
+        super::StoreTopology::Isolated(stores) => stores.probe.lock().unwrap(),
+        super::StoreTopology::Shared => panic!("PostgreSQL must have a dedicated probe"),
     };
     let error = service
         .readiness_status()

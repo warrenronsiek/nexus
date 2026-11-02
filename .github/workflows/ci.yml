@@ -69,6 +69,7 @@ jobs:
       - run: cargo test --locked --no-default-features --features postgres --test postgres_service
       - run: cargo test --locked --no-default-features --features postgres --lib dashboard::tests
       - run: cargo test --locked --no-default-features --features postgres --lib store_contention_tests::postgres_
+      - run: cargo test --locked --no-default-features --features postgres --lib transaction::postgres_tests
       - run: cargo test --locked --no-default-features --features postgres --test eval_postgres
       - run: cargo test --locked --no-default-features --features postgres --test work_postgres
       - run: cargo test --locked --no-default-features --features postgres --test code_concerns_postgres
