@@ -173,3 +173,8 @@ limit, and caches missing keys only when the batch is complete. Callers supply
 row, encoded-byte, and per-group sentinel bounds; uncached groups use normal
 reads. Retention follows source order, making byte-pressure behavior deterministic
 without changing a domain projection's coverage or diagnostics.
+
+V17 adds the covering `(project_id, created_at DESC)` event receipt index for
+project discovery. The project picker keeps its existing full per-project maximum
+semantics and display bounds without reading historical event payloads for those
+maxima. Source rows, timestamps, and event identities remain unchanged.
