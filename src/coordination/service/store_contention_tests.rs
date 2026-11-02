@@ -105,6 +105,96 @@ fn readiness_treats_active_store_work_as_busy_without_blocking() {
 
 #[cfg(feature = "postgres")]
 #[test]
+fn postgres_lifecycle_records_while_application_store_is_busy() {
+    let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
+        .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL contention test");
+    let service = Arc::new(
+        super::NexusService::connect(
+            LoadedConfig {
+                config: Config::default(),
+                sources: Vec::new(),
+                hash: "postgres-lifecycle-isolation-test".into(),
+            },
+            &database_url,
+        )
+        .unwrap(),
+    );
+    let guard = service.store.lock().unwrap();
+    let request_service = service.clone();
+    let (sender, receiver) = mpsc::channel();
+    let request = std::thread::spawn(move || {
+        sender
+            .send(
+                request_service
+                    .handle_remote("lifecycle-isolation-project", prompt())
+                    .to_json(),
+            )
+            .unwrap();
+    });
+    let response = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("lifecycle recording must not wait for application requests");
+    drop(guard);
+    request.join().unwrap();
+    assert_eq!(response["recorded"], true, "{response}");
+    let mut store = service.store.lock().unwrap();
+    let events = store
+        .list_events(Some("lifecycle-isolation-project"), 32)
+        .unwrap();
+    assert!(
+        !events.is_empty(),
+        "lifecycle evidence must be durable on the shared database"
+    );
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn postgres_readiness_observes_lifecycle_store_failures() {
+    let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
+        .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
+    let service = Arc::new(
+        super::NexusService::connect(
+            LoadedConfig {
+                config: Config::default(),
+                sources: Vec::new(),
+                hash: "postgres-lifecycle-readiness-test".into(),
+            },
+            &database_url,
+        )
+        .unwrap(),
+    );
+    let guard = service.coordination_store.as_ref().unwrap().lock().unwrap();
+    assert_eq!(service.readiness_status().unwrap(), "ready");
+    std::thread::sleep(Duration::from_millis(10));
+    let error = service
+        .readiness_status_with_store_stall_threshold(Duration::from_millis(1))
+        .expect_err("a stalled lifecycle store must fail readiness");
+    assert!(error.to_string().contains("stalled"), "{error:#}");
+    drop(guard);
+    assert_eq!(service.readiness_status().unwrap(), "ready");
+    let poisoning_service = service.clone();
+    assert!(std::thread::spawn(move || {
+        let _guard = poisoning_service
+            .coordination_store
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap();
+        panic!("poison the lifecycle store for the readiness regression");
+    })
+    .join()
+    .is_err());
+    let error = service
+        .readiness_status()
+        .expect_err("a poisoned lifecycle store must fail readiness");
+    assert!(
+        error.to_string().contains("store lock poisoned"),
+        "{error:#}"
+    );
+}
+
+#[cfg(feature = "postgres")]
+#[test]
 fn postgres_readiness_always_uses_the_dedicated_probe() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");

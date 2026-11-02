@@ -74,6 +74,7 @@ const POSTGRES_STORE_STALL_THRESHOLD: Duration = Duration::from_secs(30);
 pub struct NexusService {
     pub(super) loaded: LoadedConfig,
     pub(super) store: TrackedStoreMutex,
+    coordination_store: Option<TrackedStoreMutex>,
     pub(super) usage: UsageCapture,
     pub(super) memory_consolidation_in_flight: AtomicBool,
     readiness: ServiceReadiness,
@@ -94,26 +95,37 @@ impl NexusService {
     pub fn connect(loaded: LoadedConfig, database_url: &str) -> Result<Self> {
         let store = Store::connect(database_url)?;
         #[cfg(feature = "postgres")]
+        let coordination_store = Some(Store::connect(database_url)?);
+        #[cfg(feature = "sqlite")]
+        let coordination_store = None;
+        #[cfg(feature = "postgres")]
         let readiness =
             ServiceReadiness::Dedicated(Mutex::new(DatabaseReadinessProbe::connect(database_url)?));
         #[cfg(feature = "sqlite")]
         let readiness = ServiceReadiness::SharedStore;
-        Ok(Self::from_parts_with_readiness(loaded, store, readiness))
+        Ok(Self::from_parts_with_readiness(
+            loaded,
+            store,
+            coordination_store,
+            readiness,
+        ))
     }
 
     fn from_parts(loaded: LoadedConfig, store: Store) -> Self {
-        Self::from_parts_with_readiness(loaded, store, ServiceReadiness::SharedStore)
+        Self::from_parts_with_readiness(loaded, store, None, ServiceReadiness::SharedStore)
     }
 
     fn from_parts_with_readiness(
         loaded: LoadedConfig,
         store: Store,
+        coordination_store: Option<Store>,
         readiness: ServiceReadiness,
     ) -> Self {
         let usage = UsageCapture::new(loaded.hash.clone());
         Self {
             loaded,
             store: TrackedStoreMutex::new(store),
+            coordination_store: coordination_store.map(TrackedStoreMutex::new),
             usage,
             memory_consolidation_in_flight: AtomicBool::new(false),
             readiness,
@@ -295,12 +307,14 @@ impl NexusService {
         match &self.readiness {
             #[cfg(feature = "postgres")]
             ServiceReadiness::Dedicated(probe) => {
-                anyhow::ensure!(!self.store.is_poisoned(), "store lock poisoned");
-                if self.store.held_for_at_least(store_stall_threshold) {
-                    anyhow::bail!(
-                        "application store stalled beyond the {}ms readiness threshold",
-                        store_stall_threshold.as_millis()
-                    );
+                for store in std::iter::once(&self.store).chain(self.coordination_store.iter()) {
+                    anyhow::ensure!(!store.is_poisoned(), "store lock poisoned");
+                    if store.held_for_at_least(store_stall_threshold) {
+                        anyhow::bail!(
+                            "store stalled beyond the {}ms readiness threshold",
+                            store_stall_threshold.as_millis()
+                        );
+                    }
                 }
                 let mut probe = probe
                     .try_lock()
@@ -423,7 +437,9 @@ impl NexusService {
 
     pub(super) fn lifecycle_store(&self) -> Result<TrackedStoreGuard<'_>> {
         match self
-            .store
+            .coordination_store
+            .as_ref()
+            .unwrap_or(&self.store)
             .try_lock_for(LIFECYCLE_STORE_WAIT, LIFECYCLE_STORE_RETRY)
         {
             Ok(store) => Ok(store),
