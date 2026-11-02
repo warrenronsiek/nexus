@@ -9,6 +9,14 @@ use diesel::prelude::*;
 #[cfg(feature = "sqlite")]
 use diesel::result::Error;
 
+#[cfg(feature = "postgres")]
+diesel::define_sql_function! {
+    fn pg_advisory_xact_lock(key: diesel::sql_types::BigInt);
+}
+
+#[cfg(feature = "postgres")]
+const POSTGRES_WRITER_LOCK_KEY: i64 = 0x4e45585553; // ASCII NEXUS, database-scoped.
+
 pub(super) enum TransactionMode {
     Deferred,
     Immediate,
@@ -31,7 +39,11 @@ pub(super) fn transaction<T>(
     #[cfg(feature = "postgres")]
     {
         let _ = mode;
-        connection.transaction::<_, anyhow::Error, _>(operation)
+        connection.transaction::<_, anyhow::Error, _>(|connection| {
+            // Preserve single-writer aggregate semantics across the service connections.
+            diesel::select(pg_advisory_xact_lock(POSTGRES_WRITER_LOCK_KEY)).execute(connection)?;
+            operation(connection)
+        })
     }
     #[cfg(feature = "sqlite")]
     {
@@ -82,3 +94,6 @@ fn sqlite_transaction<T>(
         result => result,
     }
 }
+
+#[cfg(all(test, feature = "postgres"))]
+mod postgres_tests;
