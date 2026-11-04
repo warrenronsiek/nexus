@@ -178,3 +178,9 @@ V17 adds the covering `(project_id, created_at DESC)` event receipt index for
 project discovery. The project picker keeps its existing full per-project maximum
 semantics and display bounds without reading historical event payloads for those
 maxima.
+
+V18 adds the eval record-ID prefix access path. PostgreSQL uses its text-pattern
+operator class, while SQLite uses its LIKE-compatible collation. The typed query
+also checks the exact character prefix so both backends return the same
+case-sensitive IDs, including literal wildcard characters and Unicode. Receipt
+cutoffs, project isolation, and opaque cursor ordering remain unchanged.

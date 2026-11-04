@@ -306,3 +306,34 @@ fn reference_exchange_preserves_explicit_component_model_attribution() {
     let unknown = target.call("nexus_evals", json!({"action":"get","id":"b-unknown"}));
     assert!(unknown["record"]["source"]["recorded_at"].is_string());
 }
+
+#[test]
+fn eval_id_prefix_round_trips_through_cli_and_mcp() {
+    let mut harness = Harness::start();
+    let records = ["scope_%!/one", "Scope_%!/wrong-case", "scope_%!/two"].map(|id| {
+        let mut input = change();
+        input["id"] = json!(id);
+        input
+    });
+    harness.call("nexus_evals", json!({"action":"record","records":records}));
+    let first = success(harness.eval_cli(&[
+        "list",
+        "--kind",
+        "change",
+        "--id-prefix",
+        "scope_%!/",
+        "--limit",
+        "1",
+    ]));
+    assert_eq!(first["records"][0]["id"], "scope_%!/one");
+    let second = harness.call(
+        "nexus_evals",
+        json!({
+            "action":"list", "kind":"change", "id_prefix":"scope_%!/", "limit":1,
+            "after":first["next_cursor"]
+        }),
+    );
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(second["records"][0]["id"], "scope_%!/two");
+    assert!(second["next_cursor"].is_null());
+}

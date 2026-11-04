@@ -16,6 +16,10 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
 
+diesel::define_sql_function! {
+    fn substr(value: diesel::sql_types::Text, start: diesel::sql_types::Integer, count: diesel::sql_types::Integer) -> diesel::sql_types::Text;
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cursor {
@@ -138,6 +142,9 @@ impl PageSelection {
                 bail!("eval query filter exceeds 1024 bytes");
             }
         }
+        if let Some(prefix) = &query.id_prefix {
+            crate::evals::validation::identity("eval ID prefix", prefix)?;
+        }
         let cursor = query.after.as_deref().map(Cursor::decode).transpose()?;
         Ok(Self {
             limit: query.limit.unwrap_or(32).clamp(1, 64) as usize,
@@ -177,12 +184,17 @@ fn selection<'a>(
     if let Some(after) = &page.after {
         rows = rows.filter(eval_records::id.gt(after));
     }
+    if let Some(prefix) = &query.id_prefix {
+        rows = rows
+            .filter(
+                eval_records::id
+                    .like(format!("{}%", escape_like(prefix)))
+                    .escape('!'),
+            )
+            .filter(substr(eval_records::id, 1, prefix.chars().count() as i32).eq(prefix));
+    }
     if let Some(search) = &query.search {
-        let escaped = search
-            .to_lowercase()
-            .replace('!', "!!")
-            .replace('%', "!%")
-            .replace('_', "!_");
+        let escaped = escape_like(&search.to_lowercase());
         rows = rows.filter(
             eval_records::search_text
                 .like(format!("%{escaped}%"))
@@ -191,6 +203,13 @@ fn selection<'a>(
     }
     rows = with_dimension(rows, project, "repository", query.repository.as_deref());
     with_dimension(rows, project, "model", query.model.as_deref())
+}
+
+fn escape_like(value: &str) -> String {
+    value
+        .replace('!', "!!")
+        .replace('%', "!%")
+        .replace('_', "!_")
 }
 
 fn with_dimension<'a>(

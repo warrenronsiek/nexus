@@ -598,6 +598,8 @@ pub struct EvalQuery {
     pub kind: Option<EvalKind>,
     pub repository: Option<String>,
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_prefix: Option<String>,
     pub search: Option<String>,
     pub after: Option<String>,
     pub limit: Option<u32>,

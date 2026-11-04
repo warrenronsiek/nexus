@@ -19,12 +19,19 @@ Regrading adds another grade against the original output and a new grading defin
 ## Read history
 
 ```sh
+nexus eval list --kind case --id-prefix suite/revision/ --limit 32
 nexus eval list --kind case --search regression --limit 32
 nexus eval list --repository example-repository --model example-model
 nexus eval get case-tool-adoption-v1
 nexus eval why case-tool-adoption-v1
 nexus eval schema
 ```
+
+For record-ID navigation, prefer `--id-prefix` (MCP `id_prefix`) with the known
+namespace. It is literal and case-sensitive, accepts up to 512 UTF-8 bytes,
+and uses a prefix index. `%`, `_`, and `!` have no wildcard meaning. `--search`
+looks inside titles and encoded record bodies, so use it when text search is
+the intended operation rather than as a substitute for ID navigation.
 
 List pages are bounded. Follow the returned cursor with `--after` to continue; an ordinary first page is not a complete export. `why` follows a bounded evidence graph and discloses truncation. Read referenced records when the answer needs more context.
 

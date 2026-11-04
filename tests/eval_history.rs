@@ -357,3 +357,66 @@ fn model_generation(model: &str) -> Vec<EvalRecordInput> {
     records.push(record(&format!("run-{model}"),json!({"kind":"run","target_id":format!("target-{model}"),"suite_id":"suite","runner":"caller","runner_version":"1","state":"completed","selection_rule":"all"})));
     records
 }
+
+#[test]
+fn eval_id_prefix_is_literal_case_sensitive_and_paginated() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temp.path().join("prefix.db")).unwrap();
+    let ids = [
+        "Suite_%!/α",
+        "Suite_%!/β",
+        "suite_%!/other",
+        "Suite-xx/other",
+        "outside",
+    ];
+    let records = ids.iter().map(|id| change(id)).collect::<Vec<_>>();
+    store
+        .record_eval_bundle("prefix-project", &records, &actor())
+        .unwrap();
+    let mut query: EvalQuery =
+        serde_json::from_value(json!({"id_prefix":"Suite_%!/", "limit":1})).unwrap();
+    let first = store.list_eval_records("prefix-project", &query).unwrap();
+    assert_eq!(
+        first
+            .records
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![ids[0]]
+    );
+    query.after = first.next_cursor;
+    let second = store.list_eval_records("prefix-project", &query).unwrap();
+    assert_eq!(
+        second
+            .records
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![ids[1]]
+    );
+    assert!(second.next_cursor.is_none());
+    assert!(store
+        .list_eval_records("another-project", &query)
+        .unwrap()
+        .records
+        .is_empty());
+}
+
+#[test]
+fn eval_id_prefix_rejects_invalid_identity_bounds() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temp.path().join("prefix-validation.db")).unwrap();
+    for prefix in [
+        String::new(),
+        " ".into(),
+        "x".repeat(513),
+        "bad\nvalue".into(),
+    ] {
+        let query: EvalQuery = serde_json::from_value(json!({"id_prefix":prefix})).unwrap();
+        assert!(store
+            .list_eval_records("project", &query)
+            .unwrap_err()
+            .to_string()
+            .contains("eval ID prefix"));
+    }
+}

@@ -50,6 +50,13 @@ indexed links/dimensions through Diesel's typed DSL. `Store::list_eval_records`
 uses opaque ID cursors with a server receipt-time cutoff and bounded
 project/kind/repository/model/text filters. Later ingestion cannot enter an
 already-started traversal, including records with earlier occurrence times.
+`id_prefix` selects literal, case-sensitive record-ID prefixes (1–512 UTF-8
+bytes, nonblank and control-free). It composes with the existing filters and
+receipt-cutoff cursor. SQL wildcard characters remain literal. V18 supplies a
+backend-specific prefix index; a character-prefix equality check preserves exact
+case on SQLite as well as PostgreSQL. Use this filter to navigate a known record
+namespace without searching unrelated record bodies. `search` retains its
+case-normalized contains search over titles and encoded records.
 `Store::get_eval_record` returns the original typed body and provenance.
 `Store::why_eval_record` follows the recorded evidence graph with a bounded
 visited set, including incoming superseding explanations/decisions, regrading,

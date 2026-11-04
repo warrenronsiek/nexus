@@ -134,6 +134,10 @@ chunk reads. Runtime does not launch evaluations or graders. Reference-bundle
 export/import streams caller-owned history with declared external Git dependencies,
 checksums, source attribution, and idempotent incremental ingestion. See the
 [eval specification](evals.md).
+`nexus eval list --id-prefix` and MCP `list.id_prefix` select an exact record-ID
+namespace using the prefix access path. The optional field is omitted on the
+wire when unused, retaining the existing list request shape for older services.
+`--search` continues to select text in titles and recorded bodies.
 
 `src/runtime/client.rs` is the single companion transport selector used by CLI commands, generated hooks, stdio MCP, and analytics capture. Local requests retain Unix-socket behavior and lifecycle auto-start; remote requests post the same `WireRequest` to `/api/v1/request`, authenticate with a bearer secret, and include the configured project ID outside the feature payload. That envelope project supplies omitted read scopes, while an explicit project query remains available within the service-wide trust domain after the same 256-byte, control-free canonical validation; MCP schemas advertise that limit. Completed remote tool requests may also carry client-derived script/skill evidence; a private `client_reconcile` envelope carries periodic Git evidence. Remote connections have a three-second connect deadline, ordinary requests have a fifteen-second end-to-end deadline, and explicit analysis receives the configured analyst deadline plus a five-second transport margin. Every ordinary companion response is capped at 1 MiB, both by an immediate declared-length check and by bounded chunk collection. Explicit papercut, SOS, and code-concern `dump` actions are the only typed exceptions because their contracts are complete, untruncated registries; no lifecycle hook, routine read, reconciliation request, or other command can select unbounded response collection. Lifecycle hooks retain their stricter 2.5-second outer budget, fail open on timeout, and never fall back to local storage. `src/runtime/protocol.rs` owns that shared envelope.
 

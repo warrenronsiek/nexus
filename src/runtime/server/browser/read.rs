@@ -326,6 +326,7 @@ impl EvalRead {
                 kind: filter.kind,
                 repository: filter.repository,
                 model: filter.model,
+                id_prefix: filter.id_prefix,
                 search: filter.search,
                 after: filter.after,
                 limit: filter.limit,
