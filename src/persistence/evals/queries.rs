@@ -6,7 +6,7 @@
 // @entrypoint Store::why_eval_record
 use super::rows::RecordRow;
 use crate::evals::*;
-use crate::persistence::backend::DbBackend;
+use crate::persistence::backend::{escape_like, DbBackend, LIKE_ESCAPE};
 use crate::persistence::schema::{eval_dimensions, eval_links, eval_records};
 use crate::persistence::Store;
 use anyhow::{bail, Context, Result};
@@ -189,7 +189,7 @@ fn selection<'a>(
             .filter(
                 eval_records::id
                     .like(format!("{}%", escape_like(prefix)))
-                    .escape('!'),
+                    .escape(LIKE_ESCAPE),
             )
             .filter(substr(eval_records::id, 1, prefix.chars().count() as i32).eq(prefix));
     }
@@ -198,18 +198,11 @@ fn selection<'a>(
         rows = rows.filter(
             eval_records::search_text
                 .like(format!("%{escaped}%"))
-                .escape('!'),
+                .escape(LIKE_ESCAPE),
         );
     }
     rows = with_dimension(rows, project, "repository", query.repository.as_deref());
     with_dimension(rows, project, "model", query.model.as_deref())
-}
-
-fn escape_like(value: &str) -> String {
-    value
-        .replace('!', "!!")
-        .replace('%', "!%")
-        .replace('_', "!_")
 }
 
 fn with_dimension<'a>(

@@ -7,7 +7,7 @@ use super::{
     projection,
     rows::{ObservationRow, SubjectRow},
 };
-use crate::persistence::backend::{DbBackend, DbConnection};
+use crate::persistence::backend::{escape_like, DbBackend, DbConnection, LIKE_ESCAPE};
 use crate::persistence::schema::{work_observations, work_subjects};
 use crate::work_history::*;
 use anyhow::{bail, Result};
@@ -164,14 +164,11 @@ fn report_filters<'a>(
         rows = rows.filter(work_subjects::outcome.eq(text));
     }
     if let Some(value) = &query.search {
-        let escaped = value
-            .replace('!', "!!")
-            .replace('%', "!%")
-            .replace('_', "!_");
+        let escaped = escape_like(value);
         rows = rows.filter(
             work_subjects::title
                 .like(format!("%{escaped}%"))
-                .escape('!'),
+                .escape(LIKE_ESCAPE),
         );
     }
     rows

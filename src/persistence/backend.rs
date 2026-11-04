@@ -15,3 +15,12 @@ pub(crate) type DbConnection = diesel::pg::PgConnection;
 pub(crate) type DbBackend = diesel::sqlite::Sqlite;
 #[cfg(feature = "sqlite")]
 pub(crate) type DbConnection = diesel::sqlite::SqliteConnection;
+
+pub(crate) const LIKE_ESCAPE: char = '!';
+
+pub(crate) fn escape_like(value: &str) -> String {
+    value
+        .replace('!', "!!")
+        .replace('%', "!%")
+        .replace('_', "!_")
+}
