@@ -3,7 +3,7 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 17;
+const CURRENT_SCHEMA_VERSION: u64 = 18;
 
 #[path = "work_history_tests.rs"]
 mod work_history;
@@ -591,7 +591,7 @@ fn upgrades_v10_with_empty_activity_projections() {
 }
 
 #[derive(diesel::QueryableByName)]
-struct ProjectReceiptPlan {
+struct SqliteQueryPlan {
     #[diesel(sql_type = diesel::sql_types::Text)]
     detail: String,
 }
@@ -602,8 +602,25 @@ fn project_discovery_reads_covering_event_receipt_index() {
     let mut connection = DbConnection::establish(path.to_str().unwrap()).unwrap();
     // Mirror dashboard/projects.rs candidates!: Diesel does not expose typed EXPLAIN.
     let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT project_id, MAX(created_at) FROM events WHERE project_id IS NOT NULL GROUP BY project_id ORDER BY MAX(created_at) DESC, project_id ASC LIMIT 17")
-        .load::<ProjectReceiptPlan>(&mut connection).unwrap();
+        .load::<SqliteQueryPlan>(&mut connection).unwrap();
     assert!(plan.iter().any(|row| row.detail.contains("COVERING INDEX events_project_receipt")),
         "project picker must read a covering receipt index instead of historical event payloads: {:?}",
         plan.iter().map(|row| &row.detail).collect::<Vec<_>>());
+}
+
+#[test]
+fn eval_id_prefix_uses_indexed_range_instead_of_project_scan() {
+    let (_temp, path) = database_through("eval-prefix.db", 17);
+    assert_current_version(&path);
+    let mut connection = DbConnection::establish(path.to_str().unwrap()).unwrap();
+    // Match the list projection so covering-index cost does not describe another operation.
+    let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT * FROM eval_records WHERE project_id='project' AND recorded_at<='2030-01-01' AND id LIKE 'suite/%' ESCAPE '!' AND substr(id,1,6)='suite/' ORDER BY id LIMIT 65")
+        .load::<SqliteQueryPlan>(&mut connection).unwrap();
+    assert!(
+        plan.iter()
+            .any(|row| row.detail.contains("eval_records_id_prefix")
+                && row.detail.contains("id>? AND id<?")),
+        "ID prefix must select a bounded index range: {:?}",
+        plan.iter().map(|r| &r.detail).collect::<Vec<_>>()
+    );
 }

@@ -598,6 +598,7 @@ pub struct EvalQuery {
     pub kind: Option<EvalKind>,
     pub repository: Option<String>,
     pub model: Option<String>,
+    pub id_prefix: Option<String>,
     pub search: Option<String>,
     pub after: Option<String>,
     pub limit: Option<u32>,

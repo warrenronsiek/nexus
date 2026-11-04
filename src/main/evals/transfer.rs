@@ -181,6 +181,7 @@ async fn list_page(client: &EvalClient<'_>, after: Option<String>) -> Result<Eva
             kind: None::<EvalKind>,
             repository: None,
             model: None,
+            id_prefix: None,
             search: None,
             after,
             limit: Some(32),

@@ -69,6 +69,9 @@ pub(super) struct EvalListArgs {
     repository: Option<String>,
     #[arg(long)]
     model: Option<String>,
+    /// List records whose IDs start with this exact prefix.
+    #[arg(long)]
+    id_prefix: Option<String>,
     #[arg(long)]
     search: Option<String>,
     #[arg(long)]
@@ -176,6 +179,7 @@ fn request_action(command: EvalCliCommand) -> Result<EvalAction> {
                 .context("unknown eval kind")?,
             repository: args.repository,
             model: args.model,
+            id_prefix: args.id_prefix,
             search: args.search,
             after: args.after,
             limit: Some(args.limit),
