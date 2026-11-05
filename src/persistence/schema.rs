@@ -361,6 +361,15 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    projects (project_id) {
+        project_id -> Text,
+        display_name -> Nullable<Text>,
+        first_seen_at -> Text,
+        last_seen_at -> Text,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     advisories,
     capability_uses,
@@ -380,6 +389,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     papercut_review_attempts,
     papercut_upvotes,
     papercuts,
+    projects,
     sessions,
     sos_issue_lifecycle,
     sos_issues,

@@ -58,6 +58,7 @@ type alias Model =
     , globalProjectReads : Bool
     , projects : List Row
     , projectsPartial : Bool
+    , projectsError : Maybe String
     , projectDraft : String
     , data : State.Remote Document
     , polling : State.Remote Float
@@ -116,7 +117,7 @@ main =
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsPartial = False, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "", navigationOpen = False }
+    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsPartial = False, projectsError = Nothing, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "", navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -311,10 +312,10 @@ update msg model =
         Projects result ->
             case result |> Result.mapError httpError |> Result.andThen (Wire.decode "projects") of
                 Ok doc ->
-                    load (primary model.screen) { model | projects = doc.rows, projectsPartial = D.decodeValue (D.field "truncated" D.bool) doc.root |> Result.withDefault False, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id) }
+                    load (primary model.screen) { model | projectsError = Nothing, projects = doc.rows, projectsPartial = D.decodeValue (D.field "truncated" D.bool) doc.root |> Result.withDefault False, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id) }
 
                 Err reason ->
-                    ( { model | data = { value = Nothing, generation = model.data.generation + 1, error = Just reason, loading = False } }, Cmd.none )
+                    ( { model | projectsError = Just reason, data = { value = Nothing, generation = model.data.generation + 1, error = Just reason, loading = False } }, Cmd.none )
 
         ChangeProject project ->
             if project == "" && not model.globalProjectReads then
@@ -738,7 +739,7 @@ toolbar : Model -> Html Msg
 toolbar model =
     let
         current = Maybe.withDefault "" model.project
-        catalog = List.map (\row -> choice current row.id (if row.subtitle == "" then row.id else row.subtitle)) model.projects
+        catalog = List.map (\row -> choice current row.id (projectCaption row)) model.projects
         custom = if current /= "" && not (List.any (\row -> row.id == current) model.projects) then [ choice current current current ] else []
     in
     div []
@@ -747,13 +748,33 @@ toolbar model =
             , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
             ]
         , if model.globalProjectReads then text "" else div [ class "notice subtle" ] [ text "This remote viewer requires a project selection." ]
-        , if model.projectsPartial then
+        , if model.projectsPartial || model.projectsError /= Nothing then
             div [ class "notice subtle project-catalog" ]
-                [ p [] [ text "Project discovery is bounded. Enter a known project ID to inspect another project." ]
+                [ p [] [ text (projectCatalogNotice model.projectsError) ]
                 , form [ onSubmit (ChangeProject model.projectDraft) ] [ input [ name "project_id", attribute "aria-label" "Another project ID", value model.projectDraft, onInput ProjectDraft, placeholder "Project ID", attribute "required" "true" ] [], button [ type_ "submit", disabled (not model.globalProjectReads && String.isEmpty model.projectDraft) ] [ text "Use project" ] ]
                 ]
           else text ""
         ]
+
+
+projectCaption : Row -> String
+projectCaption row =
+    if row.title /= row.id then
+        row.title
+    else if row.subtitle /= "" then
+        row.subtitle
+    else
+        row.id
+
+
+projectCatalogNotice : Maybe String -> String
+projectCatalogNotice failure =
+    case failure of
+        Just reason ->
+            "The project list could not be loaded (" ++ reason ++ "). Enter a known project ID to inspect it."
+
+        Nothing ->
+            "Project discovery is bounded. Enter a known project ID to inspect another project."
 
 
 choice : String -> String -> String -> Html Msg

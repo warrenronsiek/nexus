@@ -39,6 +39,11 @@ tests =
                     |> Result.map (.bars >> List.map .detail >> String.join " ")
                     |> Result.map (String.startsWith "Unknown")
                     |> Expect.equal (Ok True)
+        , test "projects are titled by their reported repository name and fall back to the ID" <|
+            \_ ->
+                Wire.decode "projects" "{\"ok\":true,\"truncated\":false,\"projects\":[{\"project_id\":\"7c15a8fa\",\"display_name\":\"comms-platform\",\"worktrees\":[],\"agents\":[],\"last_seen_at\":\"2026-11-05T00:00:00Z\"},{\"project_id\":\"8a89aaef\",\"display_name\":null,\"worktrees\":[],\"agents\":[],\"last_seen_at\":\"2026-11-04T00:00:00Z\"}]}"
+                    |> Result.map (.rows >> List.map (\row -> ( row.id, row.title )))
+                    |> Expect.equal (Ok [ ( "7c15a8fa", "comms-platform" ), ( "8a89aaef", "8a89aaef" ) ])
         , test "metric literals retain precision while different definitions remain separate" <|
             \_ ->
                 Wire.decode "eval_dashboard" "{\"ok\":true,\"action\":\"dashboard\",\"groups\":[],\"series\":[{\"id\":\"v1\",\"label\":\"Latency\",\"unit\":\"seconds\",\"description\":\"Wall time\",\"calculation\":\"end minus start\",\"definition_id\":\"metric-1\",\"points\":[{\"record_id\":\"point\",\"run_id\":\"run\",\"occurred_at\":\"2026-11-01T00:00:00Z\",\"numeric_value\":9007199254740992,\"value\":{\"storage\":\"inline\",\"text\":\"9007199254740993.0000000001\"}}]},{\"id\":\"v2\",\"label\":\"Latency\",\"unit\":\"ms\",\"description\":\"Revised unit\",\"calculation\":\"milliseconds\",\"definition_id\":\"metric-2\",\"points\":[]}]}"

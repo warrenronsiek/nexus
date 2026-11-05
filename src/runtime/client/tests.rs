@@ -32,6 +32,7 @@ fn remote_client(
         client: ClientConfig::Remote(RemoteClientConfig {
             endpoint: format!("http://{address}"),
             project_id: "response-bound-project".into(),
+            project_name: None,
             secret_file: Some(secret_file),
         }),
         ..Config::default()
@@ -93,6 +94,7 @@ async fn silent_remote_peer_cannot_hold_an_ordinary_request_forever() {
         client: ClientConfig::Remote(RemoteClientConfig {
             endpoint: format!("http://{address}"),
             project_id: "timeout-project".into(),
+            project_name: None,
             secret_file: Some(secret_file),
         }),
         ..Config::default()

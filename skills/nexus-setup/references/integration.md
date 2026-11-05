@@ -31,6 +31,13 @@ nexus --config /absolute/path/to/client.toml setup
 
 `nexus daemon` intentionally refuses remote configuration. The stdio companion
 forwards to the configured service without creating local database authority.
+The project picker labels a project with its optional `project_name`. A
+repository's `.git/nexus.toml` binding defaults it to the repository name (shared
+by its linked worktrees); set `project_name` there to override it, or in the user
+configuration to label the fallback project that unbound directories use. A
+repository without its own binding reports into that fallback project, so bind
+each repository that should appear separately.
+
 Use a stable project binding for the same logical project across machines. A
 remote server does not treat a client's filesystem paths as readable server
 paths. Client-side Git/script/skill enrichment is performed by the companion

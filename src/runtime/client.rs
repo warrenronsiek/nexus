@@ -139,7 +139,7 @@ impl NexusClient {
             .map_err(|_| anyhow::anyhow!("invalid inspection project_id"))?;
         match &self.loaded.config.client {
             ClientConfig::Local => {
-                daemon::request_in_project(
+                daemon::inspect_in_project(
                     &self.loaded.config.runtime.socket_path,
                     request,
                     project_id,
@@ -148,7 +148,7 @@ impl NexusClient {
             }
             ClientConfig::Remote(remote) => {
                 let project_id = project_id.unwrap_or(remote.project_id.trim());
-                let wire = WireRequest::from_service(request, Some(project_id))?;
+                let wire = WireRequest::from_service(request, Some(project_id))?.inspecting();
                 self.send_remote(
                     remote,
                     &wire,
@@ -294,7 +294,8 @@ impl NexusClient {
     ) -> Result<Value> {
         let timeout = self.remote_request_timeout(request);
         let response_policy = RemoteResponsePolicy::for_request(request);
-        let mut wire = WireRequest::from_service(request, Some(remote.project_id.trim()))?;
+        let mut wire = WireRequest::from_service(request, Some(remote.project_id.trim()))?
+            .named(remote.project_name.as_deref());
         if let Some(plan) = ClientEvidencePlan::for_request(request) {
             wire.client_evidence = self
                 .evidence_capture

@@ -327,9 +327,9 @@ pub(super) async fn handle(
     service: Arc<NexusService>,
     model_work: &ModelWorkScheduler,
     request: ServiceRequest,
-    project_id: Option<String>,
+    binding: ProjectBinding,
 ) -> ServiceResponse {
-    handle_with_evidence(service, model_work, request, project_id, None, None).await
+    handle_with_evidence(service, model_work, request, binding, None, None).await
 }
 
 pub(super) async fn handle_bounded(
@@ -337,13 +337,13 @@ pub(super) async fn handle_bounded(
     model_work: &ModelWorkScheduler,
     execution_gate: &BlockingExecutionGate,
     request: ServiceRequest,
-    project_id: Option<String>,
+    binding: ProjectBinding,
 ) -> ServiceResponse {
     handle_with_evidence(
         service,
         model_work,
         request,
-        project_id,
+        binding,
         None,
         Some(execution_gate),
     )
@@ -355,14 +355,14 @@ pub(super) async fn handle_observed_bounded(
     model_work: &ModelWorkScheduler,
     execution_gate: &BlockingExecutionGate,
     request: ServiceRequest,
-    project_id: String,
+    binding: ProjectBinding,
     evidence: ClientFilesystemEvidence,
 ) -> ServiceResponse {
     handle_with_evidence(
         service,
         model_work,
         request,
-        Some(project_id),
+        binding,
         Some(evidence),
         Some(execution_gate),
     )
@@ -373,7 +373,7 @@ async fn handle_with_evidence(
     service: Arc<NexusService>,
     model_work: &ModelWorkScheduler,
     request: ServiceRequest,
-    project_id: Option<String>,
+    binding: ProjectBinding,
     client_evidence: Option<ClientFilesystemEvidence>,
     execution_gate: Option<&BlockingExecutionGate>,
 ) -> ServiceResponse {
@@ -383,7 +383,7 @@ async fn handle_with_evidence(
     let (response, work) = dispatch_request(
         service.clone(),
         request,
-        project_id,
+        binding,
         client_evidence,
         execution_gate,
     )
@@ -417,48 +417,38 @@ fn start_memory_consolidation(service: Arc<NexusService>) -> ServiceResponse {
 async fn dispatch_request(
     service: Arc<NexusService>,
     request: ServiceRequest,
-    project_id: Option<String>,
+    binding: ProjectBinding,
     client_evidence: Option<ClientFilesystemEvidence>,
     execution_gate: Option<&BlockingExecutionGate>,
 ) -> (ServiceResponse, Option<ModelWorkJob>) {
     match request {
         ServiceRequest::Papercuts(command) => {
-            dispatch_model_work(project_id, execution_gate, move |binding| {
+            dispatch_model_work(binding, execution_gate, move |binding| {
                 service.dispatch_papercuts(command, &binding)
             })
             .await
         }
         ServiceRequest::Sos(command) => {
-            dispatch_model_work(project_id, execution_gate, move |binding| {
+            dispatch_model_work(binding, execution_gate, move |binding| {
                 service.dispatch_sos(command, &binding)
             })
             .await
         }
         request => (
-            dispatch_regular(
-                service,
-                request,
-                project_id,
-                client_evidence,
-                execution_gate,
-            )
-            .await,
+            dispatch_regular(service, request, binding, client_evidence, execution_gate).await,
             None,
         ),
     }
 }
 
 async fn dispatch_model_work<T>(
-    project_id: Option<String>,
+    binding: ProjectBinding,
     execution_gate: Option<&BlockingExecutionGate>,
     work: impl FnOnce(ProjectBinding) -> T + Send + 'static,
 ) -> (ServiceResponse, Option<ModelWorkJob>)
 where
     T: CompletedModelDispatch + Send + 'static,
 {
-    let binding = project_id
-        .map(|project_id| ProjectBinding::Remote { project_id })
-        .unwrap_or(ProjectBinding::Local);
     match run_blocking(execution_gate, move || work(binding)).await {
         Ok(completed) => completed.into_parts(),
         Err(error) => (ServiceResponse::error(error), None),
@@ -468,19 +458,13 @@ where
 async fn dispatch_regular(
     service: Arc<NexusService>,
     request: ServiceRequest,
-    project_id: Option<String>,
+    binding: ProjectBinding,
     client_evidence: Option<ClientFilesystemEvidence>,
     execution_gate: Option<&BlockingExecutionGate>,
 ) -> ServiceResponse {
-    run_blocking(execution_gate, move || {
-        match (project_id, client_evidence) {
-            (Some(project_id), Some(evidence)) => {
-                service.handle_remote_observed(project_id, request, evidence)
-            }
-            (Some(project_id), None) => service.handle_remote(project_id, request),
-            (None, None) => service.handle(request),
-            (None, Some(_)) => unreachable!("local requests cannot carry client evidence"),
-        }
+    run_blocking(execution_gate, move || match client_evidence {
+        Some(evidence) => service.handle_remote_observed(binding, request, evidence),
+        None => service.handle_in(binding, request),
     })
     .await
     .unwrap_or_else(ServiceResponse::error)

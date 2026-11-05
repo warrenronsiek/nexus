@@ -7,7 +7,7 @@
 use super::NexusService;
 use crate::coordination::api::ServiceResponse;
 use crate::coordination::domain::HookContext;
-use crate::coordination::workspace::{self, ProjectBinding};
+use crate::coordination::workspace::ProjectBinding;
 use anyhow::Result;
 
 pub(super) struct BackgroundWorkResult<Response, Job> {
@@ -115,7 +115,11 @@ pub(super) fn dump_registry<Dump: RegistryDump>(
     let project_id = if scope.all_projects() {
         None
     } else {
-        Some(workspace::identify(binding, context.project_root.as_deref())?.id)
+        Some(
+            service
+                .resolve_project(binding, context.project_root.as_deref())?
+                .id,
+        )
     };
     let registry = Dump::load(service, project_id.as_deref())?;
     Ok(Dump::response(registry))

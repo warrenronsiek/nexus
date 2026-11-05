@@ -4,7 +4,7 @@
 use super::{NexusService, TrackedStoreGuard};
 use crate::coordination::{
     api::{list_query, EvalAction, EvalCommand, EvalResponse, ServiceResponse},
-    workspace::{self, ProjectBinding},
+    workspace::ProjectBinding,
 };
 use crate::evals::{EvalBlob, EvalProvenance};
 use crate::persistence::Store;
@@ -28,7 +28,7 @@ impl NexusService {
         command: EvalCommand,
         binding: &ProjectBinding,
     ) -> Result<EvalResponse> {
-        let project = workspace::identify(binding, command.context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, command.context.project_root.as_deref())?;
         let project_id = eval_read_project(&command.command)?.unwrap_or(project.id);
         let actor = EvalProvenance {
             agent: command.context.agent,

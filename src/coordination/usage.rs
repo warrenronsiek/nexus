@@ -8,7 +8,7 @@ use super::domain::{
 };
 use super::service::NexusService;
 use super::usage_detection::detect_script_invocations;
-use super::workspace::{self, ProjectBinding, ProjectIdentity};
+use super::workspace::{ProjectBinding, ProjectIdentity};
 use crate::persistence::{
     CapabilityEvidence, CapabilityKind, CapabilityObservation, CapabilityOutcome, CapabilitySource,
     Store,
@@ -313,7 +313,7 @@ impl NexusService {
         binding: &ProjectBinding,
     ) -> Result<HookResponse> {
         let context = input.context();
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
         self.touch_usage_session(&mut store, &project, context)?;
         let (observation, outcome) = input.into_observation(&self.usage, project.id);

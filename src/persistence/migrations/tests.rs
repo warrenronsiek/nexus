@@ -3,13 +3,16 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 18;
+const CURRENT_SCHEMA_VERSION: u64 = 19;
 
 #[path = "work_history_tests.rs"]
 mod work_history;
 
 #[path = "code_concerns_tests.rs"]
 mod code_concerns;
+
+#[path = "project_catalog_tests.rs"]
+mod project_catalog;
 
 struct ThroughVersion(u64);
 
@@ -597,15 +600,18 @@ struct SqliteQueryPlan {
 }
 
 #[test]
-fn project_discovery_reads_covering_event_receipt_index() {
-    let (_temp, path) = database_through("project-receipts.db", CURRENT_SCHEMA_VERSION);
+fn project_discovery_reads_the_catalog_recency_index() {
+    let (_temp, path) = database_through("project-catalog.db", CURRENT_SCHEMA_VERSION);
     let mut connection = DbConnection::establish(path.to_str().unwrap()).unwrap();
-    // Mirror dashboard/projects.rs candidates!: Diesel does not expose typed EXPLAIN.
-    let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT project_id, MAX(created_at) FROM events WHERE project_id IS NOT NULL GROUP BY project_id ORDER BY MAX(created_at) DESC, project_id ASC LIMIT 17")
+    // Mirror dashboard/projects.rs recent_projects: Diesel does not expose typed EXPLAIN.
+    let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT project_id, display_name, last_seen_at FROM projects ORDER BY last_seen_at DESC, project_id ASC LIMIT 17")
         .load::<SqliteQueryPlan>(&mut connection).unwrap();
-    assert!(plan.iter().any(|row| row.detail.contains("COVERING INDEX events_project_receipt")),
-        "project picker must read a covering receipt index instead of historical event payloads: {:?}",
-        plan.iter().map(|row| &row.detail).collect::<Vec<_>>());
+    assert!(
+        plan.iter()
+            .any(|row| row.detail.contains("projects_recent")),
+        "project picker must read the catalog recency index: {:?}",
+        plan.iter().map(|row| &row.detail).collect::<Vec<_>>()
+    );
 }
 
 #[test]

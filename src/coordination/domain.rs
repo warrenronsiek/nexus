@@ -443,6 +443,8 @@ pub(crate) fn truncate_utf8(mut value: String, maximum_bytes: usize) -> String {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectSummary {
     pub project_id: String,
+    /// Client-reported repository label; absent until a client reports one.
+    pub display_name: Option<String>,
     pub worktrees: Vec<String>,
     pub agents: Vec<String>,
     pub last_seen_at: DateTime<Utc>,

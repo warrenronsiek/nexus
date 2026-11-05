@@ -9,7 +9,8 @@
       "agents": [
         "codex"
       ],
-      "last_seen_at": "2026-11-01T00:00:00Z"
+      "last_seen_at": "2026-11-01T00:00:00Z",
+      "display_name": "fixture-repository"
     }
   ],
   "truncated": true

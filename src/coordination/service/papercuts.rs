@@ -15,7 +15,6 @@ use crate::coordination::api::{
     PapercutCommand, PapercutDumpScope, PapercutResponse, ServiceResponse,
 };
 use crate::coordination::domain::HookContext;
-use crate::coordination::workspace;
 use crate::coordination::workspace::ProjectBinding;
 use crate::papercuts::{
     PapercutActor, PapercutRegistry, PapercutReviewAttemptOutcome, PapercutReviewDecision,
@@ -117,7 +116,10 @@ impl NexusService {
     ) -> Result<PapercutResponse> {
         let project_id = match project_id {
             Some(id) => id,
-            None => workspace::identify(binding, context.project_root.as_deref())?.id,
+            None => {
+                self.resolve_project(binding, context.project_root.as_deref())?
+                    .id
+            }
         };
         let window = self
             .papercut_store()?
@@ -136,7 +138,7 @@ impl NexusService {
         description: String,
         binding: &ProjectBinding,
     ) -> Result<PapercutResult> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let result =
             self.papercut_store()?
@@ -166,7 +168,7 @@ impl NexusService {
         note: Option<String>,
         binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let (papercut, upvote) = self.papercut_store()?.upvote_papercut(
             &project.id,
@@ -188,7 +190,7 @@ impl NexusService {
         resolution: String,
         binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let papercut = self.papercut_store()?.remove_papercut(
             &project.id,

@@ -5,6 +5,7 @@
 // @boundary typed-fixture-json: valid caller-owned records create projects without coordination hosts.
 use super::*;
 use crate::evals::{EvalProvenance, EvalRecordInput};
+use crate::persistence::schema::projects;
 use crate::work_history::{WorkAction, WorkActor, WorkObservationInput};
 use serde_json::json;
 
@@ -45,10 +46,11 @@ fn seed_eval(store: &mut Store, project: &str) {
 }
 
 #[test]
-fn project_discovery_includes_work_and_evals_without_coordination_sessions() {
+fn catalog_rebuild_includes_work_and_evals_without_coordination_sessions() {
     let mut store = Store::open_memory().unwrap();
     seed_work(&mut store, "work-only");
     seed_eval(&mut store, "eval-only");
+    rebuild_project_catalog(&mut store.connection).unwrap();
     let window = store.list_projects_window().unwrap();
     let ids: std::collections::BTreeSet<_> = window
         .items
@@ -124,7 +126,7 @@ fn seed_usage_project(store: &mut Store) {
 }
 
 #[test]
-fn project_discovery_includes_reporting_memory_and_inventory_without_host_sessions() {
+fn catalog_rebuild_includes_reporting_memory_and_inventory_without_host_sessions() {
     let mut store = Store::open_memory().unwrap();
     seed_reporting_projects(&mut store);
     seed_usage_project(&mut store);
@@ -142,6 +144,7 @@ fn project_discovery_includes_reporting_memory_and_inventory_without_host_sessio
             &actor(),
         )
         .unwrap();
+    rebuild_project_catalog(&mut store.connection).unwrap();
     let window = store.list_projects_window().unwrap();
     let ids: std::collections::BTreeSet<_> = window
         .items
@@ -163,7 +166,7 @@ fn project_discovery_includes_reporting_memory_and_inventory_without_host_sessio
 }
 
 #[test]
-fn project_discovery_merges_duplicate_sources_before_recency_order_and_limit() {
+fn catalog_rebuild_merges_duplicate_sources_before_recency_order_and_limit() {
     let mut store = Store::open_memory().unwrap();
     for index in 0..18 {
         let project = format!("project-{index:02}");
@@ -185,6 +188,7 @@ fn project_discovery_merges_duplicate_sources_before_recency_order_and_limit() {
         .set(sessions::last_seen_at.eq("2026-11-02T12:00:00+00:00"))
         .execute(&mut store.connection)
         .unwrap();
+    rebuild_project_catalog(&mut store.connection).unwrap();
     let window = store.list_projects_window().unwrap();
     assert!(window.truncated);
     assert_eq!(window.items.len(), 16);
@@ -210,4 +214,33 @@ fn set_receipt_times(store: &mut Store, project: &str, timestamp: &str) {
         .set(eval_records::recorded_at.eq(timestamp))
         .execute(&mut store.connection)
         .unwrap();
+}
+
+#[test]
+fn recorded_activity_orders_projects_and_keeps_their_first_sighting() {
+    let mut store = Store::open_memory().unwrap();
+    let at = |second: u32| {
+        chrono::DateTime::parse_from_rfc3339(&format!("2026-11-05T12:00:{second:02}Z"))
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    };
+    store
+        .record_project_activity("older", Some("older-repo"), at(1))
+        .unwrap();
+    store.record_project_activity("newer", None, at(2)).unwrap();
+    store.record_project_activity("older", None, at(3)).unwrap();
+
+    let window = store.list_projects_window().unwrap();
+    let listed: Vec<_> = window
+        .items
+        .iter()
+        .map(|project| (project.project_id.as_str(), project.display_name.as_deref()))
+        .collect();
+    assert_eq!(listed, [("older", Some("older-repo")), ("newer", None)]);
+    let first_seen = projects::table
+        .filter(projects::project_id.eq("older"))
+        .select(projects::first_seen_at)
+        .first::<String>(&mut store.connection)
+        .unwrap();
+    assert_eq!(first_seen, at(1).to_rfc3339());
 }

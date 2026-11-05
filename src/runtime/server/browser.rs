@@ -15,6 +15,7 @@ mod tests;
 
 use crate::config::LoadedConfig;
 use crate::coordination::api::ServiceRequest;
+use crate::coordination::ProjectBinding;
 use crate::runtime::{client::NexusClient, dispatch};
 use crate::NexusService;
 use anyhow::Result;
@@ -63,9 +64,13 @@ impl ReadDispatcher {
             Self::Service { service, gate } => {
                 let service = service.clone();
                 let response = gate
-                    .run(move || match project {
-                        Some(project) => service.handle_remote(project, request),
-                        None => service.handle(request),
+                    .run(move || {
+                        service.handle_in(
+                            ProjectBinding::Inspect {
+                                project_id: project,
+                            },
+                            request,
+                        )
                     })
                     .await
                     .map_err(|_| anyhow::anyhow!("browser read capacity unavailable"))?;
