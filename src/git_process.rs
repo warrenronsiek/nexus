@@ -52,6 +52,18 @@ fn common_directory_with_git(
     }))
 }
 
+/// Names the repository that owns a Git common directory, so linked worktrees share it.
+pub(crate) fn repository_name(common: &Path) -> Option<String> {
+    let common = std::fs::canonicalize(common).unwrap_or_else(|_| common.to_path_buf());
+    let name = common.file_name()?.to_str()?;
+    let name = if name == ".git" {
+        common.parent()?.file_name()?.to_str()?
+    } else {
+        name.strip_suffix(".git").unwrap_or(name)
+    };
+    crate::config::canonical_project_name(name)
+}
+
 pub(crate) fn bounded_output(
     mut command: Command,
     timeout: Duration,

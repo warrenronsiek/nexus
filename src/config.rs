@@ -13,7 +13,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 mod project;
-use project::project_config_path;
+pub(crate) use project::canonical_project_name;
+use project::{drop_local_project_name, name_repository_binding, project_config_path};
 
 const MAX_CONFIG_FILE_BYTES: usize = 1024 * 1024;
 const MAX_CONFIGURED_DURATION_SECONDS: u64 = 365 * 24 * 60 * 60;
@@ -69,6 +70,9 @@ pub enum ClientConfig {
 pub struct RemoteClientConfig {
     pub endpoint: String,
     pub project_id: String,
+    /// Human label for `project_id`; a repository binding defaults it to the repository name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
     #[serde(default)]
     pub secret_file: Option<PathBuf>,
 }
@@ -343,13 +347,15 @@ impl Config {
         if let Some(root) = project_root {
             if let Some(path) = project_config_path(root) {
                 if path.exists() && !sources.contains(&path) {
-                    merge_file(&mut value, &path)?;
+                    let overlay = merge_file(&mut value, &path)?;
+                    name_repository_binding(&mut value, &overlay, &path);
                     sources.push(path);
                 }
             }
         }
 
         apply_env(&mut value)?;
+        drop_local_project_name(&mut value);
         let config: Config = value.try_into().context("invalid Nexus configuration")?;
         config.validate()?;
         let encoded = toml::to_string(&config)?;
@@ -508,12 +514,12 @@ fn default_state_dir() -> PathBuf {
         .join("nexus")
 }
 
-fn merge_file(base: &mut toml::Value, path: &Path) -> Result<()> {
+fn merge_file(base: &mut toml::Value, path: &Path) -> Result<toml::Value> {
     let contents = read_config_file(path)?;
     let overlay: toml::Value =
         toml::from_str(&contents).with_context(|| format!("parse {}", path.display()))?;
-    merge(base, overlay);
-    Ok(())
+    merge(base, overlay.clone());
+    Ok(overlay)
 }
 
 fn read_config_file(path: &Path) -> Result<String> {
@@ -602,6 +608,9 @@ fn apply_client_env(root: &mut toml::map::Map<String, toml::Value>) -> Result<()
         .as_table_mut()
         .context("client configuration must be a table")?;
     client.insert("transport".into(), toml::Value::String("remote".into()));
+    if project_id.is_some() {
+        client.remove("project_name");
+    }
     for (name, value) in [
         ("endpoint", endpoint),
         ("project_id", project_id),

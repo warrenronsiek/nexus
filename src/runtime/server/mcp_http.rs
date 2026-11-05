@@ -3,6 +3,7 @@
 // @boundary authenticated-json-rpc
 use super::{canonical_project_id, RemoteDispatcher, ServerState};
 use crate::coordination::api::ServiceRequest;
+use crate::coordination::ProjectBinding;
 use crate::runtime::mcp;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -126,7 +127,10 @@ async fn initialize_session(
         .cloned()
         .expect("initialize id was validated");
     let invoker = DirectInvoker {
-        dispatcher: RemoteDispatcher::new(state, session.project_id.clone()),
+        dispatcher: RemoteDispatcher::new(
+            state,
+            ProjectBinding::remote(session.project_id.clone(), None),
+        ),
     };
     let response = mcp::respond(&invoker, &context, id, request.value).await;
     state.mcp_sessions.insert(session_id.clone(), session)?;
@@ -180,7 +184,7 @@ async fn dispatch_initialized_request(
         .cloned()
         .expect("request id checked");
     let invoker = DirectInvoker {
-        dispatcher: RemoteDispatcher::new(state, session.project_id),
+        dispatcher: RemoteDispatcher::new(state, ProjectBinding::remote(session.project_id, None)),
     };
     let response = mcp::respond(&invoker, &context, id, request.value).await;
     Ok(mcp_response(StatusCode::OK, Some(response), session_id))

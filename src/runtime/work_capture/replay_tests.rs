@@ -202,6 +202,7 @@ fn replay_client(temp: &Path, address: std::net::SocketAddr) -> NexusClient {
     config.client = ClientConfig::Remote(crate::config::RemoteClientConfig {
         endpoint: format!("http://{address}"),
         project_id: "project".into(),
+        project_name: None,
         secret_file: Some(secret),
     });
     NexusClient::without_analytics(

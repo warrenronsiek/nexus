@@ -13,7 +13,7 @@ use crate::agents::model::{is_timeout, provider_name};
 use crate::agents::sos::{self, SosTriageResult};
 use crate::coordination::api::{ServiceResponse, SosCommand, SosDumpScope, SosResponse};
 use crate::coordination::domain::HookContext;
-use crate::coordination::workspace::{self, ProjectBinding};
+use crate::coordination::workspace::ProjectBinding;
 use crate::persistence::{SosTriageApply, SosTriageFailure, Store};
 use crate::sos::{SosActor, SosIssue, SosRegistry, SosReportDraft};
 use anyhow::{Context, Result};
@@ -133,7 +133,7 @@ impl NexusService {
         mut draft: SosReportDraft,
         binding: &ProjectBinding,
     ) -> Result<SosResult> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         draft.model = context.model.clone().context("SOS reports require model")?;
         let actor = self.sos_actor(context);
         let report = self
@@ -155,7 +155,7 @@ impl NexusService {
     }
 
     fn list_sos(&self, context: HookContext, binding: &ProjectBinding) -> Result<SosResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let window = self.sos_store()?.open_sos_issues_window(&project.id)?;
         Ok(SosResponse::Listed {
             ok: true,
@@ -171,7 +171,7 @@ impl NexusService {
         issue_id: String,
         binding: &ProjectBinding,
     ) -> Result<SosResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let detail = self.sos_store()?.sos_issue_detail(&project.id, &issue_id)?;
         Ok(SosResponse::Detailed { ok: true, detail })
     }
@@ -183,7 +183,7 @@ impl NexusService {
         closure: SosClosure,
         binding: &ProjectBinding,
     ) -> Result<SosResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.sos_actor(context);
         let mut store = self.sos_store()?;
         let issue = closure.apply(&mut store, &project.id, &issue_id, &actor)?;

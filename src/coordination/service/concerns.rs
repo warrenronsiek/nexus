@@ -5,7 +5,7 @@ use super::NexusService;
 use crate::code_concerns::{ConcernActor, ConcernRejection};
 use crate::coordination::{
     api::{ConcernCommand, ConcernEnvelope, ConcernErrorEnvelope, ServiceResponse},
-    workspace::{self, ProjectBinding},
+    workspace::ProjectBinding,
 };
 use anyhow::{Context, Result};
 

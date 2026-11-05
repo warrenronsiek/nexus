@@ -22,7 +22,7 @@ use crate::agents::model;
 use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::client_evidence::ClientFilesystemEvidence;
 use crate::coordination::domain::HookResponse;
-use crate::coordination::NexusService;
+use crate::coordination::{NexusService, ProjectBinding};
 use anyhow::{Context, Result};
 use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::{Request, State};
@@ -78,16 +78,16 @@ struct RemoteDispatcher {
     service: Arc<NexusService>,
     model_work: dispatch::ModelWorkScheduler,
     blocking_execution: dispatch::BlockingExecutionGate,
-    project_id: String,
+    binding: ProjectBinding,
 }
 
 impl RemoteDispatcher {
-    fn new(state: &ServerState, project_id: String) -> Self {
+    fn new(state: &ServerState, binding: ProjectBinding) -> Self {
         Self {
             service: state.service.clone(),
             model_work: state.model_work.clone(),
             blocking_execution: state.blocking_execution.clone(),
-            project_id,
+            binding,
         }
     }
 
@@ -105,7 +105,7 @@ impl RemoteDispatcher {
                         &self.model_work,
                         &self.blocking_execution,
                         request,
-                        self.project_id,
+                        self.binding,
                         evidence,
                     )
                     .await
@@ -116,7 +116,7 @@ impl RemoteDispatcher {
                         &self.model_work,
                         &self.blocking_execution,
                         request,
-                        Some(self.project_id),
+                        self.binding,
                     )
                     .await
                 }
@@ -302,15 +302,16 @@ async fn api_request(State(state): State<Arc<ServerState>>, body: Bytes) -> Resp
         Ok(request) => request,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid request").into_response(),
     };
+    let Some(project_id) = wire.project_id.as_deref().and_then(canonical_project_id) else {
+        return (StatusCode::BAD_REQUEST, "project_id is required").into_response();
+    };
+    let binding = wire.binding(Some(project_id.clone()));
     let WireRequest {
         method,
         params,
-        project_id,
         client_evidence,
+        ..
     } = wire;
-    let Some(project_id) = project_id.as_deref().and_then(canonical_project_id) else {
-        return (StatusCode::BAD_REQUEST, "project_id is required").into_response();
-    };
     if method == "client_reconcile" {
         return reconcile_client_evidence(
             state.service.clone(),
@@ -320,7 +321,7 @@ async fn api_request(State(state): State<Arc<ServerState>>, body: Bytes) -> Resp
         )
         .await;
     }
-    match RemoteDispatcher::new(&state, project_id)
+    match RemoteDispatcher::new(&state, binding)
         .dispatch_wire(method, params, client_evidence)
         .await
     {
@@ -375,7 +376,7 @@ async fn api_sos(
         Ok(request) => request,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid SOS report").into_response(),
     };
-    let response = RemoteDispatcher::new(&state, project_id)
+    let response = RemoteDispatcher::new(&state, ProjectBinding::remote(project_id, None))
         .dispatch(request, None, false)
         .await;
     match response {

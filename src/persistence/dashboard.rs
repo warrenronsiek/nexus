@@ -17,6 +17,7 @@ use diesel::prelude::*;
 #[cfg(all(test, feature = "sqlite"))]
 mod project_tests;
 mod projects;
+pub(super) use projects::rebuild_catalog as rebuild_project_catalog;
 
 #[cfg(all(test, feature = "postgres"))]
 mod tests;
@@ -30,7 +31,12 @@ impl Store {
         let project_window = projects::recent_projects(&mut self.connection)?;
         let mut truncated = project_window.truncated;
         let mut projects = Vec::with_capacity(project_window.items.len());
-        for (project_id, last_seen_at) in project_window.items {
+        for projects::RecentProject {
+            project_id,
+            display_name,
+            last_seen_at,
+        } in project_window.items
+        {
             let rows = sessions::table
                 .filter(sessions::project_id.eq(&project_id))
                 .order((sessions::last_seen_at.desc(), sessions::session_id.asc()))
@@ -56,6 +62,7 @@ impl Store {
             }
             projects.push(ProjectSummary {
                 project_id,
+                display_name,
                 worktrees,
                 agents,
                 last_seen_at,

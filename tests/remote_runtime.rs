@@ -607,3 +607,48 @@ async fn remote_stdio_companion_reconciles_only_real_lifecycle_sessions() {
 
 #[path = "remote_runtime/cross_checkout.rs"]
 mod cross_checkout;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remote_clients_name_their_project_and_inspection_does_not_register_one() {
+    let service = RunningService::start(Vec::new()).await;
+    let mut loaded = service.client_config("named-project", 3600);
+    if let nexus::config::ClientConfig::Remote(remote) = &mut loaded.config.client {
+        remote.project_name = Some("comms-platform".into());
+    }
+    let client = NexusClient::new(&loaded, None);
+    let note = ServiceRequest::decode(
+        "memory_add",
+        json!({"scope":"project","content":"A durable note","session_id":"s","agent":"codex","model":"gpt-test"}),
+    )
+    .unwrap();
+    assert_eq!(client.request(&note).await.unwrap()["ok"], true);
+
+    let inspection = json!({
+        "method":"memory_status","params":{},"project_id":"browsed-project","inspection":true
+    });
+    let inspected = reqwest::Client::new()
+        .post(service.endpoint("/api/v1/request"))
+        .bearer_auth(TEST_SECRET)
+        .json(&inspection)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(inspected.status(), reqwest::StatusCode::OK);
+
+    let projects = client.request(&ServiceRequest::Projects).await.unwrap();
+    let listed: Vec<(String, Value)> = projects["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|project| {
+            (
+                project["project_id"].as_str().unwrap().to_owned(),
+                project["display_name"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [("named-project".to_owned(), json!("comms-platform"))]
+    );
+}

@@ -34,7 +34,7 @@ macro_rules! history_service_adapter {
             }
             fn $apply(&self, command: $command, binding: &ProjectBinding) -> Result<$envelope> {
                 let project =
-                    workspace::identify(binding, command.context.project_root.as_deref())?;
+                    self.resolve_project(binding, command.context.project_root.as_deref())?;
                 let project_id = command
                     .command
                     .read_project()

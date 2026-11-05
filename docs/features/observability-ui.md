@@ -200,12 +200,20 @@ children, omissions, pending work, provider health, and activation metadata.
 Source text is historical evidence. The browser offers no add, invalidate, or
 consolidate operation, including through its read API.
 
-Project discovery includes projects that have only work, eval, reporting, memory,
-or usage history and no coordination session. Each typed source query contributes
-at most 17 recent project candidates; the merged catalog keeps the 16 most recent
-IDs and reports truncation. Coordination worktree/agent labels remain available
-where observed; global memory does not invent a project namespace. A truncated
-catalog is labeled and permits selecting a known project ID explicitly.
+Project discovery reads the persisted project catalog, which records the project
+whenever an agent request (lifecycle hook, command, or agent read) resolves it, so
+projects that have only work, eval, reporting, memory, or usage history appear
+without a coordination session. Recording is throttled to once per minute per
+project, never waits beyond the lifecycle store budget, and fails open. Browser
+inspection uses a non-recording binding, so viewing a project never makes it look
+recently active. The 16 most recent projects are returned with truncation.
+
+Each project carries an optional `display_name` reported by its client: a
+repository binding names its project after the repository (the parent of the Git
+common directory, so linked worktrees share it), and local transport derives the
+same name. The picker shows that name, then observed worktrees, then the opaque
+ID. Global memory does not invent a project namespace. A truncated or failed
+catalog read is labeled and permits selecting a known project ID explicitly.
 
 ## Implementation and validation
 
@@ -235,6 +243,3 @@ must prove that the served assets and authenticated reads share its service
 image. Retained Pi tests cover headless capture, inventory, memory activation,
 and bounded MCP lifecycle; installation tests cover their full import closure
 and removal of known retired UI files while preserving unrelated extensions.
-
-Project discovery uses the V17 covering event receipt index so the per-project
-latest-event aggregate does not read historical payloads.

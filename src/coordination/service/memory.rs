@@ -13,7 +13,6 @@ use crate::coordination::api::{
     MemorySummaryQuery, MemoryWriteResponse, ServiceResponse,
 };
 use crate::coordination::domain::ToolHookInput;
-use crate::coordination::workspace;
 use crate::coordination::workspace::ProjectBinding;
 use crate::memory::{
     MemoryCompactionAttempt, MemoryCompactionJob, MemoryCompactionOutcome, MemoryContextLimits,
@@ -75,7 +74,8 @@ impl NexusService {
             let scope = match command.scope {
                 MemoryScopeArg::Global => MemoryScope::Global,
                 MemoryScopeArg::Project => MemoryScope::project(
-                    workspace::identify(binding, command.context.project_root.as_deref())?.id,
+                    self.resolve_project(binding, command.context.project_root.as_deref())?
+                        .id,
                 ),
             };
             let provenance = MemoryProvenance {
@@ -101,7 +101,8 @@ impl NexusService {
         binding: &ProjectBinding,
     ) -> ServiceResponse {
         let result = (|| -> Result<_> {
-            let scope = memory_read_scope(binding, query.scope, query.project_root.as_deref())?;
+            let scope =
+                memory_read_scope(self, binding, query.scope, query.project_root.as_deref())?;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -121,7 +122,8 @@ impl NexusService {
         binding: &ProjectBinding,
     ) -> ServiceResponse {
         let result = (|| -> Result<_> {
-            let scope = memory_read_scope(binding, query.scope, query.project_root.as_deref())?;
+            let scope =
+                memory_read_scope(self, binding, query.scope, query.project_root.as_deref())?;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -169,7 +171,7 @@ impl NexusService {
             MemoryInspection::Context { project_id, scope } => {
                 let result = (|| -> Result<_> {
                     let binding = inspection_binding(project_id, scope)?;
-                    let scope = memory_read_scope(&binding, scope, None)?;
+                    let scope = memory_read_scope(self, &binding, scope, None)?;
                     self.store
                         .lock()
                         .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -220,7 +222,9 @@ impl NexusService {
         binding: &ProjectBinding,
     ) -> ServiceResponse {
         let result = (|| -> Result<_> {
-            let project_id = workspace::identify(binding, query.project_root.as_deref())?.id;
+            let project_id = self
+                .resolve_project(binding, query.project_root.as_deref())?
+                .id;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -529,6 +533,7 @@ fn other_provider(provider: ModelProvider) -> ModelProvider {
 }
 
 fn memory_read_scope(
+    service: &NexusService,
     binding: &ProjectBinding,
     scope: MemoryReadScopeArg,
     project_root: Option<&str>,
@@ -536,10 +541,10 @@ fn memory_read_scope(
     Ok(match scope {
         MemoryReadScopeArg::Global => MemoryReadScope::Global,
         MemoryReadScopeArg::Project => {
-            MemoryReadScope::project(workspace::identify(binding, project_root)?.id)
+            MemoryReadScope::project(service.resolve_project(binding, project_root)?.id)
         }
         MemoryReadScopeArg::Layered => {
-            MemoryReadScope::layered(workspace::identify(binding, project_root)?.id)
+            MemoryReadScope::layered(service.resolve_project(binding, project_root)?.id)
         }
     })
 }
@@ -558,5 +563,7 @@ fn inspection_binding(
         (None, MemoryReadScopeArg::Global) => "browser-global-memory".into(),
         (None, _) => bail!("select a project for memory inspection"),
     };
-    Ok(ProjectBinding::Remote { project_id })
+    Ok(ProjectBinding::Inspect {
+        project_id: Some(project_id),
+    })
 }

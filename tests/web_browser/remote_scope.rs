@@ -142,6 +142,7 @@ async fn remote_proxy() -> (Browser, Browser) {
         client: ClientConfig::Remote(RemoteClientConfig {
             endpoint: upstream.origin.clone(),
             project_id: "project-a".into(),
+            project_name: None,
             secret_file: Some(secret),
         }),
         ..Config::default()

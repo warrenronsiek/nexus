@@ -184,3 +184,14 @@ operator class, while SQLite uses its LIKE-compatible collation. The typed query
 also checks the exact character prefix so both backends return the same
 case-sensitive IDs, including literal wildcard characters and Unicode. Receipt
 cutoffs, project isolation, and opaque cursor ordering remain unchanged.
+
+V19 adds the `projects` catalog: one row per project ID with an optional
+client-reported display name and first/last activity times, ordered by the
+`projects_recent` index. Aggregating thirteen history tables per picker load grew
+with total history and exceeded the browser read deadline on cold caches; the
+catalog read is constant in history size. The migration backfills every project
+with recorded history (display names stay null until a client reports one), and
+global memory never creates a catalog row. The catalog is a rebuildable
+projection rather than authoritative history: portable snapshots do not carry it,
+and import rebuilds it from the imported tables. V17's event receipt index is no
+longer read by project discovery.

@@ -432,14 +432,21 @@ fn finish_import(
         bail!("portable stream has trailing records");
     }
     super::super::evals::validate_snapshot(connection)?;
-    super::super::work_history::rebuild_snapshot(connection)?;
-    super::super::code_concerns::rebuild_snapshot(connection)?;
+    rebuild_projections(connection)?;
     sync_event_identity(connection, progress.maximum_event_id)?;
     Ok(SnapshotManifest {
         format_version: progress.format_version,
         rows: progress.rows,
         digest: hash.finalize().to_hex().to_string(),
     })
+}
+
+/// Snapshots carry authoritative history; derived projections are rebuilt from it.
+fn rebuild_projections(connection: &mut DbConnection) -> Result<()> {
+    super::super::work_history::rebuild_snapshot(connection)?;
+    super::super::code_concerns::rebuild_snapshot(connection)?;
+    super::super::dashboard::rebuild_project_catalog(connection)?;
+    Ok(())
 }
 
 fn read_record(

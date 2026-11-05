@@ -20,6 +20,7 @@ mod feature_ops;
 mod history_ops;
 mod memory;
 mod papercuts;
+mod project_catalog;
 mod prompt;
 mod records;
 mod sos;
@@ -76,6 +77,7 @@ pub struct NexusService {
     pub(super) store: TrackedStoreMutex,
     pub(super) usage: UsageCapture,
     pub(super) memory_consolidation_in_flight: AtomicBool,
+    project_catalog: project_catalog::ProjectCatalog,
     connections: StoreTopology,
 }
 
@@ -138,6 +140,7 @@ impl NexusService {
             store: TrackedStoreMutex::new(store),
             usage,
             memory_consolidation_in_flight: AtomicBool::new(false),
+            project_catalog: Default::default(),
             connections,
         }
     }
@@ -149,7 +152,7 @@ impl NexusService {
 
     fn user_prompt(&self, input: UserPromptInput, binding: &ProjectBinding) -> ServiceResponse {
         let result = (|| -> Result<PromptResponse> {
-            let project = workspace::identify(binding, input.context.project_root.as_deref())?;
+            let project = self.resolve_project(binding, input.context.project_root.as_deref())?;
             let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.touch_session(
                 &project.id,
@@ -229,7 +232,7 @@ impl NexusService {
         client_evidence: Option<ClientDerivedUsage>,
     ) -> ServiceResponse {
         let result = (|| -> Result<HookResponse> {
-            let project = workspace::identify(binding, input.context.project_root.as_deref())?;
+            let project = self.resolve_project(binding, input.context.project_root.as_deref())?;
             let client_evidence =
                 analytics::local_evidence(client_evidence, &project, &input, completion);
             let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
@@ -279,7 +282,7 @@ impl NexusService {
 
     fn session_stop(&self, input: SessionStopInput, binding: &ProjectBinding) -> ServiceResponse {
         let result = (|| -> Result<HookResponse> {
-            let project = workspace::identify(binding, input.context.project_root.as_deref())?;
+            let project = self.resolve_project(binding, input.context.project_root.as_deref())?;
             let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.stop_session(&project.id, &input.context.session_id)?;
             Ok(HookResponse::allow(Vec::new()))
@@ -378,7 +381,7 @@ impl NexusService {
     fn release(&self, command: ReleaseCommand, binding: &ProjectBinding) -> ServiceResponse {
         let release = command.release();
         let result = (|| -> Result<usize> {
-            let project = workspace::identify(binding, None)?;
+            let project = self.resolve_project(binding, None)?;
             self.store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
@@ -393,7 +396,7 @@ impl NexusService {
     fn analyze(&self, command: AnalyzeCommand, binding: &ProjectBinding) -> ServiceResponse {
         match analyze_result(self, &command, binding) {
             Ok(response) => ServiceResponse::Analysis(response),
-            Err(error) if matches!(binding, ProjectBinding::Remote { .. }) => {
+            Err(error) if binding.is_remote() => {
                 let diagnostic = if model::is_timeout(&error) {
                     "analysis timed out"
                 } else {
@@ -527,7 +530,7 @@ fn pre_tool_use_result(
     binding: &ProjectBinding,
     evidence: Option<&ClientDerivedUsage>,
 ) -> Result<HookResponse> {
-    let project = workspace::identify(binding, input.context.project_root.as_deref())?;
+    let project = service.resolve_project(binding, input.context.project_root.as_deref())?;
     let inventory = evidence
         .and_then(|evidence| evidence.repository_inventory.clone())
         .or_else(|| {
@@ -641,13 +644,14 @@ fn analyze_result(
     binding: &ProjectBinding,
 ) -> Result<AnalysisResponse> {
     let conflict = conflict(service, &command.conflict_id)?;
-    let trusted_worktree = match binding {
-        ProjectBinding::Local => service
+    let trusted_worktree = if binding.is_remote() {
+        None
+    } else {
+        service
             .store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
-            .conflict_worktree(&conflict)?,
-        ProjectBinding::Remote { .. } => None,
+            .conflict_worktree(&conflict)?
     };
     let analysis = analyst::analyze(
         &service.loaded.config.analyst,
@@ -685,6 +689,8 @@ fn record_analysis(
         )
 }
 
+#[cfg(test)]
+mod project_catalog_tests;
 #[cfg(test)]
 mod project_isolation_tests;
 #[cfg(test)]

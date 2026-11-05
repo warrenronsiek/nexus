@@ -231,3 +231,19 @@ fn consolidated_papercuts_are_inserted_after_their_canonical_dependencies() {
         Some("zzz-canonical")
     );
 }
+
+#[test]
+fn import_rebuilds_project_discovery_from_imported_history() {
+    let mut source = Store::open_memory().unwrap();
+    source
+        .touch_session("imported-project", "session", "codex", None, "fixture")
+        .unwrap();
+    let snapshot = tempfile::NamedTempFile::new().unwrap();
+    source.write_streamed_snapshot(snapshot.as_file()).unwrap();
+
+    let mut target = Store::open_memory().unwrap();
+    target.import_streamed_snapshot(snapshot.path()).unwrap();
+    let projects = target.list_projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].project_id, "imported-project");
+}

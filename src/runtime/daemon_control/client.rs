@@ -45,6 +45,8 @@ async fn exchange(
         method: METHOD.into(),
         params: serde_json::to_value(request)?,
         project_id: None,
+        project_name: None,
+        inspection: false,
         client_evidence: None,
     };
     super::super::daemon::write_json_line(&mut stream, &wire).await?;

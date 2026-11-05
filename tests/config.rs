@@ -301,6 +301,7 @@ fn remote_client_endpoint_must_be_an_http_url_without_embedded_credentials() {
             client: ClientConfig::Remote(RemoteClientConfig {
                 endpoint: endpoint.into(),
                 project_id: "shared".into(),
+                project_name: None,
                 secret_file: None,
             }),
             ..Config::default()
@@ -315,6 +316,7 @@ fn remote_project_ids_reject_control_characters() {
         client: ClientConfig::Remote(RemoteClientConfig {
             endpoint: "https://nexus.example.test".into(),
             project_id: "shared\0project".into(),
+            project_name: None,
             secret_file: None,
         }),
         ..Config::default()
@@ -391,4 +393,82 @@ project_id = "project-shared"
     };
     assert_eq!(remote.endpoint, "https://project.example.test");
     assert_eq!(remote.project_id, "project-shared");
+}
+
+fn git(arguments: &[&str], directory: &std::path::Path) {
+    assert!(Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args(arguments)
+        .status()
+        .unwrap()
+        .success());
+}
+
+#[test]
+fn repository_bindings_name_their_project_after_the_repository_for_every_worktree() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let repository = temporary.path().join("comms-platform");
+    std::fs::create_dir(&repository).unwrap();
+    git(&["init", "--quiet"], &repository);
+    git(
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.test",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "root",
+        ],
+        &repository,
+    );
+    let worktree = temporary.path().join("feature-checkout");
+    git(
+        &["worktree", "add", "--quiet", worktree.to_str().unwrap()],
+        &repository,
+    );
+    let unbound = temporary.path().join("scratch");
+    std::fs::create_dir(&unbound).unwrap();
+    let user = temporary.path().join("user.toml");
+    std::fs::write(
+        &user,
+        "[client]\ntransport = \"remote\"\nendpoint = \"https://nexus.example.test\"\nproject_id = \"fallback\"\nproject_name = \"home\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repository.join(".git/nexus.toml"),
+        "[client]\nproject_id = \"bound\"\n",
+    )
+    .unwrap();
+
+    let remote =
+        |root: &std::path::Path| match Config::load(Some(&user), Some(root)).unwrap().config.client
+        {
+            ClientConfig::Remote(remote) => (remote.project_id, remote.project_name),
+            ClientConfig::Local => panic!("remote transport expected"),
+        };
+    let named = ("bound".to_owned(), Some("comms-platform".to_owned()));
+    assert_eq!(remote(&repository), named);
+    assert_eq!(remote(&worktree), named);
+    assert_eq!(
+        remote(&unbound),
+        ("fallback".to_owned(), Some("home".to_owned()))
+    );
+
+    std::fs::write(
+        repository.join(".git/nexus.toml"),
+        "[client]\ntransport = \"local\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        Config::load(Some(&user), Some(&repository))
+            .unwrap()
+            .config
+            .client,
+        ClientConfig::Local
+    );
 }

@@ -4,7 +4,7 @@
 use super::NexusService;
 use crate::coordination::{
     api::{ServiceResponse, WorkCommand, WorkEnvelope, WorkErrorEnvelope},
-    workspace::{self, ProjectBinding},
+    workspace::ProjectBinding,
 };
 use crate::work_history::{WorkActor, WorkRejection};
 use anyhow::{Context, Result};

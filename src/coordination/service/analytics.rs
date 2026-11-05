@@ -1,13 +1,14 @@
 // @entrypoint NexusService::analytics_command
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
+use super::store_lock::TrackedStoreGuard;
 use super::NexusService;
 use crate::analytics::{capture, identity, types::*};
 use crate::coordination::client_evidence::ClientDerivedUsage;
 use crate::coordination::{
     api::ServiceResponse,
     domain::{ToolCompletion, ToolHookInput},
-    workspace::{self, ProjectBinding, ProjectIdentity},
+    workspace::{ProjectBinding, ProjectIdentity},
 };
 use anyhow::Result;
 
@@ -27,47 +28,32 @@ impl NexusService {
         command: AnalyticsCommand,
         binding: &ProjectBinding,
     ) -> Result<AnalyticsResponse> {
-        let mut store = self
-            .store
-            .lock()
-            .map_err(|_| anyhow::anyhow!("analytics store unavailable"))?;
         match command {
-            AnalyticsCommand::ReserveClassification { context, target } => self
-                .classification_command(
-                    &mut store,
-                    binding,
-                    context,
-                    target,
-                    ClassificationReport::Reserve,
-                ),
+            AnalyticsCommand::ReserveClassification { context, target } => {
+                self.classification_command(binding, context, target, ClassificationReport::Reserve)
+            }
             AnalyticsCommand::Classify {
                 context,
                 target,
                 draft,
                 model,
             } => self.classification_command(
-                &mut store,
                 binding,
                 context,
                 target,
                 ClassificationReport::Classified(draft, model),
             ),
-            AnalyticsCommand::ClassificationFailed { context, target } => self
-                .classification_command(
-                    &mut store,
-                    binding,
-                    context,
-                    target,
-                    ClassificationReport::Failed,
-                ),
+            AnalyticsCommand::ClassificationFailed { context, target } => {
+                self.classification_command(binding, context, target, ClassificationReport::Failed)
+            }
             AnalyticsCommand::Inventory {
                 context,
                 scope,
                 resources,
                 complete,
             } => {
-                let project = workspace::identify(binding, context.project_root.as_deref())?;
-                store
+                let project = self.resolve_project(binding, context.project_root.as_deref())?;
+                self.analytics_store()?
                     .record_inventory(&project.id, &context, &scope, &resources, complete)
                     .map(|()| AnalyticsResponse::Write { ok: true })
             }
@@ -75,24 +61,31 @@ impl NexusService {
                 id,
                 name,
                 definition,
-            } => store
+            } => self
+                .analytics_store()?
                 .rename_activity_category(&id, &name, &definition)
                 .map(|()| AnalyticsResponse::Write { ok: true }),
-            AnalyticsCommand::MergeCategory { source, target } => store
+            AnalyticsCommand::MergeCategory { source, target } => self
+                .analytics_store()?
                 .merge_activity_categories(&source, &target)
                 .map(|()| AnalyticsResponse::Write { ok: true }),
-            read => read_analytics(&mut store, binding, read),
+            read => read_analytics(&mut *self.analytics_store()?, binding, read),
         }
+    }
+    fn analytics_store(&self) -> Result<TrackedStoreGuard<'_>> {
+        self.store
+            .lock()
+            .map_err(|_| anyhow::anyhow!("analytics store unavailable"))
     }
     fn classification_command(
         &self,
-        store: &mut crate::persistence::Store,
         binding: &ProjectBinding,
         context: crate::coordination::domain::HookContext,
         target: ClassificationTarget,
         report: ClassificationReport,
     ) -> Result<AnalyticsResponse> {
-        let project = workspace::identify(binding, context.project_root.as_deref())?;
+        let project = self.resolve_project(binding, context.project_root.as_deref())?;
+        let mut store = self.analytics_store()?;
         let job = store.resolve_classification_target(&project.id, &context, &target)?;
         match report {
             ClassificationReport::Reserve => {

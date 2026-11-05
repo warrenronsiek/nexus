@@ -8,6 +8,7 @@ use crate::config::LoadedConfig;
 use crate::coordination::api::{ServiceRequest, ServiceResponse};
 use crate::coordination::domain::HookResponse;
 use crate::coordination::NexusService;
+use crate::coordination::ProjectBinding;
 use crate::runtime::protocol::WireRequest;
 use crate::runtime::{bounded_io, daemon_control::DaemonControl, dispatch};
 use anyhow::{Context, Result};
@@ -208,11 +209,12 @@ async fn handle_connection(
         }
         let response = match request {
             Ok(request) => {
-                match decode_bound_request(&request.method, request.params, request.project_id) {
+                let lifecycle = ServiceRequest::is_lifecycle_method(&request.method);
+                match decode_bound_request(request) {
                     Ok((request, project)) => {
                         dispatch::handle(service.clone(), &model_work, request, project).await
                     }
-                    Err(error) if ServiceRequest::is_lifecycle_method(&request.method) => {
+                    Err(error) if lifecycle => {
                         ServiceResponse::Hook(HookResponse::fail_open(error))
                     }
                     Err(error) => ServiceResponse::error(error),
@@ -225,18 +227,19 @@ async fn handle_connection(
     Ok(())
 }
 
-fn decode_bound_request(
-    method: &str,
-    params: Value,
-    project: Option<String>,
-) -> Result<(ServiceRequest, Option<String>)> {
-    let project = project
+fn decode_bound_request(request: WireRequest) -> Result<(ServiceRequest, ProjectBinding)> {
+    let project = request
+        .project_id
         .as_deref()
         .map(crate::config::canonical_project_id)
         .transpose()
         .map_err(|_| anyhow::anyhow!("invalid request project_id"))?
         .map(str::to_owned);
-    Ok((ServiceRequest::decode(method, params)?, project))
+    let binding = request.binding(project);
+    Ok((
+        ServiceRequest::decode(&request.method, request.params)?,
+        binding,
+    ))
 }
 
 async fn reply_to_control(
@@ -286,18 +289,26 @@ where
 }
 
 pub async fn request(socket_path: &Path, request: &ServiceRequest) -> Result<Value> {
-    request_in_project(socket_path, request, None).await
+    send(socket_path, WireRequest::from_service(request, None)?).await
 }
 
-pub(crate) async fn request_in_project(
+/// Browser reads inspect a selected project without recording activity there.
+pub(crate) async fn inspect_in_project(
     socket_path: &Path,
     request: &ServiceRequest,
     project_id: Option<&str>,
 ) -> Result<Value> {
+    send(
+        socket_path,
+        WireRequest::from_service(request, project_id)?.inspecting(),
+    )
+    .await
+}
+
+async fn send(socket_path: &Path, request: WireRequest) -> Result<Value> {
     let mut stream = UnixStream::connect(socket_path)
         .await
         .with_context(|| format!("connect {}", socket_path.display()))?;
-    let request = WireRequest::from_service(request, project_id)?;
     write_json_line(&mut stream, &request).await?;
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).await?;

@@ -30,32 +30,29 @@ impl NexusService {
         project_id: impl Into<String>,
         request: ServiceRequest,
     ) -> ServiceResponse {
-        self.handle_bound(
-            request,
-            &ProjectBinding::Remote {
-                project_id: project_id.into(),
-            },
-            None,
-        )
+        self.handle_in(ProjectBinding::remote(project_id, None), request)
+    }
+
+    pub(crate) fn handle_in(
+        &self,
+        binding: ProjectBinding,
+        request: ServiceRequest,
+    ) -> ServiceResponse {
+        self.handle_bound(request, &binding, None)
     }
 
     pub(crate) fn handle_remote_observed(
         &self,
-        project_id: impl Into<String>,
+        binding: ProjectBinding,
         request: ServiceRequest,
         evidence: ClientFilesystemEvidence,
     ) -> ServiceResponse {
-        let project_id = project_id.into();
-        let response = self.handle_bound(
-            request,
-            &ProjectBinding::Remote {
-                project_id: project_id.clone(),
-            },
-            evidence.derived_usage.clone(),
-        );
+        let response = self.handle_bound(request, &binding, evidence.derived_usage.clone());
         // Preserve the no-write guarantee of an acquisition-timeout response.
         if !matches!(&response, ServiceResponse::Hook(hook) if hook.retryable) {
-            let _ = self.reconcile_remote_evidence(&project_id, &evidence, false);
+            if let Some(project_id) = binding.default_read_project(None) {
+                let _ = self.reconcile_remote_evidence(&project_id, &evidence, false);
+            }
         }
         response
     }

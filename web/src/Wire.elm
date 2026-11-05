@@ -93,6 +93,15 @@ row idField titleField kind =
     D.map3 (\id title body -> Row id title "" kind body) (D.field idField D.string) (D.field titleField D.string) D.value
 
 
+{-| Projects are titled by their client-reported repository name when one exists. -}
+projectRow : Decoder Row
+projectRow =
+    D.map3 (\id name body -> Row id (Maybe.withDefault id name) "" "project" body)
+        (D.field "project_id" D.string)
+        (D.maybe (D.field "display_name" D.string))
+        D.value
+
+
 withSubtitle : (Value -> String) -> Decoder Row -> Decoder Row
 withSubtitle describe decoder =
     D.map (\item -> { item | subtitle = describe item.body }) decoder
@@ -212,7 +221,7 @@ shape kind root =
     in
     case kind of
         "projects" ->
-            rows "projects" (withSubtitle (\v -> String.join " · " (strings "worktrees" v)) (row "project_id" "project_id" "project"))
+            rows "projects" (withSubtitle (\v -> String.join " · " (strings "worktrees" v)) projectRow)
 
         "coordination" ->
             D.decodeValue (D.at [ "sessions", "items" ] (D.list coordinationSession)) root

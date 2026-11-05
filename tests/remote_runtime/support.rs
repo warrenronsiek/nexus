@@ -88,6 +88,7 @@ impl RunningService {
             client: ClientConfig::Remote(RemoteClientConfig {
                 endpoint: format!("http://{}", self.address),
                 project_id: project_id.into(),
+                project_name: None,
                 secret_file: Some(secret_file),
             }),
             ..Config::default()
@@ -394,6 +395,7 @@ pub fn remote_client_config(
         client: ClientConfig::Remote(RemoteClientConfig {
             endpoint: format!("http://{address}"),
             project_id: project_id.into(),
+            project_name: None,
             secret_file: Some(secret_file),
         }),
         ..Config::default()
