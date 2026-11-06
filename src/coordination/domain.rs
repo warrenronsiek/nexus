@@ -7,6 +7,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod timeline;
+pub use timeline::*;
+
 macro_rules! string_enum {
     (display $type:ty, $kind:literal, {$($variant:ident => $value:literal),+ $(,)?}) => {
         impl std::fmt::Display for $type {
@@ -348,12 +351,17 @@ pub struct ConflictRecord {
 #[serde(rename_all = "snake_case")]
 pub enum ConflictStatus {
     Open,
+    /// Explicitly resolved; only a strictly stronger observation reopens it.
     Resolved,
+    /// Closed because either owner's claims were released or expired; any later
+    /// overlap between the same sessions on the same path reopens it.
+    Ended,
 }
 
-string_enum!(parse ConflictStatus, "conflict status", {
+string_enum!(display ConflictStatus, "conflict status", {
     Open => "open",
     Resolved => "resolved",
+    Ended => "ended",
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -396,6 +404,17 @@ pub struct StatusCounts {
     pub active_claims: i64,
     pub open_conflicts: i64,
     pub events: i64,
+    #[serde(flatten)]
+    pub recent: RecentCoordinationCounts,
+}
+
+/// Coordination history within the recent window, regardless of current liveness.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecentCoordinationCounts {
+    /// Conflicts first detected within the window.
+    pub recent_conflicts: i64,
+    /// Advisories delivered within the window.
+    pub recent_advisories: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

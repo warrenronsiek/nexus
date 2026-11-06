@@ -45,6 +45,9 @@ pub(crate) const MAX_SESSION_RESULTS: usize = 64;
 pub(crate) const MAX_SESSION_SUMMARY_BYTES: usize = 1_024;
 pub(crate) const MAX_CLAIM_RESULTS: usize = 64;
 pub(crate) const MAX_CONFLICT_RESULTS: usize = 32;
+pub(crate) const MAX_SESSION_TIMELINE_ENTRIES: usize = 500;
+pub(crate) const MAX_SESSION_INDEX_RESULTS: usize = 200;
+pub(crate) const RECENT_COORDINATION_HISTORY_DAYS: i64 = 7;
 pub(crate) const MAX_PROJECT_RESULTS: usize = 16;
 pub(crate) const MAX_PROJECT_SUMMARY_SESSIONS: usize = 4;
 pub(crate) const MAX_DASHBOARD_EVENT_RESULTS: usize = 32;
@@ -72,6 +75,8 @@ pub enum ServiceRequest {
     Sessions(SessionQuery),
     Claims(ClaimQuery),
     Conflicts(ConflictQuery),
+    SessionTimeline(SessionTimelineQuery),
+    SessionIndex(SessionIndexQuery),
     Resolve(ResolveCommand),
     Release(ReleaseCommand),
     Analyze(AnalyzeCommand),
@@ -242,6 +247,17 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
             decode_project_query(params, |query: &mut ConflictQuery| &mut query.project_id)
                 .map(ServiceRequest::Conflicts)
         }
+        "session_timeline" => {
+            let query = decode_project_query(params, |query: &mut SessionTimelineQuery| {
+                &mut query.project_id
+            })?;
+            validate_required_field("session_id", &query.session_id, MAX_SESSION_ID_BYTES)?;
+            Ok(ServiceRequest::SessionTimeline(query))
+        }
+        "session_index" => decode_project_query(params, |query: &mut SessionIndexQuery| {
+            &mut query.project_id
+        })
+        .map(ServiceRequest::SessionIndex),
         "memory_status" => decode(params).map(ServiceRequest::MemoryStatus),
         "memory_context" => decode(params).map(ServiceRequest::MemoryContext),
         "memory_inspect" => decode(params).map(ServiceRequest::MemoryInspect),
@@ -346,6 +362,8 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Sessions(_)
         | ServiceRequest::Claims(_)
         | ServiceRequest::Conflicts(_)
+        | ServiceRequest::SessionTimeline(_)
+        | ServiceRequest::SessionIndex(_)
         | ServiceRequest::MemoryStatus(_)
         | ServiceRequest::MemoryContext(_)
         | ServiceRequest::MemoryInspect(_)
@@ -388,6 +406,8 @@ fn read_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)> {
         ServiceRequest::Sessions(query) => encode("sessions", query),
         ServiceRequest::Claims(query) => encode("claims", query),
         ServiceRequest::Conflicts(query) => encode("conflicts", query),
+        ServiceRequest::SessionTimeline(query) => encode("session_timeline", query),
+        ServiceRequest::SessionIndex(query) => encode("session_index", query),
         ServiceRequest::MemoryStatus(query) => encode("memory_status", query),
         ServiceRequest::MemoryContext(query) => encode("memory_context", query),
         ServiceRequest::MemoryInspect(query) => encode("memory_inspect", query),
@@ -440,6 +460,8 @@ const READ_METHODS: &[&str] = &[
     "sessions",
     "claims",
     "conflicts",
+    "session_timeline",
+    "session_index",
     "memory_status",
     "memory_context",
     "memory_inspect",
@@ -573,6 +595,23 @@ impl ConflictQuery {
     pub fn scope(&self) -> ConflictScope {
         self.scope
     }
+}
+
+/// One session's coordination history inside one project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionTimelineQuery {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    pub session_id: String,
+}
+
+/// Sessions ranked by their most recent coordination activity inside one project.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SessionIndexQuery {
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

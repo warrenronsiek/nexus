@@ -51,6 +51,10 @@ enum CoordinationRead {
     CoordinationEvents {
         limit: Option<usize>,
     },
+    CoordinationSessionTimeline {
+        session_id: String,
+    },
+    CoordinationSessionIndex {},
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -197,7 +201,8 @@ impl ReadEnvelope {
 impl BrowserRead {
     fn permits_global(&self) -> bool {
         match self {
-            Self::Coordination(_) | Self::Analytics(_) => true,
+            Self::Coordination(read) => read.permits_global(),
+            Self::Analytics(_) => true,
             Self::Memory(read) => matches!(
                 read,
                 MemoryRead::Expand { .. }
@@ -225,6 +230,13 @@ impl BrowserRead {
     }
 }
 impl CoordinationRead {
+    /// Session identity is project-qualified, so session history always needs a project.
+    fn permits_global(&self) -> bool {
+        !matches!(
+            self,
+            Self::CoordinationSessionTimeline { .. } | Self::CoordinationSessionIndex {}
+        )
+    }
     fn into_request(self, project_id: Option<String>) -> ServiceRequest {
         match self {
             Self::Projects {} => ServiceRequest::Projects,
@@ -242,6 +254,15 @@ impl CoordinationRead {
                 project_id,
                 limit: limit.unwrap_or(64),
             }),
+            Self::CoordinationSessionTimeline { session_id } => {
+                ServiceRequest::SessionTimeline(SessionTimelineQuery {
+                    project_id,
+                    session_id,
+                })
+            }
+            Self::CoordinationSessionIndex {} => {
+                ServiceRequest::SessionIndex(SessionIndexQuery { project_id })
+            }
         }
     }
 }

@@ -40,6 +40,14 @@ pub(super) fn live_conflict() -> Predicate<conflicts::table> {
     )
 }
 
+/// Stored-open conflicts whose overlap has ended because either owner no longer holds a
+/// current claim on the path. These are the rows that conflict closure moves to `ended`.
+pub(super) fn ended_conflict() -> Predicate<conflicts::table> {
+    Box::new(conflicts::status.eq("open").and(diesel::dsl::not(
+        live_owner(ConflictOwner::Left).and(live_owner(ConflictOwner::Right)),
+    )))
+}
+
 enum ConflictOwner {
     Left,
     Right,

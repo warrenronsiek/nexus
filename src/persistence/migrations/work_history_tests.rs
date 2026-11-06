@@ -31,12 +31,18 @@ fn upgrades_v12_with_empty_work_observations_and_hierarchy_indexes() {
         .select((flyway_migrations::version, flyway_migrations::status))
         .load::<(i64, String)>(&mut connection)
         .unwrap();
+    // Versions are monotonic but need not be contiguous across concurrent branches.
+    let mut embedded = NexusMigrations {}
+        .changelogs()
+        .iter()
+        .map(|changelog| (changelog.version() as i64, "deployed".to_owned()))
+        .collect::<Vec<_>>();
+    embedded.sort();
     assert_eq!(
-        history,
-        (0..=CURRENT_SCHEMA_VERSION as i64)
-            .map(|version| (version, "deployed".into()))
-            .collect::<Vec<_>>()
+        embedded.last().map(|(version, _)| *version),
+        Some(CURRENT_SCHEMA_VERSION as i64)
     );
+    assert_eq!(history, embedded);
 }
 
 #[test]

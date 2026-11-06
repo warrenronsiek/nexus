@@ -25,7 +25,7 @@ use crate::agents::analyst::AnalysisResult;
 use crate::config::Config;
 use crate::coordination::domain::{
     Claim, ConflictRecord, DashboardRecords, EventRecord, HookResponse, ProjectSummary,
-    SessionRecord, StatusCounts,
+    SessionActivity, SessionRecord, SessionTimeline, StatusCounts,
 };
 use crate::memory::MemoryContextStatus;
 use crate::persistence::UsageSummary;
@@ -43,6 +43,8 @@ pub enum ServiceResponse {
     Sessions(SessionsResponse),
     Claims(ClaimsResponse),
     Conflicts(ConflictsResponse),
+    SessionTimeline(SessionTimelineResponse),
+    SessionIndex(SessionIndexResponse),
     Resolved(ResolvedResponse),
     Released(ReleasedResponse),
     Analysis(AnalysisResponse),
@@ -123,6 +125,20 @@ pub struct ClaimsResponse {
 pub struct ConflictsResponse {
     pub ok: bool,
     pub conflicts: Vec<ConflictRecord>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionTimelineResponse {
+    pub ok: bool,
+    #[serde(flatten)]
+    pub timeline: SessionTimeline,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionIndexResponse {
+    pub ok: bool,
+    pub sessions: Vec<SessionActivity>,
     pub truncated: bool,
 }
 

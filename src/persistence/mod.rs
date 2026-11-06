@@ -25,6 +25,7 @@ mod papercuts;
 mod readiness;
 mod releases;
 mod schema;
+mod session_history;
 mod session_names;
 mod sos;
 mod store;
@@ -36,6 +37,7 @@ mod usage;
 mod window;
 mod work_history;
 
+pub(crate) use conflicts::MAX_CONFLICT_CLOSURES;
 pub(crate) use papercuts::{PapercutDuplicateProposal, PapercutReviewAttemptRecord};
 #[cfg(feature = "postgres")]
 pub(crate) use readiness::DatabaseReadinessProbe;

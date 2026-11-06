@@ -62,8 +62,24 @@ nexus events --limit 32
 Active lists and dashboard counters describe recent coordination evidence: sessions
 age out after the claim TTL unless they retain a live lease, and open conflicts
 require current claims from both original sessions on the path. Stop, release, or
-expiry removes the live overlap without resolving or deleting its history. Use
-`nexus sessions --all` and `nexus conflicts --all` for history. An
+expiry removes the live overlap at once and moves the stored conflict to `ended`
+(explicit resolutions stay `resolved`) without deleting its history; a later overlap
+between the same sessions on the same path reopens it. Use
+`nexus sessions --all` and `nexus conflicts --all` for history. Dashboard counts
+also include `recent_conflicts` and `recent_advisories` for the last seven days.
+
+An advisory names the other session, for example
+`codex (session 3f2a9c1b) has an active claim on src/lib.rs`, using its host
+session title when one was captured. Coordinate with that session directly when
+the overlap matters; the short ID is the first eight characters of its session ID.
+
+To review one session's coordination history, use the project-scoped
+`session_index` read (sessions ranked by recent coordination activity, with
+conflict and advisory counts) and `session_timeline` with a `session_id`. The
+timeline lists conflicts detected and closed, plus every advisory Nexus delivered
+to the session (`received`) or to its counterpart about this session's claim
+(`sent`), oldest first and bounded to the newest 500 entries. The browser exposes
+them as `coordination_session_index` and `coordination_session_timeline`. An
 `advisory_ignored` event means successful continuation after an advisory; it does
 not verify host delivery or agent acknowledgement.
 

@@ -2,6 +2,7 @@
 // @feature observability-ui
 // @spec docs/features/runtime.md
 // @spec docs/features/observability-ui.md
+// @boundary browser-read-fixture: JSON envelopes exercise the closed browser read decoder.
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Instant;
@@ -126,4 +127,43 @@ fn browser_credential_and_password_files_reject_owner_execute_permissions() {
         read_password_file(&password).is_err(),
         "password permissions exceeded 0600"
     );
+}
+
+#[test]
+fn session_history_reads_are_closed_project_scoped_browser_kinds() {
+    let prepare = |envelope: serde_json::Value| {
+        serde_json::from_value::<read::ReadEnvelope>(envelope)
+            .map_err(anyhow::Error::from)
+            .and_then(read::ReadEnvelope::prepare)
+    };
+    let (timeline, project) = prepare(serde_json::json!({
+        "project_id": " project-a ",
+        "query": {"kind": "coordination_session_timeline", "session_id": "session-1"}
+    }))
+    .unwrap();
+    assert_eq!(project.as_deref(), Some("project-a"));
+    assert!(matches!(
+        timeline,
+        ServiceRequest::SessionTimeline(query)
+            if query.session_id == "session-1" && query.project_id.as_deref() == Some("project-a")
+    ));
+    let (index, _) = prepare(serde_json::json!({
+        "project_id": "project-a",
+        "query": {"kind": "coordination_session_index"}
+    }))
+    .unwrap();
+    assert!(matches!(
+        index,
+        ServiceRequest::SessionIndex(query) if query.project_id.as_deref() == Some("project-a")
+    ));
+
+    for rejected in [
+        serde_json::json!({"query": {"kind": "coordination_session_index"}}),
+        serde_json::json!({"query": {"kind": "coordination_session_timeline", "session_id": "s"}}),
+        serde_json::json!({"project_id": "p", "query": {"kind": "coordination_session_timeline"}}),
+        serde_json::json!({"project_id": "p", "query": {"kind": "coordination_session_timeline", "session_id": ""}}),
+        serde_json::json!({"project_id": "p", "query": {"kind": "coordination_session_index", "limit": 5}}),
+    ] {
+        assert!(prepare(rejected.clone()).is_err(), "{rejected}");
+    }
 }
