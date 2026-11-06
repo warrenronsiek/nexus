@@ -50,7 +50,6 @@ pub(crate) const MAX_PROJECT_SUMMARY_SESSIONS: usize = 4;
 pub(crate) const MAX_DASHBOARD_EVENT_RESULTS: usize = 32;
 pub(crate) const MAX_DASHBOARD_RECORD_RESULTS: usize = 16;
 pub(crate) const MAX_USAGE_DIMENSION_RESULTS: usize = 64;
-pub(crate) const MAX_USAGE_SESSION_IDENTITY_ROWS: usize = 4_096;
 pub(crate) const MAX_OPEN_PAPERCUT_RESULTS: usize = 32;
 pub(crate) const MAX_MEMORY_SEARCH_REGEX_BYTES: usize = 4 * 1024;
 pub(crate) const MAX_LIFECYCLE_ADVISORIES: usize = 32;
