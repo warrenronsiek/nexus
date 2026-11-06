@@ -94,6 +94,13 @@ Installed advisory hooks still exit successfully and emit no host decision.
 Inspect `transport_rejected` and `transport_rejection_reasons.invalid_host_event`
 when a capture period has missing source boundaries.
 
+Hosts that Nexus itself spawns for model work (commit reviewers, memory
+consolidation, analysts, triage, classification, title reads) carry
+`NEXUS_INTERNAL_PROCESS=1`. Their host-event, session-end and MCP lifecycle
+callbacks record nothing and still exit successfully, so Nexus's own provider
+calls never appear as user host sessions. Do not set this marker on a host whose
+work you want recorded.
+
 Generic runner events use `ExecutionQueued`, `ExecutionStart`, `ExecutionPoll`,
 and `ExecutionFinish`. Supply `session_id`, `work_session_id`, `execution_id`,
 `parent_activity_id`, `executor`, `kind`, and `name` consistently. `occurred_at`

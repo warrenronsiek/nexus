@@ -35,13 +35,13 @@ fn projects(service: &NexusService) -> Vec<Value> {
 #[test]
 fn remote_activity_lists_the_project_under_its_client_reported_name() {
     let service = service_with(Config::default());
-    let binding = ProjectBinding::remote("7c15a8fa07db0a68239c6c3d", Some("comms-platform".into()));
+    let binding = ProjectBinding::remote("0123456789abcdef01234567", Some("example-app".into()));
     service.handle_in(binding, prompt("named"));
 
     let listed = projects(&service);
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0]["project_id"], "7c15a8fa07db0a68239c6c3d");
-    assert_eq!(listed[0]["display_name"], "comms-platform");
+    assert_eq!(listed[0]["project_id"], "0123456789abcdef01234567");
+    assert_eq!(listed[0]["display_name"], "example-app");
 }
 
 #[test]
@@ -87,4 +87,16 @@ fn invalid_client_names_are_omitted_rather_than_stored() {
     service.handle_in(binding, prompt("session"));
 
     assert_eq!(projects(&service)[0]["display_name"], Value::Null);
+}
+
+#[test]
+fn project_discovery_returns_at_most_the_project_cap() {
+    let service = service_with(Config::default());
+    let cap = crate::coordination::api::MAX_PROJECT_RESULTS;
+    for index in 0..=cap {
+        service.handle_remote(format!("project-{index:03}"), prompt("discovery"));
+    }
+    let listed = service.handle(ServiceRequest::Projects).to_json();
+    assert_eq!(listed["projects"].as_array().unwrap().len(), cap);
+    assert_eq!(listed["truncated"], true);
 }

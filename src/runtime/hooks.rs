@@ -22,6 +22,9 @@ pub async fn session_end(loaded: &LoadedConfig, explicit_config: Option<&Path>, 
     let Some(input) = decode_session_end_input(&mut std::io::stdin().lock()) else {
         return;
     };
+    if super::internal_process::active() {
+        return;
+    }
     let context = HookContext {
         session_id: input.session_id,
         project_root: input.cwd,

@@ -145,3 +145,109 @@ fn partial_dimension_prefetch_keeps_each_runs_full_model_composition() {
     assert_eq!(dashboard.groups[0].statuses.get("planned"), Some(&64));
     assert!(!dashboard.truncated);
 }
+
+fn titled(id: &str, title: &str, kind: &str, identity: &str, fields: Value) -> EvalRecordInput {
+    let mut body = json!({"kind":kind,"identity":identity,"change_id":"change"});
+    body.as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().unwrap().clone());
+    serde_json::from_value(
+        json!({"id":id,"title":title,"occurred_at":"2026-10-22T12:00:00Z","body":body}),
+    )
+    .unwrap()
+}
+fn agent_records(prefix: &str, agent: Option<&str>) -> Vec<EvalRecordInput> {
+    let mut target = json!({"components":[{"id":prefix,"role":"answer","repository_id":"repo","model":{"assignment":"fixed","model_id":"model"}}]});
+    if let Some(agent) = agent {
+        target["agent"] = json!(agent);
+    }
+    vec![
+        titled(
+            &format!("{prefix}-suite"),
+            "suite/part-0",
+            "suite",
+            &format!("{prefix}/automatic-suite/part-0"),
+            json!({"cases":[{"case_id":"case","grader_ids":[],"weight":1,"split":"development"}],"aggregation":"caller"}),
+        ),
+        titled(
+            &format!("{prefix}-target"),
+            "variant; prompt source sha256 0",
+            "target",
+            &format!("{prefix}/automatic-target"),
+            target,
+        ),
+        record(
+            &format!("{prefix}-run"),
+            json!({"kind":"run","target_id":format!("{prefix}-target"),"suite_id":format!("{prefix}-suite"),"runner":"caller","runner_version":"1","state":"completed","selection_rule":"all"}),
+        ),
+        record(
+            &format!("{prefix}-latency"),
+            json!({"kind":"measurement","metric_id":"metric","subject":{"scope":"run","id":format!("{prefix}-run")},"value":{"storage":"inline","text":"3.5"},"explanation":"Caller result","replaces":null}),
+        ),
+    ]
+}
+#[test]
+fn dashboard_groups_name_their_agent_and_distinguish_generic_suite_titles() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("agents.db")).unwrap();
+    let mut records = definitions();
+    records.retain(|record| record.id != "run");
+    records.extend(agent_records("router", Some("Source router")));
+    records.extend(agent_records("briefing", None));
+    store.record_eval_bundle("p", &records, &actor()).unwrap();
+
+    let dashboard = serde_json::to_value(store.eval_dashboard("p", None).unwrap()).unwrap();
+    let mut groups = dashboard["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| {
+            (
+                group["agent"].as_str().unwrap().to_owned(),
+                group["agent_declared"].as_bool().unwrap(),
+                group["label"].as_str().unwrap().to_owned(),
+                group["id"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    groups.sort();
+    assert_eq!(groups.len(), 2, "{dashboard}");
+    assert_eq!(
+        (groups[0].0.as_str(), groups[0].1, groups[0].2.as_str()),
+        (
+            "Source router",
+            true,
+            "Source router · router/automatic-suite/part-0 · test-model"
+        )
+    );
+    assert_eq!(
+        (groups[1].0.as_str(), groups[1].1, groups[1].2.as_str()),
+        (
+            "briefing",
+            false,
+            "briefing · automatic-suite/part-0 · test-model"
+        )
+    );
+
+    let selected =
+        serde_json::to_value(store.eval_dashboard("p", Some(&groups[0].3)).unwrap()).unwrap();
+    let point = &selected["series"][0]["points"][0];
+    assert_eq!(point["occurred_at"], "2026-10-22T12:00:00Z", "{selected}");
+    assert_eq!(point["numeric_value"], 3.5, "{selected}");
+}
+#[test]
+fn target_agent_names_are_validated() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("invalid.db")).unwrap();
+    store
+        .record_eval_bundle("p", &definitions(), &actor())
+        .unwrap();
+    for agent in [" ", "line\nbreak"] {
+        let mut records = agent_records("invalid", Some(agent));
+        records.truncate(2);
+        assert!(
+            store.record_eval_bundle("p", &records, &actor()).is_err(),
+            "accepted agent {agent:?}"
+        );
+    }
+}

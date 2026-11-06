@@ -1,7 +1,7 @@
 -- @feature observability-ui
 -- @spec docs/features/observability-ui.md
 -- @boundary browser-json: validate the closed response envelopes and presentation records; retain original response text for exact immutable evidence.
-module Wire exposing (Bar, Document, Interval, Metric, Point, Row, decode, field, list, number, optional, refreshInterval, str, strings, valueAt)
+module Wire exposing (Bar, Document, Interval, Metric, Point, Row, decode, field, list, number, optional, refreshInterval, sessionName, str, strings, valueAt)
 
 import Json.Decode as D exposing (Decoder, Value)
 import Json.Encode as E
@@ -114,6 +114,21 @@ workRow =
         (D.at [ "subject", "scope" ] D.string)
         (D.field "title" D.string)
         D.value
+
+
+{-| Coordination sessions are named by their host display name, then their task, then agent and short identity. -}
+sessionName : Value -> String
+sessionName body =
+    let
+        named key = str key body |> String.trim
+    in
+    if named "display_name" /= "" then named "display_name" else if named "task_summary" /= "" then String.left 80 (named "task_summary") else str "agent" body ++ " · " ++ String.left 8 (str "session_id" body)
+
+
+coordinationIndex : Decoder Row
+coordinationIndex =
+    D.map2 (\id body -> Row id (sessionName body) (String.fromFloat (number "conflicts" body) ++ " conflicts · " ++ String.fromFloat (number "advisories" body) ++ " messages") "coordination_session" body)
+        (D.field "session_id" D.string) D.value
 
 
 coordinationSession : Decoder Row
@@ -230,6 +245,12 @@ shape kind root =
         "coordination_sessions" ->
             rows "sessions" coordinationSession
 
+        "coordination_session_index" ->
+            rows "sessions" coordinationIndex
+
+        "coordination_session_timeline" ->
+            rows "entries" (D.map3 (\id entryType body -> Row id (str "message" body) (str "at" body) entryType body) (D.field "id" D.string) (D.field "type" D.string) D.value)
+
         "coordination_claims" ->
             rows "claims" (row "id" "path" "claim")
 
@@ -292,7 +313,7 @@ shape kind root =
                 |> Result.map (\items -> { base | rows = items, bars = List.map (\r -> Bar r.id r.title (Just (number "count" r.body)) r.subtitle) items })
 
         "concern_dashboard" ->
-            rows "areas" (D.map2 (\body area -> Row (str "id" area) (str "display_name" area) (str "kind" area ++ " · " ++ String.fromFloat (number "work_sessions" (field "counts" body)) ++ " sessions affected") "concern_area" body) D.value (D.field "area" D.value))
+            rows "areas" (D.map2 (\body area -> Row (str "id" area) (str "display_name" area) (str "kind" area ++ " · " ++ affected (field "counts" body)) "concern_area" body) D.value (D.field "area" D.value))
                 |> Result.map (\doc -> { doc | bars = List.map (\r -> Bar r.id r.title (Just (number "work_sessions" (field "counts" r.body))) r.subtitle) doc.rows, points = list "daily" root |> List.map (\v -> Point (str "date" v) (str "date" v) (str "date" v) (Just (number "raw_observations" v)) "") })
 
         "concern_list" ->
@@ -302,16 +323,40 @@ shape kind root =
             rows "observations" (D.map2 (\body input -> Row (str "id" input) (str "event" (field "body" input)) (str "observed_at" input) "concern_observation" body) D.value (D.field "input" D.value))
 
         "memory_context" ->
-            D.decodeValue (D.at [ "context", "nodes" ] (D.list (D.map2 (\body id -> Row id (String.left 100 (str "content" body)) (str "kind" body ++ " · " ++ str "created_at" body) (str "kind" body) body) D.value (D.field "id" D.string)))) root |> Result.map (\items -> { base | rows = items })
+            D.decodeValue (D.at [ "context", "nodes" ] (D.list memoryNode)) root |> Result.map (\items -> { base | rows = items })
 
         "memory_search" ->
             rows "memories" (D.map2 (\body id -> Row id (String.left 100 (str "content" body)) (str "created_at" body) "raw" body) D.value (D.field "id" D.string))
 
         "memory_expand" ->
-            rows "nodes" (D.map2 (\body id -> Row id (String.left 100 (str "content" body)) (str "created_at" body) (str "kind" body) body) D.value (D.field "id" D.string))
+            rows "nodes" memoryNode
 
         _ ->
             Ok base
+
+
+{-| Reports that name no work session leave the affected-session count unknown rather than zero. -}
+affected : Value -> String
+affected counts =
+    if number "work_sessions" counts == 0 && number "unknown_work_observations" counts > 0 then
+        "sessions unknown"
+
+    else
+        String.fromFloat (number "work_sessions" counts) ++ " sessions affected"
+
+
+{-| Memory nodes keep their full content in the body; the title is a one-line preview. -}
+memoryNode : Decoder Row
+memoryNode =
+    D.map2 (\body id -> Row id (firstLine (str "content" body)) (str "created_at" body) (str "kind" body) body) D.value (D.field "id" D.string)
+
+
+firstLine : String -> String
+firstLine content =
+    let
+        line = String.lines content |> List.head |> Maybe.withDefault "" |> String.trim
+    in
+    if String.length line > 140 then String.left 139 line ++ "…" else line
 
 
 duration : Float -> String

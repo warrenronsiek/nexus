@@ -4,13 +4,14 @@
 // @spec docs/features/persistence.md
 // @boundary persisted-event-json
 use super::models::{conflict_from_row, ConflictRow, SessionRow};
-use super::schema::{claims, conflicts, events, sessions};
+use super::schema::{advisories, claims, conflicts, events, sessions};
 use super::Store;
 use crate::coordination::domain::{
-    query_window_limit, DashboardRecords, ProjectSummary, RecordWindow, StatusCounts,
+    query_window_limit, DashboardRecords, ProjectSummary, RecentCoordinationCounts, RecordWindow,
+    StatusCounts,
 };
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use diesel::dsl::count_star;
 use diesel::prelude::*;
 
@@ -137,6 +138,16 @@ impl Store {
         project_key: Option<&str>,
         activity_window_seconds: i64,
     ) -> Result<StatusCounts> {
+        let recent = self.recent_history_counts(project_key)?;
+        self.live_counts(project_key, activity_window_seconds, recent)
+    }
+
+    fn live_counts(
+        &mut self,
+        project_key: Option<&str>,
+        activity_window_seconds: i64,
+        recent: RecentCoordinationCounts,
+    ) -> Result<StatusCounts> {
         let mut session_query = sessions::table
             .filter(super::liveness::recent_session(activity_window_seconds))
             .into_boxed();
@@ -164,6 +175,35 @@ impl Store {
                 .select(count_star())
                 .first(&mut self.connection)?,
             events: event_query
+                .select(count_star())
+                .first(&mut self.connection)?,
+            recent,
+        })
+    }
+
+    /// Conflicts first detected and advisories delivered within the recent history window.
+    fn recent_history_counts(
+        &mut self,
+        project_key: Option<&str>,
+    ) -> Result<RecentCoordinationCounts> {
+        let since = (Utc::now()
+            - Duration::days(crate::coordination::api::RECENT_COORDINATION_HISTORY_DAYS))
+        .to_rfc3339();
+        let mut conflict_query = conflicts::table
+            .filter(conflicts::created_at.ge(&since))
+            .into_boxed();
+        let mut advisory_query = advisories::table
+            .filter(advisories::created_at.ge(&since))
+            .into_boxed();
+        if let Some(project_key) = project_key {
+            conflict_query = conflict_query.filter(conflicts::project_id.eq(project_key));
+            advisory_query = advisory_query.filter(advisories::project_id.eq(project_key));
+        }
+        Ok(RecentCoordinationCounts {
+            recent_conflicts: conflict_query
+                .select(count_star())
+                .first(&mut self.connection)?,
+            recent_advisories: advisory_query
                 .select(count_star())
                 .first(&mut self.connection)?,
         })

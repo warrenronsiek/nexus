@@ -229,12 +229,7 @@ fn exec_retains_exit_and_stdio_while_recording_named_child_timing() {
 }
 
 fn cli(harness: &Harness) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_nexus"));
-    command
-        .arg("--config")
-        .arg(harness._temp.path().join("config.toml"))
-        .current_dir(&harness.root);
-    command
+    harness.cli()
 }
 
 #[test]

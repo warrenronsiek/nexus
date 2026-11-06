@@ -68,6 +68,7 @@ jobs:
           NEXUS_TEST_DATABASE_URL: postgres://nexus:nexus-ci@127.0.0.1:5432/nexus_transfer
       - run: cargo test --locked --no-default-features --features postgres --test postgres_service
       - run: cargo test --locked --no-default-features --features postgres --lib dashboard::tests
+      - run: cargo test --locked --no-default-features --features postgres --lib persistence::session_history::tests
       - run: cargo test --locked --no-default-features --features postgres --lib store_contention_tests::postgres_
       - run: cargo test --locked --no-default-features --features postgres --lib transaction::postgres_tests
       - run: cargo test --locked --no-default-features --features postgres --test eval_postgres --test eval_prefix_postgres

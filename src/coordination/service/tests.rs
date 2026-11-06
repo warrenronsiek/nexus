@@ -872,23 +872,6 @@ fn ordinary_coordination_reads_have_server_owned_hard_caps() {
         16
     );
     assert_eq!(dashboard["conflicts"]["truncated"], true);
-
-    for index in 0..17 {
-        let prompt = ServiceRequest::decode(
-            "user_prompt",
-            json!({
-                "session_id": "project-session",
-                "agent": "test",
-                "project_root": "/untrusted/client/project",
-                "prompt": "exercise project discovery"
-            }),
-        )
-        .unwrap();
-        service.handle_remote(format!("project-{index:03}"), prompt);
-    }
-    let projects = service.handle(ServiceRequest::Projects).to_json();
-    assert_eq!(projects["projects"].as_array().unwrap().len(), 16);
-    assert_eq!(projects["truncated"], true);
 }
 
 #[test]

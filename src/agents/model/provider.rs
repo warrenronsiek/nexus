@@ -8,6 +8,7 @@
 // @spec docs/features/agent-memory.md
 // @boundary provider-environment
 use crate::config::{ModelConfig, ModelProvider};
+use crate::runtime::internal_process::{INTERNAL_PROCESS_ENV, INTERNAL_PROCESS_VALUE};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
@@ -101,6 +102,9 @@ fn configure_codex<'a>(command: &'a mut Command, model: &ModelConfig) -> &'a mut
         "--skip-git-repo-check",
         "--ephemeral",
         "--json",
+        // Nexus-spawned providers are not user sessions; their host hooks stay off.
+        "--disable",
+        "hooks",
     ]);
     if let Some(model) = &model.model {
         command.args(["--model", model]);
@@ -121,6 +125,9 @@ fn configure_claude<'a>(command: &'a mut Command, model: &ModelConfig) -> &'a mu
         "--permission-mode",
         "plan",
         "--no-session-persistence",
+        // Nexus-spawned providers are not user sessions; their host hooks stay off.
+        "--settings",
+        "{\"disableAllHooks\":true}",
     ]);
     if let Some(model) = &model.model {
         command.args(["--model", model]);
@@ -160,6 +167,7 @@ fn apply_provider_environment(
             command.env(key, value);
         }
     }
+    command.env(INTERNAL_PROCESS_ENV, INTERNAL_PROCESS_VALUE);
     if let Some(key) = claude_api_key {
         command.env("ANTHROPIC_API_KEY", key);
         command.env_remove("CLAUDE_CODE_OAUTH_TOKEN");
@@ -282,6 +290,35 @@ mod tests {
     }
 
     #[test]
+    fn every_provider_process_carries_the_internal_process_marker() {
+        use crate::runtime::internal_process::{INTERNAL_PROCESS_ENV, INTERNAL_PROCESS_VALUE};
+        for provider in [ModelProvider::Codex, ModelProvider::Claude] {
+            let environment = provider_environment(provider, None);
+            assert!(
+                environment.contains(&format!("{INTERNAL_PROCESS_ENV}={INTERNAL_PROCESS_VALUE}")),
+                "{environment}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_provider_command_disables_its_own_host_hooks() {
+        let model = ModelConfig {
+            command: "provider".into(),
+            model: None,
+            reasoning_effort: None,
+        };
+        let codex = command(ModelProvider::Codex, &model);
+        let codex: Vec<_> = codex.get_args().collect();
+        assert!(codex.windows(2).any(|pair| pair == ["--disable", "hooks"]));
+        let claude = command(ModelProvider::Claude, &model);
+        let claude: Vec<_> = claude.get_args().collect();
+        assert!(claude
+            .windows(2)
+            .any(|pair| pair == ["--settings", "{\"disableAllHooks\":true}"]));
+    }
+
+    #[test]
     fn codex_environment_excludes_other_provider_and_nexus_credentials() {
         let environment = provider_environment(ModelProvider::Codex, None);
 
@@ -343,7 +380,6 @@ mod classification_tests {
         assert!(codex
             .windows(2)
             .any(|pair| pair == ["--disable", "plugins"]));
-        assert!(codex.windows(2).any(|pair| pair == ["--disable", "hooks"]));
         assert!(codex
             .windows(2)
             .any(|pair| pair == ["--disable", "shell_snapshot"]));
@@ -364,8 +400,6 @@ pub(super) fn classification_options(provider: ModelProvider) -> Vec<&'static st
             "goals",
             "--disable",
             "shell_tool",
-            "--disable",
-            "hooks",
             "--disable",
             "shell_snapshot",
             "--disable",
@@ -403,13 +437,10 @@ pub(super) fn classification_options(provider: ModelProvider) -> Vec<&'static st
             "{\"mcpServers\":{}}",
             "--setting-sources",
             "",
-            "--settings",
-            "{\"disableAllHooks\":true}",
         ],
     }
 }
 
 pub(super) fn restrict_classification(command: &mut Command, provider: ModelProvider) {
     command.args(classification_options(provider));
-    command.env("NEXUS_ANALYTICS_INTERNAL", "1");
 }

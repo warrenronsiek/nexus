@@ -51,6 +51,10 @@ enum CoordinationRead {
     CoordinationEvents {
         limit: Option<usize>,
     },
+    CoordinationSessionTimeline {
+        session_id: String,
+    },
+    CoordinationSessionIndex {},
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -70,6 +74,12 @@ enum AnalyticsRead {
         offset: u32,
     },
     AnalyticsCategories {},
+    AnalyticsCommands {
+        category_id: String,
+    },
+    SkillGet {
+        name: String,
+    },
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -95,6 +105,7 @@ enum MemoryRead {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum IssueRead {
     Papercuts { after: Option<PapercutListCursor> },
+    PapercutGet { papercut_id: String },
     SosList {},
     SosGet { issue_id: String },
 }
@@ -197,7 +208,8 @@ impl ReadEnvelope {
 impl BrowserRead {
     fn permits_global(&self) -> bool {
         match self {
-            Self::Coordination(_) | Self::Analytics(_) => true,
+            Self::Coordination(read) => read.permits_global(),
+            Self::Analytics(_) => true,
             Self::Memory(read) => matches!(
                 read,
                 MemoryRead::Expand { .. }
@@ -225,6 +237,13 @@ impl BrowserRead {
     }
 }
 impl CoordinationRead {
+    /// Session identity is project-qualified, so session history always needs a project.
+    fn permits_global(&self) -> bool {
+        !matches!(
+            self,
+            Self::CoordinationSessionTimeline { .. } | Self::CoordinationSessionIndex {}
+        )
+    }
     fn into_request(self, project_id: Option<String>) -> ServiceRequest {
         match self {
             Self::Projects {} => ServiceRequest::Projects,
@@ -242,6 +261,15 @@ impl CoordinationRead {
                 project_id,
                 limit: limit.unwrap_or(64),
             }),
+            Self::CoordinationSessionTimeline { session_id } => {
+                ServiceRequest::SessionTimeline(SessionTimelineQuery {
+                    project_id,
+                    session_id,
+                })
+            }
+            Self::CoordinationSessionIndex {} => {
+                ServiceRequest::SessionIndex(SessionIndexQuery { project_id })
+            }
         }
     }
 }
@@ -269,6 +297,11 @@ impl AnalyticsRead {
                 offset,
             },
             Self::AnalyticsCategories {} => AnalyticsCommand::Categories,
+            Self::AnalyticsCommands { category_id } => AnalyticsCommand::Commands {
+                project_id,
+                category_id,
+            },
+            Self::SkillGet { name } => AnalyticsCommand::Skill { project_id, name },
             Self::Usage {} => unreachable!("legacy usage is selected above"),
         };
         ServiceRequest::Analytics(command)
@@ -305,6 +338,11 @@ impl IssueRead {
                 context: context(),
                 project_id,
                 after,
+            }),
+            Self::PapercutGet { papercut_id } => ServiceRequest::Papercuts(PapercutCommand::Get {
+                context: context(),
+                project_id,
+                papercut_id,
             }),
             Self::SosList {} => ServiceRequest::Sos(SosCommand::List { context: context() }),
             Self::SosGet { issue_id } => ServiceRequest::Sos(SosCommand::Get {

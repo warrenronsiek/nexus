@@ -2,6 +2,7 @@
 // @feature coordination
 // @spec docs/features/agent-memory.md
 // @spec docs/features/coordination.md
+// @boundary service-wire-json: memory assertions inspect the serialized service response contract.
 use super::*;
 use crate::config::Config;
 use crate::coordination::api::{MemoryAddCommand, MemoryScopeArg, ServiceRequest};
@@ -482,4 +483,65 @@ fn assert_provider_health(service: &NexusService, expected_outcome: MemoryCompac
         fallback_health.model_id.as_deref(),
         Some("fallback-memory-model")
     );
+}
+
+fn consolidate_every_level(service: &NexusService) {
+    let mut store = service.store.lock().unwrap();
+    loop {
+        let jobs = store
+            .ready_memory_compactions(&["codex"], Utc::now(), 8)
+            .unwrap();
+        if jobs.is_empty() {
+            return;
+        }
+        for job in jobs {
+            let content = format!("level {} summary", job.level);
+            store
+                .insert_memory_summary(&job, &content, "codex", None)
+                .unwrap();
+        }
+    }
+}
+
+/// Each node as `kind:level:span`.
+fn node_shapes(response: &serde_json::Value, nodes: &serde_json::Value) -> Vec<String> {
+    let nodes = nodes.as_array().unwrap_or_else(|| panic!("{response}"));
+    nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}:{}:{}",
+                node["kind"].as_str().unwrap(),
+                node["level"],
+                node["span"]
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn context_and_expansion_nodes_expose_aggregation_level_and_raw_span() {
+    let mut config = Config::default();
+    config.memory.context_max_items = 1;
+    let service = service_with(config);
+    add_pair(&service, "alpha");
+    add_pair(&service, "beta");
+    consolidate_every_level(&service);
+    let context = service
+        .handle(ServiceRequest::decode("memory_context", json!({"scope":"global"})).unwrap())
+        .to_json();
+    let root = &context["context"]["nodes"];
+    assert_eq!(node_shapes(&context, root), ["summary:2:4"]);
+
+    let expand = |node: &serde_json::Value| {
+        let summary_id = node["id"].as_str().unwrap().to_owned();
+        let query = crate::coordination::api::MemorySummaryQuery { summary_id };
+        service
+            .handle(ServiceRequest::MemoryExpand(query))
+            .to_json()
+    };
+    let sources = expand(&root[0]);
+    assert_eq!(node_shapes(&sources, &sources["nodes"]), ["summary:1:2"; 2]);
+    let raw = expand(&sources["nodes"][0]);
+    assert_eq!(node_shapes(&raw, &raw["nodes"]), ["raw:0:1"; 2]);
 }

@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "sessions": [
+    {
+      "session_id": "host-id",
+      "agent": "codex",
+      "display_name": "Improve the router",
+      "task_summary": "Session evidence",
+      "status": "active",
+      "last_seen_at": "2026-11-01T00:00:00Z",
+      "last_activity_at": "2026-11-01T00:00:00Z",
+      "conflicts": 1,
+      "advisories": 2
+    },
+    {
+      "session_id": "peer-id",
+      "agent": "claude",
+      "display_name": null,
+      "task_summary": "Cache cleanup",
+      "status": "ended",
+      "last_seen_at": "2026-10-31T23:00:00Z",
+      "last_activity_at": "2026-10-31T23:59:00Z",
+      "conflicts": 1,
+      "advisories": 1
+    }
+  ],
+  "truncated": false
+}

@@ -83,6 +83,14 @@ pub(super) async fn host_event(
     loaded: &LoadedConfig,
     explicit: Option<&Path>,
 ) -> Result<Value> {
+    if nexus::runtime::internal_process::active() {
+        // Drain the host payload, then record nothing: this host was spawned by Nexus.
+        let _ = read_input(&args.file);
+        return Ok(json!({
+            "capture": "not_recorded",
+            "reason": nexus::runtime::internal_process::INTERNAL_PROCESS_DIAGNOSTIC,
+        }));
+    }
     let result = capture_host_event(&args, loaded, explicit).await;
     if result.is_err() {
         let _ = work_capture::capture_adapter_rejection(

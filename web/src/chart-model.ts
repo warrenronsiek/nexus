@@ -7,8 +7,9 @@ export interface Span { id: string; parent: string | null; label: string; kind: 
 export interface Placed extends Span { lane: number; parentLane: number | null; unresolved: boolean }
 export interface Point { id: string; label: string; at: number; value: number | null }
 export interface Bar { id: string; label: string; value: number | null; detail: string }
-export interface Chart { id: string; type: "bars" | "trend" | "waterfall"; bars?: Bar[]; points?: Point[]; spans?: Span[]; selected?: string | null; zoom?: number }
-export interface ChartInput extends Omit<Chart, "points" | "spans"> { points?: (Omit<Point, "at"> & { at: string | number })[]; spans?: (Omit<Span, "start" | "end" | "queued"> & { start: string | number | null; end: string | number | null; queued: string | number | null })[] }
+export interface Bin { start: number; count: number }
+export interface Chart { id: string; type: "bars" | "trend" | "waterfall" | "histogram"; bars?: Bar[]; points?: Point[]; spans?: Span[]; bins?: Bin[]; binSeconds?: number; line?: boolean; selected?: string | null; zoom?: number }
+export interface ChartInput extends Omit<Chart, "points" | "spans" | "bins"> { points?: (Omit<Point, "at"> & { at: string | number })[]; spans?: (Omit<Span, "start" | "end" | "queued"> & { start: string | number | null; end: string | number | null; queued: string | number | null })[]; bins?: { start: string | number; count: number }[] }
 export interface ChartEvent { chart: string; id: string }
 export type Choose = (id: string) => void;
 
@@ -22,5 +23,6 @@ function positionedSpan(span: NonNullable<ChartInput["spans"]>[number]): Span {
 }
 export function positionedChart(input: ChartInput): Chart {
   const points = input.points?.map(point => ({ ...point, at: timestamp(point.at) ?? NaN }));
-  return { ...input, points, spans: input.spans?.map(positionedSpan) };
+  const bins = input.bins?.map(bin => ({ count: bin.count, start: timestamp(bin.start) ?? NaN }));
+  return { ...input, points, bins, spans: input.spans?.map(positionedSpan) };
 }

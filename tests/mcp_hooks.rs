@@ -111,43 +111,34 @@ fn assert_bytes_absent(haystack: &[u8], needle: &[u8]) {
     );
 }
 
-#[test]
-fn successful_skill_manifest_reads_are_inferred_once_per_turn() {
+const CODE_ARCHITECT_MANIFEST: &str =
+    "---\nname: code-architect\ndescription: Review architecture.\n---\n";
+
+/// One turn reads the same skill manifest directly and through a read-only shell command.
+fn read_code_architect_twice() -> Harness {
     let mut harness = Harness::start();
     let manifest = harness.root.join(".codex/skills/code-architect/SKILL.md");
     std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
-    std::fs::write(
-        &manifest,
-        "---\nname: code-architect\ndescription: Review architecture.\n---\n",
-    )
-    .unwrap();
+    std::fs::write(&manifest, CODE_ARCHITECT_MANIFEST).unwrap();
     let root = harness.root.to_string_lossy().to_string();
-    harness.call(
-        "nexus_post_tool_use",
-        json!({
-            "session_id":"codex-skill-read",
-            "project_root":root,
-            "agent":"codex",
-            "turn_id":"turn-skill",
-            "tool_use_id":"read-skill-1",
-            "tool_name":"read_file",
-            "tool_input":{"path":manifest},
-            "tool_output":{"content":"skill loaded"}
-        }),
-    );
-    harness.call(
-        "nexus_post_tool_use",
-        json!({
-            "session_id":"codex-skill-read",
-            "project_root":root,
-            "agent":"codex",
-            "turn_id":"turn-skill",
-            "tool_use_id":"read-skill-2",
-            "tool_name":"exec_command",
-            "tool_input":{"cmd":format!("sed -n '1,200p' {}", manifest.display())},
-            "tool_output":{"content":"skill loaded"}
-        }),
-    );
+    let shell = format!("sed -n '1,200p' {}", manifest.display());
+    for (id, tool, input) in [
+        ("read-skill-1", "read_file", json!({"path":manifest})),
+        ("read-skill-2", "exec_command", json!({"cmd":shell})),
+    ] {
+        harness.call(
+            "nexus_post_tool_use",
+            json!({"session_id":"codex-skill-read","project_root":root,"agent":"codex",
+                "turn_id":"turn-skill","tool_use_id":id,"tool_name":tool,"tool_input":input,
+                "tool_output":{"content":"skill loaded"}}),
+        );
+    }
+    harness
+}
+
+#[test]
+fn successful_skill_manifest_reads_are_inferred_once_per_turn() {
+    let mut harness = read_code_architect_twice();
 
     let usage = harness.call("nexus_usage", json!({}));
     let skill = usage["skills"]
@@ -158,6 +149,21 @@ fn successful_skill_manifest_reads_are_inferred_once_per_turn() {
         .expect("skill manifest read was not observed");
     assert_eq!(skill["count"], 1, "{usage}");
     assert_eq!(skill["evidence"]["instruction_read"], 1, "{usage}");
+    assert_eq!(skill["sessions"], 1, "{usage}");
+}
+
+#[test]
+fn a_read_skill_manifest_can_be_retrieved_as_text() {
+    let mut harness = read_code_architect_twice();
+
+    let text = harness.call(
+        "nexus_analytics",
+        json!({"action":"skill","name":"code-architect"}),
+    );
+
+    assert_eq!(text["content"], CODE_ARCHITECT_MANIFEST, "{text}");
+    assert_eq!(text["description"], "Review architecture.");
+    assert_eq!(text["source_path"], ".codex/skills/code-architect/SKILL.md");
 }
 
 #[test]

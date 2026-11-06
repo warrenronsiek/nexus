@@ -76,7 +76,7 @@ fn coordination_tool_definitions() -> Vec<Value> {
 fn papercut_tool_definition() -> Value {
     json!({
         "name":"nexus_papercuts",
-        "description":"List, dump, report, upvote, remove, or respond to project development-environment papercuts. List accepts an optional after cursor for the next older page. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
+        "description":"List, get, dump, report, upvote, remove, or respond to project development-environment papercuts. List ranks open papercuts by encounter count (upvote_count), then recent activity, and accepts an optional after cursor built from the last listed item. get returns one canonical papercut with its bounded individual reports and encounters in chronological order. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
         "inputSchema":{
             "type":"object",
             "oneOf":[
@@ -84,13 +84,18 @@ fn papercut_tool_definition() -> Value {
                     "project_id":{"type":"string","maxLength":256},
                     "after":{
                         "type":"object",
-                        "required":["updated_at","id"],
+                        "required":["upvote_count","updated_at","id"],
                         "properties":{
+                            "upvote_count":{"type":"integer","minimum":0},
                             "updated_at":{"type":"string","format":"date-time"},
                             "id":{"type":"string"}
                         },
                         "additionalProperties":false
                     }
+                })),
+                papercut_action_schema("get", &["papercut_id"], json!({
+                    "project_id":{"type":"string","maxLength":256},
+                    "papercut_id":{"type":"string"}
                 })),
                 papercut_action_schema("dump", &[], json!({
                     "scope":{"type":"string","enum":["project","all"],"default":"project"}

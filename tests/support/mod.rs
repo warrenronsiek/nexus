@@ -144,21 +144,57 @@ impl Harness {
         run_git(&self.root, &["commit", "-m", "initial"]);
     }
 
+    /// The installed CLI bound to this harness's configuration and checkout.
+    pub fn cli(&self) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nexus"));
+        command
+            .arg("--config")
+            .arg(self._temp.path().join("config.toml"))
+            .current_dir(&self.root);
+        command
+    }
+
     pub fn eval_cli(&self, args: &[&str]) -> Output {
         self.feature_cli("eval", args)
     }
 
     pub fn feature_cli(&self, feature: &str, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_nexus"))
+        self.feature_command(feature, args).output().unwrap()
+    }
+
+    /// Runs a feature command with only the supplied agent context in its environment.
+    pub fn feature_cli_with_context(
+        &self,
+        feature: &str,
+        args: &[&str],
+        context: &[(&str, &str)],
+    ) -> Output {
+        let mut command = self.feature_command(feature, args);
+        for variable in [
+            "NEXUS_AGENT",
+            "NEXUS_HOST_SESSION_ID",
+            "NEXUS_WORK_CONTEXT",
+            "NEXUS_WORK_SESSION_ID",
+            "NEXUS_PARENT_ACTIVITY_ID",
+            "NEXUS_TURN_ID",
+            "NEXUS_MODEL",
+        ] {
+            command.env_remove(variable);
+        }
+        command.envs(context.iter().copied()).output().unwrap()
+    }
+
+    fn feature_command(&self, feature: &str, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nexus"));
+        command
             .current_dir(&self.root)
             .args([
                 "--config",
                 self._temp.path().join("config.toml").to_str().unwrap(),
                 feature,
             ])
-            .args(args)
-            .output()
-            .unwrap()
+            .args(args);
+        command
     }
 
     pub fn wait_for_reconciled_claim(&mut self, session_id: &str) {
@@ -195,6 +231,29 @@ impl Harness {
 
     pub fn call(&mut self, name: &str, arguments: Value) -> Value {
         self.connection.call(name, arguments)
+    }
+
+    /// Calls one tool through an MCP companion spawned like a Nexus-internal provider.
+    pub fn internal_process_call(&self, name: &str, arguments: Value) -> Value {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_nexus"))
+            .args([
+                "--config",
+                self._temp.path().join("config.toml").to_str().unwrap(),
+                "mcp",
+            ])
+            .env("NEXUS_INTERNAL_PROCESS", "1")
+            .current_dir(&self.root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut connection =
+            StdioMcpConnection::new(child.stdin.take().unwrap(), child.stdout.take().unwrap());
+        let response = connection.request("tools/call", json!({"name":name,"arguments":arguments}));
+        let _ = child.kill();
+        let _ = child.wait();
+        response["result"].clone()
     }
 
     pub fn status(&mut self) -> Value {

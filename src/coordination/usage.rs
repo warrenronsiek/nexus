@@ -20,7 +20,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const MAX_SKILL_MANIFEST_BYTES: usize = 64 * 1024;
+use crate::analytics::skills::{
+    display_path, frontmatter_field, SkillDocument, MAX_SKILL_DOCUMENT_BYTES,
+};
 
 pub(super) struct UsageCapture {
     config_hash: String,
@@ -71,6 +73,10 @@ impl UsageCapture {
         if let Some(filesystem_evidence) = filesystem_evidence {
             self.observe_scripts(store, project, input, outcome, &filesystem_evidence.scripts);
             if let Some(skill) = filesystem_evidence.skill {
+                if let Some(document) = &filesystem_evidence.skill_document {
+                    // The latest text is a supplement; failing to store it never drops the use.
+                    let _ = store.record_skill_document(&project.id, &skill, document);
+                }
                 self.observe_manifest_skill(store, project, input, skill);
             }
         }
@@ -198,9 +204,11 @@ pub(crate) fn derive_filesystem_evidence(
                 .collect()
         })
         .unwrap_or_default();
-    let skill = (completion == ToolCompletion::Succeeded)
+    let (skill, skill_document) = (completion == ToolCompletion::Succeeded)
         .then(|| infer_skill_manifest(input, project_root))
-        .flatten();
+        .flatten()
+        .unzip();
+    let skill_document = skill_document.flatten();
     ClientDerivedUsage {
         script_versions: scripts
             .iter()
@@ -211,6 +219,7 @@ pub(crate) fn derive_filesystem_evidence(
             .collect(),
         scripts,
         skill,
+        skill_document,
         repository_inventory: None,
     }
 }
@@ -418,7 +427,10 @@ fn canonical_tool_name(name: &str) -> String {
     }
 }
 
-fn infer_skill_manifest(input: &ToolHookInput, project_root: &Path) -> Option<String> {
+fn infer_skill_manifest(
+    input: &ToolHookInput,
+    project_root: &Path,
+) -> Option<(String, Option<SkillDocument>)> {
     let candidate = match canonical_tool_name(&input.tool_name).as_str() {
         "read" => {
             let path = input.tool_input.first_string(&["path", "file_path"])?;
@@ -427,7 +439,7 @@ fn infer_skill_manifest(input: &ToolHookInput, project_root: &Path) -> Option<St
         "shell" => shell_manifest_read(input, project_root)?,
         _ => return None,
     };
-    skill_name_from_manifest(&candidate)
+    read_skill_manifest(&candidate, project_root)
 }
 
 fn shell_manifest_read(input: &ToolHookInput, project_root: &Path) -> Option<std::path::PathBuf> {
@@ -465,37 +477,51 @@ fn resolve_manifest(project_root: &Path, path: &str) -> Option<std::path::PathBu
     (skill_manifest && within_skill_root).then_some(candidate)
 }
 
-fn skill_name_from_manifest(manifest: &Path) -> Option<String> {
-    let metadata = std::fs::symlink_metadata(manifest).ok()?;
-    if !metadata.file_type().is_file() || metadata.len() > MAX_SKILL_MANIFEST_BYTES as u64 {
-        return None;
-    }
+/// Reads a bounded regular manifest once for both its identity and its displayable text.
+/// The identity never depends on whether a privacy-safe display path exists.
+fn read_skill_manifest(
+    manifest: &Path,
+    project_root: &Path,
+) -> Option<(String, Option<SkillDocument>)> {
+    let content = read_bounded_manifest(manifest)?;
+    let name = frontmatter_field(&content, "name").or_else(|| directory_name(manifest))?;
+    let document = display_path(manifest, project_root).map(|source_path| SkillDocument {
+        content,
+        source_path,
+    });
+    Some((name, document))
+}
+
+fn directory_name(manifest: &Path) -> Option<String> {
+    manifest.parent()?.file_name()?.to_str().map(str::to_owned)
+}
+
+fn bounded_regular_file(metadata: &std::fs::Metadata) -> Option<()> {
+    (metadata.file_type().is_file() && metadata.len() <= MAX_SKILL_DOCUMENT_BYTES as u64)
+        .then_some(())
+}
+
+/// Opens a regular manifest without following symlinks, checking its bound before and after.
+fn open_manifest(manifest: &Path) -> Option<(std::fs::File, u64)> {
+    bounded_regular_file(&std::fs::symlink_metadata(manifest).ok()?)?;
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(manifest)
         .ok()?;
     let metadata = file.metadata().ok()?;
-    if !metadata.file_type().is_file() || metadata.len() > MAX_SKILL_MANIFEST_BYTES as u64 {
-        return None;
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take((MAX_SKILL_MANIFEST_BYTES + 1) as u64)
+    bounded_regular_file(&metadata).map(|()| (file, metadata.len()))
+}
+
+/// Never reads past the document bound, even if the file grows after its size check.
+fn read_bounded_manifest(manifest: &Path) -> Option<String> {
+    let (file, length) = open_manifest(manifest)?;
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take((MAX_SKILL_DOCUMENT_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.len() > MAX_SKILL_MANIFEST_BYTES {
-        return None;
-    }
-    let contents = String::from_utf8(bytes).ok()?;
-    let frontmatter = contents
-        .lines()
-        .skip(1)
-        .take_while(|line| line.trim() != "---");
-    frontmatter
-        .filter_map(|line| line.trim().strip_prefix("name:"))
-        .map(|name| name.trim().trim_matches(['\'', '"']).to_owned())
-        .find(|name| !name.is_empty())
-        .or_else(|| manifest.parent()?.file_name()?.to_str().map(str::to_owned))
+    (bytes.len() <= MAX_SKILL_DOCUMENT_BYTES).then_some(())?;
+    String::from_utf8(bytes).ok()
 }
 
 fn privacy_safe_script_name(name: &str) -> String {
@@ -564,9 +590,13 @@ mod tests {
             error: None,
         };
 
+        let (name, document) = infer_skill_manifest(&input, temporary.path()).unwrap();
+        let document = document.unwrap();
+        assert_eq!(name, expected);
+        assert_eq!(document.content, contents);
         assert_eq!(
-            infer_skill_manifest(&input, temporary.path()).as_deref(),
-            Some(expected)
+            document.source_path,
+            format!(".codex/skills/{directory}/SKILL.md")
         );
     }
 
@@ -599,6 +629,23 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(skill_name_from_manifest(&manifest), None);
+        assert_eq!(read_skill_manifest(&manifest, temporary.path()), None);
+    }
+
+    #[test]
+    fn manifests_outside_the_checkout_report_only_a_skill_root_display_path() {
+        let checkout = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let manifest = home.path().join(".claude/skills/review/SKILL.md");
+        std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        std::fs::write(&manifest, "# Review\n").unwrap();
+
+        let (name, document) =
+            read_skill_manifest(&manifest.canonicalize().unwrap(), checkout.path()).unwrap();
+        let document = document.unwrap();
+
+        assert_eq!(name, "review");
+        assert_eq!(document.content, "# Review\n");
+        assert_eq!(document.source_path, ".claude/skills/review/SKILL.md");
     }
 }

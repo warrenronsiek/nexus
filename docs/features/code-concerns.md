@@ -63,7 +63,17 @@ attaching evidence does not require an eval run.
 
 Transport binds the current actor and project outside the observation body.
 Explicit host-session, logical work-session, and activity IDs remain separate.
-Missing context stays unknown. Import retains the first claimed source receipt
+Missing context stays unknown. CLI conveniences fill each omitted ID from the
+caller's agent context exactly as captured command activities do: individual
+`NEXUS_HOST_SESSION_ID`, `NEXUS_WORK_SESSION_ID` and `NEXUS_PARENT_ACTIVITY_ID`,
+then a `NEXUS_WORK_CONTEXT` handoff, then the exact active host bridge for
+`NEXUS_AGENT` and `NEXUS_HOST_SESSION_ID`. A report from a captured host session
+therefore counts toward that logical work session instead of unknown work.
+Explicit flags win; `record` bundles stay byte-exact. The MCP adapter cannot see
+the host session, so MCP callers and hosts without an environment handoff (such
+as Codex shells) must pass `observation.context` or `--work-session` explicitly.
+Dashboards should show `unknown_work_observations` rather than zero affected
+sessions when encounters carry no work session. Import retains the first claimed source receipt
 and actor while binding the new importer separately. Source attribution is a
 claim retained for audit, not impersonation of the current caller. Neither model
 availability nor a provider result is required for persistence.

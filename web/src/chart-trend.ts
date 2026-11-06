@@ -17,10 +17,12 @@ function axes(data: Point[], width: number): Axes {
 }
 function drawAxes(svg: Svg, { x, y, left, bottom }: Axes, width: number, data: Point[]): void {
   svg.append("g").attr("class", "chart-axis grid").attr("transform", `translate(${left},0)`).call(d3.axisLeft(y).ticks(5).tickSize(left - width + 32));
-  const times = [...new Set(data.map(point => point.at))];
-  const intraday = times.length > 1 && Math.max(...times) - Math.min(...times) < 86400000;
-  const format = d3.utcFormat(intraday ? "%H:%M" : "%b %d") as (value: Date | d3.NumberValue, index: number) => string;
-  const axis = d3.axisBottom(x).ticks(Math.max(2, Math.floor(width / 150))).tickFormat(format);
+  const times = [...new Set(data.map(point => point.at))], budget = Math.max(2, Math.floor(width / 150));
+  const days = times.length > 1 ? (Math.max(...times) - Math.min(...times)) / 86400000 : 0;
+  const format = d3.utcFormat(times.length > 1 && days < 1 ? "%H:%M" : "%b %d") as (value: Date | d3.NumberValue, index: number) => string;
+  const axis = d3.axisBottom(x).tickFormat(format);
+  // Date labels step by whole days so a multi-day range never repeats a label.
+  if (days >= 1) axis.ticks(d3.utcDay.every(Math.max(1, Math.ceil(days / budget)))!); else axis.ticks(budget);
   if (times.length === 1) axis.tickValues(times.map(time => new Date(time)));
   svg.append("g").attr("class", "chart-axis").attr("transform", `translate(0,${bottom})`).call(axis);
 }
@@ -30,12 +32,13 @@ function drawPoint(svg: Svg, point: Point, { x, y, bottom }: Axes, choose: Choos
   element(mark, "title", {}, `${point.label}: ${point.value ?? "unavailable"}`);
   actionable(mark, point.id, choose);
 }
-export function drawTrend(svg: Svg, data: Point[], width: number, choose: Choose): void {
+/** Connected trends show daily series; separate observations (eval results) draw as dots only. */
+export function drawTrend(svg: Svg, data: Point[], width: number, choose: Choose, connected = true): void {
   attrs(svg, { viewBox: `0 0 ${width} 260`, height: 260 });
   const dated = data.filter(point => Number.isFinite(point.at)), scales = axes(dated, width);
   drawAxes(svg, scales, width, dated);
   const line = d3.line<Point>().defined(point => point.value !== null).x(point => scales.x(point.at)).y(point => scales.y(point.value!));
-  svg.append("path").datum(dated).attr("d", line).attr("fill", "none").attr("stroke", "var(--chart-ink, #73a9ec)").attr("stroke-width", 2);
+  if (connected) svg.append("path").datum(dated).attr("d", line).attr("fill", "none").attr("stroke", "var(--chart-ink, #73a9ec)").attr("stroke-width", 2);
   dated.forEach(point => drawPoint(svg, point, scales, choose));
   if (!dated.some(point => point.value !== null)) element(svg, "text", { x: scales.left + 16, y: 100, class: "chart-label" }, "No numeric observations; inspect exact recorded values below.");
 }

@@ -145,7 +145,33 @@ fn session_title(summary: &mut WorkSummary, events: &[&WorkObservation]) {
             .context
             .labels
             .insert("nexus.session_title".into(), title.clone());
+    } else if let Some(title) = worktree_title(summary) {
+        summary.title = title;
     }
+}
+
+/// Harness roots without a host display name read as `host · worktree-directory`.
+/// Only the generated placeholder is replaced; the host session ID stays in context.
+fn worktree_title(summary: &WorkSummary) -> Option<String> {
+    let host = summary
+        .context
+        .labels
+        .get("nexus.capture.host")
+        .filter(|_| matches!(summary.subject, WorkSubject::Session { .. }))?;
+    let generated = summary.title == "Observed agent work"
+        || summary
+            .context
+            .host_session_id
+            .as_ref()
+            .is_some_and(|id| summary.title == format!("{host} session {id}"));
+    let directory = summary
+        .context
+        .worktree
+        .as_deref()
+        .filter(|_| generated)
+        .and_then(|worktree| std::path::Path::new(worktree).file_name())
+        .and_then(std::ffi::OsStr::to_str)?;
+    Some(format!("{host} · {directory}"))
 }
 
 fn capture_gaps(summary: &mut WorkSummary, events: &[&WorkObservation]) {

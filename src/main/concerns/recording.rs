@@ -166,18 +166,47 @@ impl ObservationArgs {
             occurred_at: self.occurred_at,
             observed_at: self.observed_at.unwrap_or_else(Utc::now),
             context: ConcernContext {
-                host_session_id: self
-                    .host_session
-                    .or_else(|| std::env::var("NEXUS_HOST_SESSION_ID").ok()),
-                work_session_id: self
-                    .work_session
-                    .or_else(|| std::env::var("NEXUS_WORK_SESSION_ID").ok()),
-                activity_id: self
-                    .activity
-                    .or_else(|| std::env::var("NEXUS_PARENT_ACTIVITY_ID").ok()),
+                host_session_id: self.host_session,
+                work_session_id: self.work_session,
+                activity_id: self.activity,
                 repository: self.repository,
             },
             body,
+        }
+    }
+}
+
+/// Observation context the caller's agent environment supplies when flags omit it.
+///
+/// Resolution matches captured command activities: individual `NEXUS_*` identities, then a
+/// `NEXUS_WORK_CONTEXT` handoff, then the exact active host bridge for `NEXUS_AGENT` and
+/// `NEXUS_HOST_SESSION_ID`. A report from a captured host session therefore links to the
+/// same logical work session and turn instead of counting as unknown work.
+#[derive(Debug, Default)]
+pub(crate) struct CallerContext {
+    host_session_id: Option<String>,
+    work_session_id: Option<String>,
+    activity_id: Option<String>,
+}
+impl CallerContext {
+    pub(crate) fn from_environment(root: &Path, loaded: &nexus::LoadedConfig) -> Self {
+        let capture = nexus::runtime::work_capture::CaptureContext::from_environment(root)
+            .with_active_host(loaded);
+        Self {
+            host_session_id: std::env::var("NEXUS_HOST_SESSION_ID").ok(),
+            work_session_id: capture.work_session_id,
+            activity_id: capture.parent_activity_id,
+        }
+    }
+    fn fill(&self, context: &mut ConcernContext) {
+        for (value, default) in [
+            (&mut context.host_session_id, &self.host_session_id),
+            (&mut context.work_session_id, &self.work_session_id),
+            (&mut context.activity_id, &self.activity_id),
+        ] {
+            if value.is_none() {
+                value.clone_from(default);
+            }
         }
     }
 }

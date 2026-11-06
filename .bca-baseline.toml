@@ -133,12 +133,6 @@ metric = "halstead.effort"
 value = 81010.27906104822
 
 [[entry]]
-path = "src/coordination/usage.rs"
-qualified = "skill_name_from_manifest"
-metric = "nexits"
-value = 10.0
-
-[[entry]]
 path = "src/installation.rs"
 qualified = "merge_hooks"
 metric = "nexits"

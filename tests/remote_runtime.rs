@@ -505,12 +505,12 @@ fn concurrent_secret_initialization_never_replaces_the_winner() {
 #[tokio::test]
 async fn remote_companion_forwards_derived_usage_evidence_after_completed_tools() {
     let checkout = initialized_checkout();
-    let skill = install_usage_examples(checkout.path());
+    let skill_path = install_usage_examples(checkout.path());
     let service = RunningService::start(Vec::new()).await;
     let loaded = service.client_config(" shared-evidence-project ", 30);
     let client = NexusClient::new(&loaded, None);
 
-    for request in completed_usage_requests(checkout.path(), &skill) {
+    for request in completed_usage_requests(checkout.path(), &skill_path) {
         assert_eq!(client.lifecycle_request(&request).await["permitted"], true);
     }
 
@@ -525,6 +525,23 @@ async fn remote_companion_forwards_derived_usage_evidence_after_completed_tools(
         .unwrap()
         .iter()
         .any(|count| count["name"] == "remote-evidence-skill"));
+    let skill = client
+        .request(
+            &ServiceRequest::decode(
+                "analytics",
+                json!({"action":"skill","name":"remote-evidence-skill"}),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        skill["content"],
+        std::fs::read_to_string(&skill_path).unwrap(),
+        "{skill}"
+    );
+    assert_eq!(skill["source_path"], ".codex/skills/remote/SKILL.md");
+    assert_eq!(skill["content_hash"].as_str().unwrap().len(), 64);
 }
 
 #[tokio::test]
@@ -613,7 +630,7 @@ async fn remote_clients_name_their_project_and_inspection_does_not_register_one(
     let service = RunningService::start(Vec::new()).await;
     let mut loaded = service.client_config("named-project", 3600);
     if let nexus::config::ClientConfig::Remote(remote) = &mut loaded.config.client {
-        remote.project_name = Some("comms-platform".into());
+        remote.project_name = Some("example-app".into());
     }
     let client = NexusClient::new(&loaded, None);
     let note = ServiceRequest::decode(
@@ -647,8 +664,5 @@ async fn remote_clients_name_their_project_and_inspection_does_not_register_one(
             )
         })
         .collect();
-    assert_eq!(
-        listed,
-        [("named-project".to_owned(), json!("comms-platform"))]
-    );
+    assert_eq!(listed, [("named-project".to_owned(), json!("example-app"))]);
 }

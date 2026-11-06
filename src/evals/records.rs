@@ -257,6 +257,9 @@ pub struct Component {
 pub struct TargetRevision {
     #[serde(flatten)]
     pub revision: Revision,
+    /// Human name of the evaluated agent or system; dashboards group results by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     pub components: Vec<Component>,
     #[serde(default)]
     pub artifacts: Vec<String>,

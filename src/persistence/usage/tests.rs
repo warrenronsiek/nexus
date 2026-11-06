@@ -89,3 +89,60 @@ fn usage_summary_has_a_server_owned_dimension_cap() {
     assert_eq!(summary.tools.len() + summary.skills.len(), 64);
     assert!(summary.truncated);
 }
+
+fn observe(store: &mut Store, kind: CapabilityKind, name: &str, agent: &str, session: &str) {
+    let start = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
+    let invocation = format!("{name}:{agent}:{session}:{}", Uuid::new_v4());
+    let mut use_ = observation("project-a", &invocation, name);
+    use_.kind = kind;
+    use_.agent = agent.to_owned();
+    use_.session_id = session.to_owned();
+    use_.turn_id = Some(invocation);
+    store
+        .observe_capability_at(&use_, CapabilityOutcome::Observed, start)
+        .unwrap();
+}
+
+#[test]
+fn skill_sessions_survive_a_window_dominated_by_script_sessions() {
+    let mut store = Store::open_memory().unwrap();
+    // Distinct script sessions sort before skills and once exhausted a shared identity budget.
+    for index in 0..4_100 {
+        let session = format!("script-session-{index}");
+        observe(
+            &mut store,
+            CapabilityKind::Script,
+            "scripts/check.sh",
+            "codex",
+            &session,
+        );
+    }
+    for (agent, session) in [("codex", "one"), ("codex", "one"), ("codex", "two")]
+        .into_iter()
+        .chain([("codex", "three"), ("codex", "three"), ("claude", "one")])
+    {
+        observe(
+            &mut store,
+            CapabilityKind::Skill,
+            "test-audit",
+            agent,
+            session,
+        );
+    }
+    let start = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
+    let end = start + chrono::Duration::days(7);
+
+    let summary = store.usage_summary(Some("project-a"), start, end).unwrap();
+
+    let skill = &summary.skills[0];
+    assert_eq!(
+        (skill.count, skill.sessions),
+        (6, 4),
+        "agent-qualified sessions"
+    );
+    let script = &summary.tools[0];
+    assert_eq!((script.count, script.sessions), (4_100, 4_100));
+    assert!(!summary.truncated);
+    let global = store.usage_summary(None, start, end).unwrap();
+    assert_eq!(global.skills[0].sessions, 4);
+}

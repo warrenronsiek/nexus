@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "action": "detail",
+  "truncated": false,
+  "papercut": {
+    "id": "friction-id",
+    "title": "Slow local fixture",
+    "description": "A recorded development problem",
+    "status": "open",
+    "upvote_count": 2,
+    "updated_at": "2026-11-01T00:00:00Z"
+  },
+  "reports": [
+    {
+      "id": "report-1",
+      "kind": "report",
+      "reported_papercut_id": "friction-id",
+      "title": "Slow local fixture",
+      "description": "A recorded development problem",
+      "note": null,
+      "reporter_agent": "codex",
+      "reporter_session_id": "s1",
+      "reporter_model_id": "gpt",
+      "created_at": "2026-10-31T00:00:00Z"
+    },
+    {
+      "id": "upvote-1",
+      "kind": "encounter",
+      "reported_papercut_id": "friction-id",
+      "title": null,
+      "description": null,
+      "note": "Hit it again while running the router tests",
+      "reporter_agent": "claude",
+      "reporter_session_id": "s2",
+      "reporter_model_id": "opus",
+      "created_at": "2026-11-01T00:00:00Z"
+    }
+  ]
+}

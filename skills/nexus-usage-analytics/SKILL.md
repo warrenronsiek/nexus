@@ -22,6 +22,9 @@ explicit `/skill:name` activation whenever its installed extension is loaded,
 independently of whether `/nexus` is open. The stdio companion performs bounded
 checkout-side script/skill detection and semantic enrichment in local or remote
 mode; the shared server never opens client paths or executes the classifier.
+Nexus's own provider processes (reviewers, memory consolidation, analysts,
+triage, classification) carry `NEXUS_INTERNAL_PROCESS=1`, so their tool use is
+never counted as observed usage.
 
 Keep reusable named scripts at their natural repository-relative paths. Nexus
 conservatively resolves supported shell invocations and inventories `scripts/`,
@@ -71,7 +74,12 @@ conflict analysis is disabled by `analyst.enabled`. `[analytics]` controls
 classification is not a required extra model call for every invocation.
 
 Analytics persistence excludes raw commands, arguments, environment values,
-source, output, error text, and classifier prompts. Enrichment temporarily uses
+source, output, error text, and classifier prompts. The one deliberate document
+it keeps is skill instruction text: when an agent successfully reads a `SKILL.md`
+under a `skills/` directory, the companion sends that manifest (at most 64 KiB of
+UTF-8) and a display path that is repository-relative or starts at the folder
+owning `skills/`, never an absolute client path. Nexus keeps only the newest
+version per project and skill with its SHA-256. Do not put secrets in skills. Enrichment temporarily uses
 bounded, locally redacted input and may send it to the configured provider;
 redaction is best effort and custom identifiers can remain. Disable semantic
 classification when that provider boundary is unsuitable. Keep inventory
@@ -86,10 +94,18 @@ seven-day observations. For agents, discover and call `nexus_analytics`:
 
 ```json
 {"action":"summary"}
+{"action":"commands","category_id":"files.read"}
+{"action":"skill","name":"code-architect"}
 {"action":"catalog","offset":0,"limit":32}
 {"action":"opportunities"}
 {"action":"categories"}
 ```
+
+`commands` breaks one category's operations down by concrete command or tool
+name (for example `rg` versus `grep` within code search), each with a complete,
+zero-filled grid of 28 six-hour bins over the rolling window; names beyond the
+top 20 fold into a final `other` series. `skill` returns the newest captured
+`SKILL.md` text for a skill, or null fields when no capture exists yet.
 
 Pass `project_id` when explicitly inspecting a project; an omitted scope follows
 the configured transport's read binding. Page catalog and implementation examples

@@ -44,15 +44,32 @@ Intentional adaptations of the dealt sheet:
 
 | View | Main question |
 | --- | --- |
-| Coordination | Which observed sessions and paths currently overlap? |
-| Work | How long do sessions and activity kinds take, and where did a selected session spend time? |
-| Evaluations | How did a particular suite/target/model composition measure over time, under which definition? |
-| Tools | What semantic activities occurred, what was supplied, and what might be missing? |
-| Skills | Which named skills were observed in the seven-day window? |
+| Coordination | Which sessions overlapped, and what did Nexus tell each agent? |
+| Work | Where does time go, and how did a selected prompt branch into work? |
+| Evaluations | How did a named agent measure over time, under which definition? |
+| Tools | What semantic activities occurred, which commands performed them, and when? |
+| Skills | Which named skills were used in the seven-day window, and what do they say? |
 | Code concerns | Which code areas have repeated encounters and remedies? |
-| Papercuts | What development friction has been reported? |
-| SOS | Which unusual in-application situations recur? |
-| Agent memory | What retained knowledge and coverage support the current context? |
+| Papercuts | Which development friction is encountered most? |
+| SOS | Which unusual in-application situations recur most? |
+| Agent memory | What retained knowledge exists, at which summary level? |
+
+### Review-driven layout rules (2026-11-06)
+
+A recorded product review of the live console set these rules:
+
+- A screen answers its question first. No bounded-window caveats, raw JSON,
+  search forms, project-ID entry rows or identifier dumps on the page; errors and
+  stale snapshots stay explicit.
+- Long lists of sessions or evaluation sets become a second picker beside the
+  project picker, and the selection lives in the URL.
+- A row with a chevron always does something visible: it expands in place.
+- A list that repeats a chart above it is removed; the chart rows themselves
+  expand (Tools activities, Skills).
+- The work tree is rooted at the human prompt. Container spans that describe the
+  same prompt are folded, and repeated calls are grouped with a count.
+- Eval results are separate observations, so they draw as dots, not a line.
+- Date axes step by whole days so a label never repeats.
 
 ## Icons
 

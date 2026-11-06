@@ -85,6 +85,9 @@ impl NexusService {
             | ServiceRequest::MemorySearch(_)
             | ServiceRequest::MemoryExpand(_)
             | ServiceRequest::Config) => self.handle_read(request, project),
+            request @ (ServiceRequest::SessionTimeline(_) | ServiceRequest::SessionIndex(_)) => {
+                self.session_history(request, project)
+            }
             request @ (ServiceRequest::Resolve(_)
             | ServiceRequest::Release(_)
             | ServiceRequest::Analyze(_)

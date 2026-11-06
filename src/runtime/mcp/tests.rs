@@ -272,6 +272,7 @@ fn memory_tool_arguments_receive_process_context_without_caller_ceremony() {
         session_id: "mcp-session-test".into(),
         project_root: Some("/tmp/project".into()),
         agent: "codex".into(),
+        internal_process: false,
     };
     let mut add = json!({"scope":"project","content":"Durable note"});
     enrich_memory_arguments("memory_add", &mut add, &context);
@@ -291,6 +292,7 @@ fn memory_add_replaces_caller_supplied_provenance_with_process_context() {
         session_id: "mcp-session-test".into(),
         project_root: Some("/tmp/project".into()),
         agent: "codex".into(),
+        internal_process: false,
     };
     let mut add = json!({
         "scope":"project",
@@ -323,7 +325,7 @@ fn advertises_one_typed_papercuts_tool() {
 
     let schema = &papercuts[0]["inputSchema"];
     let branches = schema["oneOf"].as_array().unwrap();
-    assert_eq!(branches.len(), 6);
+    assert_eq!(branches.len(), 7);
     for branch in branches {
         assert_eq!(branch["type"], "object");
         assert_eq!(branch["additionalProperties"], false);
@@ -500,6 +502,7 @@ async fn invoke_tool(params: Value) -> Value {
             session_id: "mcp-session-test".into(),
             project_root: Some("/tmp/project".into()),
             agent: "codex".into(),
+            internal_process: false,
         },
         json!(1),
         json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":params}),
@@ -545,6 +548,7 @@ async fn stdio_rejects_non_string_non_integer_request_ids() {
                 session_id: "mcp-session-test".into(),
                 project_root: Some("/tmp/project".into()),
                 agent: "codex".into(),
+                internal_process: false,
             },
             invalid_id,
             request,
@@ -562,6 +566,7 @@ fn papercuts_arguments_replace_caller_supplied_provenance_with_process_context()
         session_id: "mcp-session-test".into(),
         project_root: Some("/tmp/project".into()),
         agent: "codex".into(),
+        internal_process: false,
     };
     let mut report = json!({"action":"report","title":"Flaky test"});
     enrich_papercut_arguments(&mut report, &context);
@@ -592,6 +597,7 @@ fn papercuts_resource_maps_to_an_unbounded_current_project_dump() {
         session_id: "mcp-session-test".into(),
         project_root: Some("/tmp/project".into()),
         agent: "codex".into(),
+        internal_process: false,
     };
     let (method, arguments) = resource_request("nexus://papercuts", &context).unwrap();
     assert_eq!(method, "papercuts");

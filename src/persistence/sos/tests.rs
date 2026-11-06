@@ -396,3 +396,127 @@ fn issue_detail_is_bounded_after_json_escaping() {
     assert!(detail.reports_truncated);
     assert_eq!(detail.reports.last().unwrap().id, "escaped-report-2");
 }
+
+fn create_issue(store: &mut Store, message: &str) -> crate::sos::SosIssue {
+    let report = store
+        .record_sos_report("project-a", draft(message), &actor("reporter"))
+        .unwrap();
+    let create = SosTriageDecision::Create {
+        title: message.into(),
+        summary: format!("Aggregate for {message}"),
+        rationale: "No aggregate exists yet.".into(),
+    };
+    store
+        .apply_sos_triage(SosTriageApply {
+            project_id: "project-a",
+            report_id: &report.id,
+            decision: &create,
+            provider: "codex",
+            model_id: Some("triage-model"),
+            config_hash: "config-a",
+        })
+        .unwrap()
+}
+
+fn link_report_at(store: &mut Store, issue_id: &str, id: &str, message: &str, created_at: &str) {
+    diesel::insert_into(sos_reports::table)
+        .values(NewSosReport {
+            id,
+            project_id: "project-a",
+            issue_id: Some(issue_id),
+            message,
+            report_type: "build_failure",
+            environment: "ci",
+            version: "1.0.0",
+            model: "gpt-test",
+            trace: "trace",
+            metadata_json: "{}",
+            reporter_agent: "codex",
+            reporter_session_id: id,
+            reporter_model_id: Some("gpt-test"),
+            reporter_config_hash: "config-a",
+            created_at,
+        })
+        .execute(&mut store.connection)
+        .unwrap();
+}
+
+#[test]
+fn open_issue_list_ranks_by_report_count_then_latest_report() {
+    let mut store = Store::open_memory().unwrap();
+    let older_frequent = create_issue(&mut store, "Older frequent failure");
+    link_report_at(
+        &mut store,
+        &older_frequent.id,
+        "older-a",
+        "again",
+        "2000-01-01T00:00:00+00:00",
+    );
+    link_report_at(
+        &mut store,
+        &older_frequent.id,
+        "older-b",
+        "again",
+        "2000-01-02T00:00:00+00:00",
+    );
+    let newer_frequent = create_issue(&mut store, "Newer frequent failure");
+    link_report_at(
+        &mut store,
+        &newer_frequent.id,
+        "newer-a",
+        "again",
+        "2000-01-03T00:00:00+00:00",
+    );
+    link_report_at(
+        &mut store,
+        &newer_frequent.id,
+        "newer-b",
+        "again",
+        "2099-01-01T00:00:00+00:00",
+    );
+    let single = create_issue(&mut store, "Single recent failure");
+
+    let window = store.open_sos_issues_window("project-a").unwrap();
+
+    let ranked = window
+        .issues
+        .iter()
+        .map(|issue| (issue.id.as_str(), issue.importance_count))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ranked,
+        vec![
+            (newer_frequent.id.as_str(), 3),
+            (older_frequent.id.as_str(), 3),
+            (single.id.as_str(), 1),
+        ]
+    );
+    assert!(!window.truncated);
+}
+
+#[test]
+fn issue_detail_returns_readable_reports_in_chronological_order() {
+    let mut store = Store::open_memory().unwrap();
+    let issue = create_issue(&mut store, "First failure text");
+    for day in 1..=9 {
+        link_report_at(
+            &mut store,
+            &issue.id,
+            &format!("linked-{day}"),
+            &format!("Report text {day}"),
+            &format!("2099-01-0{day}T00:00:00+00:00"),
+        );
+    }
+
+    let detail = store.sos_issue_detail("project-a", &issue.id).unwrap();
+
+    assert!(!detail.reports_truncated);
+    let messages = detail
+        .reports
+        .iter()
+        .map(|report| report.message.as_str())
+        .collect::<Vec<_>>();
+    let mut expected = vec!["First failure text".to_owned()];
+    expected.extend((1..=9).map(|day| format!("Report text {day}")));
+    assert_eq!(messages, expected);
+}

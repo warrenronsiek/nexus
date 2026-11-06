@@ -1,7 +1,7 @@
 // @feature coordination
 // @spec docs/features/coordination.md
 // @boundary dynamic-json
-use super::domain::{Advisory, Claim, Operation, PathIntent, Severity};
+use super::domain::{Advisory, Claim, Operation, PathIntent, SessionCounterpart, Severity};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,7 +19,8 @@ const MAX_SHELL_WORDS: usize = MAX_TOOL_PATH_INTENTS * 2;
 pub struct Classification {
     pub severity: Severity,
     pub kind: &'static str,
-    pub message: String,
+    /// The overlap description; `advisory` prefixes it with the named counterpart.
+    pub detail: String,
 }
 
 fn classify(intent: &PathIntent, existing: &Claim) -> Classification {
@@ -27,8 +28,8 @@ fn classify(intent: &PathIntent, existing: &Claim) -> Classification {
         return Classification {
             severity: Severity::Critical,
             kind: "destructive_overlap",
-            message: format!(
-                "another session has an active {} claim on {}; proceeding may overwrite or remove its work",
+            detail: format!(
+                "has an active {} claim on {}; proceeding may overwrite or remove its work",
                 existing.operation, intent.path
             ),
         };
@@ -44,8 +45,8 @@ fn classify(intent: &PathIntent, existing: &Claim) -> Classification {
             Classification {
                 severity: Severity::Critical,
                 kind: "hunk_overlap",
-                message: format!(
-                    "another session is editing overlapping lines {}-{} of {}",
+                detail: format!(
+                    "is editing overlapping lines {}-{} of {}",
                     b1, b2, intent.path
                 ),
             }
@@ -53,15 +54,12 @@ fn classify(intent: &PathIntent, existing: &Claim) -> Classification {
         (Some(_), Some(_), Some(_), Some(_)) => Classification {
             severity: Severity::Info,
             kind: "same_file_distinct_hunks",
-            message: format!(
-                "another session is editing a different known region of {}",
-                intent.path
-            ),
+            detail: format!("is editing a different known region of {}", intent.path),
         },
         _ => Classification {
             severity: Severity::Warning,
             kind: "path_overlap",
-            message: format!("another session has an active claim on {}", intent.path),
+            detail: format!("has an active claim on {}", intent.path),
         },
     }
 }
@@ -80,14 +78,19 @@ pub fn strongest_overlaps(intent: &PathIntent, claims: Vec<Claim>) -> Vec<(Claim
     by_session.into_values().collect()
 }
 
-pub fn advisory(classification: Classification, path: &str, other_session_id: &str) -> Advisory {
+/// Names the other session so a recipient can coordinate with it directly.
+pub fn advisory(
+    classification: Classification,
+    path: &str,
+    counterpart: &SessionCounterpart,
+) -> Advisory {
     Advisory {
         id: Uuid::new_v4().to_string(),
         severity: classification.severity,
         kind: classification.kind.to_owned(),
-        message: classification.message,
+        message: format!("{} {}", counterpart.label(), classification.detail),
         path: path.to_owned(),
-        other_session_id: other_session_id.to_owned(),
+        other_session_id: counterpart.session_id.clone(),
         conflict_id: None,
     }
 }

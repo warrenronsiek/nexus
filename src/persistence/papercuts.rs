@@ -2,6 +2,7 @@
 // @feature persistence
 // @spec docs/features/papercuts.md
 // @spec docs/features/persistence.md
+mod detail;
 mod mutations;
 mod records;
 mod registry;

@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "response": "detail",
+  "concern": {
+    "summary": {
+      "id": "router-concern",
+      "title": "Router cache race",
+      "description": "The cache is read before it is filled."
+    },
+    "history": [
+      {
+        "input": {
+          "observed_at": "2026-11-01T00:00:00Z",
+          "body": {
+            "event": "encountered",
+            "note": "Seen in the router suite"
+          }
+        }
+      }
+    ]
+  }
+}

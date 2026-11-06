@@ -309,6 +309,7 @@ async fn local_proxy() -> (Browser, tokio::task::JoinHandle<anyhow::Result<()>>)
         hash: "proxy-test".into(),
     };
     seed_proxy_sos(&loaded);
+    seed_proxy_papercuts(&loaded);
     let daemon = tokio::spawn(nexus::runtime::daemon::serve(loaded.clone()));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !loaded.config.runtime.socket_path.exists() {
@@ -345,6 +346,67 @@ fn seed_proxy_sos(loaded: &LoadedConfig) {
     let report = ServiceRequest::decode("sos", json!({"action":"report","agent":"app","session_id":"app-one","model":"test-model","message":"A recorded unusual situation","type":"input","environment":"test","version":"1","trace":"source","metadata":{}})).unwrap();
     let response = serde_json::to_value(service.handle_remote("test-project", report)).unwrap();
     assert_eq!(response["ok"], true);
+}
+
+fn seed_proxy_papercuts(loaded: &LoadedConfig) {
+    use nexus::coordination::api::ServiceRequest;
+    let service = NexusService::new(loaded.clone()).unwrap();
+    let send = |params: Value| {
+        let request = ServiceRequest::decode("papercuts", params).unwrap();
+        let response =
+            serde_json::to_value(service.handle_remote("test-project", request)).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response
+    };
+    send(
+        json!({"action":"report","agent":"codex","session_id":"quiet","title":"Rare friction","description":"Once"}),
+    );
+    let frequent = send(
+        json!({"action":"report","agent":"claude","session_id":"first","model":"model-a","title":"Frequent friction","description":"Every build"}),
+    );
+    let id = frequent["papercut"]["id"].as_str().unwrap();
+    send(
+        json!({"action":"upvote","agent":"codex","session_id":"second","papercut_id":id,"note":"Hit it again"}),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_browser_papercuts_rank_by_encounters_and_detail_lists_reports() {
+    let (app, daemon) = local_proxy().await;
+    let cookie = app.cookie().await;
+    let listed: Value = app
+        .read(&cookie, json!({"kind":"papercuts"}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let titles = listed["papercuts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"))
+        .iter()
+        .map(|cut| cut["title"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(titles, ["Frequent friction", "Rare friction"], "{listed}");
+    let id = listed["papercuts"][0]["id"].as_str().unwrap();
+    let detail: Value = app
+        .read(&cookie, json!({"kind":"papercut_get","papercut_id":id}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    daemon.abort();
+    assert_eq!(detail["papercut"]["upvote_count"], 2, "{detail}");
+    assert_eq!(detail["truncated"], false, "{detail}");
+    let reports = detail["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 2, "{detail}");
+    assert_eq!(reports[0]["kind"], "report");
+    assert_eq!(reports[0]["title"], "Frequent friction");
+    assert_eq!(reports[0]["description"], "Every build");
+    assert_eq!(reports[0]["reporter_agent"], "claude");
+    assert_eq!(reports[0]["reporter_model_id"], "model-a");
+    assert_eq!(reports[1]["kind"], "encounter");
+    assert_eq!(reports[1]["note"], "Hit it again");
+    assert_eq!(reports[1]["reporter_session_id"], "second");
 }
 
 #[tokio::test]
@@ -393,6 +455,75 @@ async fn browser_assets_are_whitelisted_and_route_reloads_keep_the_same_security
             StatusCode::NOT_FOUND,
             "unlisted resource {path} was served"
         );
+    }
+}
+
+async fn read_json(app: &Browser, cookie: &str, query: Value) -> Value {
+    app.read(cookie, query).await.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn browser_reads_command_histograms_for_a_category() {
+    let app = Browser::start(None).await;
+    let observed = app
+        .client
+        .post(format!("{}/api/v1/request", app.origin))
+        .bearer_auth(AGENT_SECRET)
+        .json(
+            &json!({"project_id":"test-project","method":"post_tool_use","params":{
+            "session_id":"s","agent":"codex","tool_use_id":"read-files","tool_name":"Bash",
+            "tool_input":{"command":"cat README.md; tail -n 5 log.txt; cat Cargo.toml"}}}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(observed.status(), StatusCode::OK);
+    let cookie = app.cookie().await;
+
+    let query = json!({"kind":"analytics_commands","category_id":"files.read"});
+    let histogram = read_json(&app, &cookie, query).await;
+
+    assert_eq!(histogram["category_id"], "files.read", "{histogram}");
+    assert_eq!(histogram["bin_seconds"], 21_600);
+    let commands = histogram["commands"].as_array().unwrap();
+    let totals: Vec<_> = commands
+        .iter()
+        .map(|command| (command["name"].clone(), command["count"].clone()))
+        .collect();
+    assert_eq!(
+        totals,
+        [(json!("cat"), json!(2)), (json!("tail"), json!(1))]
+    );
+    let bins = commands[0]["bins"].as_array().unwrap();
+    assert_eq!(bins.len(), 28);
+    assert_eq!(bins[0]["start"], histogram["window_start"]);
+    assert_eq!(bins[27]["count"], 2);
+}
+
+#[tokio::test]
+async fn browser_skill_reads_are_null_until_text_is_captured_and_inputs_are_closed() {
+    let app = Browser::start(None).await;
+    let cookie = app.cookie().await;
+
+    let skill = read_json(
+        &app,
+        &cookie,
+        json!({"kind":"skill_get","name":"never-captured"}),
+    )
+    .await;
+
+    assert_eq!(
+        skill,
+        json!({"ok":true,"name":"never-captured","description":null,"content":null,
+            "content_hash":null,"source_path":null,"observed_at":null})
+    );
+    for query in [
+        json!({"kind":"analytics_commands"}),
+        json!({"kind":"analytics_commands","category_id":"Not A Slug"}),
+        json!({"kind":"skill_get","name":""}),
+    ] {
+        let response = app.read(&cookie, query.clone()).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
     }
 }
 

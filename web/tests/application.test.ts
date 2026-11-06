@@ -8,7 +8,7 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; filter?: Record<string, string> } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; filter?: Record<string, string> } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 let configuredInterval = 30000;
@@ -58,17 +58,21 @@ async function content(value: string): Promise<void> {
   await vi.waitFor(() => expect(document.body.textContent, JSON.stringify({ requests: requests.map(request => ({ url: request.url, query: request.body.query })), completions })).toContain(value));
 }
 async function navigate(screen: string, expected: string): Promise<void> {
-  document.querySelector<HTMLAnchorElement>(`a[href="/ui/${screen}"]`)!.click();
+  document.querySelector<HTMLAnchorElement>(`nav a[href^="/ui/${screen}"]`)!.click();
   await content(expected);
 }
 function row(value: string): void {
-  const element = [...document.querySelectorAll<HTMLButtonElement>(".record-row")].find(button => button.textContent?.includes(value));
+  const element = [...document.querySelectorAll<HTMLButtonElement>(".record-row, .bar-row")].find(button => button.textContent?.includes(value));
   expect(element).toBeDefined(); element!.click();
 }
-function filterInput(caption: string, value: string): void {
-  const label = [...document.querySelectorAll<HTMLLabelElement>(".filter-panel label")].find(label => label.textContent?.includes(caption))!;
-  const input = label.querySelector("input")!;
-  input.value = value; input.dispatchEvent(new Event("input", { bubbles: true }));
+function pick(caption: string, value: string): void {
+  const picker = document.querySelector<HTMLSelectElement>(`select[aria-label='${caption}']`)!;
+  expect(picker).not.toBeNull();
+  picker.value = value; picker.dispatchEvent(new Event("input", { bubbles: true }));
+}
+async function chartClick(chart: string, label: string): Promise<void> {
+  await vi.waitFor(() => expect([...document.querySelectorAll(`#${chart} [role=button]`)].some(group => group.textContent?.includes(label))).toBe(true));
+  [...document.querySelectorAll<SVGGElement>(`#${chart} [role=button]`)].find(group => group.textContent?.includes(label))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 async function loginProgram(expectedProject = "fixture-project"): Promise<void> {
@@ -82,58 +86,70 @@ async function loginProgram(expectedProject = "fixture-project"): Promise<void> 
   await content("Welcome to Nexus");
   input("username", "observer"); input("password", "fixture-password");
   document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await content("Improve the router");
-  expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.value).toBe(expectedProject);
+  await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")?.value).toBe(expectedProject));
   if (!remoteViewer) expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.options[0].value).toBe("");
-  await content("Project discovery is bounded");
+}
+async function inspectCoordination(): Promise<void> {
+  await content("Choose a session");
+  expect(document.body.textContent).not.toContain("Original response");
+  expect(document.body.textContent).not.toContain("Partial history");
+  expect(document.body.textContent).not.toContain("Project discovery is bounded");
+  await content("Messages · 7 days");
+  pick("Session", "host-id");
+  await content("Overlap detected with Cache cleanup");
+  await content("Nexus → Cache cleanup");
+  await content("Overlap with Cache cleanup ended");
+  expect(window.location.search).toContain("session=host-id");
+  expect(requests.some(request => request.body.query?.kind === "coordination_session_timeline" && request.body.query.session_id === "host-id")).toBe(true);
 }
 async function inspectWork(): Promise<void> {
-  await navigate("work", "Sessions measured");
-  const aggregation = document.querySelector<HTMLSelectElement>(".duration-controls select")!;
-  aggregation.value = "total"; aggregation.dispatchEvent(new Event("input", { bubbles: true }));
-  await content("total elapsed duration");
-  await navigate("evals", "Router / claude + codex");
-  await navigate("work", "Sessions measured");
-  expect(document.querySelector<HTMLSelectElement>(".duration-controls select")!.value).toBe("total");
-  row("Improve the router"); await content("Task metadata");
+  await navigate("work", "Elapsed time by kind of work");
+  expect(document.body.textContent).not.toContain("Search and filters");
+  pick("Duration aggregation", "total");
+  await vi.waitFor(() => expect(document.querySelector("#summary-bars svg")).not.toBeNull());
+  pick("Session", "work-id");
   await vi.waitFor(() => expect(document.querySelectorAll("#work-waterfall rect").length).toBe(2));
-  const task = [...document.querySelectorAll<SVGGElement>("#work-waterfall [role=button]")].find(group => group.textContent?.includes("Router tests"))!;
-  task.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  await content("Selected task · Router tests");
+  await chartClick("work-waterfall", "Router tests");
+  await content("Router tests · test.unit · 30s · succeeded");
+  window.history.back();
+  await vi.waitFor(() => expect(document.querySelector("#work-waterfall")).toBeNull());
+  await content("Elapsed time by kind of work");
 }
-async function inspectProjectCatalog(): Promise<void> {
-  input("project_id", "archived-project");
-  document.querySelector(".project-catalog form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => expect(requests.at(-1)?.body.project_id).toBe("archived-project"));
-  await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.value).toBe("archived-project"));
-  const scope = document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!;
-  scope.value = ""; scope.dispatchEvent(new Event("input", { bubbles: true }));
+async function inspectProjectScope(): Promise<void> {
+  pick("Project scope", "");
   await vi.waitFor(() => expect(requests.at(-1)?.body.project_id).toBeNull());
-  scope.value = "fixture-project"; scope.dispatchEvent(new Event("input", { bubbles: true }));
+  pick("Project scope", "fixture-project");
   await vi.waitFor(() => expect(requests.at(-1)?.body.project_id).toBe("fixture-project"));
+  await vi.waitFor(() => expect(document.querySelector("nav a[href^='/ui/work']")!.getAttribute("href")).toBe("/ui/work?project=fixture-project"));
 }
 async function inspectEvals(): Promise<void> {
-  await navigate("evals", "Router / claude + codex");
-  row("Router / claude + codex"); await content("9007199254740993.0000000001");
+  await navigate("evals", "Choose an agent");
+  pick("Agent", "router-eval");
+  await content("9007199254740993.0000000001");
 }
-async function inspectOtherSurfaces(): Promise<void> {
+async function inspectToolsAndSkills(): Promise<void> {
   await navigate("tools", "Code research");
+  row("Code research");
+  await content("4 runs");
+  await vi.waitFor(() => expect(document.querySelectorAll("#commands-0-0 rect").length).toBe(2));
   await navigate("skills", "nexus-work-history");
+  row("nexus-work-history");
+  await content("Record nested work so sessions can be explained.");
+}
+async function inspectReports(): Promise<void> {
   await navigate("concerns", "Source occurrences");
-  row("Router cache"); await content("Router cache race");
-  filterInput("Search concerns", "not-applied");
+  await chartClick("summary-bars", "Router cache");
+  await content("Router cache race");
+  row("Router cache race"); await content("Seen in the router suite");
   document.querySelector<HTMLButtonElement>(".pagination button")!.click();
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toEqual({ kind: "concern_list", filter: { area_id: "router-area", after: "32" } }));
   await navigate("papercuts", "Slow local fixture");
+  row("Slow local fixture"); await content("Hit it again while running the router tests");
   await navigate("sos", "Unexpected live email");
+  row("Unexpected live email"); await content("An email arrived with an unexpected attachment type");
   await navigate("memory", "Keep router evidence attributable");
-}
-async function inspectMemoryScope(): Promise<void> {
-  const label = [...document.querySelectorAll<HTMLLabelElement>(".filter-panel label")].find(label => label.textContent?.includes("Scope:"))!;
-  const scope = label.querySelector("input")!;
-  scope.value = "global"; scope.dispatchEvent(new Event("input", { bubbles: true }));
-  document.querySelector(".filter-panel form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => expect(requests.at(-1)?.body.query).toEqual({ kind: "memory_context", scope: "global" }));
+  await content("Level 1 · 2 notes");
+  row("Router evidence notes"); await content("Router tests must not share a cache");
 }
 function assertReadOnly(): void {
   expect(document.body.querySelectorAll("input[name=password]")).toHaveLength(0);
@@ -156,18 +172,17 @@ async function inspectNavigation(): Promise<HTMLButtonElement> {
   return menu;
 }
 
-it("runs the actual Elm login, nine screens, work selection and exact eval values through read-only HTTP", async () => {
+it("runs the actual Elm login, nine screens, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
+  window.history.replaceState(null, "", "/ui/coordination");
   await loginProgram();
   const menu = await inspectNavigation();
-  await inspectProjectCatalog();
+  await inspectCoordination();
+  await inspectProjectScope();
   await inspectWork();
   expect(menu.getAttribute("aria-expanded")).toBe("false");
-  const searchRing = document.querySelector(".filter-panel summary svg circle");
-  expect(searchRing?.namespaceURI).toBe("http://www.w3.org/2000/svg");
-  expect(searchRing?.getAttribute("r")).toBe("8");
   await inspectEvals();
-  await inspectOtherSurfaces();
-  await inspectMemoryScope();
+  await inspectToolsAndSkills();
+  await inspectReports();
   assertReadOnly();
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
   await content("Welcome to Nexus");
@@ -214,16 +229,9 @@ async function switchRemoteProject(): Promise<void> {
   expect(requests.filter(request => ["coordination", "work_dashboard"].includes(request.body.query?.kind ?? "")).every(request => request.body.project_id === "remote-project-a")).toBe(true);
   scope.value = "fixture-project"; scope.dispatchEvent(new Event("input", { bubbles: true }));
   await vi.waitFor(() => expect(requests.at(-1)?.body.project_id).toBe("fixture-project"));
-  await content("Sessions measured");
+  await content("Elapsed time by kind of work");
   await pollingTick("work_dashboard");
   expect(requests.at(-1)?.body.project_id).toBe("fixture-project");
-}
-async function rejectEmptyRemoteProject(): Promise<void> {
-  input("project_id", "");
-  document.querySelector(".project-catalog form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await vi.advanceTimersByTimeAsync(50);
-  await content("Sessions measured");
-  expect(document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!.value).toBe("fixture-project");
 }
 
 it("keeps native remote reads honestly scoped to the configured project and later selection", async () => {
@@ -235,10 +243,8 @@ it("keeps native remote reads honestly scoped to the configured project and late
   window.history.replaceState(null, "", "/ui/work");
   try {
     await loginProgram("remote-project-a");
-    await content("This remote viewer requires a project selection");
     await vi.waitFor(() => expect(intervals).toHaveBeenCalledWith(expect.any(Function), 900));
     await switchRemoteProject();
-    await rejectEmptyRemoteProject();
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
     await content("Welcome to Nexus");
   } finally {

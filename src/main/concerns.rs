@@ -118,13 +118,16 @@ pub(super) async fn run(
         ConcernCliCommand::Schema => serde_json::to_value(schemars::schema_for!(ConcernAction))?,
         ConcernCliCommand::Export { output } => transfer::export(&client, &output).await?,
         ConcernCliCommand::Import { file } => transfer::import(&client, &file).await?,
-        command => client.send(action(command)?).await?,
+        command => {
+            let caller = recording::CallerContext::from_environment(root, loaded);
+            client.send(action(command, &caller)?).await?
+        }
     };
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
-fn action(command: ConcernCliCommand) -> Result<ConcernAction> {
+fn action(command: ConcernCliCommand, caller: &recording::CallerContext) -> Result<ConcernAction> {
     match command {
         ConcernCliCommand::List(args) => {
             let (project_id, query) = args.query()?;
@@ -154,7 +157,7 @@ fn action(command: ConcernCliCommand) -> Result<ConcernAction> {
         }),
         ConcernCliCommand::Dump { project_id } => Ok(ConcernAction::Dump { project_id }),
         ConcernCliCommand::Record { file } => recording::read_bundle(&file),
-        command => recording::action(command),
+        command => recording::action(command, caller),
     }
 }
 

@@ -14,6 +14,7 @@
 // @spec docs/features/sos.md
 mod analytics;
 mod concerns;
+mod conflict_closure;
 mod dispatch;
 mod evals;
 mod feature_ops;
@@ -23,6 +24,7 @@ mod papercuts;
 mod project_catalog;
 mod prompt;
 mod records;
+mod session_history;
 mod sos;
 mod store_lock;
 mod work;
@@ -46,8 +48,8 @@ use super::client_evidence::{
     capture_changed_paths_page, ClientDerivedUsage, ClientFilesystemEvidence,
 };
 use super::domain::{
-    Advisory, ConflictRecord, HookResponse, IgnoredAdvisoryPolicy, PathIntent, SessionStopInput,
-    ToolCompletion, ToolHookInput, ToolResultEvent, UserPromptInput,
+    Advisory, ConflictRecord, HookResponse, IgnoredAdvisoryPolicy, PathIntent, SessionCounterpart,
+    SessionStopInput, ToolCompletion, ToolHookInput, ToolResultEvent, UserPromptInput,
 };
 use super::usage::UsageCapture;
 use super::workspace;
@@ -285,6 +287,8 @@ impl NexusService {
             let project = self.resolve_project(binding, input.context.project_root.as_deref())?;
             let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
             store.stop_session(&project.id, &input.context.session_id)?;
+            // Projection maintenance; the periodic closure pass retries a failure.
+            let _ = store.end_stale_conflicts(Some(&project.id));
             Ok(HookResponse::allow(Vec::new()))
         })();
         ServiceResponse::Hook(result.unwrap_or_else(lifecycle_failure))
@@ -382,10 +386,14 @@ impl NexusService {
         let release = command.release();
         let result = (|| -> Result<usize> {
             let project = self.resolve_project(binding, None)?;
-            self.store
+            let mut store = self
+                .store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
-                .release_claims(&project.id, &command.session_id, &release)
+                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            let released = store.release_claims(&project.id, &command.session_id, &release)?;
+            // Projection maintenance; the periodic closure pass retries a failure.
+            let _ = store.end_stale_conflicts(Some(&project.id));
+            Ok(released)
         })();
         match result {
             Ok(released) => ServiceResponse::Released(ReleasedResponse { ok: true, released }),
@@ -632,7 +640,11 @@ fn record_intent_advisories(
     strongest_overlaps(&intent, active)
         .into_iter()
         .map(|(existing, classification)| {
-            let item = advisory(classification, &intent.path, &existing.session_id);
+            // Naming is presentation only; an unavailable label must not cost the advisory.
+            let counterpart = store
+                .session_counterpart(project_id, &existing.session_id)
+                .unwrap_or_else(|_| SessionCounterpart::unnamed(&existing.session_id));
+            let item = advisory(classification, &intent.path, &counterpart);
             store.record_conflict(project_id, &claim, &existing, item, &input.tool_use_id)
         })
         .collect()
@@ -693,6 +705,8 @@ fn record_analysis(
 mod project_catalog_tests;
 #[cfg(test)]
 mod project_isolation_tests;
+#[cfg(test)]
+mod session_history_tests;
 #[cfg(test)]
 mod store_contention_tests;
 #[cfg(test)]
