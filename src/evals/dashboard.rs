@@ -9,7 +9,11 @@ use std::collections::BTreeMap;
 #[serde(deny_unknown_fields)]
 pub struct EvalDashboardGroup {
     pub id: String,
+    /// Agent name, then suite, then the first observed model.
     pub label: String,
+    /// The target's declared agent, else its single component ID, else the target identity.
+    pub agent: String,
+    pub agent_declared: bool,
     pub suite_identity: String,
     pub suite_revision_ids: Vec<String>,
     pub target_identity: String,

@@ -43,7 +43,9 @@ For MCP, these are `{"action":"list","kind":"case","search":"regression","limit"
 
 The authenticated web Evals view starts with evaluation sets grouped
 by stable suite and target identities and exact observed repository/model
-compositions. This keeps a router and its agents visible together. Select a set
+compositions. Each set names its `agent`: the target's declared `agent`, else
+the ID of a single-component target, else the target identity, and its label
+reads `agent · suite · model`. This keeps a router and its agents visible together. Select a set
 and choose a metric. Each metric view shows its exact definition, unit, assessment scope, calculation, occurrence-time
 trend and latest exact value. Overview repository/model/search filters narrow the
 set list; the totals labeled “All captured history” retain the full captured
@@ -131,7 +133,7 @@ Use the canonical schema for the full closed types. The principal links are:
 |---|---|
 | `repository`, `model`, `case`, `suite`, `grader`, `metric`, `target` | Revisions have `identity`, `parents`, and `change_id`. A suite names exact case/grader IDs, weights, and splits. |
 | `metric` | Meaning, unit, value format, calculation and its source artifacts, population, aggregation, exclusions, missing-data policy, and optional interpretation. |
-| `target` | Named components each pair a repository revision with a fixed model, a model-selection policy artifact, or an explicit unspecified reason. |
+| `target` | Optional `agent`: the human name of the evaluated agent or system. Named components each pair a repository revision with a fixed model, a model-selection policy artifact, or an explicit unspecified reason. |
 | `experiment` | Hypothesis, expected effect, baseline/candidate target IDs, suite ID, and a time-stamped plan. |
 | `run` | Target, suite, optional experiment, runner/version, selected cases and selection rule, reported state, capture disclosures. |
 | `trial`, `attempt` | Trial names the run, case and replicate; attempts retain retry parents, reasons, execution times and artifacts. |
