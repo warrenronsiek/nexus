@@ -111,6 +111,16 @@ pub enum AnalyticsCommand {
         #[serde(default)]
         offset: u32,
     },
+    Commands {
+        #[serde(default)]
+        project_id: Option<String>,
+        category_id: String,
+    },
+    Skill {
+        #[serde(default)]
+        project_id: Option<String>,
+        name: String,
+    },
     Inventory {
         #[serde(flatten)]
         context: HookContext,
@@ -273,12 +283,52 @@ pub struct ExamplesPage {
     pub examples: Vec<ActivityExample>,
     pub next_offset: Option<u32>,
 }
+/// Fixed histogram geometry: 28 six-hour bins cover the rolling seven-day window exactly.
+pub const COMMAND_BIN_SECONDS: i64 = 6 * 60 * 60;
+pub const COMMAND_BINS: usize = 28;
+pub const MAX_NAMED_COMMANDS: usize = 20;
+pub const OTHER_COMMANDS: &str = "other";
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct CommandBin {
+    pub start: String,
+    pub count: i64,
+}
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct CommandSeries {
+    pub name: String,
+    pub count: i64,
+    pub bins: Vec<CommandBin>,
+}
+#[derive(Debug, Serialize)]
+pub struct CommandHistogram {
+    pub ok: bool,
+    pub category_id: String,
+    pub name: String,
+    pub window_start: String,
+    pub window_end: String,
+    pub bin_seconds: i64,
+    pub commands: Vec<CommandSeries>,
+    pub truncated: bool,
+    pub counting: &'static str,
+}
+#[derive(Debug, Serialize)]
+pub struct SkillDetail {
+    pub ok: bool,
+    pub name: String,
+    pub description: Option<String>,
+    pub content: Option<String>,
+    pub content_hash: Option<String>,
+    pub source_path: Option<String>,
+    pub observed_at: Option<String>,
+}
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum AnalyticsResponse {
     Summary(ActivitySummary),
     Catalog(CatalogPage),
     Examples(ExamplesPage),
+    Commands(CommandHistogram),
+    Skill(SkillDetail),
     Opportunities(Opportunities),
     Categories { ok: bool, categories: Vec<Category> },
     Permit { ok: bool, granted: bool },

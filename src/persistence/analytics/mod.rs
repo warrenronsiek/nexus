@@ -2,9 +2,24 @@
 // @feature usage-analytics
 // @spec docs/features/persistence.md
 // @spec docs/features/usage-analytics.md
+// Operations whose call orchestrated observed children are excluded: the children own the count.
+macro_rules! leaf_actions {
+    () => {
+        analytics_actions::table.filter(
+            analytics_actions::call_id.ne_all(
+                analytics_calls::table
+                    .filter(analytics_calls::parent_id.is_not_null())
+                    .select(analytics_calls::parent_id.assume_not_null()),
+            ),
+        )
+    };
+}
+
+mod commands;
 mod inventory;
 mod queries;
 mod rows;
+mod skills;
 mod taxonomy;
 use crate::analytics::{identity, types::*};
 use crate::coordination::domain::ToolHookInput;

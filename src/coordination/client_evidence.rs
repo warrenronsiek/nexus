@@ -41,6 +41,9 @@ pub(crate) struct ClientDerivedUsage {
     pub(crate) script_versions: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) skill: Option<String>,
+    /// The bounded manifest behind `skill`; older companions omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) skill_document: Option<crate::analytics::skills::SkillDocument>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) repository_inventory: Option<crate::analytics::types::RepositoryInventory>,
 }
@@ -104,6 +107,10 @@ impl ClientEvidencePlan {
             evidence.skill = evidence
                 .skill
                 .filter(|skill| validate_identity("derived skill", skill).is_ok());
+            let skill_observed = evidence.skill.is_some();
+            evidence.skill_document = evidence
+                .skill_document
+                .filter(|document| skill_observed && document.validate().is_ok());
             (!evidence.scripts.is_empty()
                 || evidence.skill.is_some()
                 || evidence.repository_inventory.is_some())
@@ -289,6 +296,12 @@ fn validate_derived_usage(usage: &ClientDerivedUsage) -> Result<()> {
     }
     if let Some(skill) = &usage.skill {
         validate_identity("derived skill", skill)?;
+    }
+    if let Some(document) = &usage.skill_document {
+        if usage.skill.is_none() {
+            bail!("client evidence skill document requires a derived skill");
+        }
+        document.validate()?;
     }
     Ok(())
 }

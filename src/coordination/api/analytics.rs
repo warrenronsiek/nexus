@@ -82,6 +82,19 @@ fn validate_analytics(command: &mut AnalyticsCommand) -> Result<()> {
         | AnalyticsCommand::Catalog { project_id, .. }
         | AnalyticsCommand::Opportunities { project_id }
         | AnalyticsCommand::Examples { project_id, .. } => normalize_read_project(project_id),
+        AnalyticsCommand::Commands {
+            project_id,
+            category_id,
+        } => {
+            if !valid_slug(category_id) {
+                bail!("category_id must be a bounded slug");
+            }
+            normalize_read_project(project_id)
+        }
+        AnalyticsCommand::Skill { project_id, name } => {
+            validate_required_field("skill name", name, MAX_SKILL_NAME_BYTES)?;
+            normalize_read_project(project_id)
+        }
         AnalyticsCommand::Inventory {
             context,
             scope,

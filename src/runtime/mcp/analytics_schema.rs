@@ -5,15 +5,15 @@
 // @boundary static-mcp-schema
 use serde_json::{json, Value};
 pub(super) fn definition() -> Value {
-    json!({"name":"nexus_analytics","description":"Inspect observed activities, concrete capabilities including unused inventoried tools, and recurring ad-hoc work. Inventory and classification reports are observational; summaries retain coverage and counting semantics.","inputSchema":{
+    json!({"name":"nexus_analytics","description":"Inspect observed activities, per-command six-hour histograms within a category, captured skill text, concrete capabilities including unused inventoried tools, and recurring ad-hoc work. Inventory and classification reports are observational; summaries retain coverage and counting semantics.","inputSchema":{
         "type":"object","required":["action"],"properties":{
-            "action":{"type":"string","enum":["summary","catalog","opportunities","categories","examples","inventory","reserve_classification","classify","classification_failed","rename_category","merge_category"]},
+            "action":{"type":"string","enum":["summary","catalog","opportunities","categories","examples","commands","skill","inventory","reserve_classification","classify","classification_failed","rename_category","merge_category"]},
             "project_id":{"type":"string","maxLength":256},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":64},
             "category_id":{"type":"string","maxLength":80},"resource_key":{"type":"string","maxLength":1024},
             "session_id":{"type":"string","maxLength":512},"agent":{"type":"string","maxLength":256},"project_root":{"type":"string","maxLength":4096},"turn_id":{"type":"string","maxLength":512},"model":{"type":"string","maxLength":128},
             "scope":{"type":"string","maxLength":80},"complete":{"type":"boolean"},"resources":{"type":"array","maxItems":256,"items":resource_schema()},
             "target":target_schema(),"draft":draft_schema(),
-            "id":{"type":"string","maxLength":80},"name":{"type":"string","maxLength":96},"definition":{"type":"string","maxLength":384},"source":{"type":"string","maxLength":80},"classifier_model":{"type":"string","maxLength":128}
+            "id":{"type":"string","maxLength":80},"name":{"type":"string","maxLength":512,"description":"Category name for rename_category (at most 96 bytes), or skill name for the skill read."},"definition":{"type":"string","maxLength":384},"source":{"type":"string","maxLength":80},"classifier_model":{"type":"string","maxLength":128}
         },"additionalProperties":false
     }})
 }

@@ -195,3 +195,11 @@ global memory never creates a catalog row. The catalog is a rebuildable
 projection rather than authoritative history: portable snapshots do not carry it,
 and import rebuilds it from the imported tables. V17's event receipt index is no
 longer read by project discovery.
+
+V20 adds `analytics_skill_documents`: the newest observed `SKILL.md` text per
+project and skill resource key, with its SHA-256, frontmatter description, display
+path, and first-observed time for that version. A reread with an unchanged hash
+performs one primary-key lookup and no write. The `(resource_key, observed_at)`
+index serves both project and global reads. Like the project catalog, this is a
+latest-version cache rather than history; portable snapshots do not carry it, and
+later skill reads repopulate it.

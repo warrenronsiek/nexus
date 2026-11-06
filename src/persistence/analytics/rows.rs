@@ -100,6 +100,20 @@ pub(super) struct AnalyticsResourcesRow {
     pub last_seen: String,
 }
 
+#[derive(Clone, Debug, Insertable)]
+#[diesel(table_name=analytics_skill_documents)]
+pub(super) struct AnalyticsSkillDocumentsRow {
+    pub id: String,
+    pub project_id: String,
+    pub resource_key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub content: String,
+    pub content_hash: String,
+    pub source_path: String,
+    pub observed_at: String,
+}
+
 impl AnalyticsCallsRow {
     pub(super) fn from_hook(
         project: &str,

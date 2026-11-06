@@ -3,7 +3,7 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 19;
+const CURRENT_SCHEMA_VERSION: u64 = 20;
 
 #[path = "work_history_tests.rs"]
 mod work_history;

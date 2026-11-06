@@ -304,3 +304,115 @@ fn postgres_activity_analytics_preserves_counts_inventory_and_opportunity_scope(
         .to_json();
     assert_eq!(examples["examples"][0]["name"], "gh pr checks");
 }
+
+fn analytics_service(hash: &str) -> NexusService {
+    let database_url =
+        std::env::var("NEXUS_TEST_DATABASE_URL").expect("PostgreSQL test database required");
+    let loaded = LoadedConfig {
+        config: Config::default(),
+        sources: Vec::new(),
+        hash: hash.into(),
+    };
+    NexusService::connect(loaded, &database_url).unwrap()
+}
+
+fn shell(service: &NexusService, project: &str, session: &str, id: &str, command: &str) {
+    let input = json!({"session_id":session,"agent":"codex","tool_use_id":id,
+        "tool_name":"Bash","tool_input":{"command":command}});
+    service.handle_remote(project, request("post_tool_use", input));
+}
+
+fn analytics(service: &NexusService, project: &str, query: Value) -> Value {
+    service
+        .handle_remote(project, request("analytics", query))
+        .to_json()
+}
+
+#[test]
+fn postgres_command_histograms_bin_and_fold_with_portable_aggregates() {
+    let _guard = POSTGRES_TEST_LOCK.lock().unwrap();
+    let service = analytics_service("analytics-pg-commands");
+    let project = format!("analytics-pg-{}", Uuid::new_v4());
+    for (session, id) in [("one", "a"), ("two", "b")] {
+        shell(
+            &service,
+            &project,
+            session,
+            id,
+            "cat a.txt; tail b.txt; cat c.txt",
+        );
+    }
+    for index in 0..22 {
+        let command = format!("pg-tool-{index:02}");
+        shell(&service, &project, "one", &command, &command);
+    }
+
+    let reads = analytics(
+        &service,
+        &project,
+        json!({"action":"commands","category_id":"files.read"}),
+    );
+    let folded = analytics(
+        &service,
+        &project,
+        json!({"action":"commands","category_id":"unclassified"}),
+    );
+
+    assert_eq!(reads["commands"][0]["name"], "cat", "{reads}");
+    assert_eq!(reads["commands"][0]["count"], 4);
+    assert_eq!(reads["commands"][1]["name"], "tail");
+    assert_eq!(reads["commands"][0]["bins"].as_array().unwrap().len(), 28);
+    assert_eq!(reads["commands"][0]["bins"][27]["count"], 4, "{reads}");
+    assert_eq!(folded["truncated"], true, "{folded}");
+    assert_eq!(folded["commands"][20]["name"], "other");
+    assert_eq!(folded["commands"][20]["count"], 2);
+    assert_eq!(folded["commands"][20]["bins"][27]["count"], 2);
+}
+
+#[test]
+fn postgres_usage_counts_distinct_sessions_per_dimension() {
+    let _guard = POSTGRES_TEST_LOCK.lock().unwrap();
+    let service = analytics_service("analytics-pg-sessions");
+    let project = format!("analytics-pg-{}", Uuid::new_v4());
+    for (session, id) in [("one", "a"), ("one", "b"), ("two", "c")] {
+        shell(&service, &project, session, id, "cat a.txt");
+    }
+
+    let usage = service
+        .handle_remote(&project, request("usage", json!({})))
+        .to_json();
+
+    let shell = usage["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "shell")
+        .unwrap_or_else(|| panic!("{usage}"));
+    assert_eq!(
+        (shell["count"].as_i64(), shell["sessions"].as_i64()),
+        (Some(3), Some(2))
+    );
+}
+
+#[test]
+fn postgres_retains_the_latest_read_skill_text() {
+    let _guard = POSTGRES_TEST_LOCK.lock().unwrap();
+    let service = analytics_service("analytics-pg-skills");
+    let checkout = tempfile::tempdir().unwrap();
+    let skill = format!("pg-skill-{}", Uuid::new_v4());
+    let manifest = checkout.path().join(format!("skills/{skill}/SKILL.md"));
+    std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+    let text = format!("---\nname: {skill}\ndescription: Portable text.\n---\n# Body\n");
+    std::fs::write(&manifest, &text).unwrap();
+    let read = json!({"session_id":"s","agent":"codex","turn_id":"t","project_root":checkout.path(),
+        "tool_use_id":"read","tool_name":"Read","tool_input":{"file_path":manifest}});
+    service.handle(request("post_tool_use", read));
+
+    let detail = service
+        .handle(request("analytics", json!({"action":"skill","name":skill})))
+        .to_json();
+
+    assert_eq!(detail["content"], text, "{detail}");
+    assert_eq!(detail["description"], "Portable text.");
+    assert_eq!(detail["source_path"], format!("skills/{skill}/SKILL.md"));
+}

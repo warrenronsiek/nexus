@@ -478,13 +478,21 @@ diesel::table! {
         origin -> Text, description -> Text, activities_json -> Text, version -> Nullable<Text>, first_seen -> Text, last_seen -> Text,
     }
 }
+diesel::table! {
+    analytics_skill_documents (id) {
+        id -> Text, project_id -> Text, resource_key -> Text, name -> Text,
+        description -> Nullable<Text>, content -> Text, content_hash -> Text,
+        source_path -> Text, observed_at -> Text,
+    }
+}
 diesel::allow_tables_to_appear_in_same_query!(
     analytics_calls,
     analytics_actions,
     analytics_exposures,
     analytics_categories,
     analytics_revisions,
-    analytics_resources
+    analytics_resources,
+    analytics_skill_documents
 );
 
 diesel::table! {

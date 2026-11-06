@@ -70,6 +70,12 @@ enum AnalyticsRead {
         offset: u32,
     },
     AnalyticsCategories {},
+    AnalyticsCommands {
+        category_id: String,
+    },
+    SkillGet {
+        name: String,
+    },
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -269,6 +275,11 @@ impl AnalyticsRead {
                 offset,
             },
             Self::AnalyticsCategories {} => AnalyticsCommand::Categories,
+            Self::AnalyticsCommands { category_id } => AnalyticsCommand::Commands {
+                project_id,
+                category_id,
+            },
+            Self::SkillGet { name } => AnalyticsCommand::Skill { project_id, name },
             Self::Usage {} => unreachable!("legacy usage is selected above"),
         };
         ServiceRequest::Analytics(command)
