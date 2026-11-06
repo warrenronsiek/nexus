@@ -1,6 +1,6 @@
 ---
 name: nexus-code-concerns
-description: Record and retrieve evidenced problems, recurring symptoms, attempted remedies, and code-area history in Nexus. Use when maintaining code and learning from earlier fixes; use Papercuts for development friction and SOS for unusual situations inside a running application.
+description: Report every bug, defect, regression, or unexpected code behavior you find, at discovery and even when you fix it in the same session, and retrieve recurring symptoms, attempted remedies, and code-area history from Nexus. Use whenever a test failure, wrong output, or surprising behavior traces to the code being maintained; use Papercuts for development-environment friction and SOS for unusual situations inside a running application.
 ---
 
 # Preserve what keeps going wrong in the code
@@ -17,6 +17,29 @@ a running application. An identified application race exposed by a flaky check
 belongs in code concerns; the impediment caused by flaky checks can separately
 belong in Papercuts. Link related records without transferring their lifecycle
 or counting the same execution as several independent occurrences.
+
+## Report each problem when you find it
+
+Report a concern every time work uncovers a problem in the code being
+maintained: a bug, a regression, a test failure whose cause is in the code,
+wrong output, a race, a broken contract, or behavior that differs from what the
+code, its tests, or its specification lead you to expect. Report at discovery,
+before or alongside the fix. Fixing it in the same session, or the problem
+seeming small, is not a reason to skip the report; the record is what lets a
+later agent see that an area keeps failing. An active coding session commonly
+finds several.
+
+1. `list` with `query.search` (or `dashboard` for the area) to look for the
+   same problem. `upvote` a matching concern only after reading its evidence.
+2. Otherwise `report` a short title and a description of what was observed.
+   Add the location you actually know and, separately, any `hypothesis`.
+3. After changing the code, record what changed, why, and the observed outcome
+   with `nexus concerns remedy` (or an MCP `record` remedy observation). Run
+   `nexus concerns resolve` only once the fix is verified.
+
+If the problem is friction in tools, setup, scripts, or CI infrastructure
+rather than in the maintained code, it is a papercut instead. When unsure
+whether the code is at fault, report the concern with the uncertainty stated.
 
 ## Read the area before changing it
 

@@ -1,6 +1,6 @@
 ---
 name: nexus-papercuts
-description: Record and investigate recurring development friction in Nexus, including encounters, duplicate proposals, and resolution history. Use when tools, setup, scripts, or environment behavior repeatedly impede agent work.
+description: Record and investigate recurring development friction in Nexus, including encounters, duplicate proposals, and resolution history. Use when tools, setup, scripts, or environment behavior repeatedly impede agent work; a bug or unexpected behavior in the code being maintained is a code concern, not a papercut.
 ---
 
 # Turn development friction into attributable history
