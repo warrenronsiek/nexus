@@ -149,16 +149,42 @@ impl Harness {
     }
 
     pub fn feature_cli(&self, feature: &str, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_nexus"))
+        self.feature_command(feature, args).output().unwrap()
+    }
+
+    /// Runs a feature command with only the supplied agent context in its environment.
+    pub fn feature_cli_with_context(
+        &self,
+        feature: &str,
+        args: &[&str],
+        context: &[(&str, &str)],
+    ) -> Output {
+        let mut command = self.feature_command(feature, args);
+        for variable in [
+            "NEXUS_AGENT",
+            "NEXUS_HOST_SESSION_ID",
+            "NEXUS_WORK_CONTEXT",
+            "NEXUS_WORK_SESSION_ID",
+            "NEXUS_PARENT_ACTIVITY_ID",
+            "NEXUS_TURN_ID",
+            "NEXUS_MODEL",
+        ] {
+            command.env_remove(variable);
+        }
+        command.envs(context.iter().copied()).output().unwrap()
+    }
+
+    fn feature_command(&self, feature: &str, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nexus"));
+        command
             .current_dir(&self.root)
             .args([
                 "--config",
                 self._temp.path().join("config.toml").to_str().unwrap(),
                 feature,
             ])
-            .args(args)
-            .output()
-            .unwrap()
+            .args(args);
+        command
     }
 
     pub fn wait_for_reconciled_claim(&mut self, session_id: &str) {

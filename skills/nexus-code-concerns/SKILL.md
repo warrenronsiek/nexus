@@ -62,7 +62,12 @@ title and description:
 
 This is an example, not evidence that the problem occurred. Add `hypothesis`,
 `impact`, structured `encounter` locators/source evidence, or explicit
-`observation` metadata when known. The companion binds project/reporter context;
+`observation` metadata when known. MCP cannot see the host or logical work
+session, so pass `observation.context.work_session_id` (and `host_session_id`)
+when known; otherwise the concern counts as unknown work. The CLI fills omitted
+context from `NEXUS_*` variables, a `NEXUS_WORK_CONTEXT` handoff or the active host
+bridge; hosts without that handoff, such as Codex shells, need `--work-session`.
+The companion binds project/reporter context;
 fresh observation IDs and reporter times are generated when omitted. Failure
 occurrence time stays unknown unless supplied. MCP `upvote` names `concern_id`
 and can carry the new encounter and its relation to the recorded fix. These

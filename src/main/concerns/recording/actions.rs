@@ -4,11 +4,18 @@
 // @spec docs/features/runtime.md
 use super::*;
 
-pub(in super::super) fn action(command: ConcernCliCommand) -> Result<ConcernAction> {
+pub(in super::super) fn action(
+    command: ConcernCliCommand,
+    caller: &CallerContext,
+) -> Result<ConcernAction> {
     if let ConcernCliCommand::Respond(args) = command {
-        return respond(args);
+        let mut action = respond(args)?;
+        if let ConcernAction::Respond { observation, .. } = &mut action {
+            caller.fill(&mut observation.context);
+        }
+        return Ok(action);
     }
-    let observation = match command {
+    let mut observation = match command {
         ConcernCliCommand::Report(args) => report(args),
         ConcernCliCommand::Upvote(args) => upvote(args),
         command @ (ConcernCliCommand::Remedy(_) | ConcernCliCommand::Review(_)) => {
@@ -19,6 +26,7 @@ pub(in super::super) fn action(command: ConcernCliCommand) -> Result<ConcernActi
         ConcernCliCommand::Reopen(args) => reopen(args),
         _ => unreachable!("nonrecording command selected earlier"),
     }?;
+    caller.fill(&mut observation.context);
     observation.validate()?;
     Ok(ConcernAction::Record {
         observations: vec![observation],
