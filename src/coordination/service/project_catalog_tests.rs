@@ -88,3 +88,15 @@ fn invalid_client_names_are_omitted_rather_than_stored() {
 
     assert_eq!(projects(&service)[0]["display_name"], Value::Null);
 }
+
+#[test]
+fn project_discovery_returns_at_most_the_project_cap() {
+    let service = service_with(Config::default());
+    let cap = crate::coordination::api::MAX_PROJECT_RESULTS;
+    for index in 0..=cap {
+        service.handle_remote(format!("project-{index:03}"), prompt("discovery"));
+    }
+    let listed = service.handle(ServiceRequest::Projects).to_json();
+    assert_eq!(listed["projects"].as_array().unwrap().len(), cap);
+    assert_eq!(listed["truncated"], true);
+}
