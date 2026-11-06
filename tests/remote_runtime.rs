@@ -630,7 +630,7 @@ async fn remote_clients_name_their_project_and_inspection_does_not_register_one(
     let service = RunningService::start(Vec::new()).await;
     let mut loaded = service.client_config("named-project", 3600);
     if let nexus::config::ClientConfig::Remote(remote) = &mut loaded.config.client {
-        remote.project_name = Some("comms-platform".into());
+        remote.project_name = Some("example-app".into());
     }
     let client = NexusClient::new(&loaded, None);
     let note = ServiceRequest::decode(
@@ -666,6 +666,6 @@ async fn remote_clients_name_their_project_and_inspection_does_not_register_one(
         .collect();
     assert_eq!(
         listed,
-        [("named-project".to_owned(), json!("comms-platform"))]
+        [("named-project".to_owned(), json!("example-app"))]
     );
 }

@@ -65,7 +65,7 @@ fn seed_harness_roots(store: &mut Store, project: &str) {
         Some(50),
     ));
     record(store, project, review);
-    let mut work = vec![host_root("work", "claude", "/repos/comms-platform")];
+    let mut work = vec![host_root("work", "claude", "/repos/example-app")];
     work.extend(activity(
         "work",
         "work-agent",
@@ -178,7 +178,7 @@ fn generic_harness_titles_use_the_worktree_and_keep_the_host_session_identity() 
     seed_harness_roots(&mut store, &project);
     let view = host_dashboard(&mut store, &project);
     let work = row(&view, "work");
-    assert_eq!(work.summary.title, "claude · comms-platform");
+    assert_eq!(work.summary.title, "claude · example-app");
     assert_eq!(
         work.summary.context.host_session_id.as_deref(),
         Some("work-native")

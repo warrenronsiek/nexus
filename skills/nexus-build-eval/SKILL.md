@@ -31,7 +31,7 @@ Resolve consequential uncertainty with the user, especially what success means o
 
 ## Capture and hand over
 
-Name the agent or system under evaluation. Set the target revision's `agent` to its stable human name (for example `"agent": "source-router"`) and keep it identical across revisions and runs; dashboards group and label results by it. Without it, Nexus falls back to a single component ID or the target identity.
+Name the agent or system under evaluation. Set the target revision's `agent` to its stable human name (for example `"agent": "ticket-triage"`) and keep it identical across revisions and runs; dashboards group and label results by it. Without it, Nexus falls back to a single component ID or the target identity.
 
 Before the run, record the suite revision, metric definitions, candidate configuration, repository revision, grader revision, fixtures, and available prompts/tools/skills. During execution, record each attempt and each captured call with its evidence from that same execution. Link each measurement to its exact metric revision, subject, calculation inputs, and evidence. Separate refusals, timeouts, infrastructure errors, truncated outputs, and genuine task failures. Count retries and billed failed attempts.
 

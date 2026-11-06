@@ -409,7 +409,7 @@ fn git(arguments: &[&str], directory: &std::path::Path) {
 fn repository_bindings_name_their_project_after_the_repository_for_every_worktree() {
     let _guard = ENV_LOCK.lock().unwrap();
     let temporary = tempfile::tempdir().unwrap();
-    let repository = temporary.path().join("comms-platform");
+    let repository = temporary.path().join("example-app");
     std::fs::create_dir(&repository).unwrap();
     git(&["init", "--quiet"], &repository);
     git(
@@ -451,7 +451,7 @@ fn repository_bindings_name_their_project_after_the_repository_for_every_worktre
             ClientConfig::Remote(remote) => (remote.project_id, remote.project_name),
             ClientConfig::Local => panic!("remote transport expected"),
         };
-    let named = ("bound".to_owned(), Some("comms-platform".to_owned()));
+    let named = ("bound".to_owned(), Some("example-app".to_owned()));
     assert_eq!(remote(&repository), named);
     assert_eq!(remote(&worktree), named);
     assert_eq!(
