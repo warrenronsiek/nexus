@@ -18,8 +18,8 @@ operation; summary invalidation and requested consolidation remain CLI administr
 logout change only browser authentication state. Viewing history never runs an
 evaluation, fetches an artifact's bytes, retries work, or advances delivery.
 
-Elm owns application state, navigation, forms, filters, requests, selection, and
-metadata presentation. D3.js owns SVG visualizations and reports chart selection
+Elm owns application state, navigation, pickers, requests, selection, and
+evidence presentation. D3.js owns SVG visualizations and reports chart selection
 or viewport events through Elm ports. Vite compiles and packages the application.
 Static assets and a closed read API are served by the existing Nexus service and
 port in Docker Compose; there is no separately versioned UI container. `nexus web`
@@ -138,67 +138,68 @@ without changing agent API credentials or agent capture.
 
 ## Inspection surfaces
 
-**Coordination** starts with health, project scope, and exact summary counts,
-then exposes sessions, claims, conflicts, and recent events. Dashboard windows
-remain server-bounded: at most 32 events and 16 sessions, claims, and conflicts.
-Project discovery returns at most 128 recently active projects with up to four
-sample sessions each. Bounded windows never imply a complete historical list.
+Every screen starts from a project picker. Coordination and Work add a session
+picker and Evals an agent picker; the selection is carried in the URL (`project`,
+`session`, `set`), so links, reloads and the browser's Back button restore it.
+Lists expand in place: selecting a row loads and shows its evidence directly
+beneath it, and a second selection closes it. The browser does not render raw
+response JSON, bounded-window caveats, search forms or identifier dumps; errors and
+stale snapshots remain explicit, and "Show more" follows server cursors.
+
+**Coordination** shows live sessions, live claims, and conflicts and delivered
+messages over the last seven days. The session picker lists sessions by recent
+coordination activity with their conflict and message counts. A picked session
+reads as a chronological conversation: overlaps detected with a named other
+session, the warnings Nexus delivered to this session, warnings it delivered to
+the other session about this one, and overlaps that ended when a claim was
+released or expired.
 
 **Tools and Skills** retain rolling seven-day observations. Tools separates
-Activities, Capabilities, Opportunities, and Legacy; Skills retains its own view.
-Charts distinguish invocations from operations and known zero use from unknown
-availability. Capability and implementation pages expose provenance, supplied
-versus improvised origin, classifier/model evidence, and truncation. Opportunity
-matches are leads within observed sessions, not proof of interchangeability.
+Activities, Capabilities and Opportunities. Each activity row expands into the
+commands that performed it, with one histogram of runs per six-hour bin per
+command. Skills lists named skills by invocations; expanding one shows the
+latest skill text a client reported, or says that none was received. Charts
+distinguish invocations from operations and known zero use from unknown
+availability. Opportunity matches are leads, not proof of interchangeability.
 
-**Work** starts with qualified session totals and means, activity-kind duration
-summaries, and UTC-day trends. Host-owned sessions are the default overview;
-source browsing retains shared logical work, standalone commands, and unlinked
-activities. Selecting a session opens its vertically scrollable branching
-waterfall: time runs down a proportional UTC axis, children branch right at source
-admission/start, parallel work has separate lanes, and spans end at known source
-finishes. Queue and execution segments remain distinct. Selecting a node
-highlights its span and shows kind/category, state/outcome, timestamps, elapsed
-and queue evidence, executor, parent, gaps, and conflicts immediately below.
-Zoom and horizontal pan support long or wide sessions. Color distinguishes
-subagents, tests, scripts, reviews, tools/commands, and sessions; labels and a
-legend preserve meaning independently of color. Session titles follow captured
-Codex/Claude metadata. Missing parents, unknown finishes, outliving descendants,
-corrections, and conflicts stay visible. Inclusive durations are not additive
-wall time or effort; unknown intervals are not zero. Attributed wall time,
-unobserved time, queue wait, and worker occupancy keep their separate meanings.
+**Work** opens on where time goes: average or total elapsed time by activity
+kind. The session picker lists host sessions with recorded work; Nexus's own
+provider processes and host sessions holding only container spans are excluded.
+A picked session draws a vertically scrollable work tree rooted at the session.
+Presentation folds the agent and turn containers of each human prompt into their
+parent, numbers prompts only when a session has several, and groups consecutive
+repeated leaf calls under one parent into a counted node; source records are
+unchanged. Time runs down a proportional UTC axis, children branch right at
+source admission/start, parallel work has separate lanes, and spans end at known
+source finishes. Selecting a node shows its kind, recorded elapsed time and
+outcome. Zoom and horizontal pan support long or wide sessions; color, labels and
+a legend distinguish subagents, tests, scripts, reviews, tools/commands and
+prompts. Unknown intervals are not zero and inclusive durations are not additive.
 
-**Evals** groups sets by stable suite/target identity, repository, and exact model
-composition. Selecting a set exposes metric trends and their definitions,
-units, formats, assessment scopes, calculation descriptions, and latest exact
-values. Metric/grader revisions and scopes remain separate series. Charts use
-only conservative scalar approximations; large integers, precise decimals,
-structured values, categories, and unavailable values retain their original
-representation. Corrections preserve immutable history while superseded results
-stay outside current frontiers; conflicting branches are not silently resolved.
-Nexus chooses no optimization direction. Record, rationale/history, and link
-views retain why changes happened and artifact Git coordinates or blob metadata.
+**Evals** names each group by its recorded agent or system, then suite/target
+identity, repository and model composition. Picking an agent draws one chart per
+metric definition with individual results as dots over time, the definition's
+calculation as readable text, and the latest exact values. Revisions remain
+separate series, values keep their original representation, and Nexus chooses
+no optimization direction.
 
-**Code concerns** starts with ranked areas and recurrence trends, separating raw
-observations, known source occurrences, distinct work/host sessions, returns,
-and unknown evidence. Select an area, concern, and timeline event to inspect
-encounters, remedies and their motivations, reviews, resolutions, and returns.
-Metadata retains original source/receipt times, exact session identities and
-available titles, Git locations, and verification qualifications. Unlocated
-concerns remain accessible. Overlapping area totals are not additive and reports
-are not an objective defect rate.
+**Code concerns** starts with summary counts, ranked problem areas and reports
+per day. Selecting an area lists its concerns; expanding one shows its summary and
+its encounters, remedies, resolutions and returns in order. Overlapping area
+totals are not additive and reports are not an objective defect rate.
 
-**Papercuts and SOS** retain their separate meaning and lifecycle. Papercuts
-browses development-friction reports with encounter counts and timestamps; older
-open reports use bounded cursor pages. SOS shows importance-ranked application
-situations, source reports, triage, and lifecycle history. Reporting, upvotes,
-resolution, consolidation, and triage remain outside the browser read contract.
-An open list is not a complete registry; explicit CLI dumps preserve that role.
+**Papercuts and SOS** retain their separate meaning and lifecycle. Both list the
+most encountered (reported) first, then the most recent. Expanding one shows every
+report in order with its reporter and time. Reporting, upvotes, resolution,
+consolidation and triage remain outside the browser read contract. An open list is
+not a complete registry; explicit CLI dumps preserve that role.
 
-**Memory** browses layered/project/global context, raw search results, summary
-children, omissions, pending work, provider health, and activation metadata.
-Source text is historical evidence. The browser offers no add, invalidate, or
-consolidate operation, including through its read API.
+**Memory** shows notes, summaries, pending work and summarizer health, then the
+layered context. Each row carries its aggregation level and the number of notes
+it covers; levels double their coverage. Expanding a summary shows its text and
+the entries it was built from, which expand in turn. Source text is historical
+evidence. The browser offers no add, invalidate, or consolidate operation,
+including through its read API.
 
 Project discovery reads the persisted project catalog, which records the project
 whenever an agent request (lifecycle hook, command, or agent read) resolves it, so
@@ -212,18 +213,26 @@ Each project carries an optional `display_name` reported by its client: a
 repository binding names its project after the repository (the parent of the Git
 common directory, so linked worktrees share it), and local transport derives the
 same name. The picker shows that name, then observed worktrees, then the opaque
-ID. Global memory does not invent a project namespace. A truncated or failed
-catalog read is labeled and permits selecting a known project ID explicitly.
+ID. Global memory does not invent a project namespace. A failed catalog read is
+reported as an error; a project named in the URL stays selectable.
 
 ## Implementation and validation
 
 `web/src/Main.elm` owns the application; Elm wire/state modules decode responses
-and reject stale request results. `web/src/charts.ts` renders D3 SVG charts through
+and reject stale request results, and `web/src/Waterfall.elm` derives the
+human-rooted session tree. `web/src/charts.ts` renders D3 SVG charts through
 ports, and Vite emits the tracked `web/dist` assets. The canonical gate rebuilds
 and verifies them against the staged bundle. Cargo, Docker, and release builds
 embed those exact CI-validated assets. All retained strings are
 rendered as text, never interpreted as HTML or instructions. Source metadata and
 exact metric literals survive presentation; preview omissions are labeled.
+
+The screens above use these closed reads beyond each feature's existing list and
+dashboard reads: `coordination_session_index` and `coordination_session_timeline`
+(Coordination picker and conversation), `analytics_commands` (per-command
+histograms), `skill_get` (latest reported skill text), `papercut_get` (every report
+of a papercut), `sos_get`, `concern_get` and `memory_expand` (inline evidence).
+Each is project-scoped like its feature and validated by its owning domain.
 
 `src/runtime/server/browser/` owns credentials, sessions, origin enforcement,
 and the closed mapping from browser queries to existing service reads. Scope or

@@ -634,6 +634,7 @@ more model =
         Just doc ->
             let
                 next = case model.query.kind of
+                    "papercuts" -> if D.decodeValue (D.field "truncated" D.bool) doc.root == Ok True then List.reverse doc.rows |> List.head |> Maybe.map (\row -> E.object [ ( "upvote_count", E.int (round (Wire.number "upvote_count" row.body)) ), ( "updated_at", E.string (Wire.str "updated_at" row.body) ), ( "id", E.string row.id ) ]) else Nothing
                     "analytics_catalog" -> D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing |> Maybe.map E.int
                     "analytics_examples" -> D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing |> Maybe.map E.int
                     _ -> doc.next
@@ -729,6 +730,7 @@ workBars model doc =
         metricKey = if model.durationMode == "total" then "total_seconds" else "average_seconds"
     in
     Wire.list "activity_kinds" doc.root
+        |> List.filter (\row -> Wire.str "accounting_role" row /= "container")
         |> List.map
             (\row ->
                 let
@@ -918,7 +920,12 @@ focusCaption row =
     case row.kind of
         "coordination_session" -> row.title ++ " · " ++ row.subtitle
         "eval_group" -> evalCaption row
-        _ -> row.title ++ (let started = Wire.str "started_at" row.body in if started == "" then "" else " · " ++ timeText started)
+        _ ->
+            let
+                started = Wire.str "started_at" row.body
+                active = D.decodeValue (D.field "active_seconds" D.float) row.body |> Result.toMaybe
+            in
+            row.title ++ (if started == "" then "" else " · " ++ timeText started) ++ (active |> Maybe.map (\seconds -> " · " ++ duration seconds ++ " active") |> Maybe.withDefault "")
 
 
 evalCaption : Row -> String
@@ -926,7 +933,7 @@ evalCaption row =
     let
         agent = Wire.str "agent" row.body
     in
-    (if agent /= "" && agent /= row.title then agent ++ " · " else "") ++ row.title ++ (if row.subtitle == "" then "" else " · " ++ row.subtitle)
+    (if agent /= "" && not (String.startsWith agent row.title) then agent ++ " · " else "") ++ row.title ++ (if row.subtitle == "" then "" else " · " ++ row.subtitle)
 
 
 projectCaption : Row -> String
@@ -1204,7 +1211,7 @@ workView model doc =
     if model.focus == Nothing then
         section [ class "panel" ]
             [ div [ class "panel-heading" ]
-                [ div [] [ h2 [] [ text "Where time goes" ], p [] [ text ("Elapsed time by kind of work across host sessions; nested work overlaps its parent. Choose a session above to see how a prompt branched into work.") ] ]
+                [ div [] [ h2 [] [ text "Where time goes" ], p [] [ text ("Elapsed time by kind of work across " ++ (if optionalCount "activity_session_count" doc.root == "—" then "" else optionalCount "activity_session_count" doc.root ++ " ") ++ "recent sessions; nested work overlaps its parent. Choose a session above to see how a prompt branched into work.") ] ]
                 , label [ class "inline-control" ] [ span [ class "muted" ] [ text "Show" ], select [ onInput DurationMode, attribute "aria-label" "Duration aggregation" ] [ choice model.durationMode "average" "Average per activity", choice model.durationMode "total" "Total time" ] ]
                 ]
             , chart "summary-bars"
@@ -1358,7 +1365,7 @@ concernsView model doc =
             counts = Wire.field "counts" doc.root
         in
         div []
-            [ div [ class "stats-grid" ] [ stat "Reported concerns" (countText "concerns" counts) "No reports does not establish code health", stat "Affected work sessions" (countText "work_sessions" counts) "Distinct retained session identities", stat "Source occurrences" (countText "known_source_occurrences" counts) "Known failure encounters", stat "Returns after resolution" (countText "returns_after_resolution" counts) "Potential recurring problem areas" ]
+            [ div [ class "stats-grid" ] [ stat "Reported concerns" (countText "concerns" counts) "No reports does not establish code health", stat "Affected work sessions" (if Wire.number "work_sessions" counts == 0 && Wire.number "unknown_work_observations" counts > 0 then "Unknown" else countText "work_sessions" counts) "Reports must name their work session to count", stat "Source occurrences" (countText "known_source_occurrences" counts) "Known failure encounters", stat "Returns after resolution" (countText "returns_after_resolution" counts) "Potential recurring problem areas" ]
             , panel "Problem areas" "Reported concerns by code area. Select an area to read its concerns." [ chart "summary-bars" ]
             , panel "Reports over time" "Reports per UTC day." [ chart "summary-trend" ]
             ]
@@ -1415,7 +1422,7 @@ papercutDetail loaded =
 
 reporter : D.Value -> String
 reporter report =
-    [ "reporter_agent", "creator_agent", "agent", "source" ] |> List.map (\key -> Wire.str key report) |> List.filter ((/=) "") |> List.head |> Maybe.withDefault "Report"
+    [ Wire.str "reporter_agent" report, Wire.str "creator_agent" report, Wire.str "agent" (Wire.field "reporter" report), Wire.str "agent" report, Wire.str "source" report ] |> List.filter ((/=) "") |> List.head |> Maybe.withDefault "Report"
 
 
 sosView : Model -> Document -> Html Msg
@@ -1506,6 +1513,6 @@ memoryDetail model depth row loaded =
 pagination : Model -> Document -> Html Msg
 pagination model doc =
     let
-        hasMore = doc.next /= Nothing || (D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing) /= Nothing
+        hasMore = doc.next /= Nothing || (D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing) /= Nothing || model.query.kind == "papercuts" && D.decodeValue (D.field "truncated" D.bool) doc.root == Ok True
     in
     if hasMore then div [ class "pagination" ] [ button [ onClick More, disabled model.data.loading ] [ text "Show more →" ] ] else text ""

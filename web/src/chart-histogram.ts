@@ -14,14 +14,22 @@ export function drawHistogram(svg: Svg, bins: Bin[], binSeconds: number, width: 
   attrs(svg, { viewBox: `0 0 ${width} ${HEIGHT}`, height: HEIGHT });
   const dated = bins.filter(bin => Number.isFinite(bin.start)).sort((a, b) => a.start - b.start);
   if (!dated.length) { element(svg, "text", { x: 4, y: 30, class: "chart-label" }, "No runs in this window."); return; }
-  const span = binSeconds * 1000, peak = d3.max(dated, bin => bin.count) || 1;
-  const x = d3.scaleUtc().domain([dated[0].start, dated[dated.length - 1].start + span]).range([2, width - 34]);
-  const frame = { x, y: d3.scaleLinear().domain([0, peak]).range([BOTTOM, 6]), bottom: BOTTOM, span };
+  const frame = histogramFrame(dated, binSeconds * 1000, width);
   dated.forEach(bin => drawBin(svg, bin, frame));
-  element(svg, "text", { x: width - 30, y: 14, class: "chart-value" }, d3.format(",")(peak));
-  const days = Math.max(1, Math.ceil((frame.x.domain()[1].getTime() - dated[0].start) / 86400000 / Math.max(2, Math.floor(width / 70))));
-  const axis = d3.axisBottom(x).ticks(d3.utcDay.every(days)!).tickFormat(d3.utcFormat("%b %d") as (value: Date | d3.NumberValue, index: number) => string).tickSizeOuter(0);
-  svg.append("g").attr("class", "chart-axis").attr("transform", `translate(0,${BOTTOM})`).call(axis);
+  element(svg, "text", { x: width - 30, y: 14, class: "chart-value" }, d3.format(",")(frame.y.domain()[1]));
+  drawDayAxis(svg, frame.x, width);
+}
+function histogramFrame(dated: Bin[], span: number, width: number): Frame {
+  const x = d3.scaleUtc().domain([dated[0].start, dated[dated.length - 1].start + span]).range([2, width - 34]);
+  const y = d3.scaleLinear().domain([0, d3.max(dated, bin => bin.count) || 1]).range([BOTTOM, 6]);
+  return { x, y, bottom: BOTTOM, span };
+}
+/** Whole-day ticks, stepped so labels never crowd or repeat. */
+function drawDayAxis(svg: Svg, x: d3.ScaleTime<number, number>, width: number): void {
+  const [start, end] = x.domain().map(date => date.getTime());
+  const step = Math.max(1, Math.ceil((end - start) / 86400000 / Math.max(2, Math.floor(width / 70))));
+  const format = d3.utcFormat("%b %d") as (value: Date | d3.NumberValue, index: number) => string;
+  svg.append("g").attr("class", "chart-axis").attr("transform", `translate(0,${BOTTOM})`).call(d3.axisBottom(x).ticks(d3.utcDay.every(step)!).tickFormat(format).tickSizeOuter(0));
 }
 function drawBin(svg: Svg, bin: Bin, { x, y, bottom, span }: Frame): void {
   if (bin.count <= 0) return;

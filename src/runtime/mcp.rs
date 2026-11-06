@@ -291,26 +291,42 @@ async fn service_tool_call(
         return invalid_params(id, "tools/call arguments must be an object");
     }
     let arguments = bind_tool_context(method, arguments, invocation_context);
-    let mut result = if method == "capture_health" {
+    match tool_result(invoker, invocation_context, method, arguments, lifecycle).await {
+        Ok(result) => tool_response(id, method, result),
+        Err(message) => invalid_params(id, message),
+    }
+}
+
+/// Runs one validated tool; an `Err` is an invalid-params message for the caller.
+async fn tool_result(
+    invoker: &dyn ServiceInvoker,
+    invocation_context: &McpInvocationContext,
+    method: &str,
+    arguments: Value,
+    lifecycle: bool,
+) -> Result<Value, String> {
+    if method == "capture_health" {
         if !arguments
             .as_object()
             .is_some_and(|object| object.is_empty())
         {
-            return invalid_params(id, "capture health takes no arguments");
+            return Err("capture health takes no arguments".into());
         }
-        invoker.capture_health().await.unwrap_or_else(|_| json!({"ok":true,"scope":"local_companion","available":false,"reason":"busy_or_unavailable"}))
-    } else {
-        match ServiceRequest::decode(method, arguments) {
-            Ok(request) => invoker
-                .invoke(request, lifecycle)
-                .await
-                .unwrap_or_else(|error| json!({"ok":false,"error":error.to_string()})),
-            Err(error) if lifecycle => {
-                rejected_lifecycle(invoker, &invocation_context.agent, error).await
-            }
-            Err(error) => return invalid_params(id, error.to_string()),
+        return Ok(invoker.capture_health().await.unwrap_or_else(|_| json!({"ok":true,"scope":"local_companion","available":false,"reason":"busy_or_unavailable"})));
+    }
+    match ServiceRequest::decode(method, arguments) {
+        Ok(request) => Ok(invoker
+            .invoke(request, lifecycle)
+            .await
+            .unwrap_or_else(|error| json!({"ok":false,"error":error.to_string()}))),
+        Err(error) if lifecycle => {
+            Ok(rejected_lifecycle(invoker, &invocation_context.agent, error).await)
         }
-    };
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn tool_response(id: Value, method: &str, mut result: Value) -> Value {
     add_hook_context(method, &mut result);
     let text = hook_text(method, &result);
     let is_error = tool_result_is_error(&result);

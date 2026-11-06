@@ -69,5 +69,7 @@ fn claude_environment_export_refuses_symlinks_without_disabling_capture() {
         "nexus_work",
         json!({"action":"dashboard","session_origin":"host"}),
     );
-    assert_eq!(roots["sessions"].as_array().unwrap().len(), 1);
+    // Capture still happened: the session has no work yet, so the dashboard hides it.
+    assert_eq!(roots["sessions"].as_array().unwrap().len(), 0);
+    assert_eq!(roots["hidden_session_count"], 1);
 }

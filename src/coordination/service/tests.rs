@@ -873,7 +873,7 @@ fn ordinary_coordination_reads_have_server_owned_hard_caps() {
     );
     assert_eq!(dashboard["conflicts"]["truncated"], true);
 
-    for index in 0..17 {
+    for index in 0..=crate::coordination::api::MAX_PROJECT_RESULTS {
         let prompt = ServiceRequest::decode(
             "user_prompt",
             json!({
@@ -887,7 +887,10 @@ fn ordinary_coordination_reads_have_server_owned_hard_caps() {
         service.handle_remote(format!("project-{index:03}"), prompt);
     }
     let projects = service.handle(ServiceRequest::Projects).to_json();
-    assert_eq!(projects["projects"].as_array().unwrap().len(), 16);
+    assert_eq!(
+        projects["projects"].as_array().unwrap().len(),
+        crate::coordination::api::MAX_PROJECT_RESULTS
+    );
     assert_eq!(projects["truncated"], true);
 }
 

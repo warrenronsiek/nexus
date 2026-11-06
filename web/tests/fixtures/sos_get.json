@@ -9,10 +9,21 @@
     "reports": [
       {
         "id": "report-1",
-        "source": "mail-ingest",
-        "summary": "An email arrived with an unexpected attachment type",
-        "received_at": "2026-11-01T00:00:00Z"
+        "issue_id": "sos-id",
+        "message": "An email arrived with an unexpected attachment type",
+        "type": "mail",
+        "environment": "prod",
+        "reporter": {
+          "agent": "mail-ingest",
+          "session_id": "x"
+        },
+        "created_at": "2026-11-01T00:00:00Z"
       }
-    ]
+    ],
+    "reports_truncated": false,
+    "triage_attempts": [],
+    "triage_attempts_truncated": false,
+    "lifecycle_events": [],
+    "lifecycle_events_truncated": false
   }
 }

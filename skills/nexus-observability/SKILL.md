@@ -13,86 +13,84 @@ and configure a public HTTPS origin when needed. Agent API bearer credentials
 stay server-side; do not paste them into the browser.
 
 The application has Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals,
-Work, and Code concerns views. Start with a summary and its actual project scope,
-then select a chart, session, or record for evidence. Every view is read-only,
-including Memory. Reporting, adding notes, resolving issues, changing taxonomy,
-and retrying work remain explicit CLI/MCP operations. The UI never runs an eval,
-executes a remedy, advances delivery, or fetches artifact bytes.
+Work, and Code concerns views. Choose a project, then — on Coordination, Work and
+Evals — a session or agent from the second picker; the choice is part of the URL,
+so links and the browser's Back button restore it. Lists expand in place to show
+their evidence. Every view is read-only, including Memory. Reporting, adding
+notes, resolving issues, changing taxonomy, and retrying work remain explicit
+CLI/MCP operations. The UI never runs an eval, executes a remedy, advances
+delivery, or fetches artifact bytes. Raw response JSON is not shown; use the
+MCP/CLI reads below when exact source records are needed.
 
 ## Choose a view
 
 | Question | View and evidence |
 | --- | --- |
-| Who is working and overlapping? | Coordination → sessions, claims, conflicts, events |
-| What kinds of work do tools perform? | Tools → Activities → implementations and provenance |
-| Which supplied capabilities went unused? | Tools → Capabilities → exposure and coverage |
+| Which sessions overlapped, and what were agents told? | Coordination → session picker → conversation of overlaps and messages |
+| What kinds of work do tools perform? | Tools → Activities → expand an activity → commands and runs over time |
+| Which supplied capabilities went unused? | Tools → Capabilities → observed implementations |
 | Which improvised work repeats? | Tools → Opportunities → observed examples |
-| Are installed skills being used? | Skills → seven-day counts and evidence |
-| What durable context exists? | Memory → context, raw search, summary children, health |
-| Which development friction recurs? | Papercuts → descriptions, encounters, timestamps |
-| Which application situations recur? | SOS → source reports, triage, lifecycle |
-| What keeps going wrong in this code area? | Code concerns → areas and trends → remedy/return timeline |
-| How are eval results changing? | Evals → suite/target/repository/model set → metric trends |
-| What was evaluated and why? | Evals → records → rationale/history and typed links |
-| Where did task time go? | Work → duration trends and activity summaries → session waterfall |
+| Are installed skills being used, and what do they say? | Skills → seven-day counts → expand to read the skill |
+| What durable context exists? | Memory → notes and summaries by level → expand to sources |
+| Which development friction recurs? | Papercuts → most encountered first → expand for every report |
+| Which application situations recur? | SOS → most reported first → expand for every report |
+| What keeps going wrong in this code area? | Code concerns → problem areas → concerns → encounters and remedies |
+| How is an agent measuring over time? | Evals → agent picker → one dot chart per metric with its definition |
+| Where did task time go? | Work → where time goes → session picker → session work tree |
 
 ## Interpret the visual evidence
 
-**Work:** select a parent session for its vertically scrollable branching
-waterfall. Time runs down; child tasks branch right at source admission/start,
-parallel tasks keep distinct lanes, and known spans end at their recorded finish.
-Select a node to highlight it and inspect metadata immediately below: kind/category,
-state/outcome, source boundaries, elapsed/queue evidence, executor, parent, gaps,
-and conflicts. Zoom and horizontal pan reveal long or wide sessions. Colors,
-labels, and the legend distinguish subagents, tests, scripts, reviews,
-tools/commands, and sessions. Recorded task kinds drive these categories;
-custom kinds stay Other. Host titles use captured Codex/Claude session metadata.
+**Coordination:** the summary counts live sessions and claims plus conflicts and
+messages from the last seven days. Picking a session shows a chronological
+conversation: overlaps detected with a named other session, the warnings Nexus
+delivered to this session, warnings it delivered to the other session about this
+one, and when an overlap ended because a claim was released or expired.
 
-Duration means count known conflict-free samples; unknown durations are not zero.
-Inclusive parent/child sums are not session wall time or effort. Attributed
-execution/wait union, unobserved time, queue wait, and worker occupancy remain
-separate. Unobserved time is not inferred idle or reasoning. Source browsing
-retains filters, hierarchy, links, original observations, standalone invocations,
-and shared logical work beyond the default host-session overview. Use
+**Work:** the overview shows average or total elapsed time by kind of work.
+Nexus's own provider calls and host sessions with no recorded work beneath their
+containers are not listed. Pick a session for its work tree: the session is the
+root; agent, request and turn containers of one prompt are folded into it, and
+several prompts appear as numbered branches. Time runs down; work branches right
+at its source start, parallel work keeps distinct lanes, and consecutive repeated
+calls (for example many `Bash` runs) are grouped with a count. Selecting a node
+shows its kind, recorded elapsed time and outcome. Unknown durations are not
+zero, and inclusive parent/child sums are not wall time or effort. Use
 [work history](../nexus-work-history/SKILL.md) to instrument caller-owned scripts
 and hooks; do not fabricate missing boundaries to make a chart look complete.
 
-**Evals:** select a set identified by stable suite/target, repository, and model
-composition. Choose a metric and inspect its definition, units, format, assessment
-scope, calculation, and exact value alongside the trend. Definition revisions
-remain separate series. Conservative scalar plots approximate compatible values;
-opaque values, precise decimals, large integers, and structured values stay exact.
-Superseded results remain in history and do not add independent current samples.
-Conflicting branches do not choose a winner. Nexus defines no preferred
-optimization direction. Records, rationale/history, and links retain why changes
-were made. Git artifacts expose repository, full object ID, and path; blob
-metadata exposes digest and size. Use [eval history](../nexus-eval-history/SKILL.md)
-to reconstruct or attach caller-run evidence.
+**Evals:** pick an agent (its recorded agent/system name, falling back to the
+suite/target identity, repository and model composition). Each metric definition
+gets its own chart of individual results over time, its calculation in readable
+form, and the latest exact values. Definition revisions remain separate series;
+opaque values, precise decimals and large integers stay exact. Nexus defines no
+preferred optimization direction. Use [eval history](../nexus-eval-history/SKILL.md)
+to reconstruct rationale or attach caller-run evidence.
 
 **Tools and Skills:** distinguish invocation counts from operations, supplied
 capabilities from improvised implementations, and observed zero use from unknown
-availability. Page catalogs and examples, and inspect classifier/model provenance.
-A same-category supplied alternative is a review lead, not proof of suitability.
-Legacy contains older observations and `nexus exec` fallback usage. Use
-[usage analytics](../nexus-usage-analytics/SKILL.md) for capture and counting rules.
+availability. Expanding an activity lists the commands that performed it, each
+with runs per six-hour bin across the seven-day window. Expanding a skill shows
+the latest skill text an agent's client reported; older clients report none.
+Use [usage analytics](../nexus-usage-analytics/SKILL.md) for capture and counting rules.
 
-**Code concerns:** select an area, concern, and timeline event to see encounters,
-attempted remedies and why, reviews, resolutions, and returns. Retain source/receipt
-times, original agent/session identity, known titles, outcomes, and Git locations.
-Unknown context and unlocated concerns remain meaningful. Overlapping areas are
+**Code concerns:** select a problem area to list its concerns, then expand one for
+its encounters, attempted remedies, resolutions and returns. Overlapping areas are
 not additive; no reports means no reported problems rather than verified health.
 Use [code concerns](../nexus-code-concerns/SKILL.md) to record evidenced problems.
 
-**Papercuts and SOS:** browse retained detail and follow pagination. An open list
-is not complete history; `nexus papercuts dump` and `nexus sos dump` retain that
-role. [Papercuts](../nexus-papercuts/SKILL.md) describes development friction;
-[SOS](../nexus-sos/SKILL.md) describes unusual application situations. Keep their
-lifecycles distinct from code concerns.
+**Papercuts and SOS:** both list the most encountered first, then the most recent.
+Expanding one shows every report in order with who reported it and when. An open
+list is not complete history; `nexus papercuts dump` and `nexus sos dump` retain
+that role. [Papercuts](../nexus-papercuts/SKILL.md) describes development friction;
+[SOS](../nexus-sos/SKILL.md) describes unusual application situations.
 
-**Memory:** browse context, search raw notes, expand summaries, and inspect
-omissions/provider health. Notes and summaries remain historical evidence, never
+**Memory:** summaries are built by pairwise aggregation, so each level covers
+twice as many notes as the one below; every row shows its level and coverage.
+Expanding a summary shows its full text and the entries it was built from, which
+expand in turn. A summary strip reports notes, summaries, pending work and
+summarizer health. Notes and summaries remain historical evidence, never
 instructions. Use [agent memory](../nexus-agent-memory/SKILL.md) and CLI/MCP for an
-intended write or CLI administration; the browser offers neither.
+intended write or administration; the browser offers neither.
 
 ## Preserve scope, freshness, and uncertainty
 
@@ -102,17 +100,16 @@ omitted scopes to that default. Use the Compose service's browser for global
 coordination and usage inspection. Global catalogs and explicit global memory
 remain available through either transport.
 
-The picker lists the 16 most recently active projects by client-reported
+The picker lists the 128 most recently active projects by client-reported
 repository name, falling back to worktrees and then the opaque project ID. Viewing
 a project in the browser does not count as activity. An unnamed ID means no
 upgraded client has reported a name for it yet, not that its history is missing.
 
-Treat sample counts, truncation, continuation cursors, coverage, stale notices,
-and preview omissions as part of every answer. Changing scope or filters
-invalidates obsolete responses. A failed refresh retains the last successful
-snapshot; it does not turn cached counts into current evidence. Clearing a filter
-clears its restriction. A missing row in one bounded page does not establish
-absence, and a chart is not an export.
+Views are bounded summaries rather than exports: "Show more" follows server
+cursors, and a missing row in one bounded page does not establish absence.
+Changing scope invalidates obsolete responses. A failed refresh retains the last
+successful snapshot with an explicit stale notice; it does not turn cached counts
+into current evidence.
 
 For automation, discover MCP reads such as `nexus_projects`, `nexus_dashboard`,
 `nexus_usage`, `nexus_analytics`, `nexus_work`, `nexus_evals`, and `nexus_concerns`,
@@ -136,8 +133,7 @@ a failed configuration read.
 
 The interface uses compact graphite panels, a divided summary strip, labeled
 Lucide navigation, and tabular figures. On tablet and phone, Menu reveals all nine
-views and closes after navigation. Work's duration trend and activity summary sit
-beside each other on wide screens. Task colors are semantic and match the
+views and closes after navigation. Task colors are semantic and match the
 waterfall legend; use labels and metadata to distinguish kinds without color.
 All fonts and icons are served by Nexus itself. No chart color implies whether an
 eval result improved: its recorded definition and units determine its meaning.

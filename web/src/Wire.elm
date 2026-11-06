@@ -313,7 +313,7 @@ shape kind root =
                 |> Result.map (\items -> { base | rows = items, bars = List.map (\r -> Bar r.id r.title (Just (number "count" r.body)) r.subtitle) items })
 
         "concern_dashboard" ->
-            rows "areas" (D.map2 (\body area -> Row (str "id" area) (str "display_name" area) (str "kind" area ++ " · " ++ String.fromFloat (number "work_sessions" (field "counts" body)) ++ " sessions affected") "concern_area" body) D.value (D.field "area" D.value))
+            rows "areas" (D.map2 (\body area -> Row (str "id" area) (str "display_name" area) (str "kind" area ++ " · " ++ affected (field "counts" body)) "concern_area" body) D.value (D.field "area" D.value))
                 |> Result.map (\doc -> { doc | bars = List.map (\r -> Bar r.id r.title (Just (number "work_sessions" (field "counts" r.body))) r.subtitle) doc.rows, points = list "daily" root |> List.map (\v -> Point (str "date" v) (str "date" v) (str "date" v) (Just (number "raw_observations" v)) "") })
 
         "concern_list" ->
@@ -333,6 +333,16 @@ shape kind root =
 
         _ ->
             Ok base
+
+
+{-| Reports that name no work session leave the affected-session count unknown rather than zero. -}
+affected : Value -> String
+affected counts =
+    if number "work_sessions" counts == 0 && number "unknown_work_observations" counts > 0 then
+        "sessions unknown"
+
+    else
+        String.fromFloat (number "work_sessions" counts) ++ " sessions affected"
 
 
 {-| Memory nodes keep their full content in the body; the title is a one-line preview. -}

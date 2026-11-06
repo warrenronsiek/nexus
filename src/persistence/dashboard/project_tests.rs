@@ -196,7 +196,10 @@ fn catalog_rebuild_merges_duplicate_sources_before_recency_order_and_limit() {
     assert_eq!(window.items[0].project_id, "project-000");
     assert_eq!(window.items[0].agents, vec!["codex"]);
     assert_eq!(window.items[0].worktrees, vec!["/recorded/worktree"]);
-    assert_eq!(window.items[1].project_id, format!("project-{:03}", limit + 1));
+    assert_eq!(
+        window.items[1].project_id,
+        format!("project-{:03}", limit + 1)
+    );
     let ids: std::collections::BTreeSet<_> = window
         .items
         .iter()
