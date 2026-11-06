@@ -86,6 +86,7 @@ fn arguments_replace_caller_supplied_provenance_with_process_context() {
         session_id: "mcp-session-test".into(),
         project_root: Some("/tmp/project".into()),
         agent: "codex".into(),
+        internal_process: false,
     };
     let mut report = json!({
         "action":"report",
@@ -117,6 +118,7 @@ fn resource_maps_to_an_unbounded_current_project_dump() {
         session_id: "mcp-session-test".into(),
         project_root: Some("/tmp/project".into()),
         agent: "codex".into(),
+        internal_process: false,
     };
     let (method, arguments) = resource_request("nexus://sos", &context).unwrap();
     assert_eq!(method, "sos");

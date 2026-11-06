@@ -41,6 +41,7 @@ fn code_concerns_has_its_own_tool_and_bound_identity() {
             session_id: "bound-session".into(),
             project_root: Some("/test/project".into()),
             agent: "test-agent".into(),
+            internal_process: false,
         },
     );
     assert_eq!(bound["context"]["session_id"], "bound-session");

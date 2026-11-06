@@ -56,9 +56,7 @@ struct Prepared {
 
 impl ClientAnalytics {
     pub fn start(loaded: Arc<LoadedConfig>, explicit: Option<PathBuf>) -> Option<Self> {
-        if !loaded.config.analytics.classification_enabled
-            || std::env::var_os("NEXUS_ANALYTICS_INTERNAL").is_some()
-        {
+        if !loaded.config.analytics.classification_enabled || super::internal_process::active() {
             return None;
         }
         let runtime = tokio::runtime::Handle::try_current().ok()?;
