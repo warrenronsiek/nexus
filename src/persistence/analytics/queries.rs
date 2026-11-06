@@ -5,18 +5,6 @@
 use super::*;
 use diesel::dsl::{count, count_star};
 
-macro_rules! leaf_actions {
-    () => {
-        analytics_actions::table.filter(
-            analytics_actions::call_id.ne_all(
-                analytics_calls::table
-                    .filter(analytics_calls::parent_id.is_not_null())
-                    .select(analytics_calls::parent_id.assume_not_null()),
-            ),
-        )
-    };
-}
-
 fn window_start() -> String {
     (Utc::now() - chrono::Duration::days(7)).to_rfc3339()
 }

@@ -396,6 +396,75 @@ async fn browser_assets_are_whitelisted_and_route_reloads_keep_the_same_security
     }
 }
 
+async fn read_json(app: &Browser, cookie: &str, query: Value) -> Value {
+    app.read(cookie, query).await.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn browser_reads_command_histograms_for_a_category() {
+    let app = Browser::start(None).await;
+    let observed = app
+        .client
+        .post(format!("{}/api/v1/request", app.origin))
+        .bearer_auth(AGENT_SECRET)
+        .json(
+            &json!({"project_id":"test-project","method":"post_tool_use","params":{
+            "session_id":"s","agent":"codex","tool_use_id":"read-files","tool_name":"Bash",
+            "tool_input":{"command":"cat README.md; tail -n 5 log.txt; cat Cargo.toml"}}}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(observed.status(), StatusCode::OK);
+    let cookie = app.cookie().await;
+
+    let query = json!({"kind":"analytics_commands","category_id":"files.read"});
+    let histogram = read_json(&app, &cookie, query).await;
+
+    assert_eq!(histogram["category_id"], "files.read", "{histogram}");
+    assert_eq!(histogram["bin_seconds"], 21_600);
+    let commands = histogram["commands"].as_array().unwrap();
+    let totals: Vec<_> = commands
+        .iter()
+        .map(|command| (command["name"].clone(), command["count"].clone()))
+        .collect();
+    assert_eq!(
+        totals,
+        [(json!("cat"), json!(2)), (json!("tail"), json!(1))]
+    );
+    let bins = commands[0]["bins"].as_array().unwrap();
+    assert_eq!(bins.len(), 28);
+    assert_eq!(bins[0]["start"], histogram["window_start"]);
+    assert_eq!(bins[27]["count"], 2);
+}
+
+#[tokio::test]
+async fn browser_skill_reads_are_null_until_text_is_captured_and_inputs_are_closed() {
+    let app = Browser::start(None).await;
+    let cookie = app.cookie().await;
+
+    let skill = read_json(
+        &app,
+        &cookie,
+        json!({"kind":"skill_get","name":"never-captured"}),
+    )
+    .await;
+
+    assert_eq!(
+        skill,
+        json!({"ok":true,"name":"never-captured","description":null,"content":null,
+            "content_hash":null,"source_path":null,"observed_at":null})
+    );
+    for query in [
+        json!({"kind":"analytics_commands"}),
+        json!({"kind":"analytics_commands","category_id":"Not A Slug"}),
+        json!({"kind":"skill_get","name":""}),
+    ] {
+        let response = app.read(&cookie, query.clone()).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
+    }
+}
+
 #[tokio::test]
 async fn browser_read_requests_are_bounded_and_project_bound_reads_require_selection() {
     let app = Browser::start(None).await;

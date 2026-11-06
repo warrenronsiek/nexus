@@ -73,6 +73,36 @@ fn reconciliation_rejects_aggregate_path_payloads_above_the_wire_budget() {
 }
 
 #[test]
+fn derived_skill_documents_are_bounded_relative_and_tied_to_a_skill() {
+    let evidence = |skill: Option<&str>, content: String, source_path: &str| {
+        let mut evidence = ClientFilesystemEvidence::reconciliation("s", "codex", vec![], false);
+        evidence.derived_usage = Some(ClientDerivedUsage {
+            skill: skill.map(str::to_owned),
+            skill_document: Some(crate::analytics::skills::SkillDocument {
+                content,
+                source_path: source_path.into(),
+            }),
+            ..ClientDerivedUsage::default()
+        });
+        evidence.validate()
+    };
+    assert!(evidence(Some("tdd"), "# TDD".into(), ".codex/skills/tdd/SKILL.md").is_ok());
+    assert!(evidence(None, "# TDD".into(), ".codex/skills/tdd/SKILL.md").is_err());
+    assert!(evidence(Some("tdd"), "# TDD".into(), "/home/u/skills/tdd/SKILL.md").is_err());
+    assert!(evidence(
+        Some("tdd"),
+        "x".repeat(64 * 1024 + 1),
+        "skills/tdd/SKILL.md"
+    )
+    .is_err());
+    let legacy: ClientDerivedUsage = serde_json::from_value(serde_json::json!({
+        "scripts": [], "skill": "tdd"
+    }))
+    .unwrap();
+    assert!(legacy.skill_document.is_none());
+}
+
+#[test]
 fn reconciliation_rejects_identities_outside_session_projection_bounds() {
     let oversized_agent =
         ClientFilesystemEvidence::reconciliation("session", "a".repeat(257), Vec::new(), false);

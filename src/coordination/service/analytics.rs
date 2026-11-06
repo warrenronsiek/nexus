@@ -217,6 +217,18 @@ fn read_analytics(
                 offset,
             )
             .map(AnalyticsResponse::Examples),
+        AnalyticsCommand::Commands {
+            project_id,
+            category_id,
+        } => store
+            .activity_commands(
+                binding.default_read_project(project_id).as_deref(),
+                &category_id,
+            )
+            .map(AnalyticsResponse::Commands),
+        AnalyticsCommand::Skill { project_id, name } => store
+            .skill_detail(binding.default_read_project(project_id).as_deref(), &name)
+            .map(AnalyticsResponse::Skill),
         _ => anyhow::bail!("expected an analytics read operation"),
     }
 }

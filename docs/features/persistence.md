@@ -196,14 +196,21 @@ projection rather than authoritative history: portable snapshots do not carry it
 and import rebuilds it from the imported tables. V17's event receipt index is no
 longer read by project discovery.
 
+V20 adds `analytics_skill_documents`: the newest observed `SKILL.md` text per
+project and skill resource key, with its SHA-256, frontmatter description, display
+path, and first-observed time for that version. A reread with an unchanged hash
+performs one primary-key lookup and no write. The `(resource_key, observed_at)`
+index serves both project and global reads. Like the project catalog, this is a
+latest-version cache rather than history; portable snapshots do not carry it, and
+later skill reads repopulate it.
+
 V21 adds read indexes for coordination history: advisories by project and creation
 time and by conflict and creation time, and conflicts by project and creation or
 update time. Seven-day recent counts, session timelines, and the session index use
 them; the migration changes no rows. The stored `ended` conflict status needs no
 schema change because conflict status is already text; conflicts that were left
 open before this release are closed by the service's startup closure pass rather
-than by SQL, so their `ended` time is computed from claim history. Versions are
-monotonic but not necessarily contiguous: V20 is reserved by a concurrent change.
+than by SQL, so their `ended` time is computed from claim history.
 
 `session_history.rs` owns the session timeline and session index reads. Both stay
 inside one project, bound every query before materialization (at most 501 newest

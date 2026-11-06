@@ -10,7 +10,7 @@ use crate::coordination::domain::{query_window_limit, RecordWindow};
 use crate::persistence::backend::DbConnection;
 use anyhow::{bail, Result};
 use chrono::{DateTime, Utc};
-use diesel::dsl::count_star;
+use diesel::dsl::{count, count_star};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -302,10 +302,7 @@ impl Store {
             dimension_counts(&mut self.connection, &window, &selected)?,
             MAX_USAGE_DETAIL_ROWS,
         );
-        let session_rows = RecordWindow::bounded(
-            session_counts(&mut self.connection, &window, &selected)?,
-            crate::coordination::api::MAX_USAGE_SESSION_IDENTITY_ROWS,
-        );
+        let session_rows = session_counts(&mut self.connection, &window, &selected)?;
         usage.add_dimensions(
             dimension_rows
                 .items
@@ -313,17 +310,8 @@ impl Store {
                 .filter(|row| selected.contains(&(row.0.clone(), row.1.clone())))
                 .collect(),
         )?;
-        usage.add_sessions(
-            session_rows
-                .items
-                .into_iter()
-                .filter(|row| selected.contains(&(row.0.clone(), row.1.clone())))
-                .collect(),
-        )?;
-        Ok(usage.into_summary(
-            window,
-            dimension_keys.truncated || dimension_rows.truncated || session_rows.truncated,
-        ))
+        usage.add_sessions(session_rows)?;
+        Ok(usage.into_summary(window, dimension_keys.truncated || dimension_rows.truncated))
     }
 }
 
@@ -445,10 +433,10 @@ impl UsageAccumulator {
     }
 
     fn add_session(&mut self, row: SessionCountRow) -> Result<()> {
-        let (kind, name, _, _, _) = row;
+        let (kind, name, sessions) = row;
         let kind = CapabilityKind::from_str(&kind).map_err(anyhow::Error::msg)?;
         if let Some(count) = self.counts.get_mut(&(kind, name)) {
-            count.sessions += 1;
+            count.sessions = sessions;
         }
         Ok(())
     }
@@ -533,7 +521,7 @@ fn validate_observation(observation: &CapabilityObservation) -> Result<()> {
 }
 
 type DimensionCountRow = (String, String, String, String, i64);
-type SessionCountRow = (String, String, String, String, String);
+type SessionCountRow = (String, String, i64);
 type DimensionKeyRow = (String, String, i64);
 
 const MAX_USAGE_DETAIL_ROWS: usize =
@@ -653,36 +641,33 @@ fn session_counts(
         .iter()
         .map(|(_, name)| name.as_str())
         .collect::<Vec<_>>();
+    // A session is identified by project, agent, and host session. The database counts those
+    // identities per selected dimension, so one high-cardinality kind cannot starve another.
+    let session_identity = capability_uses::project_id
+        .concat(SESSION_IDENTITY_SEPARATOR)
+        .concat(capability_uses::agent)
+        .concat(SESSION_IDENTITY_SEPARATOR)
+        .concat(capability_uses::session_id);
     let mut query = capability_uses::table
         .filter(capability_uses::first_observed_at.ge(&window.start))
         .filter(capability_uses::first_observed_at.lt(&window.end))
         .filter(capability_uses::kind.eq_any(kinds))
         .filter(capability_uses::name.eq_any(names))
+        .group_by((capability_uses::kind, capability_uses::name))
+        .select((
+            capability_uses::kind,
+            capability_uses::name,
+            count(session_identity).aggregate_distinct(),
+        ))
         .into_boxed();
     if let Some(project_id) = window.project_id {
         query = query.filter(capability_uses::project_id.eq(project_id));
     }
-    query
-        .select((
-            capability_uses::kind,
-            capability_uses::name,
-            capability_uses::project_id,
-            capability_uses::agent,
-            capability_uses::session_id,
-        ))
-        .distinct()
-        .order((
-            capability_uses::kind.asc(),
-            capability_uses::name.asc(),
-            capability_uses::project_id.asc(),
-            capability_uses::agent.asc(),
-            capability_uses::session_id.asc(),
-        ))
-        .limit(query_window_limit(
-            crate::coordination::api::MAX_USAGE_SESSION_IDENTITY_ROWS,
-        ))
-        .load(connection)
+    query.load(connection)
 }
+
+/// Unit separator: lifecycle validation rejects control characters in project and agent identities.
+const SESSION_IDENTITY_SEPARATOR: &str = "\u{1f}";
 
 fn weaker_evidence(evidence: CapabilityEvidence) -> Vec<&'static str> {
     const ORDER: &[(CapabilityEvidence, &str)] = &[
