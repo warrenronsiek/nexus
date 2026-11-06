@@ -81,14 +81,52 @@ pub struct MemorySummary {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A frontier or expansion node. Serialization adds the derived aggregation `level`
+/// (0 for a raw entry) and `span` (raw entries covered) so readers need not infer them.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MemoryNode {
     Raw(MemoryEntry),
     Summary(MemorySummary),
 }
 
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum MemoryNodeWire<'a> {
+    Raw {
+        #[serde(flatten)]
+        entry: &'a MemoryEntry,
+        level: u32,
+        span: u64,
+    },
+    Summary {
+        #[serde(flatten)]
+        summary: &'a MemorySummary,
+        span: u64,
+    },
+}
+
+impl Serialize for MemoryNode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let span = self.span();
+        match self {
+            Self::Raw(entry) => MemoryNodeWire::Raw {
+                entry,
+                level: 0,
+                span,
+            },
+            Self::Summary(summary) => MemoryNodeWire::Summary { summary, span },
+        }
+        .serialize(serializer)
+    }
+}
+
 impl MemoryNode {
+    /// Number of raw entries this node covers: one for an entry, 2^level for a summary.
+    pub fn span(&self) -> u64 {
+        self.end_ordinal().saturating_sub(self.start_ordinal())
+    }
+
     pub fn id(&self) -> &str {
         match self {
             Self::Raw(entry) => &entry.id,

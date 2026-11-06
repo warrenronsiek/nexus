@@ -99,6 +99,66 @@ fn cli_and_mcp_share_concern_history_without_polluting_other_registries() {
 }
 
 #[test]
+fn cli_reports_inherit_the_callers_work_session_handoff() {
+    let harness = Harness::start();
+    let handoff = json!({
+        "format_version":1,"work_session_id":"work-from-handoff",
+        "parent_activity_id":"turn-activity","host_session_id":"host-17",
+        "agent":"claude","turn_id":"turn-1","model":null
+    })
+    .to_string();
+    let report = harness.feature_cli_with_context(
+        "concerns",
+        &[
+            "report",
+            "Handoff context is lost",
+            "--description",
+            "Reports from a captured host session show no affected work session",
+            "--id",
+            "linked-concern",
+        ],
+        &[
+            ("NEXUS_AGENT", "claude"),
+            ("NEXUS_HOST_SESSION_ID", "host-17"),
+            ("NEXUS_WORK_CONTEXT", &handoff),
+        ],
+    );
+    assert_eq!(success(report)["inserted"], 1);
+
+    let detail = success(cli(&harness, &["get", "linked-concern"]));
+    let context = &detail["concern"]["history"][0]["input"]["context"];
+    assert_eq!(context["host_session_id"], "host-17", "{detail}");
+    assert_eq!(context["work_session_id"], "work-from-handoff", "{detail}");
+    assert_eq!(context["activity_id"], "turn-activity", "{detail}");
+    assert_eq!(
+        detail["concern"]["summary"]["counts"]["work_sessions"], 1,
+        "{detail}"
+    );
+
+    let explicit = harness.feature_cli_with_context(
+        "concerns",
+        &[
+            "upvote",
+            "linked-concern",
+            "--work-session",
+            "explicit-work",
+        ],
+        &[("NEXUS_WORK_CONTEXT", &handoff)],
+    );
+    success(explicit);
+    let history = success(cli(&harness, &["history", "linked-concern"]));
+    let explicit_context = history["observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|observation| observation["input"]["body"]["event"] == "encountered")
+        .map(|observation| observation["input"]["context"].clone())
+        .unwrap_or_else(|| panic!("{history}"));
+    assert_eq!(explicit_context["work_session_id"], "explicit-work");
+    assert_eq!(explicit_context["activity_id"], "turn-activity");
+}
+
+#[test]
 fn mcp_binds_reporter_and_cli_transfer_preserves_original_sources() {
     let mut source = Harness::start();
     let observation = json!({"id":"report-one","concern_id":"concern-one",

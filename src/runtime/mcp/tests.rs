@@ -323,7 +323,7 @@ fn advertises_one_typed_papercuts_tool() {
 
     let schema = &papercuts[0]["inputSchema"];
     let branches = schema["oneOf"].as_array().unwrap();
-    assert_eq!(branches.len(), 6);
+    assert_eq!(branches.len(), 7);
     for branch in branches {
         assert_eq!(branch["type"], "object");
         assert_eq!(branch["additionalProperties"], false);

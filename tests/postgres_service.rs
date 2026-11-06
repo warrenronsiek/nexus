@@ -124,6 +124,47 @@ fn postgres_service_preserves_coordination_memory_and_papercut_semantics() {
         )
         .to_json();
     assert_eq!(upvoted["papercut"]["upvote_count"], 2, "{upvoted}");
+    assert_papercuts_rank_and_detail_on_postgres(&service, &project_id, papercut_id);
+}
+
+fn assert_papercuts_rank_and_detail_on_postgres(
+    service: &NexusService,
+    project_id: &str,
+    frequent_id: &str,
+) {
+    let papercuts = |params: serde_json::Value| {
+        service
+            .handle_remote(project_id, request("papercuts", params))
+            .to_json()
+    };
+    let rare = papercuts(json!({
+        "action":"report", "title":format!("Rare papercut {}", Uuid::new_v4()),
+        "session_id":format!("{project_id}-rare"), "agent":"test",
+        "project_root":"/compute/one/repo"
+    }));
+    let first = papercuts(json!({"action":"list","session_id":"reader","agent":"test"}));
+    assert_eq!(first["papercuts"][0]["id"], frequent_id, "{first}");
+    let after = &first["papercuts"][0];
+    let next = papercuts(json!({
+        "action":"list","session_id":"reader","agent":"test",
+        "after":{"upvote_count":after["upvote_count"],"updated_at":after["updated_at"],"id":after["id"]}
+    }));
+    assert_eq!(next["papercuts"][0]["id"], rare["papercut"]["id"], "{next}");
+    let detail = papercuts(json!({
+        "action":"get","papercut_id":frequent_id,"session_id":"reader","agent":"test"
+    }));
+    assert_eq!(detail["reports"][0]["kind"], "report", "{detail}");
+    assert_eq!(detail["reports"][1]["kind"], "encounter", "{detail}");
+    let sos = service
+        .handle_remote(
+            project_id,
+            request(
+                "sos",
+                json!({"action":"list","session_id":"reader","agent":"test"}),
+            ),
+        )
+        .to_json();
+    assert_eq!(sos["ok"], true, "{sos}");
 }
 
 #[test]

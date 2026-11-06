@@ -73,6 +73,13 @@ impl NexusService {
             } => self
                 .list_papercuts(context, project_id, after, binding)
                 .map(Into::into),
+            PapercutCommand::Get {
+                context,
+                project_id,
+                papercut_id,
+            } => self
+                .papercut_detail(context, project_id, papercut_id, binding)
+                .map(Into::into),
             PapercutCommand::Dump { context, scope } => {
                 dump_registry(self, context, scope, binding).map(Into::into)
             }
@@ -114,13 +121,7 @@ impl NexusService {
         after: Option<crate::coordination::api::PapercutListCursor>,
         binding: &ProjectBinding,
     ) -> Result<PapercutResponse> {
-        let project_id = match project_id {
-            Some(id) => id,
-            None => {
-                self.resolve_project(binding, context.project_root.as_deref())?
-                    .id
-            }
-        };
+        let project_id = self.papercut_read_project(context, project_id, binding)?;
         let window = self
             .papercut_store()?
             .open_papercuts_window(&project_id, after.as_ref())?;
@@ -129,6 +130,34 @@ impl NexusService {
             papercuts: window.items,
             truncated: window.truncated,
         })
+    }
+
+    fn papercut_detail(
+        &self,
+        context: HookContext,
+        project_id: Option<String>,
+        papercut_id: String,
+        binding: &ProjectBinding,
+    ) -> Result<PapercutResponse> {
+        let project_id = self.papercut_read_project(context, project_id, binding)?;
+        let detail = self
+            .papercut_store()?
+            .papercut_detail(&project_id, &papercut_id)?;
+        Ok(PapercutResponse::Detail { ok: true, detail })
+    }
+
+    fn papercut_read_project(
+        &self,
+        context: HookContext,
+        project_id: Option<String>,
+        binding: &ProjectBinding,
+    ) -> Result<String> {
+        match project_id {
+            Some(id) => Ok(id),
+            None => Ok(self
+                .resolve_project(binding, context.project_root.as_deref())?
+                .id),
+        }
     }
 
     fn report_papercut(

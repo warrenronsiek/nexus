@@ -17,7 +17,7 @@ use crate::sos::{
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use diesel::dsl::{count_star, max, min};
+use diesel::dsl::{count, count_star, max, min};
 use diesel::prelude::*;
 use serde::Serialize;
 
@@ -25,26 +25,15 @@ pub(crate) const MAX_SOS_LIST_ISSUES: usize = 32;
 pub(crate) const MAX_SOS_TRIAGE_CANDIDATES: usize = 64;
 pub(crate) const MAX_READY_SOS_REPORTS: usize = 32;
 const READY_SCAN_MULTIPLIER: usize = 4;
-pub(super) const MAX_SOS_DETAIL_REPORTS: usize = 4;
+pub(super) const MAX_SOS_DETAIL_REPORTS: usize = 32;
 pub(super) const MAX_SOS_DETAIL_ATTEMPTS: usize = 8;
 const MAX_SOS_DETAIL_LIFECYCLE_EVENTS: usize = 16;
 pub(super) const MAX_SOS_DETAIL_SERIALIZED_BYTES: usize = 768 * 1024;
 
 impl Store {
+    /// Open issues rank by source report count, then latest report, then id.
     pub fn open_sos_issues_window(&mut self, project_id: &str) -> Result<SosIssueWindow> {
-        let mut rows = sos_issues::table
-            .filter(sos_issues::project_id.eq(project_id))
-            .filter(sos_issues::status.eq("open"))
-            .order((sos_issues::updated_at.desc(), sos_issues::id.asc()))
-            .limit(i64::try_from(MAX_SOS_LIST_ISSUES + 1)?)
-            .select(SosIssueRow::as_select())
-            .load::<SosIssueRow>(&mut self.connection)?;
-        let truncated = rows.len() > MAX_SOS_LIST_ISSUES;
-        rows.truncate(MAX_SOS_LIST_ISSUES);
-        let issues = rows
-            .into_iter()
-            .map(|row| issue_from_row(&mut self.connection, row))
-            .collect::<Result<Vec<_>>>()?;
+        let (issues, truncated) = ranked_open_issues(&mut self.connection, project_id)?;
         let untriaged = sos_reports::table
             .filter(sos_reports::project_id.eq(project_id))
             .filter(sos_reports::issue_id.is_null())
@@ -120,6 +109,52 @@ impl Store {
         };
         collect_ready_reports(&mut self.connection, rows, now)
     }
+}
+
+type RankedIssueRow = (SosIssueRow, Option<String>, Option<String>, i64);
+
+fn ranked_open_issues(
+    connection: &mut DbConnection,
+    project_id: &str,
+) -> Result<(Vec<SosIssue>, bool)> {
+    let report_count = count(sos_reports::id.nullable());
+    let latest_report = max(sos_reports::created_at.nullable());
+    let mut rows = sos_issues::table
+        .left_join(
+            sos_reports::table.on(sos_reports::issue_id
+                .eq(sos_issues::id.nullable())
+                .and(sos_reports::project_id.eq(sos_issues::project_id))),
+        )
+        .filter(sos_issues::project_id.eq(project_id))
+        .filter(sos_issues::status.eq("open"))
+        .group_by(sos_issues::id)
+        .select((
+            SosIssueRow::as_select(),
+            min(sos_reports::created_at.nullable()),
+            latest_report,
+            report_count,
+        ))
+        .order((
+            report_count.desc(),
+            latest_report.desc(),
+            sos_issues::id.asc(),
+        ))
+        .limit(i64::try_from(MAX_SOS_LIST_ISSUES + 1)?)
+        .load::<RankedIssueRow>(connection)?;
+    let truncated = rows.len() > MAX_SOS_LIST_ISSUES;
+    rows.truncate(MAX_SOS_LIST_ISSUES);
+    let issues = rows.into_iter().map(ranked_issue).collect::<Result<_>>()?;
+    Ok((issues, truncated))
+}
+
+fn ranked_issue((row, first, last, reports): RankedIssueRow) -> Result<SosIssue> {
+    let missing = "SOS issue has no source reports";
+    decode_issue(
+        row,
+        first.context(missing)?,
+        last.context(missing)?,
+        reports,
+    )
 }
 
 fn bound_detail_payload(mut detail: SosIssueDetail) -> Result<SosIssueDetail> {

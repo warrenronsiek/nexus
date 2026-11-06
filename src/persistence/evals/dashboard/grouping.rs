@@ -182,9 +182,12 @@ fn group_summary(
         &repository,
         &models,
     ))?;
+    let label = group_label(&context, &models);
     Ok(Some(EvalDashboardGroup {
         id: blake3::hash(&key).to_hex().to_string(),
-        label: context.label,
+        label,
+        agent: context.agent,
+        agent_declared: context.agent_declared,
         suite_identity: context.suite_identity,
         suite_revision_ids: vec![body.suite_id.clone()],
         target_identity: context.target_identity,
@@ -199,7 +202,9 @@ fn group_summary(
     }))
 }
 struct GroupContext {
-    label: String,
+    agent: String,
+    agent_declared: bool,
+    suite_name: String,
     suite_identity: String,
     target_identity: String,
     components: Vec<String>,
@@ -210,14 +215,54 @@ fn group_context(cache: &mut RecordCache<'_>, run: &Run) -> Result<Option<GroupC
         return Ok(None);
     };
     match (&suite.body, &target.body) {
-        (EvalBody::Suite(suite_body), EvalBody::Target(target_body)) => Ok(Some(GroupContext {
-            label: suite.title.clone(),
-            suite_identity: suite_body.revision.identity.clone(),
-            target_identity: target_body.revision.identity.clone(),
-            components: component_labels(cache, &target_body.components)?,
-        })),
+        (EvalBody::Suite(suite_body), EvalBody::Target(target_body)) => {
+            let (agent, agent_declared) = target_agent(target_body);
+            Ok(Some(GroupContext {
+                suite_name: suite_name(&suite.title, &suite_body.revision.identity, &agent),
+                agent,
+                agent_declared,
+                suite_identity: suite_body.revision.identity.clone(),
+                target_identity: target_body.revision.identity.clone(),
+                components: component_labels(cache, &target_body.components)?,
+            }))
+        }
         _ => Ok(None),
     }
+}
+/// A declared agent wins; a single-component target is named by that component; otherwise the
+/// target identity is the most specific stable name available.
+fn target_agent(target: &TargetRevision) -> (String, bool) {
+    if let Some(agent) = &target.agent {
+        return (agent.clone(), true);
+    }
+    match target.components.as_slice() {
+        [component] => (component.id.clone(), false),
+        _ => (target.revision.identity.clone(), false),
+    }
+}
+/// Generated suite titles such as `suite/part-0` only repeat the identity's tail, so the
+/// identity (without a redundant agent prefix) distinguishes otherwise identical groups.
+fn suite_name(title: &str, identity: &str, agent: &str) -> String {
+    if !identity.ends_with(title) {
+        return title.to_owned();
+    }
+    identity
+        .strip_prefix(agent)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .filter(|rest| !rest.is_empty())
+        .unwrap_or(identity)
+        .to_owned()
+}
+fn group_label(context: &GroupContext, models: &[String]) -> String {
+    let mut label = format!("{} · {}", context.agent, context.suite_name);
+    if let Some((model, rest)) = models.split_first() {
+        label.push_str(" · ");
+        label.push_str(model);
+        if !rest.is_empty() {
+            label.push_str(&format!(" +{}", rest.len()));
+        }
+    }
+    label
 }
 fn component_labels(cache: &mut RecordCache<'_>, components: &[Component]) -> Result<Vec<String>> {
     let mut labels = vec![];

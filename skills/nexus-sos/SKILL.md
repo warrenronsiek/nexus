@@ -94,8 +94,10 @@ retry with cooldown. Inspect attempts and evidence instead of submitting another
 copy to force a retry. Remote server providers are disabled by default; route
 deployment/provider changes through [nexus-setup](../nexus-setup/SKILL.md).
 
-List and issue detail are bounded and expose truncation flags. Detail includes
-recent supporting sources and audit evidence; it cannot prove complete history.
+List and issue detail are bounded and expose truncation flags. List ranks open
+issues by supporting report count, then latest report. Detail includes the newest
+32 supporting sources oldest first (each report's text is `message`, with `type`,
+`trace` and `metadata`) and audit evidence; it cannot prove complete history.
 Dump preserves the complete source, aggregate, triage-attempt, and lifecycle
 registry. Use `nexus sos dump --all-projects` only when that broader scope is
 relevant. Do not treat an empty aggregate list as proof that no sources arrived.

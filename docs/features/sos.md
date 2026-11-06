@@ -67,6 +67,8 @@ flowchart TD
 
 ## Implementation details
 
+The open issue list ranks by linked source report count, then latest report time, then ID, in one grouped Diesel query over at most 33 issues; it returns 32 plus `truncated`. Detail returns the newest 32 linked source reports oldest first. Each report's readable content is `message`, with `type`, `environment`, `version`, `model`, `trace`, `metadata`, `reporter` and `created_at`. Detail then removes the oldest reports, attempts or lifecycle events until the serialized payload fits 768 KiB, disclosing each with its `*_truncated` flag.
+
 `src/sos/` owns the domain model, dynamic metadata boundary, status and transition enums, and validation limits. `src/persistence/sos/` owns typed Diesel rows, source insertion, atomic triage application, lifecycle changes, bounded candidate/list queries, detail projection, and complete registry export. SQLite and PostgreSQL receive the same version-nine logical schema through backend-specific migration directories.
 
 `src/agents/sos.rs` owns the strict one-shot model contract. `src/coordination/api/sos.rs` defines the tagged command and response boundary. `src/coordination/service/sos.rs` resolves project identity, records reporter provenance, and prepares background work. Runtime dispatch schedules that work outside request latency using the shared bounded issue-work queue. MCP, CLI, and the authenticated read-only web interface consume the same typed service contract. Browser queries admit only list/detail reads; reports and lifecycle mutations remain agent API operations.

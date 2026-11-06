@@ -114,6 +114,37 @@ pub struct PapercutUpvote {
     pub created_at: DateTime<Utc>,
 }
 
+/// `report` is the creating report of the canonical papercut or of a duplicate
+/// consolidated into it; every other occurrence is an `encounter`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PapercutReportKind {
+    Report,
+    Encounter,
+}
+
+/// One retained occurrence of a canonical papercut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PapercutReport {
+    pub id: String,
+    pub kind: PapercutReportKind,
+    pub reported_papercut_id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub note: Option<String>,
+    pub reporter_agent: String,
+    pub reporter_session_id: String,
+    pub reporter_model_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PapercutDetail {
+    pub papercut: Papercut,
+    pub reports: Vec<PapercutReport>,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DuplicateReviewStatus {

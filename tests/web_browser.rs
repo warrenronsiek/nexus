@@ -309,6 +309,7 @@ async fn local_proxy() -> (Browser, tokio::task::JoinHandle<anyhow::Result<()>>)
         hash: "proxy-test".into(),
     };
     seed_proxy_sos(&loaded);
+    seed_proxy_papercuts(&loaded);
     let daemon = tokio::spawn(nexus::runtime::daemon::serve(loaded.clone()));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !loaded.config.runtime.socket_path.exists() {
@@ -345,6 +346,67 @@ fn seed_proxy_sos(loaded: &LoadedConfig) {
     let report = ServiceRequest::decode("sos", json!({"action":"report","agent":"app","session_id":"app-one","model":"test-model","message":"A recorded unusual situation","type":"input","environment":"test","version":"1","trace":"source","metadata":{}})).unwrap();
     let response = serde_json::to_value(service.handle_remote("test-project", report)).unwrap();
     assert_eq!(response["ok"], true);
+}
+
+fn seed_proxy_papercuts(loaded: &LoadedConfig) {
+    use nexus::coordination::api::ServiceRequest;
+    let service = NexusService::new(loaded.clone()).unwrap();
+    let send = |params: Value| {
+        let request = ServiceRequest::decode("papercuts", params).unwrap();
+        let response =
+            serde_json::to_value(service.handle_remote("test-project", request)).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response
+    };
+    send(
+        json!({"action":"report","agent":"codex","session_id":"quiet","title":"Rare friction","description":"Once"}),
+    );
+    let frequent = send(
+        json!({"action":"report","agent":"claude","session_id":"first","model":"model-a","title":"Frequent friction","description":"Every build"}),
+    );
+    let id = frequent["papercut"]["id"].as_str().unwrap();
+    send(
+        json!({"action":"upvote","agent":"codex","session_id":"second","papercut_id":id,"note":"Hit it again"}),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_browser_papercuts_rank_by_encounters_and_detail_lists_reports() {
+    let (app, daemon) = local_proxy().await;
+    let cookie = app.cookie().await;
+    let listed: Value = app
+        .read(&cookie, json!({"kind":"papercuts"}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let titles = listed["papercuts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"))
+        .iter()
+        .map(|cut| cut["title"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(titles, ["Frequent friction", "Rare friction"], "{listed}");
+    let id = listed["papercuts"][0]["id"].as_str().unwrap();
+    let detail: Value = app
+        .read(&cookie, json!({"kind":"papercut_get","papercut_id":id}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    daemon.abort();
+    assert_eq!(detail["papercut"]["upvote_count"], 2, "{detail}");
+    assert_eq!(detail["truncated"], false, "{detail}");
+    let reports = detail["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 2, "{detail}");
+    assert_eq!(reports[0]["kind"], "report");
+    assert_eq!(reports[0]["title"], "Frequent friction");
+    assert_eq!(reports[0]["description"], "Every build");
+    assert_eq!(reports[0]["reporter_agent"], "claude");
+    assert_eq!(reports[0]["reporter_model_id"], "model-a");
+    assert_eq!(reports[1]["kind"], "encounter");
+    assert_eq!(reports[1]["note"], "Hit it again");
+    assert_eq!(reports[1]["reporter_session_id"], "second");
 }
 
 #[tokio::test]

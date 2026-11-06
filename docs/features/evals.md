@@ -159,9 +159,23 @@ attribution.
 Unknown model attribution stays unknown; component assessments use their pinned
 call dimensions. A run can appear in more than one composition group.
 
+An evaluation is for a named agent or system. A target revision may declare it in
+the optional `agent` field (nonempty, control-free, at most 512 bytes); the field
+is omitted from stored payloads when absent, so earlier content hashes are
+unchanged. Each dashboard group carries `agent` and `agent_declared`: the declared
+name, else the ID of a single-component target, else the target identity. The
+group `label` is `agent · suite · model`, where the suite part is the suite title
+unless that title merely repeats the end of the suite identity (as generated
+`suite/part-N` titles do), in which case it is the identity without a redundant
+`agent/` prefix. The model part is the first observed model label, followed by
+`+N` when more exist. Groups remain keyed by suite/target identity, components,
+repository and models, so the label is presentation, not identity.
+
 Selecting `group_id` returns result series keyed by exact metric/grader revision
 and assessment scope. Points retain the run, suite revision, target revision,
-occurrence time, original value, and correction predecessor. Superseded results
+occurrence time (`occurred_at`), original value, optional `numeric_value`, and
+correction predecessor, oldest first, so each series is directly a dot chart over
+time. Superseded results
 are counted separately and excluded from plotted frontiers; competing correction
 branches remain separate points. Distinct definition revisions never share a
 series merely because their names or units match. Run status counts use current

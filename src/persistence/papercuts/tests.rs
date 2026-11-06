@@ -181,11 +181,10 @@ fn open_list_cursor_reaches_every_older_report_in_bounded_pages() {
         if !page.truncated {
             break;
         }
-        let last = page.items.last().unwrap();
-        after = Some(crate::coordination::api::PapercutListCursor {
-            updated_at: last.updated_at,
-            id: last.id.clone(),
-        });
+        after = page
+            .items
+            .last()
+            .map(crate::coordination::api::PapercutListCursor::after);
     }
 
     let unique = all.iter().collect::<std::collections::HashSet<_>>();
@@ -347,4 +346,219 @@ fn automated_review_candidates_are_bounded_and_exclude_the_source() {
     let encoded = serde_json::to_vec(&candidates).unwrap();
     assert!(encoded.len() < 128 * 1024);
     assert!(!String::from_utf8(encoded).unwrap().contains("legacy-agent"));
+}
+
+fn report_with_encounters(store: &mut Store, title: &str, encounters: usize) {
+    let cut = store
+        .report_papercut("project", title, "", &actor(&format!("{title} reporter")))
+        .unwrap()
+        .papercut;
+    for vote in 0..encounters {
+        let voter = actor(&format!("{title} voter {vote}"));
+        store
+            .upvote_papercut("project", &cut.id, None, &voter)
+            .unwrap();
+    }
+}
+
+fn every_open_page(store: &mut Store) -> Vec<crate::papercuts::Papercut> {
+    let mut all = Vec::new();
+    let mut after = None;
+    loop {
+        let page = store
+            .open_papercuts_window("project", after.as_ref())
+            .unwrap();
+        assert!(page.items.len() <= 32);
+        all.extend(page.items.iter().cloned());
+        if !page.truncated {
+            return all;
+        }
+        after = page
+            .items
+            .last()
+            .map(crate::coordination::api::PapercutListCursor::after);
+    }
+}
+
+#[test]
+fn open_list_ranks_by_encounters_then_recent_activity_across_stable_pages() {
+    let mut store = Store::open_memory().unwrap();
+    for index in 0..41 {
+        report_with_encounters(&mut store, &format!("Friction {index:03}"), index % 4);
+    }
+    diesel::update(papercuts::table.filter(papercuts::title.eq("Friction 001")))
+        .set(papercuts::updated_at.eq("2099-01-01T00:00:00+00:00"))
+        .execute(&mut store.connection)
+        .unwrap();
+
+    let all = every_open_page(&mut store);
+
+    let unique = all
+        .iter()
+        .map(|cut| &cut.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!((all.len(), unique.len()), (41, 41));
+    let rank = |cut: &crate::papercuts::Papercut| {
+        let reverse = (
+            std::cmp::Reverse(cut.upvote_count),
+            std::cmp::Reverse(cut.updated_at),
+        );
+        (reverse, cut.id.clone())
+    };
+    assert!(all.windows(2).all(|pair| rank(&pair[0]) < rank(&pair[1])));
+    let counts = all.iter().map(|cut| cut.upvote_count);
+    assert_eq!(counts.clone().max(), Some(4));
+    assert_eq!(counts.min(), Some(1));
+    let recent = all
+        .iter()
+        .position(|cut| cut.title == "Friction 001")
+        .unwrap();
+    assert!(all[..recent].iter().all(|cut| cut.upvote_count > 2));
+    assert_eq!(all[recent].upvote_count, 2);
+}
+
+/// A canonical papercut, one encounter, then a duplicate consolidated into it and encountered.
+fn consolidated_papercuts(store: &mut Store) -> (String, String) {
+    let canonical = store
+        .report_papercut("project", "Slow build", "Takes ages", &actor("reporter-a"))
+        .unwrap()
+        .papercut
+        .id;
+    let again = Some("Again on CI");
+    store
+        .upvote_papercut("project", &canonical, again, &actor("voter-b"))
+        .unwrap();
+    let duplicate = store
+        .report_papercut(
+            "project",
+            "Build is slow",
+            "Cache misses",
+            &actor("reporter-c"),
+        )
+        .unwrap();
+    let reviewer = actor("reviewer");
+    let review = store
+        .propose_papercut_duplicate(PapercutDuplicateProposal {
+            project_id: "project",
+            papercut_id: &duplicate.papercut.id,
+            canonical_id: &canonical,
+            rationale: "Same slowness",
+            question: "Is this the slow build?",
+            reviewer: &reviewer,
+            provider: Some("claude"),
+            model_id: Some("test-model"),
+        })
+        .unwrap();
+    let token = duplicate.reporter_token.as_deref().unwrap();
+    let approve = PapercutReviewDecision::Approve;
+    store
+        .respond_to_papercut_review(&review.id, approve, "Yes", token, &actor("reporter-c"))
+        .unwrap();
+    let duplicate = duplicate.papercut.id;
+    store
+        .upvote_papercut("project", &duplicate, Some("Still slow"), &actor("voter-d"))
+        .unwrap();
+    (canonical, duplicate)
+}
+
+#[test]
+fn detail_lists_original_report_encounters_and_consolidated_duplicates_chronologically() {
+    let mut store = Store::open_memory().unwrap();
+    let (canonical, duplicate) = consolidated_papercuts(&mut store);
+
+    let detail = store.papercut_detail("project", &duplicate).unwrap();
+
+    assert_eq!(detail.papercut.id, canonical);
+    assert_eq!(detail.papercut.upvote_count, 4);
+    assert!(!detail.truncated);
+    let summary = detail
+        .reports
+        .iter()
+        .map(|report| {
+            let reported = if report.reported_papercut_id == canonical {
+                "canonical"
+            } else {
+                "duplicate"
+            };
+            let kind = serde_json::to_value(report.kind).unwrap();
+            let text = [&report.title, &report.description, &report.note]
+                .map(|value| value.as_deref().unwrap_or("-"));
+            format!(
+                "{} {reported} {} {}",
+                kind.as_str().unwrap(),
+                text.join("|"),
+                report.reporter_session_id
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summary,
+        [
+            "report canonical Slow build|Takes ages|- reporter-a",
+            "encounter canonical -|-|Again on CI voter-b",
+            "report duplicate Build is slow|Cache misses|- reporter-c",
+            "encounter duplicate -|-|Still slow voter-d",
+        ]
+    );
+    assert!(detail
+        .reports
+        .windows(2)
+        .all(|pair| pair[0].created_at <= pair[1].created_at));
+}
+
+#[test]
+fn detail_keeps_the_newest_bounded_encounters_and_discloses_truncation() {
+    let maximum = super::detail::MAX_PAPERCUT_DETAIL_REPORTS;
+    let mut store = Store::open_memory().unwrap();
+    let cut = store
+        .report_papercut("project", "Noisy friction", "", &actor("reporter"))
+        .unwrap()
+        .papercut;
+    for vote in 0..maximum {
+        store
+            .upvote_papercut(
+                "project",
+                &cut.id,
+                Some(&format!("encounter {vote:03}")),
+                &actor(&format!("voter-{vote:03}")),
+            )
+            .unwrap();
+    }
+
+    let detail = store.papercut_detail("project", &cut.id).unwrap();
+
+    assert!(detail.truncated);
+    assert_eq!(detail.reports.len(), maximum);
+    assert_eq!(detail.reports[0].note.as_deref(), Some("encounter 000"));
+    let newest = format!("encounter {:03}", maximum - 1);
+    assert_eq!(
+        detail.reports.last().unwrap().note.as_deref(),
+        Some(newest.as_str())
+    );
+}
+
+#[test]
+fn detail_is_bounded_after_json_escaping() {
+    let mut store = Store::open_memory().unwrap();
+    let cut = store
+        .report_papercut("project", "Escaped friction", "", &actor("reporter"))
+        .unwrap()
+        .papercut;
+    let escaped = "\u{1}".repeat(super::records::MAX_TEXT_BYTES);
+    for vote in 0..super::detail::MAX_PAPERCUT_DETAIL_REPORTS {
+        store
+            .upvote_papercut(
+                "project",
+                &cut.id,
+                Some(&escaped),
+                &actor(&format!("voter-{vote:03}")),
+            )
+            .unwrap();
+    }
+
+    let detail = store.papercut_detail("project", &cut.id).unwrap();
+
+    assert!(detail.truncated);
+    assert!(!detail.reports.is_empty());
+    assert!(serde_json::to_vec(&detail).unwrap().len() <= super::detail::MAX_PAPERCUT_DETAIL_BYTES);
 }

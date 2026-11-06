@@ -231,7 +231,7 @@ enum MemoryCommand {
 
 #[derive(Debug, Subcommand)]
 enum PapercutsCommand {
-    /// List the open canonical papercuts for the current project.
+    /// List open canonical papercuts, most encountered first.
     List,
     /// Dump the complete, unbounded papercut registry.
     Dump {

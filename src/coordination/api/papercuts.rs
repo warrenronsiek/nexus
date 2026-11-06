@@ -4,16 +4,30 @@
 // @spec docs/features/coordination.md
 use crate::coordination::domain::HookContext;
 use crate::papercuts::{
-    DuplicateReview, Papercut, PapercutRegistry, PapercutReviewDecision, PapercutUpvote,
+    DuplicateReview, Papercut, PapercutDetail, PapercutRegistry, PapercutReviewDecision,
+    PapercutUpvote,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Keyset position in the open list, which ranks by encounter count, then recent activity, then id.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PapercutListCursor {
+    pub upvote_count: u64,
     pub updated_at: DateTime<Utc>,
     pub id: String,
+}
+
+impl PapercutListCursor {
+    /// The cursor that continues after the given listed papercut.
+    pub fn after(papercut: &Papercut) -> Self {
+        Self {
+            upvote_count: papercut.upvote_count,
+            updated_at: papercut.updated_at,
+            id: papercut.id.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -34,6 +48,13 @@ pub enum PapercutCommand {
         project_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<PapercutListCursor>,
+    },
+    Get {
+        #[serde(flatten)]
+        context: HookContext,
+        #[serde(default)]
+        project_id: Option<String>,
+        papercut_id: String,
     },
     Dump {
         #[serde(flatten)]
@@ -78,6 +99,11 @@ pub enum PapercutResponse {
         ok: bool,
         papercuts: Vec<Papercut>,
         truncated: bool,
+    },
+    Detail {
+        ok: bool,
+        #[serde(flatten)]
+        detail: PapercutDetail,
     },
     Dumped {
         ok: bool,

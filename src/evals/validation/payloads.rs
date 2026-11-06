@@ -54,6 +54,9 @@ validate!(SuiteRevision, v, {
     text("aggregation", &v.aggregation)?;
 });
 validate!(TargetRevision, v, {
+    if let Some(agent) = &v.agent {
+        identity("target agent", agent)?;
+    }
     let mut seen = HashSet::new();
     for component in &v.components {
         identity("component id", &component.id)?;

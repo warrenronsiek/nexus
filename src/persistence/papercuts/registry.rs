@@ -11,6 +11,7 @@ use super::records::{
     load_papercut_row, validate_project, DuplicateReviewRow, PapercutReviewAttemptRow, PapercutRow,
     PapercutUpvoteRow,
 };
+use crate::coordination::api::{PapercutListCursor, MAX_OPEN_PAPERCUT_RESULTS};
 use crate::coordination::domain::{query_window_limit, RecordWindow};
 use crate::papercuts::{
     Papercut, PapercutActor, PapercutLifecycleEvent, PapercutLifecycleTransition, PapercutRegistry,
@@ -88,7 +89,7 @@ impl Store {
     pub(crate) fn open_papercuts_window(
         &mut self,
         project_id: &str,
-        after: Option<&crate::coordination::api::PapercutListCursor>,
+        after: Option<&PapercutListCursor>,
     ) -> Result<RecordWindow<Papercut>> {
         validate_project(project_id)?;
         load_open_papercuts(&mut self.connection, project_id, after)
@@ -178,87 +179,59 @@ pub(super) fn load_papercut(
     row.into_domain(metrics)
 }
 
+type RankedRow = (PapercutRow, i64, Option<String>);
+
+/// Open papercuts rank by encounter count, then most recent activity, then id. The database
+/// aggregates and orders the page, so the keyset cursor stays stable without loading history.
 fn load_open_papercuts(
     connection: &mut DbConnection,
     project_id: &str,
-    after: Option<&crate::coordination::api::PapercutListCursor>,
+    after: Option<&PapercutListCursor>,
 ) -> Result<RecordWindow<Papercut>> {
-    let rows = select_open_page_rows(connection, project_id, after)?;
-    let papercut_ids = rows
-        .items
-        .iter()
-        .map(|row| row.id.as_str())
-        .collect::<Vec<_>>();
-    if papercut_ids.is_empty() {
-        return Ok(RecordWindow {
-            items: Vec::new(),
-            truncated: rows.truncated,
-        });
-    }
-    let metrics = papercut_upvotes::table
-        .inner_join(
-            papercuts::table.on(papercut_upvotes::papercut_id
+    let encounters = diesel::dsl::count(papercut_upvotes::id.nullable());
+    let mut query = papercuts::table
+        .left_join(
+            papercut_upvotes::table.on(papercut_upvotes::papercut_id
                 .eq(papercuts::id)
                 .and(papercut_upvotes::project_id.eq(papercuts::project_id))),
         )
-        .filter(papercut_upvotes::project_id.eq(project_id))
-        .filter(papercut_upvotes::papercut_id.eq_any(papercut_ids))
         .filter(papercuts::project_id.eq(project_id))
         .filter(papercuts::status.eq("open"))
-        .group_by(papercut_upvotes::papercut_id)
+        .group_by(papercuts::id)
         .select((
-            papercut_upvotes::papercut_id,
-            diesel::dsl::count_star(),
-            diesel::dsl::max(papercut_upvotes::created_at),
+            PapercutRow::as_select(),
+            encounters,
+            diesel::dsl::max(papercut_upvotes::created_at.nullable()),
         ))
-        .load::<(String, i64, Option<String>)>(connection)?
-        .into_iter()
-        .map(|(papercut_id, count, latest)| {
-            Ok((
-                papercut_id,
-                (
-                    u64::try_from(count).context("papercut upvote count exceeds u64")?,
-                    latest.as_deref().map(parse_time).transpose()?,
-                ),
-            ))
-        })
-        .collect::<Result<VoteMetricsByPapercut>>()?;
-    Ok(RecordWindow {
-        items: papercuts_from_metrics(rows.items, metrics)?,
-        truncated: rows.truncated,
-    })
-}
-
-fn select_open_page_rows(
-    connection: &mut DbConnection,
-    project_id: &str,
-    after: Option<&crate::coordination::api::PapercutListCursor>,
-) -> Result<RecordWindow<PapercutRow>> {
-    let mut query = papercuts::table
-        .filter(papercuts::project_id.eq(project_id))
-        .filter(papercuts::status.eq("open"))
         .into_boxed::<DbBackend>();
     if let Some(after) = after {
+        let count = i64::try_from(after.upvote_count)?;
         let updated_at = after.updated_at.to_rfc3339();
-        query = query.filter(
-            papercuts::updated_at
-                .lt(updated_at.clone())
-                .or(papercuts::updated_at
-                    .eq(updated_at)
-                    .and(papercuts::id.gt(after.id.clone()))),
+        let later_in_count = papercuts::updated_at
+            .lt(updated_at.clone())
+            .or(papercuts::updated_at
+                .eq(updated_at)
+                .and(papercuts::id.gt(after.id.clone())));
+        query = query.having(
+            encounters
+                .lt(count)
+                .or(encounters.eq(count).and(later_in_count)),
         );
     }
     let rows = query
-        .order((papercuts::updated_at.desc(), papercuts::id.asc()))
-        .limit(query_window_limit(
-            crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS,
+        .order((
+            encounters.desc(),
+            papercuts::updated_at.desc(),
+            papercuts::id.asc(),
         ))
-        .select(PapercutRow::as_select())
-        .load::<PapercutRow>(connection)?;
-    Ok(RecordWindow::bounded(
-        rows,
-        crate::coordination::api::MAX_OPEN_PAPERCUT_RESULTS,
-    ))
+        .limit(query_window_limit(MAX_OPEN_PAPERCUT_RESULTS))
+        .load::<RankedRow>(connection)?;
+    RecordWindow::try_bounded(rows, MAX_OPEN_PAPERCUT_RESULTS, ranked_papercut)
+}
+
+fn ranked_papercut((row, count, latest): RankedRow) -> Result<Papercut> {
+    let count = u64::try_from(count).context("papercut upvote count exceeds u64")?;
+    row.into_domain((count, latest.as_deref().map(parse_time).transpose()?))
 }
 
 fn load_registry(

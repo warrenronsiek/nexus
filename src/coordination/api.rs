@@ -289,7 +289,9 @@ fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
         "memory_consolidate" => Ok(ServiceRequest::MemoryConsolidate),
         "papercuts" => {
             let mut command: PapercutCommand = decode(params)?;
-            if let PapercutCommand::List { project_id, .. } = &mut command {
+            if let PapercutCommand::List { project_id, .. }
+            | PapercutCommand::Get { project_id, .. } = &mut command
+            {
                 normalize_read_project(project_id)?;
             }
             Ok(ServiceRequest::Papercuts(command))
