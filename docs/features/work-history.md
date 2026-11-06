@@ -256,9 +256,47 @@ counted once per identity within the selected scope. Source dates use UTC start,
 or first source occurrence when no start is known. Repository/environment and
 other legacy list filters remain in the secondary audit view.
 
-Project scans select the most recently received 4096 session roots and 4096
-activities independently, and at most 8 MiB
-of projected summary payloads. Selecting a session separately traverses its
+Project scans select the most recently received 4096 session roots and at most
+8 MiB of projected summary payloads. The all-origin overview also scans the most
+recently received 4096 activities independently, so it can count unlinked work.
+
+A harness root has recorded work only when its membership index contains an
+activity whose kind is not a host container (`host.session`, `request`,
+`host.turn`; captured with `nexus.accounting.role=container`). Harness roots
+without such an activity, typically provider processes that only produced a
+session, prompt and response envelope, are omitted from `sessions`, session
+duration statistics, daily session statistics, and activity statistics in both
+origins. `hidden_session_count` reports how many scanned roots were omitted. The
+rule is a read-time view over the rebuildable membership index (including
+membership a later correction moved away); no observation is deleted, and an
+explicitly selected hidden root still returns its detail and waterfall.
+Caller-owned roots are never hidden by this rule.
+
+The harness overview samples activities by membership in the visible roots,
+whole roots at a time and newest root first, until their combined distinct
+members would exceed 4096. If the newest root alone exceeds the budget, its most
+recently received 4096 members are used. `activity_session_count` is the number
+of distinct roots whose members feed the activity statistics, so a reader can see
+that "where time goes" describes those sessions rather than every scanned root.
+Other roots' newer operations cannot displace older harness work, and partial
+session coverage is disclosed with `activity_session_limit`. Each activity-kind row
+carries `accounting_role`: the shared `nexus.accounting.role` of its activities,
+or `mixed`. Container kinds envelope other work: for Claude and Codex native hooks
+`request` and `host.turn` share the prompt-submission and response boundaries, so
+their intervals are identical by construction rather than duplicate records.
+
+Session duration is the qualified host-session interval, from host start to an
+observed end, and includes idle time between prompts; a host left open for days
+reports days. Each `sessions` row therefore also reports `request_count`,
+`timed_request_count`, and `active_seconds`, the sum of its qualified `request`
+intervals (human prompt submission to the host's response boundary). Active time
+is known only when every request in the root is timed and conflict-free;
+otherwise it is unknown rather than a partial sum. `active_duration` and the daily
+`active_known_count`, `active_total_seconds`, and `active_average_seconds` apply
+the same rule per visible root and UTC session date. Request lookup covers at
+most 4096 requests of visible roots, disclosed with `request_limit`. Requests are
+not separate from or additional to session duration; they are the measured
+subset of it in which the host was responding. Selecting a session separately traverses its
 resolved descendants with the same count/byte bounds and at most 64 candidate
 pages of 64 rows (including stale/corrected links), so unrelated newer work
 does not hide an older session's tasks. Existing 1024-observation/lineage projection
@@ -315,7 +353,20 @@ history in source-time order. Automatically owned roots follow that host name;
 shared logical work titles remain caller-owned. Coordination session rows resolve
 the same exact project, host agent, and full session ID. Codex title reads use
 metadata-only `thread/read` without resuming; Claude title reads use bounded
-exact-session title metadata. Unavailable names retain an explicit host/ID label.
+exact-session title metadata. When no host name is available, projection reads a
+harness root whose title is still the generated `<host> session <id>` placeholder
+(or the legacy `Observed agent work`) as `<host> · <worktree directory>`, for
+example `claude · ui-review-11-2`. The host session ID remains in
+`context.host_session_id` and every row keeps `started_at` and, once observed,
+`finished_at`. Without a known worktree the explicit host/ID label remains.
+Stored observations and the indexed title are unchanged.
+
+Nexus's own provider processes (commit reviewers, memory consolidation, analysts,
+triage, classification, and Codex title reads) carry `NEXUS_INTERNAL_PROCESS=1`.
+Their host-event, session-end, and MCP lifecycle callbacks record no work capture,
+coordination, or analytics and still exit successfully, so they never become
+harness roots. Roots captured before this guard remain stored and are hidden by
+the recorded-work rule above.
 
 Private health and outbox metadata reads open without blocking and reject
 nonregular files before decoding, so a named pipe cannot stall capture or its
