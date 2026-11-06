@@ -664,8 +664,5 @@ async fn remote_clients_name_their_project_and_inspection_does_not_register_one(
             )
         })
         .collect();
-    assert_eq!(
-        listed,
-        [("named-project".to_owned(), json!("example-app"))]
-    );
+    assert_eq!(listed, [("named-project".to_owned(), json!("example-app"))]);
 }

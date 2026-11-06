@@ -144,6 +144,16 @@ impl Harness {
         run_git(&self.root, &["commit", "-m", "initial"]);
     }
 
+    /// The installed CLI bound to this harness's configuration and checkout.
+    pub fn cli(&self) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nexus"));
+        command
+            .arg("--config")
+            .arg(self._temp.path().join("config.toml"))
+            .current_dir(&self.root);
+        command
+    }
+
     pub fn eval_cli(&self, args: &[&str]) -> Output {
         self.feature_cli("eval", args)
     }

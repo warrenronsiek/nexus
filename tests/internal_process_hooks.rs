@@ -12,12 +12,7 @@ use std::process::Command;
 use support::Harness;
 
 fn cli(harness: &Harness) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_nexus"));
-    command
-        .arg("--config")
-        .arg(harness._temp.path().join("config.toml"))
-        .current_dir(&harness.root);
-    command
+    harness.cli()
 }
 
 fn internal_hook(harness: &Harness, args: &[&str], input: &[u8]) -> std::process::Output {
