@@ -2,10 +2,12 @@
 // @feature agent-memory
 // @feature papercuts
 // @feature sos
+// @feature coordination
 // @spec docs/features/runtime.md
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @spec docs/features/coordination.md
 // @entrypoint handle
 use crate::coordination::api::{MemoryConsolidationReport, ServiceRequest, ServiceResponse};
 use crate::coordination::client_evidence::ClientFilesystemEvidence;
@@ -22,28 +24,66 @@ use tokio::sync::Semaphore;
 const MAX_QUEUED_MODEL_WORK: usize = 32;
 const SOS_RECOVERY_INTERVAL: Duration = Duration::from_secs(60);
 
-pub(super) struct MemoryConsolidationScheduler(tokio::task::JoinHandle<()>);
+/// Best-effort blocking service maintenance on a fixed period; dropping it stops the
+/// schedule and releases the service.
+pub(super) struct PeriodicMaintenance(tokio::task::JoinHandle<()>);
 
-impl MemoryConsolidationScheduler {
-    pub(super) fn start(service: Arc<NexusService>) -> Option<Self> {
+#[derive(Clone, Copy)]
+enum FirstRun {
+    Immediately,
+    AfterOnePeriod,
+}
+
+impl PeriodicMaintenance {
+    pub(super) fn memory_consolidation(service: Arc<NexusService>) -> Option<Self> {
         let seconds = service.memory_schedule_seconds()?;
-        Some(Self(tokio::spawn(async move {
-            let period = Duration::from_secs(seconds);
-            let start = tokio::time::Instant::now() + period;
+        Some(Self::start(
+            service,
+            Duration::from_secs(seconds),
+            FirstRun::AfterOnePeriod,
+            |service| {
+                let _ = service.consolidate_memories();
+            },
+        ))
+    }
+
+    /// Runs at startup so conflicts left open by earlier releases or expiries close promptly.
+    pub(super) fn conflict_closure(service: Arc<NexusService>) -> Self {
+        let seconds = service.conflict_closure_seconds();
+        Self::start(
+            service,
+            Duration::from_secs(seconds),
+            FirstRun::Immediately,
+            |service| {
+                let _ = service.end_stale_conflicts();
+            },
+        )
+    }
+
+    fn start(
+        service: Arc<NexusService>,
+        period: Duration,
+        first_run: FirstRun,
+        work: fn(&NexusService),
+    ) -> Self {
+        Self(tokio::spawn(async move {
+            let now = tokio::time::Instant::now();
+            let start = match first_run {
+                FirstRun::Immediately => now,
+                FirstRun::AfterOnePeriod => now + period,
+            };
             let mut interval = tokio::time::interval_at(start, period);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
                 let service = service.clone();
-                drop(tokio::task::spawn_blocking(move || {
-                    let _ = service.consolidate_memories();
-                }));
+                drop(tokio::task::spawn_blocking(move || work(&service)));
             }
-        })))
+        }))
     }
 }
 
-impl Drop for MemoryConsolidationScheduler {
+impl Drop for PeriodicMaintenance {
     fn drop(&mut self) {
         self.0.abort();
     }

@@ -54,10 +54,10 @@ flowchart TD
 5. **Extract path intents** translates tool-specific payloads into typed path, operation, and optional line-range records. Unknown tools produce no claims rather than guessed claims.
 6. **Read active claims for each path** considers claims from other sessions that have not expired or been released.
 7. **Classify overlap** deterministically assigns informational, warning, or critical severity based on operations and line ranges. Nexus first selects at most the advisory cap of distinct other sessions, then returns each selected session's strongest active claim on the path, so a session with many recent edits can neither flood the caller nor hide another session or its own older, stronger overlap.
-8. **Persist claim, conflict, and advisory** records both history and queryable projections before returning context. A project, path, and unordered session pair identify one conflict projection. Its severity is monotonic: weaker observations cannot hide an active stronger overlap. Resolution remains stable until a later observation is strictly more severe, which reopens the projection with an explicit event. Each advisory occurrence remains in history.
+8. **Persist claim, conflict, and advisory** records both history and queryable projections before returning context. A project, path, and unordered session pair identify one conflict projection. Its severity is monotonic within one overlap episode: weaker observations cannot hide an active stronger overlap. An explicit resolution remains stable until a later observation is strictly more severe; an `ended` projection (see below) reopens on any later observation because that is a new episode. Both transitions append a `conflict_reopened` event. Each advisory occurrence remains in history, and its message names the other session as `<display name or agent> (session <first 8 characters of its ID>)`, for example `codex (session 3f2a9c1b) has an active claim on src/lib.rs`. Naming is presentation only: if the counterpart cannot be looked up, the advisory still arrives with an `unknown` agent label.
 9. **Permissive HookResponse with context** always reports `permitted: true`. Advisories are information for the calling agent.
 10. **Record completion state** records success or failure. Successful tool calls move matching claims to `modified` only inside the resolved project; configured history can note successful completion after an advisory. This records continuation, not proof that the host delivered the warning or that the agent read it.
-11. **Release session claims** ends a session's active coordination footprint without deleting history. Session stop and explicit release are project-qualified, so equal host-assigned session IDs in different project namespaces cannot affect one another.
+11. **Release session claims** ends a session's active coordination footprint without deleting history, then ends the project's stored-open conflicts whose overlap no longer holds. Session stop and explicit release are project-qualified, so equal host-assigned session IDs in different project namespaces cannot affect one another.
 12. **Read or update projections** covers status, event, session, claim, conflict, usage, memory, papercut, resolution, release, and explicit analysis commands. Capability observations, agent memory, and papercuts share the typed service boundary but remain separate features and projections from coordination history.
 13. **Persistence** is a separate capability. Coordination asks for domain operations and receives typed records rather than Diesel rows or JSON maps.
 14. **Local Git or authenticated client evidence** keeps filesystem observation where the checkout is readable. The local daemon reads Git directly; a remote stdio companion periodically submits an authenticated assertion for its active sessions.
@@ -84,12 +84,72 @@ process death or rewrite history. A stopped session is never live.
 The `open` conflict query, dashboard conflict records, and `open_conflicts` count
 show unresolved overlaps only while **both original sessions** own a current live
 claim on the same project/path. Replacement claim IDs do not hide an overlap.
-Release, stop, or lease expiry removes it from the live view immediately. The
-stored resolution and audit history remain unchanged; `conflicts --all` and
-`sessions --all` retain historical observations. Live session counts describe
+Release, stop, or lease expiry removes it from the live view immediately.
+
+Stored conflict status follows the same lifetime. A stored-`open` conflict whose
+owners no longer both hold a live claim on its path moves to `ended` (distinct
+from an explicit `resolved`), and a `conflict_ended` event records the closure.
+Its `updated_at` becomes the time the overlap actually ended: the earliest of the
+two owners' last claim end on the path (release time, or lease expiry), never
+earlier than its last observation. Session stop and explicit release run one
+bounded closure pass (at most 64 conflicts) for their project after their own
+write; that pass is projection maintenance, so its failure never fails the stop or
+release. Expiry has no write of its own, so the daemon and server also run a
+closure pass at startup and every `coordination.reconcile_seconds`, repeating
+bounded passes (at most 32 per tick) and releasing the store between them. The
+startup pass closes conflicts left open by releases and expiries before this
+behavior existed. `conflicts --all` and `sessions --all` retain historical
+observations. Live session counts describe
 recent coordination evidence, not OS processes or connected MCP clients. Git
 reconciliation reports a dirty-worktree footprint; its claim count is not the
 number of files an agent deliberately selected for editing.
+
+### Session coordination history
+
+Two project-scoped reads present coordination from one session's point of view.
+Session identity is the pair of project and session ID, so both reads require a
+project (the remote envelope project or an explicit `project_id`) and never span
+projects.
+
+`session_index` returns at most 200 sessions with `truncated` set when the project
+has more. Each session carries its record (`session_id`, `project_id`, `agent`,
+`worktree`, `status`, `task_summary`, `display_name`, `last_seen_at`) plus
+`last_activity_at`, `conflicts` (conflicts in which it owns either claim, over its
+whole history), and `advisories` (advisories Nexus delivered to it). Sessions rank
+by `last_activity_at` descending, then session ID: the later of `last_seen_at` and
+the latest update of a conflict the session is party to. Every hook that delivers
+an advisory first advances the requester's `last_seen_at`, so
+only the quiet owner of an existing claim can be more recently active than it was
+seen. Candidates are therefore the 201 most recently seen sessions plus the owners
+of the 201 most recently updated conflicts.
+
+`session_timeline` takes a `session_id` (1 to 512 bytes, no control characters)
+and returns `session` (that record with `display_name`, or `null` with no entries
+when the project has no such session), `entries`, and `truncated`. Entries are
+oldest first and bounded to the newest 500. Each has `id`, `at`, `type`, `path`,
+`severity`, `message`, `direction`, `counterpart`, `conflict_id`, and `status`:
+
+- `conflict_detected` at the conflict's `created_at`, with its current message;
+- `advisory` for every advisory Nexus delivered to this session, and for every
+  advisory delivered to a counterpart about a conflict this session is party to;
+- `conflict_resolved` at `updated_at` for a conflict that is `resolved` (explicit)
+  or `ended` (claims released or expired); `status` tells them apart.
+
+`direction` is `received` when Nexus told this session and `sent` when Nexus told
+the counterpart about this session's claim. A detecting hook notifies the owner of
+the conflict's left claim, so conflict entries use that owner to choose a
+direction. `counterpart` is `{session_id, agent, display_name}` for the other
+session (agent `unknown` when its record is unavailable), or `null` when an
+advisory references no conflict. Conflict entries and advisories referencing a
+conflict carry the conflict's current `status`. The read loads at most 501 of the
+newest party conflicts and advisories each; when either source is truncated, the
+response keeps only the span both sources cover completely and reports
+`truncated: true`. A reopened conflict keeps one `conflict_detected` entry at its
+first detection; each later episode appears through its advisories.
+
+The dashboard and status counts also report `recent_conflicts` (conflicts first
+detected within the last seven days) and `recent_advisories` (advisories delivered
+within the last seven days), scoped like the other counts.
 
 Ordinary projection reads are server-bounded before Diesel materializes them: sessions and claims return at most 64 rows, conflicts at most 32, and each response adds a `truncated` flag without changing its existing array field. These three reads share one typed `BoundedRecordQuery` lifecycle for project binding, store access, truncation-preserving response construction, and error translation, while their record and scope types remain explicit variants. Visible session synopses are capped at 1 KiB, including historical rows. One lifecycle request queries, persists, and returns at most 32 overlap advisories across all extracted intents; active-claim selection groups by other session before applying that remaining cap and uses a constant number of bounded lookups per selected session to preserve the exact classifier priority. Later intents still receive claims but cannot amplify conflict transactions after that global budget is exhausted. Recording remains advisory and fail open.
 
