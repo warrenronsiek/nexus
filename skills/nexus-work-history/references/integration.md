@@ -280,4 +280,7 @@ limits and unsupported child internals prevent a completeness claim. Open source
 browsing for filters, expandable hierarchy, exact elapsed text, links, and immutable observations. The MCP read shape is
 `{"action":"dashboard"}` or
 `{"action":"dashboard","work_session_id":"router-change-42"}` on `nexus_work`;
-it never executes or retries the caller's work.
+it never executes or retries the caller's work. Each `sessions` row is a work
+summary plus `request_count`, `timed_request_count`, and `active_seconds` (timed
+human requests; unknown unless every request is timed). Harness roots that only
+recorded host containers are omitted and counted in `hidden_session_count`.

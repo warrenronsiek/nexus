@@ -32,7 +32,10 @@ pub async fn resolve_session_title(host: &str, input: &[u8]) -> Option<String> {
     match host {
         "codex" => {
             let mut command = tokio::process::Command::new("codex");
-            command.args(["app-server", "--listen", "stdio://"]);
+            command.args(["app-server", "--listen", "stdio://"]).env(
+                crate::runtime::internal_process::INTERNAL_PROCESS_ENV,
+                crate::runtime::internal_process::INTERNAL_PROCESS_VALUE,
+            );
             codex_title(&mut command, &source.session_id).await
         }
         "claude" => {

@@ -5,6 +5,8 @@
 // @boundary fixture-json: closed work observations seed a shared-parent read budget.
 use super::*;
 use crate::persistence::{test_support::capture_queries, Store};
+
+mod host_sessions;
 use serde_json::{json, Value};
 
 fn store() -> Store {
@@ -215,11 +217,18 @@ fn host_sessions_remain_selectable_behind_newer_commands_and_activity_floods() {
         panic!("dashboard")
     };
     assert_eq!(view.sessions.len(), 1);
-    assert_eq!(view.sessions[0].subject.id(), "host-root");
+    assert_eq!(view.sessions[0].summary.subject.id(), "host-root");
     assert!(
-        view.truncated,
-        "Activity source coverage must remain disclosed"
+        !view.truncated,
+        "Harness activity statistics sample the visible root's membership, not the flood"
     );
+    assert!(
+        view.activity_kinds
+            .iter()
+            .any(|item| item.kind == "test.run"),
+        "newer unrelated operations must not displace harness activity statistics"
+    );
+    assert_eq!(view.activity_session_count, 1);
     let WorkResponse::Dashboard {
         dashboard: selected,
     } = dashboard(
@@ -313,6 +322,16 @@ fn harness_dashboard_includes_named_legacy_roots_and_excludes_standalone_cli_cap
         &mut store,
         &project,
         vec![observation(
+            "legacy-tool",
+            "activity",
+            "legacy-tool",
+            json!({"event":"activity_declared","name":"Read","kind":"tool","work_session_id":legacy,"context":{}}),
+        )],
+    );
+    record(
+        &mut store,
+        &project,
+        vec![observation(
             "command-open",
             "session",
             "command-root",
@@ -329,21 +348,23 @@ fn harness_dashboard_includes_named_legacy_roots_and_excludes_standalone_cli_cap
         panic!("dashboard")
     };
     assert_eq!(view.sessions.len(), 1);
-    assert_eq!(view.sessions[0].subject.id(), legacy);
-    assert_eq!(view.sessions[0].title, "Historical named harness");
+    assert_eq!(view.sessions[0].summary.subject.id(), legacy);
+    assert_eq!(view.sessions[0].summary.title, "Historical named harness");
 }
 
 #[test]
 fn named_harness_choices_fit_the_dashboard_transport_before_display_truncation() {
     let mut store = store();
     let project = uuid::Uuid::new_v4().to_string();
-    for start in (0..288).step_by(64) {
-        let events = (start..(start + 64).min(288))
-            .map(|index| {
+    for start in (0..288).step_by(32) {
+        let events = (start..(start + 32).min(288))
+            .flat_map(|index| {
                 let id = format!("native-{index:03}");
-                observation(&format!("{id}-open"), "session", &id,
+                [observation(&format!("{id}-open"), "session", &id,
                     json!({"event":"session_opened","title":format!("Named native session {index}"),
-                        "context":{"host_session_id":id,"labels":{"nexus.capture.host":"native","context": "x".repeat(256)}}}))
+                        "context":{"host_session_id":id,"labels":{"nexus.capture.host":"native","context": "x".repeat(256)}}})),
+                observation(&format!("{id}-tool"), "activity", &format!("{id}-tool"),
+                    json!({"event":"activity_declared","name":"Read","kind":"tool","work_session_id":id,"context":{}}))]
             })
             .collect();
         record(&mut store, &project, events);
@@ -365,7 +386,7 @@ fn named_harness_choices_fit_the_dashboard_transport_before_display_truncation()
     assert!(view
         .sessions
         .iter()
-        .any(|item| item.subject.id() == "native-000"));
+        .any(|item| item.summary.subject.id() == "native-000"));
     assert!(serde_json::to_vec(&view).unwrap().len() < 896 * 1024);
     assert!(!view.truncated);
 }

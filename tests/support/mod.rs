@@ -223,6 +223,29 @@ impl Harness {
         self.connection.call(name, arguments)
     }
 
+    /// Calls one tool through an MCP companion spawned like a Nexus-internal provider.
+    pub fn internal_process_call(&self, name: &str, arguments: Value) -> Value {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_nexus"))
+            .args([
+                "--config",
+                self._temp.path().join("config.toml").to_str().unwrap(),
+                "mcp",
+            ])
+            .env("NEXUS_INTERNAL_PROCESS", "1")
+            .current_dir(&self.root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut connection =
+            StdioMcpConnection::new(child.stdin.take().unwrap(), child.stdout.take().unwrap());
+        let response = connection.request("tools/call", json!({"name":name,"arguments":arguments}));
+        let _ = child.kill();
+        let _ = child.wait();
+        response["result"].clone()
+    }
+
     pub fn status(&mut self) -> Value {
         self.call("nexus_status", json!({}))
     }

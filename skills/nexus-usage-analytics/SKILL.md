@@ -22,6 +22,9 @@ explicit `/skill:name` activation whenever its installed extension is loaded,
 independently of whether `/nexus` is open. The stdio companion performs bounded
 checkout-side script/skill detection and semantic enrichment in local or remote
 mode; the shared server never opens client paths or executes the classifier.
+Nexus's own provider processes (reviewers, memory consolidation, analysts,
+triage, classification) carry `NEXUS_INTERNAL_PROCESS=1`, so their tool use is
+never counted as observed usage.
 
 Keep reusable named scripts at their natural repository-relative paths. Nexus
 conservatively resolves supported shell invocations and inventories `scripts/`,

@@ -116,7 +116,8 @@ to attributed wall time; label containers `nexus.accounting.role=container` and 
 when their meaning is unavailable. Unobserved time is not inferred idle or model
 reasoning. Worker occupancy is separate from execution totals and CPU time.
 Session titles should come from authoritative host metadata, never a guessed
-summary of prompt content. Preserve logical shared-work titles independently.
+summary of prompt content. Without one, a harness root reads as host and worktree
+directory. Preserve logical shared-work titles independently.
 
 Hand over root and important activity IDs, instrumentation locations, covered
 sources, delivery recovery, and what remains unknown. Explain what the evidence
@@ -151,8 +152,15 @@ The Work dashboard starts with harness-owned sessions, then opens their recorded
 operations and qualified durations. Source browsing keeps all caller-owned records
 accessible, including standalone invocations and shared logical work. The API's
 `dashboard` action defaults to all roots; `session_origin: "host"` selects roots
-with recorded harness adapter metadata. Roots and operations have independent
-bounded source windows, with partial coverage disclosed. Local outbox health
+with recorded harness adapter metadata. Harness roots whose recorded members are
+only host containers (`host.session`, `request`, `host.turn`) are hidden from the
+session list and its counts (`hidden_session_count` discloses them); nothing is
+deleted. Harness overview activity statistics cover whole visible sessions, newest
+first (`activity_session_count`), rather than the newest operations anywhere.
+Session duration is the host lifetime and includes idle time; each row's
+`active_seconds` sums its timed human requests and `active_duration` aggregates
+them. Untitled harness roots read as `claude · <worktree directory>` with the host
+session ID still in `context.host_session_id`. Local outbox health
 counts every retained pending boundary, including legacy oversized backlogs;
 flush uses bounded pages without discarding pending evidence.
 
