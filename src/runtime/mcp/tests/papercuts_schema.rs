@@ -25,8 +25,9 @@ fn papercuts_list_schema_advertises_a_closed_typed_cursor() {
         list["properties"]["after"],
         json!({
             "type":"object",
-            "required":["updated_at","id"],
+            "required":["upvote_count","updated_at","id"],
             "properties":{
+                "upvote_count":{"type":"integer","minimum":0},
                 "updated_at":{"type":"string","format":"date-time"},
                 "id":{"type":"string"}
             },
@@ -37,7 +38,23 @@ fn papercuts_list_schema_advertises_a_closed_typed_cursor() {
         schema,
         &json!({
             "action":"list",
-            "after":{"updated_at":"2026-10-21T12:00:00Z","id":"cut-1"}
+            "after":{"upvote_count":2,"updated_at":"2026-10-21T12:00:00Z","id":"cut-1"}
         })
     ));
+}
+
+#[test]
+fn papercuts_get_schema_requires_a_papercut_id() {
+    let definitions = tool_definitions();
+    let schema = &definitions
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|definition| definition["name"] == "nexus_papercuts")
+        .unwrap()["inputSchema"];
+    assert!(schema_accepts(
+        schema,
+        &json!({"action":"get","papercut_id":"cut-1"})
+    ));
+    assert!(!schema_accepts(schema, &json!({"action":"get"})));
 }

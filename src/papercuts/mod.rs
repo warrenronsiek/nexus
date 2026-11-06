@@ -4,7 +4,8 @@ mod domain;
 
 pub(crate) use domain::PapercutReviewCandidate;
 pub use domain::{
-    DuplicateReview, DuplicateReviewStatus, Papercut, PapercutActor, PapercutLifecycleEvent,
-    PapercutLifecycleTransition, PapercutRegistry, PapercutReportResult, PapercutReviewAttempt,
-    PapercutReviewAttemptOutcome, PapercutReviewDecision, PapercutStatus, PapercutUpvote,
+    DuplicateReview, DuplicateReviewStatus, Papercut, PapercutActor, PapercutDetail,
+    PapercutLifecycleEvent, PapercutLifecycleTransition, PapercutRegistry, PapercutReport,
+    PapercutReportKind, PapercutReportResult, PapercutReviewAttempt, PapercutReviewAttemptOutcome,
+    PapercutReviewDecision, PapercutStatus, PapercutUpvote,
 };

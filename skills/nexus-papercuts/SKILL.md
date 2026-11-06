@@ -25,7 +25,7 @@ use [nexus-eval-history](../nexus-eval-history/SKILL.md) and
 ## Record the encounter and continue the work
 
 Use `nexus_papercuts` through the established MCP connection. Its `action`
-selects `list`, `report`, `upvote`, `remove`, `dump`, or `respond`. Discover the
+selects `list`, `get`, `report`, `upvote`, `remove`, `dump`, or `respond`. Discover the
 current tool schema before building an adapter; do not attach invented identity
 fields. MCP binds project, agent, and session from the connection. CLI actions
 use the current checkout and `user` / `cli` attribution.
@@ -78,9 +78,13 @@ nexus papercuts dump
 
 `remove` means resolved, with actor/time/reason retained; it does not delete the
 record. A later encounter reopens a resolved issue. The ordinary list returns
-bounded pages of open canonical issues. MCP `list` accepts an `after` cursor
-using the last row's `updated_at` and `id`; follow it when older open issues
-matter. A truncated or open-only view cannot establish absence from history.
+bounded pages of open canonical issues, most encountered (`upvote_count`) first,
+then most recently active. MCP `list` accepts an `after` cursor using the last
+row's `upvote_count`, `updated_at` and `id`; follow it when further open issues
+matter. MCP `get` (`papercut_id`) returns one canonical issue, resolving a consolidated ID, with its
+newest 64 individual reports and encounters in chronological order (original
+and consolidated-duplicate reports carry their title and description; encounters
+carry their note). A truncated or open-only view cannot establish absence from history.
 
 `dump` is deliberately complete and untruncated: all lifecycle states,
 individual encounters, duplicate proposals/responses, and automated-review

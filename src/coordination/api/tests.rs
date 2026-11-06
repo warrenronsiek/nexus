@@ -343,7 +343,7 @@ fn papercut_list_accepts_a_canonical_explicit_project_scope() {
         json!({
             "action":"list",
             "session_id":"tui",
-            "after":{"updated_at":"2026-10-19T12:00:00Z","id":"cut-1"}
+            "after":{"upvote_count":3,"updated_at":"2026-10-19T12:00:00Z","id":"cut-1"}
         }),
     )
     .unwrap();
@@ -353,7 +353,7 @@ fn papercut_list_accepts_a_canonical_explicit_project_scope() {
         json!({
             "action":"list",
             "session_id":"tui",
-            "after":{"updated_at":"invalid","id":"cut-1"}
+            "after":{"upvote_count":3,"updated_at":"invalid","id":"cut-1"}
         }),
     )
     .is_err());

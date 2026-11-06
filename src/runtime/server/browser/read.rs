@@ -95,6 +95,7 @@ enum MemoryRead {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum IssueRead {
     Papercuts { after: Option<PapercutListCursor> },
+    PapercutGet { papercut_id: String },
     SosList {},
     SosGet { issue_id: String },
 }
@@ -305,6 +306,11 @@ impl IssueRead {
                 context: context(),
                 project_id,
                 after,
+            }),
+            Self::PapercutGet { papercut_id } => ServiceRequest::Papercuts(PapercutCommand::Get {
+                context: context(),
+                project_id,
+                papercut_id,
             }),
             Self::SosList {} => ServiceRequest::Sos(SosCommand::List { context: context() }),
             Self::SosGet { issue_id } => ServiceRequest::Sos(SosCommand::Get {
