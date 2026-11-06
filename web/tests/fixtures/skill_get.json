@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "name": "nexus-work-history",
+  "description": "Integrate work history.",
+  "content": "# Work history\nRecord nested work so sessions can be explained.",
+  "content_hash": "sha256:fixture",
+  "source_path": "skills/nexus-work-history/SKILL.md",
+  "observed_at": "2026-11-01T00:00:00Z"
+}

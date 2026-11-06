@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "detail": {
+    "issue": {
+      "id": "sos-id",
+      "title": "Unexpected live email",
+      "summary": "Recorded unusual input"
+    },
+    "reports": [
+      {
+        "id": "report-1",
+        "source": "mail-ingest",
+        "summary": "An email arrived with an unexpected attachment type",
+        "received_at": "2026-11-01T00:00:00Z"
+      }
+    ]
+  }
+}

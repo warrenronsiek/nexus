@@ -1,0 +1,79 @@
+{
+  "ok": true,
+  "session": {
+    "session_id": "host-id",
+    "agent": "codex",
+    "display_name": "Improve the router",
+    "task_summary": "Session evidence",
+    "status": "active",
+    "worktree": "/fixture/repository",
+    "last_seen_at": "2026-11-01T00:00:00Z"
+  },
+  "entries": [
+    {
+      "id": "conflict-1",
+      "at": "2026-10-31T23:58:00Z",
+      "type": "conflict_detected",
+      "path": "src/router.rs",
+      "severity": "warning",
+      "message": "",
+      "direction": "received",
+      "counterpart": {
+        "session_id": "peer-id",
+        "agent": "claude",
+        "display_name": "Cache cleanup"
+      },
+      "conflict_id": "conflict-1",
+      "status": "open"
+    },
+    {
+      "id": "advisory-1",
+      "at": "2026-10-31T23:58:01Z",
+      "type": "advisory",
+      "path": "src/router.rs",
+      "severity": "warning",
+      "message": "Cache cleanup (session peer-id) has an active claim on src/router.rs",
+      "direction": "received",
+      "counterpart": {
+        "session_id": "peer-id",
+        "agent": "claude",
+        "display_name": "Cache cleanup"
+      },
+      "conflict_id": "conflict-1",
+      "status": null
+    },
+    {
+      "id": "advisory-2",
+      "at": "2026-10-31T23:58:02Z",
+      "type": "advisory",
+      "path": "src/router.rs",
+      "severity": "warning",
+      "message": "Improve the router (session host-id) has an active claim on src/router.rs",
+      "direction": "sent",
+      "counterpart": {
+        "session_id": "peer-id",
+        "agent": "claude",
+        "display_name": "Cache cleanup"
+      },
+      "conflict_id": "conflict-1",
+      "status": null
+    },
+    {
+      "id": "conflict-1:resolved",
+      "at": "2026-11-01T00:00:00Z",
+      "type": "conflict_resolved",
+      "path": "src/router.rs",
+      "severity": "warning",
+      "message": "",
+      "direction": "received",
+      "counterpart": {
+        "session_id": "peer-id",
+        "agent": "claude",
+        "display_name": "Cache cleanup"
+      },
+      "conflict_id": "conflict-1",
+      "status": "resolved"
+    }
+  ],
+  "truncated": false
+}

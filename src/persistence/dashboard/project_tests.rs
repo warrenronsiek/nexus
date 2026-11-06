@@ -168,40 +168,41 @@ fn catalog_rebuild_includes_reporting_memory_and_inventory_without_host_sessions
 #[test]
 fn catalog_rebuild_merges_duplicate_sources_before_recency_order_and_limit() {
     let mut store = Store::open_memory().unwrap();
-    for index in 0..18 {
-        let project = format!("project-{index:02}");
+    let limit = crate::coordination::api::MAX_PROJECT_RESULTS;
+    for index in 0..limit + 2 {
+        let project = format!("project-{index:03}");
         seed_work(&mut store, &project);
         seed_eval(&mut store, &project);
-        let timestamp = format!("2026-11-01T12:00:{index:02}+00:00");
+        let timestamp = format!("2026-11-01T12:{:02}:{:02}+00:00", index / 60, index % 60);
         set_receipt_times(&mut store, &project, &timestamp);
     }
     store
         .touch_session(
-            "project-00",
+            "project-000",
             "host",
             "codex",
             Some("/recorded/worktree"),
             "fixture",
         )
         .unwrap();
-    diesel::update(sessions::table.filter(sessions::project_id.eq("project-00")))
+    diesel::update(sessions::table.filter(sessions::project_id.eq("project-000")))
         .set(sessions::last_seen_at.eq("2026-11-02T12:00:00+00:00"))
         .execute(&mut store.connection)
         .unwrap();
     rebuild_project_catalog(&mut store.connection).unwrap();
     let window = store.list_projects_window().unwrap();
     assert!(window.truncated);
-    assert_eq!(window.items.len(), 16);
-    assert_eq!(window.items[0].project_id, "project-00");
+    assert_eq!(window.items.len(), limit);
+    assert_eq!(window.items[0].project_id, "project-000");
     assert_eq!(window.items[0].agents, vec!["codex"]);
     assert_eq!(window.items[0].worktrees, vec!["/recorded/worktree"]);
-    assert_eq!(window.items[1].project_id, "project-17");
+    assert_eq!(window.items[1].project_id, format!("project-{:03}", limit + 1));
     let ids: std::collections::BTreeSet<_> = window
         .items
         .iter()
         .map(|project| &project.project_id)
         .collect();
-    assert_eq!(ids.len(), 16, "feature sources duplicated a project");
+    assert_eq!(ids.len(), limit, "feature sources duplicated a project");
 }
 
 fn set_receipt_times(store: &mut Store, project: &str, timestamp: &str) {

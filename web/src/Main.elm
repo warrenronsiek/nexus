@@ -7,8 +7,8 @@ port module Main exposing (main)
 import Browser
 import Browser.Navigation as Nav
 import Dict exposing (Dict)
-import Html exposing (Html, a, aside, button, code, dd, details, div, dl, dt, footer, form, h1, h2, h3, header, input, label, main_, nav, option, p, pre, section, select, small, span, summary, text)
-import Html.Attributes exposing (attribute, autocomplete, class, disabled, href, id, name, placeholder, selected, type_, value)
+import Html exposing (Html, a, aside, button, code, div, footer, form, h1, h2, h3, header, input, label, main_, nav, option, p, pre, section, select, small, span, text)
+import Html.Attributes exposing (attribute, autocomplete, class, disabled, href, id, name, selected, style, type_, value)
 import Html.Events exposing (on, onClick, onInput, onSubmit)
 import Http
 import Icon
@@ -17,6 +17,7 @@ import Json.Encode as E
 import State
 import Time
 import Url exposing (Url)
+import Waterfall
 import Wire exposing (Document, Row)
 
 
@@ -46,6 +47,17 @@ type alias ViewerSession =
     { authenticated : Bool, username : String, defaultProjectId : Maybe String, globalProjectReads : Bool }
 
 
+{-| Inline expansions load their evidence on demand and keep it while open. -}
+type Detail
+    = Loading
+    | Failed String
+    | Loaded Document
+
+
+type alias Route =
+    { screen : Screen, project : Maybe String, focus : Maybe String }
+
+
 type alias Model =
     { key : Nav.Key
     , screen : Screen
@@ -57,21 +69,19 @@ type alias Model =
     , defaultProjectId : Maybe String
     , globalProjectReads : Bool
     , projects : List Row
-    , projectsPartial : Bool
     , projectsError : Maybe String
-    , projectDraft : String
+    , focus : Maybe String
     , data : State.Remote Document
     , polling : State.Remote Float
     , supplemental : Dict String Document
+    , details : Dict String Detail
+    , expanded : Dict String ()
     , query : Query
     , trail : List Query
-    , selected : Maybe Row
-    , metric : Int
+    , selected : Maybe String
     , zoom : Float
-    , filters : Dict String String
     , mode : String
     , durationMode : String
-    , trendKind : String
     , navigationOpen : Bool
     }
 
@@ -88,25 +98,22 @@ type Msg
     | LoggedOut (Result Http.Error String)
     | Projects (Result Http.Error String)
     | ChangeProject String
-    | ProjectDraft String
+    | ChangeFocus String
     | Navigate Query
     | Back
     | Refresh
     | Tick Time.Posix
     | Received Int String Bool (Result Http.Error String)
+    | DetailReceived String String (Result Http.Error String)
     | PollingReceived Int (Result Http.Error String)
-    | Open Row
+    | Toggle String Query
     | SelectNode String
-    | SelectMetric String
     | ChartSelected D.Value
     | Zoom Float
-    | Filter String String
-    | ApplyFilters
     | Mode String
     | Keyboard String
     | More
     | DurationMode String
-    | TrendKind String
     | ToggleNavigation
 
 
@@ -117,9 +124,16 @@ main =
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( { key = key, screen = route url, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = Nothing, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsPartial = False, projectsError = Nothing, projectDraft = "", data = State.empty, polling = State.empty, supplemental = Dict.empty, query = primary (route url), trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", durationMode = "average", trendKind = "", navigationOpen = False }
+    let
+        wanted = route url
+    in
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, details = Dict.empty, expanded = Dict.empty, query = primary wanted.screen wanted.focus, trail = [], selected = Nothing, zoom = 1, mode = "", durationMode = "average", navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
+
+
+
+-- ROUTES
 
 
 screens : List Screen
@@ -158,20 +172,58 @@ title screen =
 intro : Screen -> String
 intro screen =
     case screen of
-        Coordination -> "Live work, shared paths, and the signals that keep agents in sync."
-        Work -> "Follow the time. Understand every session and the work nested inside it."
-        Evals -> "What was tried, how it was measured, and why the evaluation changed."
+        Coordination -> "Which sessions overlapped, and what Nexus told each agent about it."
+        Work -> "Where time goes, and how each human prompt branched into work."
+        Evals -> "How each agent measured over time, under which definition."
         Tools -> "How agents interface with the world — and where a better tool is missing."
         Skills -> "The guidance agents actually use, across the last seven days."
         Concerns -> "Recurring code problems, their affected areas, and the remedies already tried."
-        Papercuts -> "Development friction reported by agents across sessions."
+        Papercuts -> "Development friction reported by agents, most encountered first."
         Sos -> "Unusual situations encountered by agents inside running applications."
-        Memory -> "Durable knowledge, its sources, and the health of its summaries."
+        Memory -> "Durable knowledge and the summaries built from it."
 
 
-route : Url -> Screen
+{-| The selection a screen's picker controls is part of its URL, so browser history and links restore it. -}
+focusParam : Screen -> Maybe String
+focusParam screen =
+    case screen of
+        Coordination -> Just "session"
+        Work -> Just "session"
+        Evals -> Just "set"
+        _ -> Nothing
+
+
+route : Url -> Route
 route url =
-    List.filter (\screen -> String.endsWith ("/" ++ slug screen) url.path) screens |> List.head |> Maybe.withDefault Coordination
+    let
+        screen = List.filter (\candidate -> String.endsWith ("/" ++ slug candidate) url.path) screens |> List.head |> Maybe.withDefault Coordination
+        params = url.query |> Maybe.map parameters |> Maybe.withDefault Dict.empty
+    in
+    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params) }
+
+
+parameters : String -> Dict String String
+parameters raw =
+    String.split "&" raw
+        |> List.filterMap
+            (\pair ->
+                case String.split "=" pair of
+                    [ key, encoded ] -> Maybe.map2 Tuple.pair (Url.percentDecode key) (Url.percentDecode (String.replace "+" " " encoded)) |> Maybe.andThen (\( k, v ) -> if v == "" then Nothing else Just ( k, v ))
+                    _ -> Nothing
+            )
+        |> Dict.fromList
+
+
+location : Screen -> Maybe String -> Maybe String -> String
+location screen project focus =
+    let
+        pairs = [ ( Just "project", project ), ( focusParam screen, focus ) ] |> List.filterMap (\( key, item ) -> Maybe.map2 (\k v -> k ++ "=" ++ Url.percentEncode v) key item)
+    in
+    "/ui/" ++ slug screen ++ (if List.isEmpty pairs then "" else "?" ++ String.join "&" pairs)
+
+
+
+-- READS
 
 
 query : String -> Query
@@ -179,19 +231,43 @@ query kind =
     Query kind []
 
 
-primary : Screen -> Query
-primary screen =
-    query <|
-        case screen of
-            Coordination -> "coordination"
-            Work -> "work_dashboard"
-            Evals -> "eval_dashboard"
-            Tools -> "analytics_summary"
-            Skills -> "usage"
-            Concerns -> "concern_dashboard"
-            Papercuts -> "papercuts"
-            Sos -> "sos_list"
-            Memory -> "memory_context"
+with : String -> String -> Query -> Query
+with key value_ wanted =
+    { wanted | fields = wanted.fields ++ [ ( key, E.string value_ ) ] }
+
+
+primary : Screen -> Maybe String -> Query
+primary screen focus =
+    let
+        focused kind key = focus |> Maybe.map (\id -> query kind |> with key id) |> Maybe.withDefault (query kind)
+    in
+    case screen of
+        Coordination -> query "coordination"
+        Work -> focused "work_dashboard" "work_session_id"
+        Evals -> focused "eval_dashboard" "group_id"
+        Tools -> query "analytics_summary"
+        Skills -> query "usage"
+        Concerns -> query "concern_dashboard"
+        Papercuts -> query "papercuts"
+        Sos -> query "sos_list"
+        Memory -> query "memory_context"
+
+
+{-| Companion reads that complete a screen: its picker index, focused evidence, or health. -}
+companions : Model -> List ( String, Query )
+companions model =
+    case model.screen of
+        Coordination ->
+            ( "index", query "coordination_session_index" ) :: (model.focus |> Maybe.map (\id -> [ ( "timeline", query "coordination_session_timeline" |> with "session_id" id ) ]) |> Maybe.withDefault [])
+
+        Evals ->
+            if model.focus == Nothing then [] else [ ( "groups", query "eval_dashboard" ) ]
+
+        Memory ->
+            [ ( "health", query "memory_status" ) ]
+
+        _ ->
+            []
 
 
 request : String -> E.Value -> (Result Http.Error String -> Msg) -> Cmd Msg
@@ -241,18 +317,40 @@ load wanted model =
         previous = model.data
         pending = State.begin (if wanted == model.query then previous else { previous | value = Nothing })
         next = { model | data = pending, query = wanted }
-        extras = if wanted.kind == "memory_context" then [ query "memory_status" ] else []
+        extras = if List.isEmpty model.trail then companions next else []
     in
-    if scoped model.screen && model.project == Nothing && not (wanted.kind == "memory_expand" || String.startsWith "memory_" wanted.kind && List.member ( "scope", E.string "global" ) wanted.fields) then
+    if scoped model.screen && model.project == Nothing && wanted.kind /= "memory_expand" then
         ( { next | data = State.accept pending.generation (Err "Choose a project to inspect its history.") pending }, Cmd.none )
 
     else
-        ( next, Cmd.batch (read model.project wanted (Received pending.generation wanted.kind True) :: List.map (\q -> read model.project q (Received pending.generation q.kind False)) extras) )
+        ( next, Cmd.batch (read model.project wanted (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project q (Received pending.generation key False)) extras) )
 
 
-reset : Screen -> Model -> ( Model, Cmd Msg )
-reset screen model =
-    load (primary screen) { model | screen = screen, data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }, supplemental = Dict.empty, trail = [], selected = Nothing, metric = 0, zoom = 1, filters = Dict.empty, mode = "", navigationOpen = False }
+{-| A new screen, project or focus starts from that screen's primary read with no stale selection. -}
+reset : Route -> Model -> ( Model, Cmd Msg )
+reset wanted model =
+    let
+        sameScreen = wanted.screen == model.screen && wanted.project == model.project
+    in
+    load (primary wanted.screen wanted.focus)
+        { model
+            | screen = wanted.screen
+            , project = wanted.project
+            , focus = wanted.focus
+            , data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }
+            , supplemental = if sameScreen then Dict.remove "timeline" model.supplemental else Dict.empty
+            , details = if sameScreen then model.details else Dict.empty
+            , expanded = if sameScreen then model.expanded else Dict.empty
+            , trail = []
+            , selected = Nothing
+            , zoom = 1
+            , mode = if sameScreen then model.mode else ""
+            , navigationOpen = False
+        }
+
+
+
+-- UPDATE
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -268,7 +366,16 @@ update msg model =
             ( model, Nav.load url )
 
         UrlChanged url ->
-            reset (route url) model
+            let
+                wanted = route url
+                -- Every in-app link carries the project, so an absent one means all projects where permitted.
+                project = if model.globalProjectReads then wanted.project else wanted.project |> orElse model.project
+            in
+            if model.authenticated /= Just True then
+                ( { model | screen = wanted.screen, project = project, focus = wanted.focus }, Cmd.none )
+
+            else
+                reset { wanted | project = project } model
 
         Username username ->
             ( { model | username = username }, Cmd.none )
@@ -312,19 +419,19 @@ update msg model =
         Projects result ->
             case result |> Result.mapError httpError |> Result.andThen (Wire.decode "projects") of
                 Ok doc ->
-                    load (primary model.screen) { model | projectsError = Nothing, projects = doc.rows, projectsPartial = D.decodeValue (D.field "truncated" D.bool) doc.root |> Result.withDefault False, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id) }
+                    reset { screen = model.screen, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id), focus = model.focus } { model | projectsError = Nothing, projects = doc.rows }
 
                 Err reason ->
-                    ( { model | projectsError = Just reason, data = { value = Nothing, generation = model.data.generation + 1, error = Just reason, loading = False } }, Cmd.none )
+                    ( { model | projectsError = Just reason, data = { value = Nothing, generation = model.data.generation + 1, error = Just ("The project list could not be loaded. " ++ reason), loading = False } }, Cmd.none )
 
         ChangeProject project ->
             if project == "" && not model.globalProjectReads then
                 ( model, Cmd.none )
             else
-                reset model.screen { model | project = if project == "" then Nothing else Just project, projectDraft = "" }
+                ( model, Nav.pushUrl model.key (location model.screen (if project == "" then Nothing else Just project) Nothing) )
 
-        ProjectDraft project ->
-            ( { model | projectDraft = project }, Cmd.none )
+        ChangeFocus focus ->
+            ( model, Nav.pushUrl model.key (location model.screen model.project (if focus == "" then Nothing else Just focus)) )
 
         Navigate wanted ->
             load wanted { model | trail = model.query :: model.trail, selected = Nothing }
@@ -335,7 +442,7 @@ update msg model =
                     load previous { model | trail = rest, selected = Nothing }
 
                 [] ->
-                    reset model.screen model
+                    reset { screen = model.screen, project = model.project, focus = model.focus } model
 
         Refresh ->
             let
@@ -363,10 +470,26 @@ update msg model =
 
                     _ ->
                         let
-                            decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode kind)
+                            wireKind = if isPrimary then kind else companionKind kind
+                            decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode wireKind)
                             updated = if isPrimary then { model | data = State.accept generation decoded model.data } else { model | supplemental = decoded |> Result.map (\doc -> Dict.insert kind doc model.supplemental) |> Result.withDefault model.supplemental }
                         in
                         ( updated, draw updated )
+
+        DetailReceived key kind result ->
+            case result of
+                Err (Http.BadStatus 401) ->
+                    let expired = signedOut model in
+                    ( { expired | loginError = Just "Your session expired. Sign in to continue." }, Cmd.none )
+
+                _ ->
+                    let
+                        detail = case result |> Result.mapError httpError |> Result.andThen (Wire.decode kind) of
+                            Ok doc -> Loaded doc
+                            Err reason -> Failed reason
+                        next = { model | details = Dict.insert key detail model.details }
+                    in
+                    ( next, draw next )
 
         PollingReceived generation result ->
             if model.authenticated /= Just True || generation /= model.polling.generation then
@@ -381,20 +504,25 @@ update msg model =
                         let decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode "coordination") |> Result.andThen (.root >> Wire.refreshInterval) in
                         ( { model | polling = State.accept generation decoded model.polling }, Cmd.none )
 
-        Open row ->
-            open row model
+        Toggle key wanted ->
+            if Dict.member key model.expanded then
+                ( { model | expanded = Dict.remove key model.expanded }, Cmd.none )
+
+            else
+                let
+                    opened = { model | expanded = Dict.insert key () model.expanded }
+                    known = case Dict.get key model.details of
+                        Just (Loaded _) -> True
+                        _ -> False
+                in
+                if wanted.kind == "" || known then
+                    ( opened, draw opened )
+                else
+                    ( { opened | details = Dict.insert key Loading model.details }, read model.project wanted (DetailReceived key wanted.kind) )
 
         SelectNode nodeId ->
             let
-                rows = model.data.value |> Maybe.map waterfallRows |> Maybe.withDefault []
-                picked = List.filter (\row -> row.id == nodeId) rows |> List.head
-                next = { model | selected = picked }
-            in
-            ( next, draw next )
-
-        SelectMetric index ->
-            let
-                next = { model | metric = String.toInt index |> Maybe.withDefault 0, selected = Nothing }
+                next = { model | selected = Just nodeId }
             in
             ( next, draw next )
 
@@ -403,14 +531,13 @@ update msg model =
                 Ok ( "work-waterfall", nodeId ) ->
                     update (SelectNode nodeId) model
 
-                Ok ( chartId, rowId ) ->
-                    if chartId == "metric-trend" then
-                        ( { model | selected = selectedMetric model |> Maybe.andThen (\m -> List.filter (\pt -> pt.id == rowId) m.points |> List.head) |> Maybe.map (\pt -> Row pt.id pt.label pt.exact "eval_record" (E.object [ ( "exact_value", E.string pt.exact ), ( "occurred_at", E.string pt.at ) ])) }, Cmd.none )
-
+                Ok ( "summary-bars", areaId ) ->
+                    if model.screen == Concerns then
+                        update (Navigate (Query "concern_list" [ ( "filter", E.object [ ( "area_id", E.string areaId ) ] ) ])) model
                     else
-                        model.data.value |> Maybe.andThen (\doc -> List.filter (\row -> row.id == rowId) doc.rows |> List.head) |> Maybe.map (\row -> open row model) |> Maybe.withDefault ( model, Cmd.none )
+                        ( model, Cmd.none )
 
-                Err _ ->
+                _ ->
                     ( model, Cmd.none )
 
         Zoom factor ->
@@ -418,12 +545,6 @@ update msg model =
                 next = { model | zoom = clamp 0.5 24 (model.zoom * factor) }
             in
             ( next, draw next )
-
-        Filter key value_ ->
-            ( { model | filters = Dict.insert key value_ model.filters }, Cmd.none )
-
-        ApplyFilters ->
-            applyFilters model
 
         Mode mode ->
             load (modeQuery model.screen mode) { model | mode = mode, trail = [], selected = Nothing }
@@ -438,9 +559,15 @@ update msg model =
             let next = { model | durationMode = mode } in
             ( next, draw next )
 
-        TrendKind kind ->
-            let next = { model | trendKind = kind } in
-            ( next, draw next )
+
+companionKind : String -> String
+companionKind key =
+    case key of
+        "index" -> "coordination_session_index"
+        "timeline" -> "coordination_session_timeline"
+        "groups" -> "eval_dashboard"
+        "health" -> "memory_status"
+        _ -> key
 
 
 sessionDecoder : String -> Result String ViewerSession
@@ -471,7 +598,7 @@ bootstrapPolling model =
 
 signedOut : Model -> Model
 signedOut model =
-    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
+    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, details = Dict.empty, expanded = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
 
 
 httpError : Http.Error -> String
@@ -491,69 +618,13 @@ orElse fallback preferred =
         Nothing -> fallback
 
 
-with : String -> String -> Query -> Query
-with key value_ wanted =
-    { wanted | fields = wanted.fields ++ [ ( key, E.string value_ ) ] }
-
-
-subject : String -> String -> E.Value
-subject scope id_ =
-    E.object [ ( "scope", E.string scope ), ( "id", E.string id_ ) ]
-
-
-open : Row -> Model -> ( Model, Cmd Msg )
-open row model =
-    let
-        follow wanted = load wanted { model | trail = model.query :: model.trail, selected = Nothing }
-    in
-    case row.kind of
-        "eval_group" -> follow (query "eval_dashboard" |> with "group_id" row.id)
-        "eval_record" -> follow (query "eval_get" |> with "id" row.id)
-        "session" ->
-            if model.screen == Coordination then
-                ( { model | selected = Just row }, Cmd.none )
-            else
-                follow (query "work_dashboard" |> with "work_session_id" row.id)
-        "activity" -> follow (Query "work_get" [ ( "subject", subject "activity" row.id ) ])
-        "concern_area" -> follow (Query "concern_list" [ ( "filter", E.object [ ( "area_id", E.string row.id ) ] ) ])
-        "items" -> follow (query "concern_get" |> with "concern_id" row.id)
-        "issues" -> follow (query "sos_get" |> with "issue_id" row.id)
-        "capability" -> follow (query "analytics_examples" |> with "resource_key" row.id)
-        "opportunity" -> follow (query "analytics_examples" |> with "category_id" row.id)
-        "activity_category" -> follow (query "analytics_examples" |> with "category_id" row.id)
-        "summary" -> follow (query "memory_expand" |> with "summary_id" row.id)
-        _ ->
-            if model.screen == Tools && model.query.kind == "analytics_summary" then
-                follow (query "analytics_examples" |> with "category_id" row.id)
-            else
-                ( { model | selected = Just row }, Cmd.none )
-
-
 modeQuery : Screen -> String -> Query
 modeQuery screen mode =
     query <|
         case screen of
-            Coordination -> if mode == "" then "coordination" else "coordination_" ++ mode
-            Work -> if mode == "activities" then "work_activities" else if mode == "records" then "work_list" else "work_dashboard"
-            Tools -> if mode == "capabilities" then "analytics_catalog" else if mode == "opportunities" then "analytics_opportunities" else if mode == "legacy" then "usage" else "analytics_summary"
-            Evals -> if mode == "records" then "eval_list" else "eval_dashboard"
+            Tools -> if mode == "capabilities" then "analytics_catalog" else if mode == "opportunities" then "analytics_opportunities" else "analytics_summary"
             Concerns -> if mode == "all" then "concern_list" else "concern_dashboard"
-            _ -> (primary screen).kind
-
-
-applyFilters : Model -> ( Model, Cmd Msg )
-applyFilters model =
-    let
-        fields = Dict.toList model.filters |> List.filter (\( _, v ) -> v /= "") |> List.map (Tuple.mapSecond E.string)
-        kind = case model.screen of
-            Work -> if model.mode == "activities" || (Dict.get "kind" model.filters |> Maybe.withDefault "") /= "" then "work_activities" else "work_list"
-            Evals -> if model.mode == "records" || (Dict.get "kind" model.filters |> Maybe.withDefault "") /= "" then "eval_list" else "eval_dashboard"
-            Concerns -> if model.mode == "all" then "concern_list" else "concern_dashboard"
-            Memory -> if (Dict.get "regex" model.filters |> Maybe.withDefault "") == "" then "memory_context" else "memory_search"
-            _ -> model.query.kind
-        wanted = if model.screen == Memory then Query kind fields else if kind == "eval_dashboard" then query kind else Query kind [ ( "filter", E.object fields ) ]
-    in
-    load wanted { model | selected = Nothing, trail = [] }
+            _ -> (primary screen Nothing).kind
 
 
 more : Model -> ( Model, Cmd Msg )
@@ -563,12 +634,11 @@ more model =
         Just doc ->
             let
                 next = case model.query.kind of
-                    "papercuts" -> List.reverse doc.rows |> List.head |> Maybe.map (\row -> E.object [ ( "updated_at", E.string (Wire.str "updated_at" row.body) ), ( "id", E.string row.id ) ])
                     "analytics_catalog" -> D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing |> Maybe.map E.int
                     "analytics_examples" -> D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing |> Maybe.map E.int
                     _ -> doc.next
                 wanted cursor =
-                    if List.member model.query.kind [ "work_list", "work_activities", "eval_list", "concern_list", "concern_dashboard" ] then
+                    if List.member model.query.kind [ "concern_list", "concern_dashboard" ] then
                         let
                             active = List.filter (\( key, _ ) -> key == "filter") model.query.fields |> List.head |> Maybe.map Tuple.second |> Maybe.andThen (D.decodeValue (D.keyValuePairs D.value) >> Result.toMaybe) |> Maybe.withDefault []
                         in
@@ -579,34 +649,40 @@ more model =
             next |> Maybe.map (\cursor -> load (wanted cursor) { model | trail = model.query :: model.trail, selected = Nothing }) |> Maybe.withDefault ( model, Cmd.none )
 
 
-waterfallRows : Document -> List Row
-waterfallRows doc =
+
+-- WATERFALL
+
+
+waterfallNodes : Document -> List Waterfall.Node
+waterfallNodes doc =
     let
         root = Wire.field "selected_session" doc.root
         rootId = Wire.str "id" (Wire.field "subject" root)
-        session = if rootId == "" then [] else [ Row rootId (Wire.str "title" root) "Session" "session" root ]
+        rootNode = { id = rootId, parent = Nothing, label = Wire.str "title" root, kind = "work.session", start = maybeText (Wire.field "started_at" root), end = maybeText (Wire.field "finished_at" root), queued = maybeText (Wire.field "queued_at" root), count = 1, body = root }
     in
-    session ++ List.map (\node -> Row node.id node.label node.kind "activity" node.body) doc.intervals
+    if rootId == "" then [] else Waterfall.build rootNode (List.map (\node -> { id = node.id, parent = node.parent, label = node.label, kind = node.kind, start = node.start, end = node.end, queued = node.queued, count = 1, body = node.body }) doc.intervals)
 
 
 keyboard : String -> Model -> ( Model, Cmd Msg )
 keyboard key model =
-    if model.screen /= Work || model.query.kind /= "work_dashboard" then
+    if model.screen /= Work || model.focus == Nothing then
         ( model, Cmd.none )
     else
         let
-            rows = model.data.value |> Maybe.map waterfallRows |> Maybe.withDefault []
-            selectedId = model.selected |> Maybe.map .id |> Maybe.withDefault (List.head rows |> Maybe.map .id |> Maybe.withDefault "")
-            index = rows |> List.indexedMap Tuple.pair |> List.filter (\( _, row ) -> row.id == selectedId) |> List.head |> Maybe.map Tuple.first |> Maybe.withDefault 0
-            parent = model.selected |> Maybe.map (\row -> Wire.str "parent_activity_id" row.body) |> Maybe.withDefault ""
+            nodes = model.data.value |> Maybe.map waterfallNodes |> Maybe.withDefault []
+            rootId = List.head nodes |> Maybe.map .id |> Maybe.withDefault ""
+            selectedId = model.selected |> Maybe.withDefault rootId
+            index = nodes |> List.indexedMap Tuple.pair |> List.filter (\( _, node ) -> node.id == selectedId) |> List.head |> Maybe.map Tuple.first |> Maybe.withDefault 0
+            parentOf node = node.parent |> Maybe.withDefault rootId
+            current = List.drop index nodes |> List.head
             picked = case key of
-                "ArrowDown" -> List.drop (index + 1) rows |> List.head
-                "ArrowUp" -> List.drop (max 0 (index - 1)) rows |> List.head
-                "ArrowLeft" -> List.filter (\row -> row.id == parent) rows |> List.head |> orElse (List.head rows)
-                "ArrowRight" -> List.filter (\row -> Wire.str "parent_activity_id" row.body == selectedId || index == 0 && row.kind == "activity" && Wire.str "parent_activity_id" row.body == "") rows |> List.head
+                "ArrowDown" -> List.drop (index + 1) nodes |> List.head
+                "ArrowUp" -> List.drop (max 0 (index - 1)) nodes |> List.head
+                "ArrowLeft" -> current |> Maybe.andThen (\node -> List.filter (\candidate -> candidate.id == parentOf node && node.id /= rootId) nodes |> List.head)
+                "ArrowRight" -> List.filter (\node -> node.id /= rootId && parentOf node == selectedId) nodes |> List.head
                 _ -> Nothing
         in
-        picked |> Maybe.map (\row -> update (SelectNode row.id) model) |> Maybe.withDefault ( model, Cmd.none )
+        picked |> Maybe.map (\node -> update (SelectNode node.id) model) |> Maybe.withDefault ( model, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
@@ -614,32 +690,94 @@ subscriptions model =
     Sub.batch [ chartSelection ChartSelected, if model.authenticated == Just True then model.polling.value |> Maybe.map (\interval -> Time.every interval Tick) |> Maybe.withDefault Sub.none else Sub.none ]
 
 
-selectedMetric : Model -> Maybe Wire.Metric
-selectedMetric model =
-    model.data.value |> Maybe.andThen (\doc -> List.drop model.metric doc.metrics |> List.head)
+
+-- CHARTS
 
 
 draw : Model -> Cmd Msg
 draw model =
     case model.data.value of
         Nothing -> Cmd.none
-        Just doc ->
-            let
-                metricKey = if model.durationMode == "total" then "total_seconds" else "average_seconds"
-                workBars = Wire.list "activity_kinds" doc.root |> List.map (\row -> Wire.Bar (Wire.str "kind" row) (Wire.str "kind" row) (if Wire.number "known_count" row == 0 then Nothing else Just (Wire.number metricKey row)) ((if Wire.number "known_count" row == 0 then "Unknown" else duration (Wire.number metricKey row)) ++ " · " ++ countText "known_count" row ++ "/" ++ countText "count" row ++ " timed"))
-                visibleBars = if model.query.kind == "usage" then doc.rows |> List.filter (\row -> row.kind == (if model.screen == Skills then "skill" else "tool")) |> List.map (\row -> Wire.Bar row.id row.title (Just (Wire.number "count" row.body)) row.subtitle) else if model.query.kind == "work_dashboard" then workBars else doc.bars
-                barChart = if List.isEmpty visibleBars then [] else [ E.object [ ( "id", E.string "summary-bars" ), ( "type", E.string "bars" ), ( "bars", E.list (\bar -> E.object [ ( "id", E.string bar.id ), ( "label", E.string bar.label ), ( "value", bar.value |> Maybe.map E.float |> Maybe.withDefault E.null ), ( "detail", E.string bar.detail ) ]) visibleBars ) ] ]
-                workDays = if model.trendKind == "" then Wire.list "daily" doc.root else Wire.list "activity_daily" doc.root |> List.filter (\row -> Wire.str "kind" row == model.trendKind)
-                workPoints = workDays |> List.map (\row -> Wire.Point (Wire.str "date" row) (Wire.str "date" row) (Wire.str "date" row) (if Wire.number "known_count" row == 0 then Nothing else Just (Wire.number metricKey row)) "")
-                visiblePoints = if model.query.kind == "work_dashboard" then workPoints else doc.points
-                trendChart = if List.isEmpty visiblePoints then [] else [ encodeTrend "summary-trend" visiblePoints ]
-                metricChart = selectedMetric model |> Maybe.map (\metric -> [ encodeTrend "metric-trend" metric.points ]) |> Maybe.withDefault []
-                root = Wire.field "selected_session" doc.root
-                rootId = Wire.str "id" (Wire.field "subject" root)
-                rootNode = { id = rootId, parent = Nothing, label = Wire.str "title" root, kind = "work.session", start = maybeText (Wire.field "started_at" root), end = maybeText (Wire.field "finished_at" root), queued = maybeText (Wire.field "queued_at" root), body = root }
-                graph = if rootId == "" then [] else [ E.object [ ( "id", E.string "work-waterfall" ), ( "type", E.string "waterfall" ), ( "selected", model.selected |> Maybe.map (.id >> E.string) |> Maybe.withDefault E.null ), ( "zoom", E.float model.zoom ), ( "spans", E.list (encodeInterval rootId) (rootNode :: doc.intervals) ) ] ]
-            in
-            charts (E.list identity (barChart ++ trendChart ++ metricChart ++ graph))
+        Just doc -> charts (E.list identity (screenCharts model doc))
+
+
+screenCharts : Model -> Document -> List E.Value
+screenCharts model doc =
+    case model.screen of
+        Work ->
+            if model.focus /= Nothing then
+                waterfallChart model doc
+            else
+                [ barsChart "summary-bars" (workBars model doc) ]
+
+        Evals ->
+            if model.focus == Nothing then [] else List.indexedMap (\index metric -> encodeTrend ("metric-" ++ String.fromInt index) False metric.points) doc.metrics
+
+        Concerns ->
+            if model.query.kind == "concern_dashboard" then [ barsChart "summary-bars" doc.bars, encodeTrend "summary-trend" True doc.points ] else []
+
+        Tools ->
+            if model.query.kind == "analytics_summary" then commandCharts model doc else []
+
+        _ ->
+            []
+
+
+workBars : Model -> Document -> List Wire.Bar
+workBars model doc =
+    let
+        metricKey = if model.durationMode == "total" then "total_seconds" else "average_seconds"
+    in
+    Wire.list "activity_kinds" doc.root
+        |> List.map
+            (\row ->
+                let
+                    known = Wire.number "known_count" row > 0
+                in
+                Wire.Bar (Wire.str "kind" row) (Wire.str "kind" row) (if known then Just (Wire.number metricKey row) else Nothing) ((if known then duration (Wire.number metricKey row) else "Unknown") ++ " · " ++ countText "known_count" row ++ "/" ++ countText "count" row ++ " timed")
+            )
+
+
+barsChart : String -> List Wire.Bar -> E.Value
+barsChart chartId bars =
+    E.object [ ( "id", E.string chartId ), ( "type", E.string "bars" ), ( "bars", E.list (\bar -> E.object [ ( "id", E.string bar.id ), ( "label", E.string bar.label ), ( "value", bar.value |> Maybe.map E.float |> Maybe.withDefault E.null ), ( "detail", E.string bar.detail ) ]) bars ) ]
+
+
+waterfallChart : Model -> Document -> List E.Value
+waterfallChart model doc =
+    case waterfallNodes doc of
+        root :: rest ->
+            [ E.object [ ( "id", E.string "work-waterfall" ), ( "type", E.string "waterfall" ), ( "selected", model.selected |> Maybe.map E.string |> Maybe.withDefault E.null ), ( "zoom", E.float model.zoom ), ( "spans", E.list (encodeNode root.id) (root :: rest) ) ] ]
+
+        [] ->
+            []
+
+
+{-| Tool categories expanded in place draw one time histogram per command. -}
+commandCharts : Model -> Document -> List E.Value
+commandCharts model doc =
+    doc.rows
+        |> List.indexedMap Tuple.pair
+        |> List.concatMap
+            (\( index, row ) ->
+                case ( Dict.member (commandsKey row.id) model.expanded, Dict.get (commandsKey row.id) model.details ) of
+                    ( True, Just (Loaded commands) ) ->
+                        Wire.list "commands" commands.root
+                            |> List.indexedMap (\position command -> E.object [ ( "id", E.string (commandChartId index position) ), ( "type", E.string "histogram" ), ( "binSeconds", E.float (Wire.number "bin_seconds" commands.root) ), ( "bins", E.list (\bin -> E.object [ ( "start", E.string (Wire.str "start" bin) ), ( "count", E.float (Wire.number "count" bin) ) ]) (Wire.list "bins" command) ) ])
+
+                    _ ->
+                        []
+            )
+
+
+commandsKey : String -> String
+commandsKey categoryId =
+    "commands:" ++ categoryId
+
+
+commandChartId : Int -> Int -> String
+commandChartId category command =
+    "commands-" ++ String.fromInt category ++ "-" ++ String.fromInt command
 
 
 maybeText : D.Value -> Maybe String
@@ -647,8 +785,8 @@ maybeText value_ =
     D.decodeValue (D.nullable D.string) value_ |> Result.withDefault Nothing
 
 
-encodeInterval : String -> Wire.Interval -> E.Value
-encodeInterval rootId node =
+encodeNode : String -> Waterfall.Node -> E.Value
+encodeNode rootId node =
     E.object [ ( "id", E.string node.id ), ( "label", E.string node.label ), ( "kind", E.string node.kind ), ( "parent", (if node.id == rootId then Nothing else node.parent |> orElse (Just rootId)) |> Maybe.map E.string |> Maybe.withDefault E.null ), ( "start", encodeTime node.start ), ( "end", encodeTime node.end ), ( "queued", encodeTime node.queued ) ]
 
 
@@ -658,9 +796,13 @@ encodeTime value_ =
     value_ |> Maybe.map E.string |> Maybe.withDefault E.null
 
 
-encodeTrend : String -> List Wire.Point -> E.Value
-encodeTrend chartId points =
-    E.object [ ( "id", E.string chartId ), ( "type", E.string "trend" ), ( "points", E.list (\pt -> E.object [ ( "id", E.string pt.id ), ( "label", E.string pt.label ), ( "at", E.string pt.at ), ( "value", pt.value |> Maybe.map E.float |> Maybe.withDefault E.null ) ]) points ) ]
+encodeTrend : String -> Bool -> List Wire.Point -> E.Value
+encodeTrend chartId connected points =
+    E.object [ ( "id", E.string chartId ), ( "type", E.string "trend" ), ( "line", E.bool connected ), ( "points", E.list (\pt -> E.object [ ( "id", E.string pt.id ), ( "label", E.string pt.label ), ( "at", E.string pt.at ), ( "value", pt.value |> Maybe.map E.float |> Maybe.withDefault E.null ) ]) points ) ]
+
+
+
+-- VIEW
 
 
 view : Model -> Browser.Document Msg
@@ -697,9 +839,9 @@ workspace : Model -> Html Msg
 workspace model =
     div [ class (if model.navigationOpen then "workspace navigation-open" else "workspace") ]
         [ aside [ class "sidebar", id "workspace-navigation" ]
-            [ a [ class "wordmark", href "/ui/coordination" ] [ Icon.view Icon.Layers, text "nexus", small [] [ text "Observe" ] ]
+            [ a [ class "wordmark", href (location Coordination model.project Nothing) ] [ Icon.view Icon.Layers, text "nexus", small [] [ text "Observe" ] ]
             , div [ class "nav-caption" ] [ text "Workspace" ]
-            , nav [ attribute "aria-label" "Workspace" ] (List.map (\screen -> a [ href ("/ui/" ++ slug screen), class (if model.screen == screen then "nav-item active" else "nav-item"), attribute "aria-current" (if model.screen == screen then "page" else "false") ] [ Icon.view (screenIcon screen), span [] [ text (title screen) ] ]) screens)
+            , nav [ attribute "aria-label" "Workspace" ] (List.map (\screen -> a [ href (location screen model.project Nothing), class (if model.screen == screen then "nav-item active" else "nav-item"), attribute "aria-current" (if model.screen == screen then "page" else "false") ] [ Icon.view (screenIcon screen), span [] [ text (title screen) ] ]) screens)
             , div [ class "sidebar-bottom" ] [ div [ class "read-only" ] [ Icon.view Icon.Lock, text "Read-only workspace" ], p [] [ text "Durable agent evidence" ] ]
             ]
         , div [ class "main-shell" ]
@@ -709,14 +851,14 @@ workspace model =
                 , div [ class "top-actions" ] [ span [ class "account" ] [ text model.username ], button [ onClick Logout, class "quiet" ] [ Icon.view Icon.Logout, text "Sign out" ] ]
                 ]
             , main_ [ class "content" ]
-                [ div [ class "page-heading" ] [ div [] [ h1 [] [ text (title model.screen) ], p [] [ text (intro model.screen) ] ], div [ class "live-label" ] [ span [ class "status-dot" ] [], text "Recorded evidence" ] ]
+                [ div [ class "page-heading" ] [ div [] [ h1 [] [ text (title model.screen) ], p [] [ text (intro model.screen) ] ] ]
                 , toolbar model
                 , statusView model
                 , case model.data.value of
                     Nothing -> div [ class "empty-state" ] [ div [ class "empty-glyph" ] [ Icon.view Icon.Inbox ], h2 [] [ text (if model.data.loading then "Loading observations" else "Ready when you are") ], p [] [ text (if model.data.loading then "Retrieving the latest retained evidence…" else "Select a project or refresh to retrieve evidence.") ] ]
                     Just doc -> documentView model doc
                 ]
-            , footer [ class "page-footer" ] [ text "Nexus · Durable agent evidence", span [] [ text "Read-only · Unknown and partial capture remain explicit" ] ]
+            , footer [ class "page-footer" ] [ text "Nexus · Durable agent evidence", span [] [ text "Read-only" ] ]
             ]
         ]
 
@@ -742,19 +884,49 @@ toolbar model =
         catalog = List.map (\row -> choice current row.id (projectCaption row)) model.projects
         custom = if current /= "" && not (List.any (\row -> row.id == current) model.projects) then [ choice current current current ] else []
     in
-    div []
-        [ div [ class "toolbar" ]
-            [ div [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
-            , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
-            ]
-        , if model.globalProjectReads then text "" else div [ class "notice subtle" ] [ text "This remote viewer requires a project selection." ]
-        , if model.projectsPartial || model.projectsError /= Nothing then
-            div [ class "notice subtle project-catalog" ]
-                [ p [] [ text (projectCatalogNotice model.projectsError) ]
-                , form [ onSubmit (ChangeProject model.projectDraft) ] [ input [ name "project_id", attribute "aria-label" "Another project ID", value model.projectDraft, onInput ProjectDraft, placeholder "Project ID", attribute "required" "true" ] [], button [ type_ "submit", disabled (not model.globalProjectReads && String.isEmpty model.projectDraft) ] [ text "Use project" ] ]
-                ]
-          else text ""
+    div [ class "toolbar" ]
+        [ div [ class "scope-controls" ]
+            (label [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
+                :: focusPicker model
+            )
+        , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
         ]
+
+
+{-| The second picker chooses what a screen focuses on: a session, or an evaluated agent. -}
+focusPicker : Model -> List (Html Msg)
+focusPicker model =
+    let
+        picker caption placeholder rows =
+            let
+                current = Maybe.withDefault "" model.focus
+                missing = if current /= "" && not (List.any (\row -> row.id == current) rows) then [ choice current current current ] else []
+            in
+            [ label [ class "scope-control focus-control" ] [ span [ class "muted" ] [ text caption ], select [ onInput ChangeFocus, attribute "aria-label" caption ] (choice current "" placeholder :: missing ++ List.map (\row -> choice current row.id (focusCaption row)) rows) ] ]
+
+        documentRows = model.data.value |> Maybe.map .rows |> Maybe.withDefault []
+    in
+    case model.screen of
+        Coordination -> picker "Session" "Choose a session…" (Dict.get "index" model.supplemental |> Maybe.map .rows |> Maybe.withDefault [])
+        Work -> picker "Session" "Choose a session…" documentRows
+        Evals -> picker "Agent" "Choose an agent…" (if model.focus == Nothing then documentRows else Dict.get "groups" model.supplemental |> Maybe.map .rows |> Maybe.withDefault documentRows)
+        _ -> []
+
+
+focusCaption : Row -> String
+focusCaption row =
+    case row.kind of
+        "coordination_session" -> row.title ++ " · " ++ row.subtitle
+        "eval_group" -> evalCaption row
+        _ -> row.title ++ (let started = Wire.str "started_at" row.body in if started == "" then "" else " · " ++ timeText started)
+
+
+evalCaption : Row -> String
+evalCaption row =
+    let
+        agent = Wire.str "agent" row.body
+    in
+    (if agent /= "" && agent /= row.title then agent ++ " · " else "") ++ row.title ++ (if row.subtitle == "" then "" else " · " ++ row.subtitle)
 
 
 projectCaption : Row -> String
@@ -765,16 +937,6 @@ projectCaption row =
         row.subtitle
     else
         row.id
-
-
-projectCatalogNotice : Maybe String -> String
-projectCatalogNotice failure =
-    case failure of
-        Just reason ->
-            "The project list could not be loaded (" ++ reason ++ "). Enter a known project ID to inspect it."
-
-        Nothing ->
-            "Project discovery is bounded. Enter a known project ID to inspect another project."
 
 
 choice : String -> String -> String -> Html Msg
@@ -795,64 +957,33 @@ documentView : Model -> Document -> Html Msg
 documentView model doc =
     div [ class "document" ]
         [ subnav model
-        , filtersView model
-        , coverage doc
-        , if model.query.kind == "work_dashboard" then workView model doc else if model.query.kind == "eval_dashboard" then evalView model doc else standardView model doc
-                , if List.isEmpty doc.rows then emptyRecords model doc else rowList model doc
-        , if model.query.kind == "work_dashboard" then text "" else model.selected |> Maybe.map (selectedView model) |> Maybe.withDefault (text "")
-        , if List.member model.query.kind [ "work_get", "work_observation", "eval_get", "concern_get", "sos_get", "memory_status" ] then evidenceView model doc else text ""
+        , case model.screen of
+            Coordination -> coordinationView model doc
+            Work -> workView model doc
+            Evals -> evalView model doc
+            Tools -> toolsView model doc
+            Skills -> skillsView model doc
+            Concerns -> concernsView model doc
+            Papercuts -> papercutsView model doc
+            Sos -> sosView model doc
+            Memory -> memoryView model doc
         , pagination model doc
-        , details [ class "raw-evidence" ] [ summary [] [ text "Original response · exact immutable JSON" ], p [ class "muted" ] [ text "This is the unchanged response text. Numeric chart positions are display approximations; source values here retain their exact representation." ], pre [] [ code [] [ text doc.raw ] ] ]
         ]
-
-
-emptyRecords : Model -> Document -> Html Msg
-emptyRecords model doc =
-    if List.member model.query.kind [ "eval_list", "work_list", "work_activities", "work_timeline", "analytics_catalog", "analytics_examples", "analytics_summary", "analytics_opportunities", "memory_context", "memory_expand", "memory_search", "papercuts", "sos_list", "concern_list", "concern_history" ] then
-        panel "No recorded observations" "No records were returned for this scope and filter. Absence of reports does not establish complete capture or verified health." []
-    else
-        text ""
 
 
 subnav : Model -> Html Msg
 subnav model =
     let
         modes = case model.screen of
-            Coordination -> [ ( "", "Overview" ), ( "sessions", "Sessions" ), ( "claims", "Claims" ), ( "conflicts", "Conflicts" ), ( "events", "Events" ) ]
-            Work -> [ ( "", "Duration overview" ), ( "records", "Sessions" ), ( "activities", "Activity search" ) ]
-            Evals -> [ ( "", "Evaluation sets" ), ( "records", "Evidence records" ) ]
-            Tools -> [ ( "", "Activities" ), ( "capabilities", "Capabilities" ), ( "opportunities", "Opportunities" ), ( "legacy", "Legacy" ) ]
+            Tools -> [ ( "", "Activities" ), ( "capabilities", "Capabilities" ), ( "opportunities", "Opportunities" ) ]
             Concerns -> [ ( "", "Problem areas" ), ( "all", "All concerns" ) ]
-            Memory -> [ ( "", "Knowledge" ) ]
             _ -> []
     in
-    div [ class "subnav" ] (List.map (\( mode, caption ) -> button [ class (if mode == model.mode then "active" else ""), onClick (Mode mode) ] [ text caption ]) modes)
+    if List.isEmpty modes then text "" else div [ class "subnav" ] (List.map (\( mode, caption ) -> button [ class (if mode == model.mode then "active" else ""), onClick (Mode mode) ] [ text caption ]) modes)
 
 
-filtersView : Model -> Html Msg
-filtersView model =
-    let
-        fields = case model.screen of
-            Work -> [ ( "search", "Search sessions / activities" ), ( "repository", "Repository" ), ( "host_session_id", "Host session" ), ( "kind", "Activity kind" ), ( "outcome", "Outcome" ), ( "environment", "Environment" ), ( "occurred_after", "From ISO timestamp" ), ( "occurred_before", "To ISO timestamp" ) ]
-            Evals -> [ ( "search", "Search evidence" ), ( "repository", "Repository" ), ( "model", "Model / agent" ), ( "kind", "Record kind" ) ]
-            Concerns -> [ ( "search", "Search concerns" ), ( "repository", "Repository" ), ( "status", "Status: open / resolved" ), ( "sort", "recent / work_sessions / returns" ), ( "occurred_after", "From ISO timestamp" ), ( "occurred_before", "To ISO timestamp" ) ]
-            Memory -> [ ( "regex", "Search knowledge (regular expression)" ), ( "scope", "Scope: layered / project / global" ) ]
-            _ -> []
-    in
-    if List.isEmpty fields then text "" else
-        details [ class "filter-panel" ] [ summary [] [ Icon.view Icon.Search, text "Search and filters", if Dict.isEmpty model.filters then text "" else span [ class "badge" ] [ text (String.fromInt (Dict.size model.filters)) ] ], form [ onSubmit ApplyFilters ] (List.map (\( key, caption ) -> label [] [ text caption, input [ value (Dict.get key model.filters |> Maybe.withDefault ""), onInput (Filter key), placeholder caption ] [] ]) fields ++ [ button [ type_ "submit", class "primary" ] [ text "Apply filters" ] ]) ]
 
-
-coverage : Document -> Html Msg
-coverage doc =
-    let
-        paths = List.map List.singleton [ "truncated", "partial" ] ++ List.map (\key -> [ key, "truncated" ]) [ "sessions", "claims", "conflicts", "events" ] ++ List.map (\key -> [ "detail", key ]) [ "reports_truncated", "triage_attempts_truncated", "lifecycle_events_truncated" ] ++ [ [ "concern", "partial" ], [ "record", "truncated" ], [ "record", "lifecycle", "truncated" ] ]
-        partial = List.any (\path -> D.decodeValue (D.at path D.bool) doc.root |> Result.withDefault False) paths
-    in
-    div []
-        ((if partial then [ div [ class "notice" ] [ text "Partial history · The current response is bounded. Charts describe retained observations, not the entire population." ] ] else [])
-            ++ List.map (\notice -> div [ class "notice subtle" ] [ text notice ]) doc.notices
-        )
+-- SHARED PIECES
 
 
 stat : String -> String -> String -> Html Msg
@@ -862,7 +993,22 @@ stat caption value_ note =
 
 countText : String -> D.Value -> String
 countText key root =
-    String.fromFloat (Wire.number key root)
+    formatCount (Wire.number key root)
+
+
+{-| A count the response does not carry stays unavailable instead of becoming zero. -}
+optionalCount : String -> D.Value -> String
+optionalCount key root =
+    D.decodeValue (D.field key D.float) root |> Result.map formatCount |> Result.withDefault "—"
+
+
+formatCount : Float -> String
+formatCount number =
+    let
+        digits = String.fromInt (round number)
+        grouped = String.foldr (\char ( count, acc ) -> ( count + 1, if count > 0 && modBy 3 count == 0 && char /= '-' then String.cons char ("," ++ acc) else String.cons char acc )) ( 0, "" ) digits |> Tuple.second
+    in
+    if toFloat (round number) == number then grouped else String.fromFloat number
 
 
 duration : Float -> String
@@ -870,14 +1016,33 @@ duration seconds =
     if seconds >= 3600 then String.fromFloat (toFloat (round (seconds / 36)) / 100) ++ "h" else if seconds >= 60 then String.fromFloat (toFloat (round (seconds / 6)) / 10) ++ "m" else String.fromFloat (toFloat (round (seconds * 100)) / 100) ++ "s"
 
 
-knownDuration : String -> D.Value -> String
-knownDuration key root =
-    D.decodeValue (D.field key D.float) root |> Result.map duration |> Result.withDefault "Unknown"
+{-| Source timestamps are shown as their UTC date and minute; the literal value stays in the title. -}
+timeText : String -> String
+timeText stamp =
+    let
+        months = [ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" ]
+        month = String.slice 5 7 stamp |> String.toInt |> Maybe.andThen (\m -> List.drop (m - 1) months |> List.head)
+        day = String.slice 8 10 stamp |> String.toInt
+        clock = String.slice 11 16 stamp
+    in
+    case ( month, day ) of
+        ( Just m, Just d ) -> m ++ " " ++ String.fromInt d ++ (if String.length clock == 5 then ", " ++ clock ++ " UTC" else "")
+        _ -> stamp
+
+
+timeView : String -> Html Msg
+timeView stamp =
+    if stamp == "" then text "" else Html.time [ attribute "datetime" stamp, attribute "title" stamp ] [ text (timeText stamp) ]
 
 
 panel : String -> String -> List (Html Msg) -> Html Msg
 panel heading caption body =
-    section [ class "panel" ] ([ div [ class "panel-heading" ] [ div [] [ h2 [] [ text heading ], p [] [ text caption ] ] ] ] ++ body)
+    section [ class "panel" ] (div [ class "panel-heading" ] [ div [] [ h2 [] [ text heading ], if caption == "" then text "" else p [] [ text caption ] ] ] :: body)
+
+
+guidance : String -> String -> Html Msg
+guidance heading caption =
+    div [ class "empty-state" ] [ div [ class "empty-glyph" ] [ Icon.view Icon.Inbox ], h2 [] [ text heading ], p [] [ text caption ] ]
 
 
 chart : String -> Html Msg
@@ -885,143 +1050,393 @@ chart chartId =
     div [ id chartId, class "chart" ] []
 
 
-workView : Model -> Document -> Html Msg
-workView model doc =
-    let
-        stats = Wire.field "session_duration" doc.root
-        root = Wire.field "selected_session" doc.root
-        accounting = Wire.field "accounting" doc.root
-        cover = Wire.field "coverage" accounting
-        selectedSession = Wire.str "id" (Wire.field "subject" root) /= ""
-    in
-    if selectedSession then
-        div []
-            [ div [ class "stats-grid" ]
-                [ stat "Session elapsed" (exactElapsed root) "Recorded elapsed evidence"
-                , stat "Attributed wall" (knownDuration "seconds" (Wire.field "occupied_wall" accounting)) "Execution / wait union"
-                , stat "Unobserved" (knownDuration "seconds" (Wire.field "unobserved" accounting)) "No invented attribution"
-                , stat "Worker occupancy" (knownDuration "seconds" (Wire.field "worker_occupancy" accounting)) "Inclusive across executors; not effort"
-                ]
-            , panel (Wire.str "title" root) "Time flows downward. Children branch right at their source admission/start. Select any task to inspect its metadata below."
-                [ div [ class "graph-controls" ] [ div [ class "legend" ] (List.map (\( css, caption ) -> span [ class css ] [ span [ class "legend-swatch", attribute "aria-hidden" "true" ] [], text caption ]) [ ( "agent", "Subagent" ), ( "test", "Test" ), ( "script", "Script" ), ( "review", "Review" ), ( "tool", "Tool / command" ), ( "session", "Session / other" ) ]), div [] [ button [ onClick (Zoom 0.7), attribute "aria-label" "Zoom out" ] [ Icon.view Icon.ZoomOut ], button [ onClick (Zoom 1.4), attribute "aria-label" "Zoom in" ] [ Icon.view Icon.ZoomIn ] ] ]
-                , div [ class "waterfall-scroll", attribute "tabindex" "0", on "keydown" (D.field "key" D.string |> D.map Keyboard), attribute "aria-label" "Session task waterfall. Arrow keys select tasks, parents and children." ] [ chart "work-waterfall" ]
-                , p [ class "chart-note" ] [ text "Solid span: known source boundaries · dashed span: unknown finish · dotted span: queue wait · arrow keys: task / parent / child · scroll to pan" ]
-                ]
-            , model.selected |> Maybe.map (selectedView model) |> Maybe.withDefault (panel "Task metadata" "Select a task in the waterfall to inspect its recorded boundaries, executor, parent and evidence." [])
-            , panel "Accounting coverage" "Missing capture, roles, clocks and source inventory qualify these numbers." [ facts cover, div [ class "definitions" ] (List.map (\definition -> p [] [ text definition ]) (Wire.strings "definitions" accounting)) ]
-            , div [ class "action-row" ] [ button [ onClick (Navigate (Query "work_timeline" [ ( "work_session_id", E.string (Wire.str "id" (Wire.field "subject" root)) ) ])) ] [ text "Browse ownership hierarchy" ], button [ onClick (Navigate (Query "work_get" [ ( "subject", Wire.field "subject" root ) ])) ] [ text "Session evidence" ] ]
-            ]
-    else
-        div []
-            [ div [ class "stats-grid" ]
-                [ stat "Average session" (knownDuration "average_seconds" stats) "Known, non-conflicted elapsed durations"
-                , stat "Total session elapsed" (if Wire.number "known_count" stats == 0 then "Unknown" else knownDuration "total_seconds" stats) "Inclusive session intervals; not effort"
-                , stat "Sessions measured" (countText "known_count" stats ++ " / " ++ countText "count" stats) "Unknown values remain unknown"
-                , stat "Activity kinds" (String.fromInt (List.length doc.bars)) "Recorded kinds, never guessed from titles"
-                ]
-            , div [ class "duration-controls" ]
-                [ label [] [ text "Duration aggregation", select [ onInput DurationMode ] [ choice model.durationMode "average" "Average known duration", choice model.durationMode "total" "Total known duration" ] ]
-                , label [] [ text "Time series", select [ onInput TrendKind ] (choice model.trendKind "" "Session duration" :: List.map (\bar -> choice model.trendKind bar.id (bar.label ++ " activities")) doc.bars) ]
-                ]
-            , div [ class "analytics-grid" ]
-                [ panel "Duration over time" (model.durationMode ++ " known elapsed duration by UTC source day · seconds") [ chart "summary-trend" ]
-                , panel "Where time goes" (model.durationMode ++ " elapsed duration by activity kind. Parent and child durations overlap.") [ chart "summary-bars" ]
-                ]
-            ]
-
-
-evalView : Model -> Document -> Html Msg
-evalView model doc =
-    div []
-        [ div [ class "stats-grid" ] [ stat "Recorded runs" (countText "run_count" doc.root) "Caller-owned execution", stat "Results" (countText "result_count" doc.root) "Current observations; corrections retained", stat "Evaluation sets" (String.fromInt (List.length doc.rows)) "Suite × target × repository × model composition", stat "Source records" (countText "scanned_records" doc.root) "Bounded historical projection" ]
-        , if List.isEmpty doc.metrics then
-            panel "Evaluation sets" "Select a set to explore the metric definitions, recorded results and historical evidence." []
-          else
-            div []
-                [ div [ class "metric-select" ] [ label [] [ text "Metric definition / revision", select [ onInput SelectMetric ] (List.indexedMap (\index metric -> choice (String.fromInt model.metric) (String.fromInt index) (metric.label ++ " · " ++ metric.unit ++ " · " ++ metric.definition)) doc.metrics) ] ]
-                , selectedMetric model |> Maybe.map (\metric -> panel metric.label (metric.unit ++ " · " ++ metric.description) [ chart "metric-trend", div [ class "metric-definition" ] [ h3 [] [ text "How this metric is calculated" ], p [] [ text metric.calculation ], code [] [ text metric.definition ], p [ class "chart-note" ] [ text "Numeric positions are display approximations. Metric meanings and revisions remain separate; Nexus assumes no preferred direction." ] ], div [ class "result-values" ] (List.reverse metric.points |> List.take 12 |> List.map (\pt -> button [ onClick (Open (Row pt.id pt.label pt.exact "eval_record" E.null)), class "result-value" ] [ small [] [ text pt.at ], strongText pt.exact ])) ]) |> Maybe.withDefault (text "")
-                ]
-        ]
-
-
 strongText : String -> Html Msg
 strongText value_ =
     Html.strong [] [ text value_ ]
 
 
-standardView : Model -> Document -> Html Msg
-standardView model doc =
-    case model.screen of
-        Coordination ->
-            let
-                counts = Wire.field "counts" doc.root
-            in
-            if model.query.kind /= "coordination" then text "" else
-                div [ class "stats-grid" ] [ stat "Recent sessions" (countText "active_sessions" counts) "Live coordination liveness", stat "Live claims" (countText "active_claims" counts) "Advisory path ownership", stat "Open conflicts" (countText "open_conflicts" counts) "Live unresolved overlaps", stat "Recent events" (countText "events" counts) "Bounded operational history" ]
-
-        Tools ->
-            div []
-                [ div [ class "stats-grid" ] [ stat "Observed calls" (countText "observed_calls" doc.root) "Invocations may contain several operations", stat "Identified operations" (countText "identified_actions" doc.root) "Semantic activity classification", stat "Unclassified" (countText "unclassified_actions" doc.root) "Coverage remains explicit", stat "Window" "7 days" "Rolling observation window" ]
-                , if List.isEmpty doc.bars then text "" else panel "What agents are doing" "Observed operations by semantic category, including named tools and improvised implementations." [ chart "summary-bars" ]
-                , if model.mode == "capabilities" then div [ class "notice subtle" ] [ text "Zero observed uses are meaningful only where inventory establishes availability. Offered and discoverable sessions are separate." ] else if model.mode == "opportunities" then div [ class "notice subtle" ] [ text "Recurring improvised work can suggest a missing capability. Classification describes inferred purpose; it does not prove every code branch executed." ] else text ""
-                ]
-
-        Skills ->
-            panel "Skill usage" "Named skills across the rolling seven-day window. Counts reflect captured observations." [ chart "summary-bars", facts (Wire.field "capture_health" doc.root) ]
-
-        Concerns ->
-            let counts = Wire.field "counts" doc.root in
-            if model.query.kind /= "concern_dashboard" then text "" else
-                div []
-                    [ div [ class "stats-grid" ] [ stat "Reported concerns" (countText "concerns" counts) "No reports does not establish code health", stat "Affected work sessions" (countText "work_sessions" counts) "Distinct retained session identities", stat "Source occurrences" (countText "known_source_occurrences" counts) "Known failure encounters", stat "Returns after resolution" (countText "returns_after_resolution" counts) "Potential recurring problem areas" ]
-                    , panel "Problem areas" "Affected sessions by code area. Overlapping areas are not additive totals." [ chart "summary-bars" ]
-                    , panel "Reports over time" "Raw observations by UTC source day; unknown source times remain separate." [ chart "summary-trend" ]
-                    , details [ class "coverage-detail" ] [ summary [] [ text "Source and context coverage" ], facts counts ]
-                    ]
-
-        Sos ->
-            if model.query.kind == "sos_list" then div [ class "stats-grid" ] [ stat "Reported issues" (String.fromInt (List.length doc.rows)) "Ranked by importance and latest arrival", stat "Untriaged reports" (countText "untriaged_report_count" doc.root) "Source reports awaiting a triage decision" ] else text ""
-
-        Memory ->
-            div [] [ panel "Knowledge coverage" "Raw notes and derived summaries remain attributable; expanding a summary reads its existing sources." [ facts (Wire.field "context" doc.root |> Wire.field "omitted") ], Dict.get "memory_status" model.supplemental |> Maybe.map (\health -> panel "Memory health" "Summary coverage, provider outcomes and cooldown state." [ facts (Wire.field "health" health.root) ]) |> Maybe.withDefault (text "") ]
-
-        _ -> text ""
+nothingRecorded : String -> Html Msg
+nothingRecorded caption =
+    p [ class "panel-empty" ] [ text caption ]
 
 
-rowList : Model -> Document -> Html Msg
-rowList model doc =
+{-| Prose fields of a record, in a stable reading order. Identifiers, hashes and receipt metadata are omitted. -}
+prose : D.Value -> List ( String, String )
+prose record =
+    [ "summary", "description", "note", "message", "details", "detail", "body", "content", "text", "reason", "remedy", "motivation", "resolution", "outcome_summary" ]
+        |> List.filterMap (\key -> let content = Wire.str key record |> String.trim in if content == "" then Nothing else Just ( key, content ))
+
+
+proseView : D.Value -> Html Msg
+proseView record =
+    case prose record of
+        [] -> text ""
+        fields -> div [ class "prose" ] (List.map (\( _, content ) -> p [] [ text content ]) fields)
+
+
+type alias Expandable =
+    { key : String, load : Query, icon : Icon.Icon, title : String, subtitle : String, aside : Html Msg }
+
+
+{-| A list row that opens its evidence directly beneath itself. -}
+expandable : Model -> Expandable -> (Maybe Document -> Html Msg) -> Html Msg
+expandable model row render =
     let
-        caption = if model.screen == Work && model.query.kind == "work_dashboard" then "Sessions · select for a visual breakdown" else if model.screen == Evals && model.query.kind == "eval_dashboard" then "Evaluation sets" else "Recorded observations"
-        matches field keys row =
-            let needle = Dict.get field model.filters |> Maybe.withDefault "" |> String.toLower in
-            needle == "" || (keys |> List.map (\key -> Wire.str key row.body ++ " " ++ String.join " " (Wire.strings key row.body)) |> String.join " " |> String.toLower |> String.contains needle)
-        visible =
-            if model.query.kind == "eval_dashboard" then List.filter (\row -> matches "search" [ "label", "suite_identity", "target_identity", "components" ] row && matches "repository" [ "repository" ] row && matches "model" [ "models" ] row) doc.rows else if model.query.kind == "usage" then List.filter (\row -> row.kind == (if model.screen == Skills then "skill" else "tool")) doc.rows else doc.rows
+        open = Dict.member row.key model.expanded
     in
-    panel caption (String.fromInt (List.length visible) ++ " visible · " ++ String.fromInt (List.length doc.rows) ++ " retained records")
-        [ div [ class "record-list" ] (List.map (\row -> button [ class "record-row", onClick (Open row) ] [ Icon.view (screenIcon model.screen), div [ class "record-copy" ] [ strongText row.title, small [] [ text row.subtitle ] ], span [ class "row-arrow" ] [ Icon.view Icon.Chevron ] ]) visible) ]
-
-
-selectedView : Model -> Row -> Html Msg
-selectedView model row =
-    panel (if model.screen == Work then "Selected task · " ++ row.title else row.title) row.subtitle
-        [ if model.screen == Work then
-            div []
-                [ div [ class "selected-facts" ] [ stat "Elapsed" (exactElapsed row.body) "Exact recorded nanoseconds", stat "Kind" (Wire.str "kind" row.body) "Recorded category", stat "State / outcome" (Wire.str "state" row.body ++ " / " ++ defaultText "unknown" (Wire.str "outcome" row.body)) "Caller-reported boundaries" ]
-                , facts row.body
-                , button [ onClick (Navigate (Query "work_get" [ ( "subject", subject row.kind row.id ) ])) ] [ text "Open immutable task evidence", Icon.view Icon.Forward ]
-                ]
-          else div [] [ facts row.body, if row.kind == "eval_record" then button [ onClick (Navigate (query "eval_get" |> with "id" row.id)) ] [ text "Open result evidence", Icon.view Icon.Forward ] else text "" ]
+    div [ class (if open then "record expanded" else "record") ]
+        [ button [ class "record-row", onClick (Toggle row.key row.load), attribute "aria-expanded" (if open then "true" else "false") ]
+            [ Icon.view row.icon, div [ class "record-copy" ] [ strongText row.title, if row.subtitle == "" then text "" else small [] [ text row.subtitle ] ], row.aside, span [ class "row-arrow" ] [ Icon.view Icon.Chevron ] ]
+        , if open then div [ class "record-detail" ] [ detailView model row render ] else text ""
         ]
 
 
-exactElapsed : D.Value -> String
-exactElapsed body =
+detailView : Model -> Expandable -> (Maybe Document -> Html Msg) -> Html Msg
+detailView model row render =
+    if row.load.kind == "" then
+        render Nothing
+    else
+        case Dict.get row.key model.details of
+            Just (Loaded doc) -> render (Just doc)
+            Just (Failed reason) -> div [ class "notice error" ] [ text reason ]
+            _ -> p [ class "panel-empty" ] [ text "Loading…" ]
+
+
+plainRow : Icon.Icon -> String -> String -> Html Msg
+plainRow icon heading caption =
+    div [ class "record-row static" ] [ Icon.view icon, div [ class "record-copy" ] [ strongText heading, if caption == "" then text "" else small [] [ text caption ] ] ]
+
+
+{-| Horizontal usage bars as accessible rows, each expanding in place. -}
+barList : Model -> List ( Expandable, Float ) -> (Int -> Maybe Document -> Html Msg) -> Html Msg
+barList model rows render =
     let
-        ns = Wire.str "nanoseconds" (Wire.field "elapsed" body)
-        padded = String.padLeft 10 '0' ns
+        maximum = rows |> List.map Tuple.second |> List.maximum |> Maybe.withDefault 1 |> max 1
     in
-    if ns == "" then "Unknown" else String.dropRight 9 padded ++ "." ++ String.right 9 padded ++ "s"
+    if List.isEmpty rows then
+        nothingRecorded "No recorded observations in this scope."
+    else
+        div [ class "bar-list" ]
+            (List.indexedMap
+                (\index ( row, amount ) ->
+                    let
+                        open = Dict.member row.key model.expanded
+                    in
+                    div [ class (if open then "bar-item expanded" else "bar-item") ]
+                        [ button [ class "bar-row", onClick (Toggle row.key row.load), attribute "aria-expanded" (if open then "true" else "false") ]
+                            [ span [ class "bar-label" ] [ text row.title ], span [ class "bar-value" ] [ text row.subtitle ], span [ class "bar-track", attribute "aria-hidden" "true" ] [ span [ class "bar-fill", style "width" (String.fromFloat (max 0.4 (amount / maximum * 100)) ++ "%") ] [] ] ]
+                        , if open then div [ class "bar-detail" ] [ detailView model row (render index) ] else text ""
+                        ]
+                )
+                rows
+            )
+
+
+
+-- COORDINATION
+
+
+coordinationView : Model -> Document -> Html Msg
+coordinationView model doc =
+    let
+        counts = Wire.field "counts" doc.root
+    in
+    div []
+        [ div [ class "stats-grid" ]
+            [ stat "Recent sessions" (countText "active_sessions" counts) "Seen within the activity window"
+            , stat "Live claims" (countText "active_claims" counts) "Paths agents currently hold"
+            , stat "Conflicts · 7 days" (optionalCount "recent_conflicts" counts) "Overlaps detected between sessions"
+            , stat "Messages · 7 days" (optionalCount "recent_advisories" counts) "Warnings Nexus delivered to agents"
+            ]
+        , case ( model.focus, Dict.get "timeline" model.supplemental ) of
+            ( Nothing, _ ) -> guidance "Choose a session" "Pick a session above to see the overlaps it ran into and the messages Nexus sent about them."
+            ( Just _, Nothing ) -> guidance "Loading the session" "Retrieving its conflicts and messages…"
+            ( Just _, Just timeline ) -> conversation timeline
+        ]
+
+
+{-| A session's coordination reads as a conversation: what overlapped, and who Nexus told. -}
+conversation : Document -> Html Msg
+conversation timeline =
+    let
+        session = Wire.field "session" timeline.root
+        entries = Wire.list "entries" timeline.root
+        worktree = Wire.str "worktree" session |> String.split "/" |> List.reverse |> List.head |> Maybe.withDefault ""
+        caption = [ Wire.str "agent" session, worktree, if Wire.str "last_seen_at" session == "" then "" else "last seen " ++ timeText (Wire.str "last_seen_at" session) ] |> List.filter ((/=) "") |> String.join " · "
+        heading = if E.encode 0 session == "null" then "Session" else Wire.sessionName session
+    in
+    panel heading caption
+        [ if List.isEmpty entries then
+            nothingRecorded "Nexus recorded no overlaps or messages for this session."
+          else
+            div [ class "conversation" ] (List.map conversationEntry entries)
+        , if D.decodeValue (D.field "truncated" D.bool) timeline.root == Ok True then p [ class "chart-note" ] [ text "Showing the most recent entries." ] else text ""
+        ]
+
+
+conversationEntry : D.Value -> Html Msg
+conversationEntry entry =
+    let
+        counterpart = Wire.field "counterpart" entry
+        other = if E.encode 0 counterpart == "null" then "another session" else Wire.sessionName counterpart
+        message = Wire.str "message" entry
+        sent = Wire.str "direction" entry == "sent"
+        ( speaker, headline, tone ) =
+            case Wire.str "type" entry of
+                "conflict_detected" -> ( "Nexus", "Overlap detected with " ++ other, "conflict" )
+                "conflict_resolved" -> ( "Nexus", "Overlap with " ++ other ++ " ended", "resolved" )
+                _ -> ( if sent then "Nexus → " ++ other else "Nexus → this session", "", if sent then "advisory sent" else "advisory" )
+    in
+    div [ class ("message " ++ tone) ]
+        [ header [] [ span [ class "message-from" ] [ text speaker ], small [] [ timeView (Wire.str "at" entry) ] ]
+        , if headline == "" then text "" else p [ class "message-headline" ] [ text headline ]
+        , if message == "" || headline /= "" && message == headline then text "" else p [] [ text message ]
+        , if Wire.str "path" entry == "" then text "" else code [ class "message-path" ] [ text (Wire.str "path" entry) ]
+        ]
+
+
+
+-- WORK
+
+
+workView : Model -> Document -> Html Msg
+workView model doc =
+    if model.focus == Nothing then
+        section [ class "panel" ]
+            [ div [ class "panel-heading" ]
+                [ div [] [ h2 [] [ text "Where time goes" ], p [] [ text ("Elapsed time by kind of work across host sessions; nested work overlaps its parent. Choose a session above to see how a prompt branched into work.") ] ]
+                , label [ class "inline-control" ] [ span [ class "muted" ] [ text "Show" ], select [ onInput DurationMode, attribute "aria-label" "Duration aggregation" ] [ choice model.durationMode "average" "Average per activity", choice model.durationMode "total" "Total time" ] ]
+                ]
+            , chart "summary-bars"
+            ]
+
+    else
+        sessionView model doc
+
+
+sessionView : Model -> Document -> Html Msg
+sessionView model doc =
+    let
+        root = Wire.field "selected_session" doc.root
+        nodes = waterfallNodes doc
+        picked = model.selected |> Maybe.andThen (\nodeId -> List.filter (\node -> node.id == nodeId) nodes |> List.head)
+        started = Wire.str "started_at" root
+        caption = [ if started == "" then "" else "Started " ++ timeText started, Wire.str "state" root ] |> List.filter ((/=) "") |> String.join " · "
+    in
+    if List.isEmpty nodes then
+        guidance "Session unavailable" "This session was not returned for the selected project."
+    else
+        panel (Wire.str "title" root) caption
+            [ div [ class "graph-controls" ] [ div [ class "legend" ] (List.map (\( css, legendCaption ) -> span [ class css ] [ span [ class "legend-swatch", attribute "aria-hidden" "true" ] [], text legendCaption ]) [ ( "agent", "Subagent" ), ( "test", "Test" ), ( "script", "Script" ), ( "review", "Review" ), ( "tool", "Tool / command" ), ( "session", "Prompt / session" ) ]), div [] [ button [ onClick (Zoom 0.7), attribute "aria-label" "Zoom out" ] [ Icon.view Icon.ZoomOut ], button [ onClick (Zoom 1.4), attribute "aria-label" "Zoom in" ] [ Icon.view Icon.ZoomIn ] ] ]
+            , div [ class "waterfall-scroll", attribute "tabindex" "0", on "keydown" (D.field "key" D.string |> D.map Keyboard), attribute "aria-label" "Session work tree. Arrow keys select tasks, parents and children." ] [ chart "work-waterfall" ]
+            , p [ class "selection-line", attribute "aria-live" "polite" ] [ text (picked |> Maybe.map Waterfall.summary |> Maybe.withDefault "Time flows downward; work branches right from the prompt that started it. Repeated calls are grouped. Select a task to see its time and outcome.") ]
+            ]
+
+
+
+-- EVALUATIONS
+
+
+evalView : Model -> Document -> Html Msg
+evalView model doc =
+    div []
+        [ div [ class "stats-grid" ] [ stat "Recorded runs" (countText "run_count" doc.root) "Caller-owned execution", stat "Results" (countText "result_count" doc.root) "Current observations; corrections retained", stat "Agents" (String.fromInt (List.length (Dict.get "groups" model.supplemental |> Maybe.map .rows |> Maybe.withDefault doc.rows))) "Evaluated agents and configurations", stat "Source records" (countText "scanned_records" doc.root) "Bounded historical projection" ]
+        , if model.focus == Nothing then
+            guidance "Choose an agent" "Pick an agent above to see each of its metrics over time."
+          else if List.isEmpty doc.metrics then
+            guidance "No metrics recorded" "This agent has runs but no scored metric observations yet."
+          else
+            div [ class "metric-grid" ] (List.indexedMap metricPanel doc.metrics)
+        ]
+
+
+metricPanel : Int -> Wire.Metric -> Html Msg
+metricPanel index metric =
+    panel metric.label (String.join " · " (List.filter ((/=) "") [ metric.unit, metric.description ]))
+        [ chart ("metric-" ++ String.fromInt index)
+        , metricDefinition metric.calculation
+        , div [ class "result-values" ] (List.reverse metric.points |> List.take 6 |> List.map (\pt -> div [ class "result-value" ] [ small [] [ timeView pt.at ], strongText pt.exact ]))
+        ]
+
+
+{-| Calculation descriptions are often structured JSON text; show their parts as readable sentences. -}
+metricDefinition : String -> Html Msg
+metricDefinition calculation =
+    let
+        captions = [ ( "formula", "Formula" ), ( "population", "Population" ), ( "aggregation", "Aggregation" ), ( "exclusions", "Exclusions" ), ( "missing_data", "Missing data" ) ]
+    in
+    if String.trim calculation == "" then
+        text ""
+    else
+        case D.decodeString (D.keyValuePairs D.value) calculation of
+            Ok fields ->
+                let
+                    parts = captions |> List.filterMap (\( key, caption ) -> List.filter (\( k, _ ) -> k == key) fields |> List.head |> Maybe.andThen (\( _, item ) -> D.decodeValue D.string item |> Result.toMaybe) |> Maybe.map (\content -> p [] [ Html.strong [] [ text (caption ++ ". ") ], text content ]))
+                in
+                if List.isEmpty parts then text "" else div [ class "metric-definition" ] (h3 [] [ text "How it is calculated" ] :: parts)
+
+            Err _ ->
+                div [ class "metric-definition" ] [ h3 [] [ text "How it is calculated" ], p [] [ text calculation ] ]
+
+
+
+-- TOOLS AND SKILLS
+
+
+toolsView : Model -> Document -> Html Msg
+toolsView model doc =
+    case model.query.kind of
+        "analytics_summary" ->
+            div []
+                [ div [ class "stats-grid" ] [ stat "Observed calls" (countText "observed_calls" doc.root) "Invocations may contain several operations", stat "Identified operations" (countText "identified_actions" doc.root) "Semantic activity classification", stat "Unclassified" (countText "unclassified_actions" doc.root) "Coverage remains explicit", stat "Window" "7 days" "Rolling observation window" ]
+                , panel "What agents are doing" "Operations by kind of activity. Open one to see which commands it was, over time."
+                    [ barList model (List.map (\row -> ( { key = commandsKey row.id, load = query "analytics_commands" |> with "category_id" row.id, icon = Icon.Tools, title = row.title, subtitle = row.subtitle, aside = text "" }, Wire.number "actions" row.body )) doc.rows) commandBreakdown ]
+                ]
+
+        "analytics_examples" ->
+            panel "Observed implementations" "" [ div [ class "record-list" ] (List.map (\row -> plainRow Icon.Tools row.title row.subtitle) doc.rows) ]
+
+        _ ->
+            panel (if model.mode == "opportunities" then "Opportunities" else "Capabilities") (if model.mode == "opportunities" then "Recurring improvised work that could deserve a supplied tool." else "Supplied tools and skills and how often they were used.")
+                [ div [ class "record-list" ] (List.map (\row -> button [ class "record-row", onClick (Navigate (if row.kind == "capability" then query "analytics_examples" |> with "resource_key" row.id else query "analytics_examples" |> with "category_id" row.id)) ] [ Icon.view Icon.Tools, div [ class "record-copy" ] [ strongText row.title, small [] [ text row.subtitle ] ], span [ class "row-arrow" ] [ Icon.view Icon.Chevron ] ]) doc.rows) ]
+
+
+commandBreakdown : Int -> Maybe Document -> Html Msg
+commandBreakdown category loaded =
+    case loaded of
+        Nothing -> text ""
+        Just doc ->
+            let
+                commands = Wire.list "commands" doc.root
+            in
+            if List.isEmpty commands then
+                nothingRecorded "No commands were recorded for this activity in the window."
+            else
+                div [ class "command-grid" ]
+                    (List.indexedMap
+                        (\position command ->
+                            div [ class "command" ] [ div [ class "command-heading" ] [ code [] [ text (Wire.str "name" command) ], span [ class "bar-value" ] [ text (countText "count" command ++ " runs") ] ], chart (commandChartId category position) ]
+                        )
+                        commands
+                        ++ [ p [ class "chart-note" ] [ text ("Runs per " ++ duration (Wire.number "bin_seconds" doc.root) ++ " across the last seven days.") ] ]
+                    )
+
+
+skillsView : Model -> Document -> Html Msg
+skillsView model doc =
+    let
+        skills = List.filter (\row -> row.kind == "skill") doc.rows
+    in
+    panel "Skill usage" "Named skills across the rolling seven-day window. Open a skill to read it."
+        [ barList model (List.map (\row -> ( { key = "skill:" ++ row.id, load = query "skill_get" |> with "name" row.id, icon = Icon.Book, title = row.title, subtitle = row.subtitle, aside = text "" }, Wire.number "count" row.body )) skills) (\_ -> skillText) ]
+
+
+skillText : Maybe Document -> Html Msg
+skillText loaded =
+    case loaded of
+        Nothing -> text ""
+        Just doc ->
+            let
+                skill = doc.root
+                content = Wire.str "content" skill
+            in
+            div [ class "skill-text" ]
+                [ if Wire.str "description" skill == "" then text "" else p [ class "message-headline" ] [ text (Wire.str "description" skill) ]
+                , if content == "" then nothingRecorded "Nexus has not received this skill's text yet. Agents running an updated Nexus client send it the next time they read the skill." else pre [ class "document-text" ] [ text content ]
+                , if Wire.str "source_path" skill == "" then text "" else small [] [ text (Wire.str "source_path" skill), text " · ", timeView (Wire.str "observed_at" skill) ]
+                ]
+
+
+
+-- CODE CONCERNS, PAPERCUTS, SOS
+
+
+concernsView : Model -> Document -> Html Msg
+concernsView model doc =
+    if model.query.kind == "concern_dashboard" then
+        let
+            counts = Wire.field "counts" doc.root
+        in
+        div []
+            [ div [ class "stats-grid" ] [ stat "Reported concerns" (countText "concerns" counts) "No reports does not establish code health", stat "Affected work sessions" (countText "work_sessions" counts) "Distinct retained session identities", stat "Source occurrences" (countText "known_source_occurrences" counts) "Known failure encounters", stat "Returns after resolution" (countText "returns_after_resolution" counts) "Potential recurring problem areas" ]
+            , panel "Problem areas" "Reported concerns by code area. Select an area to read its concerns." [ chart "summary-bars" ]
+            , panel "Reports over time" "Reports per UTC day." [ chart "summary-trend" ]
+            ]
+
+    else
+        panel "Concerns" "Open a concern to read its encounters and the remedies already tried."
+            [ if List.isEmpty doc.rows then nothingRecorded "No concerns were reported for this scope." else div [ class "record-list" ] (List.map (\row -> expandable model { key = "concern:" ++ row.id, load = query "concern_get" |> with "concern_id" row.id, icon = Icon.Bug, title = row.title, subtitle = row.subtitle, aside = text "" } concernDetail) doc.rows) ]
+
+
+concernDetail : Maybe Document -> Html Msg
+concernDetail loaded =
+    case loaded of
+        Nothing -> text ""
+        Just doc ->
+            let
+                record = Wire.field "concern" doc.root
+                history = Wire.list "history" record
+            in
+            div []
+                [ proseView (Wire.field "summary" record)
+                , if List.isEmpty history then text "" else reportList (List.map (\observation -> let input_ = Wire.field "input" observation in ( String.replace "_" " " (Wire.str "event" (Wire.field "body" input_)), Wire.str "observed_at" input_, Wire.field "body" input_ )) history)
+                ]
+
+
+{-| Individual reports in order, each with who reported it and when. -}
+reportList : List ( String, String, D.Value ) -> Html Msg
+reportList reports =
+    div [ class "report-list" ]
+        (List.map
+            (\( who, at, body ) ->
+                div [ class "report" ] [ header [] [ span [ class "message-from" ] [ text who ], small [] [ timeView at ] ], proseView body, if prose body == [] && Wire.str "title" body /= "" then p [] [ text (Wire.str "title" body) ] else text "" ]
+            )
+            reports
+        )
+
+
+papercutsView : Model -> Document -> Html Msg
+papercutsView model doc =
+    panel "Papercuts" "Most encountered first, then most recent. Open one to read every report."
+        [ if List.isEmpty doc.rows then nothingRecorded "No open papercuts were reported for this scope." else div [ class "record-list" ] (List.map (\row -> expandable model { key = "papercut:" ++ row.id, load = query "papercut_get" |> with "papercut_id" row.id, icon = Icon.Warning, title = row.title, subtitle = row.subtitle, aside = text "" } papercutDetail) doc.rows) ]
+
+
+papercutDetail : Maybe Document -> Html Msg
+papercutDetail loaded =
+    case loaded of
+        Nothing -> text ""
+        Just doc ->
+            let
+                reports = Wire.list "reports" doc.root
+                papercut = Wire.field "papercut" doc.root
+            in
+            if List.isEmpty reports then proseView papercut else reportList (List.map (\report -> ( reporter report, Wire.str "created_at" report, report )) reports)
+
+
+reporter : D.Value -> String
+reporter report =
+    [ "reporter_agent", "creator_agent", "agent", "source" ] |> List.map (\key -> Wire.str key report) |> List.filter ((/=) "") |> List.head |> Maybe.withDefault "Report"
+
+
+sosView : Model -> Document -> Html Msg
+sosView model doc =
+    div []
+        [ div [ class "stats-grid two" ] [ stat "Reported issues" (String.fromInt (List.length doc.rows)) "Ranked by reports, then latest arrival", stat "Untriaged reports" (countText "untriaged_report_count" doc.root) "Source reports awaiting a triage decision" ]
+        , panel "Situations" "Open one to read every report."
+            [ if List.isEmpty doc.rows then nothingRecorded "No situations were reported for this scope." else div [ class "record-list" ] (List.map (\row -> expandable model { key = "sos:" ++ row.id, load = query "sos_get" |> with "issue_id" row.id, icon = Icon.Siren, title = row.title, subtitle = row.subtitle, aside = text "" } sosDetail) doc.rows) ]
+        ]
+
+
+sosDetail : Maybe Document -> Html Msg
+sosDetail loaded =
+    case loaded of
+        Nothing -> text ""
+        Just doc ->
+            let
+                detail = Wire.field "detail" doc.root
+                reports = Wire.list "reports" detail
+            in
+            div [] [ proseView (Wire.field "issue" detail), reportList (List.map (\report -> ( reporter report, defaultText (Wire.str "received_at" report) (Wire.str "created_at" report), report )) reports) ]
 
 
 defaultText : String -> String -> String
@@ -1029,101 +1444,68 @@ defaultText fallback value_ =
     if value_ == "" then fallback else value_
 
 
-facts : D.Value -> Html Msg
-facts root =
-    case D.decodeValue (D.keyValuePairs D.value) root of
-        Ok entries ->
-            dl [ class "facts" ] (List.concatMap (\( key, value_ ) -> [ dt [] [ text (String.replace "_" " " key) ], dd [] [ jsonView 0 value_ ] ]) entries)
 
-        Err _ -> jsonView 0 root
+-- MEMORY
 
 
-jsonView : Int -> D.Value -> Html Msg
-jsonView depth value_ =
-    case D.decodeValue D.string value_ of
-        Ok content -> span [ class "literal" ] [ text content ]
-        Err _ ->
-            case D.decodeValue (D.list D.value) value_ of
-                Ok items -> if List.isEmpty items then span [ class "muted" ] [ text "None recorded" ] else div [ class "json-list" ] (List.map (jsonView (depth + 1)) items)
-                Err _ ->
-                    case D.decodeValue (D.keyValuePairs D.value) value_ of
-                        Ok entries ->
-                            if depth >= 5 then details [] [ summary [] [ text "Structured metadata" ], pre [] [ text (E.encode 2 value_) ] ] else dl [ class "nested-facts" ] (List.concatMap (\( key, item ) -> [ dt [] [ text (String.replace "_" " " key) ], dd [] [ jsonView (depth + 1) item ] ]) entries)
-                        Err _ -> span [ class "literal" ] [ text (if E.encode 0 value_ == "null" then "Not recorded" else E.encode 0 value_) ]
-
-
-evidenceView : Model -> Document -> Html Msg
-evidenceView model doc =
-    let
-        record = case model.query.kind of
-            "concern_get" -> Wire.field "concern" doc.root
-            "sos_get" -> Wire.field "detail" doc.root
-            "memory_status" -> Wire.field "health" doc.root
-            "work_observation" -> Wire.field "observation" doc.root
-            _ -> Wire.field "record" doc.root
-        body = Wire.field "body" record
-        links = Wire.list "links" record
-        id_ = defaultText (Wire.str "id" (Wire.field "summary" record)) (Wire.str "id" record)
-        workSubject = Wire.valueAt [ "summary", "subject" ] record
-        actions = case model.query.kind of
-            "eval_get" -> [ button [ onClick (Navigate (query "eval_why" |> with "id" id_)) ] [ text "Why this exists · historical context" ] ]
-            "work_get" ->
-                [ button [ onClick (Navigate (Query "work_events" [ ( "subject", workSubject ) ])) ] [ text "Immutable observation history" ] ]
-                    ++ (Wire.strings "work_session_ids" (Wire.field "summary" record) |> List.concatMap (workMembershipActions workSubject))
-            "concern_get" -> [ button [ onClick (Navigate (query "concern_history" |> with "concern_id" id_)) ] [ text "Full encounter and remedy history" ] ]
-            _ -> []
-    in
-    if E.encode 0 record == "null" then
-        panel "Record unavailable" "This record was not returned for the selected project. Its identity may belong to another scope or be absent from retained history." []
-    else panel (defaultText "Source evidence" (Wire.str "title" record)) "Immutable source records, motivations and retained metadata. Artifacts are referenced without fetching their bytes."
-        [ div [ class "action-row" ] actions
-        , if E.encode 0 body /= "null" then facts body else text ""
-        , if model.query.kind == "concern_get" then div [] [ facts (Wire.field "summary" record), observationTimeline (Wire.list "history" record), facts (Wire.field "session_titles" record) ] else facts record
-        , if List.isEmpty links then text "" else div [ class "evidence-links" ] [ h3 [] [ text "Related evidence" ], div [ class "action-row" ] (List.map (\link -> relatedLink model link) links) ]
+memoryView : Model -> Document -> Html Msg
+memoryView model doc =
+    div []
+        [ Dict.get "health" model.supplemental |> Maybe.map (.root >> Wire.field "health" >> memoryHealth) |> Maybe.withDefault (text "")
+        , panel "Knowledge" "Notes agents recorded and the summaries built from them. Each level summarizes twice as many notes as the one below it; open a summary to see what it was built from."
+            [ if List.isEmpty doc.rows then nothingRecorded "No memories were recorded for this project." else div [ class "record-list" ] (List.map (memoryRow model 0) doc.rows) ]
         ]
 
 
-workMembershipActions : D.Value -> String -> List (Html Msg)
-workMembershipActions current sessionId =
-    [ button [ onClick (Navigate (query "work_dashboard" |> with "work_session_id" sessionId)) ] [ text ("Session waterfall · " ++ sessionId) ]
-    , button [ onClick (Navigate (Query "work_timeline" ([ ( "work_session_id", E.string sessionId ) ] ++ (if Wire.str "scope" current == "activity" then [ ( "parent_activity_id", E.string (Wire.str "id" current) ) ] else [])))) ] [ text "Browse direct children" ]
-    ]
-
-
-observationTimeline : List D.Value -> Html Msg
-observationTimeline observations =
-    div [ class "observation-timeline" ]
-        (List.map
-            (\observation ->
-                let
-                    input_ = Wire.field "input" observation
-                    body = Wire.field "body" input_
-                in
-                div [ class "observation-step" ]
-                    [ span [ class "timeline-dot" ] []
-                    , header [] [ h3 [] [ text (Wire.str "event" body) ], small [] [ text (Wire.str "observed_at" input_) ] ]
-                    , facts body
-                    , details [] [ summary [] [ text "Source, attribution and receipt metadata" ], facts observation ]
-                    ]
-            )
-            observations
-        )
-
-
-relatedLink : Model -> D.Value -> Html Msg
-relatedLink model link =
+memoryHealth : D.Value -> Html Msg
+memoryHealth health =
     let
-        target = Wire.field "target" link
-        targetId = defaultText (Wire.str "id" target) (Wire.str "target_id" link)
-        targetKind = Wire.str "kind" target
-        wanted = if model.screen == Evals || targetKind == "eval" then Just (query "eval_get" |> with "id" targetId) else if List.member targetKind [ "session", "activity" ] then Just (Query "work_get" [ ( "subject", subject targetKind targetId ) ]) else Nothing
+        scopes = Wire.list "scopes" health
+        total key = scopes |> List.map (Wire.number key) |> List.sum
+        providers = Wire.list "providers" health
+        providerText provider = Wire.str "provider" provider ++ (if Wire.str "last_outcome" provider == "failed" then " failing (" ++ countText "consecutive_failures" provider ++ " in a row)" else if Wire.str "last_outcome" provider == "" then " idle" else " " ++ Wire.str "last_outcome" provider)
     in
-    wanted |> Maybe.map (\q -> button [ onClick (Navigate q) ] [ text (Wire.str "relation" link ++ " → " ++ targetId) ]) |> Maybe.withDefault (div [ class "reference" ] [ text (Wire.str "relation" link), facts target ])
+    div [ class "stats-grid" ]
+        [ stat "Notes" (formatCount (total "raw_entries")) "Raw entries agents recorded"
+        , stat "Summaries" (formatCount (total "summaries")) "Built by pairwise aggregation"
+        , stat "Pending" (countText "pending_summaries" health) "Summaries waiting to be built"
+        , stat "Summarizers" (if List.isEmpty providers then "—" else String.fromInt (List.length (List.filter (\provider -> Wire.str "last_outcome" provider /= "failed") providers)) ++ "/" ++ String.fromInt (List.length providers) ++ " healthy") (String.join " · " (List.map providerText providers))
+        ]
+
+
+memoryRow : Model -> Int -> Row -> Html Msg
+memoryRow model depth row =
+    let
+        level = round (Wire.number "level" row.body)
+        span_ = round (Wire.number "span" row.body)
+        isSummary = row.kind == "summary" || level > 0
+        badge = levelBadge level span_ isSummary
+    in
+    expandable model { key = "memory:" ++ row.id, load = if isSummary && depth < 8 then query "memory_expand" |> with "summary_id" row.id else query "", icon = Icon.Memory, title = row.title, subtitle = timeText row.subtitle, aside = badge } (memoryDetail model depth row)
+
+
+levelBadge : Int -> Int -> Bool -> Html Msg
+levelBadge level span_ isSummary =
+    let
+        caption = if isSummary then "Level " ++ String.fromInt level ++ (if span_ > 0 then " · " ++ String.fromInt span_ ++ " notes" else "") else "Note"
+    in
+    span [ class "level", attribute "title" caption ] [ span [ class "level-pips", attribute "aria-hidden" "true" ] (List.repeat (min 12 level) (span [ class "pip" ] [])), text caption ]
+
+
+memoryDetail : Model -> Int -> Row -> Maybe Document -> Html Msg
+memoryDetail model depth row loaded =
+    let
+        sources = loaded |> Maybe.map .rows |> Maybe.withDefault [] |> List.filter (\source -> source.id /= row.id)
+    in
+    div []
+        [ pre [ class "document-text" ] [ text (Wire.str "content" row.body) ]
+        , if List.isEmpty sources then text "" else div [ class "memory-sources" ] (h3 [] [ text "Built from" ] :: List.map (memoryRow model (depth + 1)) sources)
+        ]
 
 
 pagination : Model -> Document -> Html Msg
 pagination model doc =
     let
-        hasMore = doc.next /= Nothing || (D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing) /= Nothing || model.query.kind == "papercuts" && (D.decodeValue (D.field "truncated" D.bool) doc.root |> Result.withDefault False)
+        hasMore = doc.next /= Nothing || (D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing) /= Nothing
     in
-    if hasMore then div [ class "pagination" ] [ p [] [ text "More retained records are available." ], button [ onClick More, disabled model.data.loading ] [ text "Next page →" ] ] else text ""
+    if hasMore then div [ class "pagination" ] [ button [ onClick More, disabled model.data.loading ] [ text "Show more →" ] ] else text ""

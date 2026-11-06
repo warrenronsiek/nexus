@@ -141,7 +141,7 @@ without changing agent API credentials or agent capture.
 **Coordination** starts with health, project scope, and exact summary counts,
 then exposes sessions, claims, conflicts, and recent events. Dashboard windows
 remain server-bounded: at most 32 events and 16 sessions, claims, and conflicts.
-Project discovery returns at most 16 recently active projects with up to four
+Project discovery returns at most 128 recently active projects with up to four
 sample sessions each. Bounded windows never imply a complete historical list.
 
 **Tools and Skills** retain rolling seven-day observations. Tools separates
@@ -206,7 +206,7 @@ projects that have only work, eval, reporting, memory, or usage history appear
 without a coordination session. Recording is throttled to once per minute per
 project, never waits beyond the lifecycle store budget, and fails open. Browser
 inspection uses a non-recording binding, so viewing a project never makes it look
-recently active. The 16 most recent projects are returned with truncation.
+recently active. The 128 most recent projects are returned with truncation.
 
 Each project carries an optional `display_name` reported by its client: a
 repository binding names its project after the repository (the parent of the Git

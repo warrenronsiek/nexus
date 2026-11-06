@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "papercut": {
+    "id": "friction-id",
+    "title": "Slow local fixture",
+    "description": "A recorded development problem",
+    "upvote_count": 2
+  },
+  "reports": [
+    {
+      "id": "friction-id",
+      "creator_agent": "codex",
+      "description": "A recorded development problem",
+      "created_at": "2026-10-31T00:00:00Z"
+    },
+    {
+      "id": "upvote-1",
+      "reporter_agent": "claude",
+      "note": "Hit it again while running the router tests",
+      "created_at": "2026-11-01T00:00:00Z"
+    }
+  ],
+  "truncated": false
+}

@@ -49,4 +49,18 @@ tests =
                 Wire.decode "eval_dashboard" "{\"ok\":true,\"action\":\"dashboard\",\"groups\":[],\"series\":[{\"id\":\"v1\",\"label\":\"Latency\",\"unit\":\"seconds\",\"description\":\"Wall time\",\"calculation\":\"end minus start\",\"definition_id\":\"metric-1\",\"points\":[{\"record_id\":\"point\",\"run_id\":\"run\",\"occurred_at\":\"2026-11-01T00:00:00Z\",\"numeric_value\":9007199254740992,\"value\":{\"storage\":\"inline\",\"text\":\"9007199254740993.0000000001\"}}]},{\"id\":\"v2\",\"label\":\"Latency\",\"unit\":\"ms\",\"description\":\"Revised unit\",\"calculation\":\"milliseconds\",\"definition_id\":\"metric-2\",\"points\":[]}]}"
                     |> Result.map (\doc -> ( List.map .definition doc.metrics, List.head doc.metrics |> Maybe.andThen (.points >> List.head) |> Maybe.map .exact ))
                     |> Expect.equal (Ok ( [ "metric-1", "metric-2" ], Just "9007199254740993.0000000001" ))
+            , test "coordination sessions are named by display name, then task, then agent and short identity" <|
+            \_ ->
+                Wire.decode "coordination_session_index" "{\"ok\":true,\"truncated\":false,\"sessions\":[{\"session_id\":\"a\",\"agent\":\"codex\",\"display_name\":\"emails\",\"task_summary\":\"x\",\"conflicts\":2,\"advisories\":3},{\"session_id\":\"b\",\"agent\":\"claude\",\"display_name\":null,\"task_summary\":\"Cache cleanup\",\"conflicts\":0,\"advisories\":0},{\"session_id\":\"0123456789\",\"agent\":\"claude\",\"display_name\":null,\"task_summary\":null,\"conflicts\":0,\"advisories\":0}]}"
+                    |> Result.map (.rows >> List.map (\row -> ( row.title, row.subtitle )))
+                    |> Expect.equal (Ok [ ( "emails", "2 conflicts · 3 messages" ), ( "Cache cleanup", "0 conflicts · 0 messages" ), ( "claude · 01234567", "0 conflicts · 0 messages" ) ])
+        , test "a timeline entry without an identity is rejected" <|
+            \_ ->
+                Wire.decode "coordination_session_timeline" "{\"ok\":true,\"session\":null,\"entries\":[{\"type\":\"advisory\"}],\"truncated\":false}"
+                    |> Expect.err
+        , test "memory rows preview the first line of their content" <|
+            \_ ->
+                Wire.decode "memory_expand" "{\"ok\":true,\"nodes\":[{\"id\":\"m\",\"kind\":\"raw\",\"content\":\"First line\\nSecond line\",\"level\":0,\"span\":1,\"created_at\":\"2026-11-01T00:00:00Z\"}]}"
+                    |> Result.map (.rows >> List.map .title)
+                    |> Expect.equal (Ok [ "First line" ])
         ]

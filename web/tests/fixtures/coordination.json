@@ -7,7 +7,9 @@
     "active_sessions": 1,
     "active_claims": 0,
     "open_conflicts": 0,
-    "events": 0
+    "events": 0,
+    "recent_conflicts": 2,
+    "recent_advisories": 3
   },
   "sessions": {
     "items": [
