@@ -3,7 +3,7 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/work-history.md
 import type { Span } from "./chart-model";
-import type { FlowNode } from "./flow-layout";
+import { dispatchTime, type FlowNode } from "./flow-layout";
 export interface FlowSegment { start: number; end: number; state: "active" | "wait" | "unknown" }
 export function qualified(span: Span): boolean {
   return span.executionQualified === true && span.start !== null && span.end !== null && span.end >= span.start;
@@ -24,11 +24,11 @@ function observedState(node: FlowNode): FlowSegment["state"] {
 }
 function childSegments(node: FlowNode, children: FlowNode[]): FlowSegment[] {
   return children.filter(child => child.parent === node && qualified(child.span) &&
-    connected(child, child.span.queued ?? child.span.start!) && connected(child, child.span.end!))
+    connected(child, dispatchTime(child.span)!) && connected(child, child.span.end!))
     .flatMap(child => {
       const sameWorker = !!node.span.executor && node.span.executor === child.span.executor;
       const state = child.span.callMode === "synchronous" ? "wait" : sameWorker ? observedState(child) : "unknown";
-      const start = child.span.callMode === "synchronous" ? child.span.queued ?? child.span.start! : child.span.start!;
+      const start = child.span.callMode === "synchronous" ? dispatchTime(child.span)! : child.span.start!;
       return state === "unknown" ? [] : [{ start, end: child.span.end!, state }];
     });
 }

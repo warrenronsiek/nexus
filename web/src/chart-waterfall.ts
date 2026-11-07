@@ -5,7 +5,7 @@
 import * as d3 from "d3";
 import type { Chart, Choose, Span } from "./chart-model";
 import { actionable, attrs, element, type Svg, type Group } from "./chart-svg";
-import { layoutFlow, labelBox, type Box, type FlowNode } from "./flow-layout";
+import { dispatchTime, layoutFlow, labelBox, type Box, type FlowNode } from "./flow-layout";
 import { flowLink } from "./flow-links";
 import { connected, returnTime, segments, type FlowSegment } from "./flow-state";
 
@@ -54,7 +54,7 @@ class ExecutionFlow {
     this.guides();
     const edges = this.svg.append("g").attr("class", "flow-edges");
     for (const node of this.nodes) {
-      const at = node.span.queued ?? node.span.start;
+      const at = dispatchTime(node.span);
       if (at !== null && connected(node, at) && !node.span.conflicts?.length) this.connector(edges, node, at, "dispatch");
       const back = returnTime(node.span);
       if (back !== null && connected(node, back)) this.connector(edges, node, back, "return");

@@ -3,6 +3,10 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/work-history.md
 import type { Span } from "./chart-model";
+export function dispatchTime(span: Span): number | null {
+  const boundary = span.start ?? span.end;
+  return span.queued !== null && (boundary === null || span.queued <= boundary) ? span.queued : span.start;
+}
 export interface FlowNode { span: Span; x: number; labelY: number; parent: FlowNode | null; labelWidth: number }
 export interface Box { left: number; right: number; top: number; bottom: number }
 const pitch = 180;
@@ -13,7 +17,7 @@ export function labelBox(node: FlowNode): Box {
   return { left: node.x + 13, right: node.x + 13 + node.labelWidth, top: node.labelY - 14, bottom: node.labelY + 24 };
 }
 function boxes(node: FlowNode, y: (at: number) => number, horizon: number): Box[] {
-  const start = node.span.queued ?? node.span.start ?? node.span.end ?? horizon;
+  const start = dispatchTime(node.span) ?? node.span.end ?? horizon;
   const label = labelBox(node);
   return [
     { left: node.x - 12, right: node.x + 12, top: y(start) - 5, bottom: y(node.span.end ?? horizon) + 8 },
@@ -21,7 +25,7 @@ function boxes(node: FlowNode, y: (at: number) => number, horizon: number): Box[
   ];
 }
 function placeNode(span: Span, parent: FlowNode | null, occupied: ObstacleIndex, y: (at: number) => number, horizon: number): FlowNode {
-  const top = span.queued ?? span.start ?? span.end;
+  const top = dispatchTime(span) ?? span.end;
   const labelY = top === null ? 88 : Math.max(86, y(top) - 12);
   const node = { span, parent, x: parent ? parent.x + pitch : 140, labelY, labelWidth: Math.max(120, Math.min(184, span.label.length * 7.4)) };
   if (span.kind === "work.session" && parent === null) { node.x = 90; return node; }
@@ -50,7 +54,7 @@ export function layoutFlow(spans: Span[], y: (at: number) => number, horizon: nu
   }
   return nodes;
 }
-function sourceTime(span: Span): number { return span.queued ?? span.start ?? span.end ?? Infinity; }
+function sourceTime(span: Span): number { return dispatchTime(span) ?? span.end ?? Infinity; }
 
 function ancestorChain(span: Span, byId: Map<string, Span>, placed: Map<string, FlowNode>): Span[] {
   const chain: Span[] = [], visiting = new Set<string>();

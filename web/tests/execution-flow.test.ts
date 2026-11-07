@@ -114,3 +114,9 @@ it("uses server execution qualification independently of a queue clock anomaly",
   expect(node(host, "read").querySelector(".flow-active")).not.toBeNull();
   expect(returned(host, "read")).not.toBeNull();
 });
+
+it("uses the valid execution start when a queue timestamp is inverted", () => {
+  const host = render([root, { ...call, queued: 30000, executionQualified: true, gaps: ["queue_wall_clock_anomaly"] }]);
+  expect(host.querySelector('.flow-dispatch[data-owner="read"]')?.getAttribute("data-at")).toBe("10000");
+  expect(node(host, "main").querySelector(".flow-wait")?.getAttribute("data-start")).toBe("10000");
+});
