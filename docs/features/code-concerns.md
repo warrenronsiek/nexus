@@ -9,6 +9,11 @@ sessions. It is distinct from Papercuts environment friction and SOS application
 reports. Nexus records evidence and caller decisions; it does not block execution,
 declare root causes, launch rewrites, or infer healthy code from absent reports.
 
+The advertised `nexus_concerns` tool description and the bundled skill ask
+agents to report each bug, regression, or unexpected code behavior when it is
+found, including problems fixed in the same session, and to search before
+reporting. The Papercuts tool description routes such code problems here.
+
 Immutable, project-scoped observations carry stable caller event IDs, optional
 source failure time, observation time, receipt time, and bound reporter provenance.
 Identical retries retain their receipt; changed content conflicts. Initial reports

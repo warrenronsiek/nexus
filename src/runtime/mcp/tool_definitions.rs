@@ -76,7 +76,7 @@ fn coordination_tool_definitions() -> Vec<Value> {
 fn papercut_tool_definition() -> Value {
     json!({
         "name":"nexus_papercuts",
-        "description":"List, get, dump, report, upvote, remove, or respond to project development-environment papercuts. List ranks open papercuts by encounter count (upvote_count), then recent activity, and accepts an optional after cursor built from the last listed item. get returns one canonical papercut with its bounded individual reports and encounters in chronological order. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
+        "description":"List, get, dump, report, upvote, remove, or respond to project development-environment papercuts: friction in tools, setup, scripts, or CI infrastructure. Bugs or unexpected behavior in the code being maintained belong in nexus_concerns instead. List ranks open papercuts by encounter count (upvote_count), then recent activity, and accepts an optional after cursor built from the last listed item. get returns one canonical papercut with its bounded individual reports and encounters in chronological order. Nexus supplies caller and project context. Duplicate review is requested automatically and dispatched asynchronously on a best-effort basis after a new report is durable; only the original reporter can approve consolidation. dump is complete and unbounded.",
         "inputSchema":{
             "type":"object",
             "oneOf":[
