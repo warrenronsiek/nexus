@@ -12,6 +12,9 @@ pub(super) fn project(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     capture_gaps(summary, events);
     accounting_role(summary, events);
     executor(summary, events);
+    tool_operation_title(summary, events);
+    invocation_mode(summary, events);
+    consumed_result(summary, events);
 }
 fn host_origin(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     if !matches!(summary.subject, WorkSubject::Session { .. }) {
@@ -195,6 +198,69 @@ fn capture_gaps(summary: &mut WorkSummary, events: &[&WorkObservation]) {
                 )
         ) {
             summary.gaps.push(gap.clone());
+        }
+    }
+}
+
+fn tool_operation_title(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    if summary.kind == "tool" {
+        let operations: BTreeSet<_> = contexts(events, "Tool operation observed")
+            .filter_map(|context| context.labels.get("nexus.tool.operation"))
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+            })
+            .collect();
+        if operations.len() == 1 {
+            summary.title = format!("{} · {}", summary.title, operations.first().unwrap());
+        }
+    }
+}
+
+fn invocation_mode(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    let modes: BTreeSet<_> = contexts(events, "Invocation observed")
+        .filter_map(|context| context.labels.get("nexus.flow.mode"))
+        .chain(summary.context.labels.get("nexus.flow.mode"))
+        .filter(|value| matches!(value.as_str(), "synchronous" | "asynchronous"))
+        .cloned()
+        .collect();
+    match modes.len() {
+        0 => {}
+        1 => {
+            summary
+                .context
+                .labels
+                .insert("nexus.flow.mode".into(), modes.into_iter().next().unwrap());
+        }
+        _ => {
+            summary.context.labels.remove("nexus.flow.mode");
+            summary
+                .conflicts
+                .push("conflicting_invocation_modes".into());
+        }
+    }
+}
+
+fn consumed_result(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    let returns: BTreeSet<_> = events
+        .iter()
+        .filter_map(|event| match &event.input.body {
+            WorkEvent::Milestone { name, .. } if name == "Result consumed" => {
+                Some(event.input.occurred_at)
+            }
+            _ => None,
+        })
+        .collect();
+    match returns.len() {
+        0 => {}
+        1 => {
+            summary.context.labels.insert(
+                "nexus.flow.returned_at".into(),
+                returns.first().unwrap().to_rfc3339(),
+            );
+        }
+        _ => {
+            summary.context.labels.remove("nexus.flow.returned_at");
+            summary.conflicts.push("conflicting_returns".into());
         }
     }
 }

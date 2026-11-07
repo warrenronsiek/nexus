@@ -175,3 +175,14 @@ A named legacy harness root may predate host metadata. Nexus recognizes its
 original companion producer and exact recorded host-root identity; importing
 retains the original actor for this check. Standalone command roots remain in
 source browsing. Names alone never establish host ownership or missing parentage.
+
+For execution-flow inspection, filled ribbons mean qualified observed execution,
+dotted hollow ribbons mean waiting/queued, and grey hollow dashes mean unknown.
+Native tool callbacks record synchronous invocation returns; a background worker
+retains its independent lifetime. Direct adapters can label an activity declaration
+`nexus.flow.mode=synchronous` or `asynchronous` and record a `Result consumed`
+milestone on the asynchronous activity when its result is actually consumed.
+Do not use worker completion as an inferred join. Record explicit execution/wait
+intervals with the exact executor to qualify container state; never label the
+gaps between tool calls as model reasoning without source evidence. The chart's
+Fit/zoom, independent call labels and return paths are visual projections only.

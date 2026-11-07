@@ -60,6 +60,8 @@ mod tests {
             elapsed: None,
             executor: None,
             accounting_role: WorkAccountingRole::Unknown,
+            call_mode: Default::default(),
+            returned_at: None,
             conflicts: vec!["parent_cycle".into()],
             gaps: vec![],
         }

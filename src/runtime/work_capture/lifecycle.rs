@@ -143,6 +143,7 @@ impl HostCapture {
                 context: self.role_context("execution"),
             },
         ));
+        self.tool_operation(input, &subject);
         let (key, body) = match phase {
             ToolHookPhase::Before => ("started", WorkEvent::Started),
             ToolHookPhase::After(completion) => (
@@ -163,6 +164,45 @@ impl HostCapture {
             ),
         };
         self.observations.push(event(subject, key, body));
+    }
+
+    fn tool_operation(
+        &mut self,
+        input: &crate::coordination::domain::ToolHookInput,
+        subject: &WorkSubject,
+    ) {
+        let mut context = self.role_context("execution");
+        context
+            .labels
+            .insert("nexus.flow.mode".into(), "synchronous".into());
+        self.observations.push(event(
+            subject.clone(),
+            "invocation",
+            WorkEvent::Milestone {
+                name: "Invocation observed".into(),
+                context,
+            },
+        ));
+        let operations: Vec<_> = crate::analytics::capture::resolve(input, &[])
+            .into_iter()
+            .filter(|action| action.origin == crate::analytics::types::Origin::StandardCli)
+            .map(|action| action.name)
+            .take(3)
+            .collect();
+        if !operations.is_empty() {
+            let mut context = self.role_context("execution");
+            context
+                .labels
+                .insert("nexus.tool.operation".into(), operations.join("; "));
+            self.observations.push(event(
+                subject.clone(),
+                "operation",
+                WorkEvent::Milestone {
+                    name: "Tool operation observed".into(),
+                    context,
+                },
+            ));
+        }
     }
 
     fn prompt(&mut self, _input: &crate::coordination::domain::UserPromptInput) {
@@ -386,5 +426,59 @@ mod tests {
         };
         let expected = stable_id(&["child", "claude", "s", "child"]);
         assert!(observations.iter().any(|o|matches!(&o.body,WorkEvent::ActivityDeclared {kind,parent_activity_id,..} if kind=="tool" && parent_activity_id.as_deref()==Some(expected.as_str()))));
+    }
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+    fn milestone_label<'a>(
+        observations: &'a [WorkObservationInput],
+        wanted: &str,
+        key: &str,
+    ) -> Option<&'a String> {
+        observations.iter().find_map(|o| match &o.body {
+            WorkEvent::Milestone { name, context } if name == wanted => context.labels.get(key),
+            _ => None,
+        })
+    }
+    #[test]
+    fn tool_flow_retains_safe_operations_and_observed_call_mode() {
+        let request = ServiceRequest::decode(
+            "pre_tool_use",
+            serde_json::json!({
+                "session_id":"s", "agent":"codex", "turn_id":"t", "tool_use_id":"call",
+                "tool_name":"Bash", "tool_input":{"command":"cargo test --token PRIVATE_VALUE"}
+            }),
+        )
+        .unwrap();
+        let WorkAction::Record { observations } = lifecycle_command(&request).unwrap().command
+        else {
+            panic!("record")
+        };
+        let declaration = observations
+            .iter()
+            .find_map(|o| match &o.body {
+                WorkEvent::ActivityDeclared { kind, context, .. } if kind == "tool" => {
+                    Some(context)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let invocation = milestone_label(&observations, "Invocation observed", "nexus.flow.mode");
+        assert_eq!(invocation.map(String::as_str), Some("synchronous"));
+        assert!(
+            !declaration.labels.contains_key("nexus.flow.mode"),
+            "The canonical declaration must remain replayable across adapter upgrades"
+        );
+        let operation = milestone_label(
+            &observations,
+            "Tool operation observed",
+            "nexus.tool.operation",
+        );
+        assert_eq!(operation.map(String::as_str), Some("cargo test"));
+        assert!(!serde_json::to_string(&observations)
+            .unwrap()
+            .contains("PRIVATE_VALUE"));
     }
 }

@@ -479,3 +479,30 @@ identity evidence, not a title or nearby-activity guess. The candidate migration
 includes these legacy reports; canonical metadata derives the host marker from
 active opening observations. Standalone `nexus-cli` command roots are excluded.
 No source event, historical parent or timestamp is rewritten.
+
+## Execution flow evidence
+
+Compact interval nodes retain `accounting_role`, `executor`, `call_mode` and
+`returned_at`, plus source conflicts and gaps. `nexus.flow.mode` in the activity's
+declaration context or an `Invocation observed` milestone may be `synchronous` or
+`asynchronous`; absence stays unknown.
+Native pre/post-tool callbacks describe a synchronous *invocation*, including a
+launcher that returns while its worker continues separately. Its observed finish
+is the tool result return, never a finish of the dispatched worker. An asynchronous
+activity's `Result consumed` milestone supplies its return timestamp independently
+of execution completion. Multiple distinct return timestamps remain a conflict.
+The chart requires qualified boundaries and resolved parentage before showing
+returns; completion alone is never a background join.
+
+Native capture reuses the usage classifier's known CLI-operation names to add a
+`Tool operation observed` milestone (`nexus.tool.operation`). It retains at most
+three names, such as `cargo test` or `git diff`, without command arguments, paths,
+outputs, or unrecognized program names. Projection appends a single unambiguous
+operation description to the original tool name. Historical generic labels stay
+generic; they are not reconstructed from missing inputs.
+
+Execution roles describe observed intervals, not CPU utilization or model tokens.
+The browser subtracts observed synchronous call waits from their caller's ribbon.
+Explicit same-executor execution/wait children may qualify parts of a container;
+all other container time remains unknown. Existing aggregate accounting definitions
+and immutable source observations are unchanged.

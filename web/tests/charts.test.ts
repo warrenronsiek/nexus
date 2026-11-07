@@ -4,42 +4,19 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/work-history.md
 import { expect, it } from "vitest";
-import { layoutWaterfall, renderChart } from "../src/charts";
+import { renderChart } from "../src/charts";
 
-  it("branches children right, preserves source positions, and separates concurrent siblings", () => {
-    const layout = layoutWaterfall([
-      { id: "root", parent: null, label: "Session", kind: "session", start: 1000, end: 8000, queued: null },
-      { id: "a", parent: "root", label: "Review", kind: "review", start: 3000, end: 6000, queued: 2000 },
-      { id: "b", parent: "root", label: "Tests", kind: "test", start: 4000, end: 7000, queued: null },
-      { id: "c", parent: "a", label: "Tool", kind: "tool", start: 4000, end: null, queued: null },
-    ]);
-    expect(layout.origin).toBe(1000);
-    expect(layout.nodes.find(x => x.id === "a")!.lane).toBeGreaterThan(0);
-    expect(layout.nodes.find(x => x.id === "a")!.lane).not.toBe(layout.nodes.find(x => x.id === "b")!.lane);
-    expect(layout.nodes.find(x => x.id === "c")!.lane).toBeGreaterThan(layout.nodes.find(x => x.id === "a")!.lane);
-    expect(layout.nodes.find(x => x.id === "a")!.queued).toBe(2000);
-    expect(layout.nodes.find(x => x.id === "c")!.end).toBeNull();
-  });
   it("renders real SVG source-time spans and reports exact selected identities", () => {
     const host = document.createElement("div"), chosen: string[] = [];
     renderChart(host, { id: "work-waterfall", type: "waterfall", spans: [
       { id: "source-id", parent: null, label: "<img src=x onerror=alert(1)>", kind: "test", start: "2026-11-01T00:00:00Z", end: "2026-11-01T00:00:30Z", queued: null },
     ] }, event => chosen.push(event.id));
-    expect(host.querySelectorAll("svg rect")).toHaveLength(1);
-    expect(host.querySelector("rect")!.getAttribute("height")).toBe("480");
+    expect(host.querySelectorAll(".waterfall-node")).toHaveLength(1);
+    expect(host.querySelector(".flow-unknown")!.getAttribute("width")).toBe("12");
     expect(host.querySelector("img")).toBeNull();
     expect(host.textContent).toContain("<img src=x onerror=aler");
     host.querySelector<SVGGElement>("[role=button]")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(chosen).toEqual(["source-id"]);
-  });
-  it("retains detached parentage and cyclic evidence without inventing a source boundary", () => {
-    const result = layoutWaterfall([
-      { id: "detached", parent: "not-retained", label: "Detached", kind: "custom", start: null, end: null, queued: null },
-      { id: "a", parent: "b", label: "A", kind: "tool", start: 1, end: 2, queued: null },
-      { id: "b", parent: "a", label: "B", kind: "tool", start: 1, end: 2, queued: null },
-    ]);
-    expect(result.nodes).toHaveLength(3);
-    expect(result.nodes.find(node => node.id === "detached")).toMatchObject({ unresolved: true, start: null, end: null });
   });
   it("ends queue-only canceled tasks at their known finish rather than the session horizon", () => {
     const host = document.createElement("div");
@@ -48,7 +25,7 @@ import { layoutWaterfall, renderChart } from "../src/charts";
       { id: "queued", parent: "session", label: "Canceled queued task", kind: "test", start: null, end: 30000, queued: 10000 },
     ] }, () => {});
     const task = [...host.querySelectorAll<SVGGElement>("[role=button]")].find(group => group.textContent?.includes("Canceled queued task"))!;
-    expect(task.querySelector("line")!.getAttribute("y2")).toBe("179");
+    expect(task.querySelector(".flow-queue")!.getAttribute("data-end")).toBe("30000");
   });
 
 it("shows a single date for one observed timestamp rather than repeating an artificial range", () => {

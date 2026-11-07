@@ -108,7 +108,7 @@ async function inspectWork(): Promise<void> {
   pick("Duration aggregation", "total");
   await vi.waitFor(() => expect(document.querySelector("#summary-bars svg")).not.toBeNull());
   pick("Session", "work-id");
-  await vi.waitFor(() => expect(document.querySelectorAll("#work-waterfall rect").length).toBe(2));
+  await vi.waitFor(() => expect(document.querySelectorAll("#work-waterfall .waterfall-node").length).toBe(2));
   await chartClick("work-waterfall", "Router tests");
   await content("Router tests · test.unit · 30s · succeeded");
   window.history.back();

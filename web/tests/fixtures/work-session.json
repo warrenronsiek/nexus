@@ -115,7 +115,9 @@
       "executor": "worker-1",
       "accounting_role": "execution",
       "conflicts": [],
-      "gaps": []
+      "gaps": [],
+      "call_mode": "synchronous",
+      "returned_at": "2026-11-01T00:00:40Z"
     }
   ],
   "accounting": null

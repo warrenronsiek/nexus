@@ -25,7 +25,8 @@ export function actionable<E extends SVGElement>(selection: d3.Selection<E, unkn
 export function reveal(host: HTMLElement): void {
   const scroll = host.closest<HTMLElement>(".waterfall-scroll"), selected = host.querySelector<SVGGElement>(".waterfall-node.selected");
   if (!scroll || !selected || typeof selected.getBBox !== "function") return;
-  const bounds = selected.getBBox();
+  const label = selected.querySelector<SVGGraphicsElement>(".flow-label");
+  const bounds = label ? label.getBBox() : selected.getBBox();
   if (bounds.y < scroll.scrollTop || bounds.y > scroll.scrollTop + scroll.clientHeight - 60) scroll.scrollTop = Math.max(0, bounds.y - 100);
   if (bounds.x < scroll.scrollLeft || bounds.x > scroll.scrollLeft + scroll.clientWidth - 100) scroll.scrollLeft = Math.max(0, bounds.x - 100);
 }
