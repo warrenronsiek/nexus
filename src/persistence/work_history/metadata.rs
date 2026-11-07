@@ -12,6 +12,9 @@ pub(super) fn project(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     capture_gaps(summary, events);
     accounting_role(summary, events);
     executor(summary, events);
+    tool_operation_title(summary, events);
+    invocation_mode(summary, events);
+    consumed_result(summary, events);
 }
 fn host_origin(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     if !matches!(summary.subject, WorkSubject::Session { .. }) {
@@ -53,6 +56,22 @@ fn contexts<'a>(
             _ => None,
         })
 }
+enum Agreement<T> {
+    Absent,
+    One(T),
+    Conflict,
+}
+fn agreement<T: Ord>(values: impl IntoIterator<Item = T>) -> Agreement<T> {
+    let mut values: BTreeSet<T> = values.into_iter().collect();
+    if values.len() > 1 {
+        Agreement::Conflict
+    } else {
+        values
+            .pop_first()
+            .map(Agreement::One)
+            .unwrap_or(Agreement::Absent)
+    }
+}
 fn role(value: &str) -> bool {
     matches!(value, "container" | "execution" | "wait")
 }
@@ -70,15 +89,15 @@ fn accounting_role(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     {
         roles.insert(declared.clone());
     }
-    match roles.len() {
-        0 => {}
-        1 => {
-            summary.context.labels.insert(
-                "nexus.accounting.role".into(),
-                roles.into_iter().next().expect("one role"),
-            );
+    match agreement(roles) {
+        Agreement::Absent => {}
+        Agreement::One(value) => {
+            summary
+                .context
+                .labels
+                .insert("nexus.accounting.role".into(), value);
         }
-        _ => {
+        Agreement::Conflict => {
             summary
                 .context
                 .labels
@@ -115,11 +134,13 @@ fn executor(summary: &mut WorkSummary, events: &[&WorkObservation]) {
             identities.insert(identity.clone());
         }
     }
-    if identities.len() > 1 {
-        summary.executor = None;
-        summary.conflicts.push("conflicting_executors".into());
-    } else {
-        summary.executor = identities.into_iter().next();
+    match agreement(identities) {
+        Agreement::Conflict => {
+            summary.executor = None;
+            summary.conflicts.push("conflicting_executors".into());
+        }
+        Agreement::One(value) => summary.executor = Some(value),
+        Agreement::Absent => summary.executor = None,
     }
 }
 fn session_title(summary: &mut WorkSummary, events: &[&WorkObservation]) {
@@ -195,6 +216,71 @@ fn capture_gaps(summary: &mut WorkSummary, events: &[&WorkObservation]) {
                 )
         ) {
             summary.gaps.push(gap.clone());
+        }
+    }
+}
+
+fn tool_operation_title(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    if summary.kind == "tool" {
+        let operations: BTreeSet<_> = contexts(events, "Tool operation observed")
+            .filter_map(|context| context.labels.get("nexus.tool.operation"))
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+            })
+            .collect();
+        match agreement(operations) {
+            Agreement::One(value) => summary.title = format!("{} · {}", summary.title, value),
+            Agreement::Conflict => summary.gaps.push("ambiguous_tool_operation".into()),
+            Agreement::Absent => {}
+        }
+    }
+}
+
+fn invocation_mode(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    let modes: BTreeSet<_> = contexts(events, "Invocation observed")
+        .filter_map(|context| context.labels.get("nexus.flow.mode"))
+        .chain(summary.context.labels.get("nexus.flow.mode"))
+        .filter(|value| matches!(value.as_str(), "synchronous" | "asynchronous"))
+        .cloned()
+        .collect();
+    match agreement(modes) {
+        Agreement::Absent => {}
+        Agreement::One(value) => {
+            summary
+                .context
+                .labels
+                .insert("nexus.flow.mode".into(), value);
+        }
+        Agreement::Conflict => {
+            summary.context.labels.remove("nexus.flow.mode");
+            summary
+                .conflicts
+                .push("conflicting_invocation_modes".into());
+        }
+    }
+}
+
+fn consumed_result(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    let returns: BTreeSet<_> = events
+        .iter()
+        .filter_map(|event| match &event.input.body {
+            WorkEvent::Milestone { name, .. } if name == "Result consumed" => {
+                Some(event.input.occurred_at)
+            }
+            _ => None,
+        })
+        .collect();
+    match agreement(returns) {
+        Agreement::Absent => {}
+        Agreement::One(value) => {
+            summary
+                .context
+                .labels
+                .insert("nexus.flow.returned_at".into(), value.to_rfc3339());
+        }
+        Agreement::Conflict => {
+            summary.context.labels.remove("nexus.flow.returned_at");
+            summary.conflicts.push("conflicting_returns".into());
         }
     }
 }

@@ -496,3 +496,87 @@ fn bounded_waterfalls_retain_recent_operations_and_their_recorded_parents() {
     assert_eq!(accounting.coverage.activity_count, 1026);
     assert!(accounting.coverage.display_partial);
 }
+
+#[test]
+fn execution_flow_projects_observed_returns_and_safe_tool_labels() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    let mut start = observation("start", "activity", "call", json!({"event":"started"}));
+    start.occurred_at = "2026-10-29T12:00:01Z".parse().unwrap();
+    let mut finish = observation(
+        "finish",
+        "activity",
+        "call",
+        json!({"event":"finished","outcome":"succeeded"}),
+    );
+    finish.occurred_at = "2026-10-29T12:00:02Z".parse().unwrap();
+    record(
+        &mut store,
+        &project,
+        vec![
+            observation(
+                "root",
+                "session",
+                "root",
+                json!({"event":"session_opened","title":"Root","context":{}}),
+            ),
+            observation(
+                "declare",
+                "activity",
+                "call",
+                json!({"event":"activity_declared","name":"Bash","kind":"tool","work_session_id":"root","context":{"labels":{"nexus.accounting.role":"execution"}}}),
+            ),
+            observation(
+                "operation",
+                "activity",
+                "call",
+                json!({"event":"milestone","name":"Tool operation observed","context":{"labels":{"nexus.tool.operation":"cargo test"}}}),
+            ),
+            observation(
+                "invocation",
+                "activity",
+                "call",
+                json!({"event":"milestone","name":"Invocation observed","context":{"labels":{"nexus.flow.mode":"synchronous"}}}),
+            ),
+            start,
+            finish,
+        ],
+    );
+    let WorkResponse::Dashboard { dashboard: result } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("root"),
+        WorkSessionOrigin::All,
+    )
+    .unwrap() else {
+        panic!("dashboard")
+    };
+    let value = serde_json::to_value(&result.intervals[0]).unwrap();
+    assert_eq!(value["title"], "Bash · cargo test");
+    assert_eq!(value["call_mode"], "synchronous");
+    assert_eq!(value["returned_at"], "2026-10-29T12:00:02Z");
+    record(
+        &mut store,
+        &project,
+        vec![observation(
+            "second-operation",
+            "activity",
+            "call",
+            json!({"event":"milestone","name":"Tool operation observed","context":{"labels":{"nexus.tool.operation":"git diff"}}}),
+        )],
+    );
+    let WorkResponse::Dashboard { dashboard: next } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("root"),
+        WorkSessionOrigin::All,
+    )
+    .unwrap() else {
+        panic!("dashboard")
+    };
+    assert_eq!(next.intervals[0].title, "Bash");
+    assert!(next.intervals[0]
+        .gaps
+        .iter()
+        .any(|gap| gap == "ambiguous_tool_operation"));
+}

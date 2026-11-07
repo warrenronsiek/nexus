@@ -141,3 +141,52 @@ Static taste lint reports zero failures; its four monospace warnings are the
 intentional numeric/code face. The raw-CDP inspector was not used because this
 host requires the computer-use tool for browser interaction. No live records,
 credentials, or browser screenshots are committed with these notes.
+
+### Execution flow
+
+Time flows vertically down. Dispatches branch out and observed results return;
+independent workers keep their own activity/wait states. Horizontal collision
+packing separates call identities and labels without shifting source times. Small
+label leaders allow near-instant operations to retain readable names. The session
+envelope uses a quiet margin rather than another full label column. Filled task
+ink means qualified observed execution; hollow dots mean waiting/queued; grey
+hollow dashes mean unknown state/finish. Known completion has a terminal cap.
+Missing model boundaries remain unobserved, including gaps between tool calls.
+D3 owns chart geometry and SVG; Elm owns controls, zoom/selection state, requests,
+and evidence. The chart has local scrolling and a Fit control, with no animation
+or new browser mutations. The original horizontal Gantt renderer is replaced.
+
+### Execution-flow validation (2026-11-07)
+
+The first public-renderer regression run (`node web/node_modules/vitest/vitest.mjs
+run web/tests/execution-flow.test.ts --root web`) failed all six original cases:
+missing returns, filled caller waits, missing async independence, and unstaggered
+calls. The same focused command passed after implementation; the retained suite
+now also exercises queue boundaries, evidence qualification, and keyboard reveal
+and focus. `cargo test --lib tool_flow_retains_safe_operations -- --nocapture`
+failed before capture retained invocation semantics, then passed. The dashboard
+projection regression failed on `Bash` versus `Bash · cargo test`, then passed.
+
+Original-checkout validation: 20 Vitest and 7 Elm tests pass, the production build passes,
+and the default Rust all-targets suite passes 681 tests (one opt-in test ignored).
+SQLite all-targets and PostgreSQL server Clippy pass with warnings denied.
+Feature annotations and whitespace checks pass. The taste linter reports zero
+failures; its four monospace warnings remain the documented numeric/code face.
+The canonical `./scripts/check.sh` stops at unrelated repository complexity
+violations; no full-gate success is claimed. The changed flow files pass their
+scoped complexity checks. The former horizontal renderer and its row layout
+were removed; no parallel display path remains.
+
+An isolated illustrative fixture exercised the compiled Elm/D3 application at
+1440×1000, 768×1024 and 390×844. The page had no horizontal overflow; the chart
+retained its own scroll area, state legend, Fit/zoom, exact task selection and
+phone keyboard label reveal. The fixture does not seed or modify live history.
+A metadata-only layout benchmark placed 512 simultaneous calls in 44 ms versus
+704 ms before spatial indexing, and the full 4096-node source bound in 2.54 s
+on this machine. This is a layout benchmark, not a rendering or production SLA.
+
+Delivery port: the current-main candidate passes the canonical gate with CI's
+pinned BCA 2.2.0 (the previous checkout used BCA 2.5.1). Advisory review prompted
+server-owned execution qualification, queue-clock regression coverage, removal
+of grouped-node residue, and cached label obstacles. The queue anomaly and
+ambiguous-operation regressions were observed red before their fixes passed.

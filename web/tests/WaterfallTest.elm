@@ -13,7 +13,7 @@ import Waterfall
 
 node : String -> Maybe String -> String -> String -> String -> Waterfall.Node
 node id parent label kind start =
-    { id = id, parent = parent, label = label, kind = kind, start = Just start, end = Just (start ++ "9"), queued = Nothing, count = 1, body = E.object [ ( "outcome", E.string "succeeded" ) ] }
+    { id = id, parent = parent, label = label, kind = kind, start = Just start, end = Just (start ++ "9"), queued = Nothing, body = E.object [ ( "outcome", E.string "succeeded" ) ] }
 
 
 root : Waterfall.Node
@@ -28,47 +28,9 @@ shape =
 
 tests : Test
 tests =
-    describe "human-rooted session tree"
-        [ test "agent, request and turn containers of a single prompt fold into the session" <|
+    describe "observed execution identities"
+        [ test "an individual call retains its outcome" <|
             \_ ->
-                Waterfall.build root
-                    [ node "agent" Nothing "claude agent" "host.session" "2026-11-01T00:00:01Z"
-                    , node "request" (Just "agent") "Human request" "request" "2026-11-01T00:00:02Z"
-                    , node "turn" (Just "request") "Host turn" "host.turn" "2026-11-01T00:00:02Z"
-                    , node "edit" (Just "turn") "Edit" "tool" "2026-11-01T00:00:03Z"
-                    ]
-                    |> shape
-                    |> Expect.equal [ ( "session", Nothing, "emails" ), ( "edit", Nothing, "Edit" ) ]
-        , test "several prompts stay distinct and are numbered in order" <|
-            \_ ->
-                Waterfall.build root
-                    [ node "second" Nothing "Human request" "request" "2026-11-01T00:05:00Z"
-                    , node "first" Nothing "Human request" "request" "2026-11-01T00:01:00Z"
-                    , node "turn" (Just "second") "Host turn" "host.turn" "2026-11-01T00:05:00Z"
-                    , node "test" (Just "turn") "Router tests" "test.unit" "2026-11-01T00:05:01Z"
-                    ]
-                    |> shape
-                    |> List.sortBy (\( id, _, _ ) -> id)
-                    |> Expect.equal [ ( "first", Nothing, "Prompt 1" ), ( "second", Nothing, "Prompt 2" ), ( "session", Nothing, "emails" ), ( "test", Just "second", "Router tests" ) ]
-        , test "consecutive repeated leaf calls under one parent become one counted node" <|
-            \_ ->
-                let
-                    built =
-                        Waterfall.build root
-                            [ node "a" Nothing "Bash" "tool" "2026-11-01T00:00:01Z"
-                            , node "b" Nothing "Bash" "tool" "2026-11-01T00:00:02Z"
-                            , node "c" Nothing "Bash" "tool" "2026-11-01T00:00:03Z"
-                            , node "d" Nothing "Read" "tool" "2026-11-01T00:00:04Z"
-                            , node "e" Nothing "Bash" "tool" "2026-11-01T00:00:05Z"
-                            ]
-                in
-                ( shape built, List.map .count built )
-                    |> Expect.equal ( [ ( "session", Nothing, "emails" ), ( "group:a", Nothing, "Bash ×3" ), ( "d", Nothing, "Read" ), ( "e", Nothing, "Bash" ) ], [ 1, 3, 1, 1 ] )
-        , test "a grouped node summarizes its member outcomes" <|
-            \_ ->
-                Waterfall.build root [ node "a" Nothing "Bash" "tool" "2026-11-01T00:00:01Z", node "b" Nothing "Bash" "tool" "2026-11-01T00:00:02Z" ]
-                    |> List.drop 1
-                    |> List.head
-                    |> Maybe.map Waterfall.summary
-                    |> Expect.equal (Just "Bash ×2 · tool · elapsed unknown · 2/2 succeeded")
+                node "a" Nothing "Bash" "tool" "a" |> Waterfall.summary
+                    |> Expect.equal "Bash · tool · elapsed unknown · succeeded"
         ]

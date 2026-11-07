@@ -33,6 +33,16 @@ impl WorkAccountingRole {
     }
 }
 
+/// Caller-provided invocation semantics; parentage alone never implies a blocking call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkCallMode {
+    Synchronous,
+    Asynchronous,
+    #[default]
+    Unknown,
+}
+
 /// Compact source evidence for the vertically pannable session waterfall.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -50,12 +60,42 @@ pub struct WorkIntervalNode {
     pub elapsed: Option<Elapsed>,
     pub executor: Option<String>,
     pub accounting_role: WorkAccountingRole,
+    pub execution_qualified: bool,
+    pub call_mode: WorkCallMode,
+    pub returned_at: Option<DateTime<Utc>>,
     pub conflicts: Vec<String>,
     pub gaps: Vec<String>,
 }
 impl From<&WorkSummary> for WorkIntervalNode {
     fn from(summary: &WorkSummary) -> Self {
+        let call_mode = match summary
+            .context
+            .labels
+            .get("nexus.flow.mode")
+            .map(String::as_str)
+        {
+            Some("synchronous") => WorkCallMode::Synchronous,
+            Some("asynchronous") => WorkCallMode::Asynchronous,
+            _ => WorkCallMode::Unknown,
+        };
+        let execution_qualified = source_interval(summary).is_some();
+        let returned_at = if execution_qualified {
+            if call_mode == WorkCallMode::Synchronous {
+                summary.finished_at
+            } else {
+                summary
+                    .context
+                    .labels
+                    .get("nexus.flow.returned_at")
+                    .and_then(|at| at.parse().ok())
+            }
+        } else {
+            None
+        };
         Self {
+            call_mode,
+            returned_at,
+            execution_qualified,
             id: summary.subject.id().into(),
             title: summary.title.clone(),
             kind: summary.kind.clone(),
@@ -425,4 +465,23 @@ fn incomplete_source(summary: &WorkSummary) -> bool {
                 | "request_context_evicted"
         )
     })
+}
+
+#[cfg(test)]
+mod flow_qualification_tests {
+    use super::*;
+    #[test]
+    fn queue_clock_anomaly_does_not_disqualify_execution() {
+        let mut summary =
+            WorkSummary::unobserved(&super::super::WorkSubject::Activity { id: "tool".into() });
+        summary.started_at = Some("2026-11-07T12:00:00Z".parse().unwrap());
+        summary.finished_at = Some("2026-11-07T12:00:01Z".parse().unwrap());
+        summary.elapsed = Some(Elapsed {
+            nanoseconds: "1000000000".into(),
+            method: "source".into(),
+            clock_id: None,
+        });
+        summary.gaps.push("queue_wall_clock_anomaly".into());
+        assert!(WorkIntervalNode::from(&summary).execution_qualified);
+    }
 }

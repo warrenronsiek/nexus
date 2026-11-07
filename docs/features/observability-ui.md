@@ -252,3 +252,12 @@ must prove that the served assets and authenticated reads share its service
 image. Retained Pi tests cover headless capture, inventory, memory activation,
 and bounded MCP lifecycle; installation tests cover their full import closure
 and removal of known retired UI files while preserving unrelated extensions.
+
+## Execution flow
+
+Time flows down; collision-spaced branches retain individual calls and observed
+returns. Filled ribbons show server-qualified execution; dotted ribbons show
+waiting, and hollow dashes mean unobserved state. Background workers retain their
+own state and join only at observed consumption. Elm owns state and controls;
+D3 owns geometry. See [work history](work-history.md#execution-flow-evidence)
+for capture and qualification contracts.

@@ -137,3 +137,6 @@ views and closes after navigation. Task colors are semantic and match the
 waterfall legend; use labels and metadata to distinguish kinds without color.
 All fonts and icons are served by Nexus itself. No chart color implies whether an
 eval result improved: its recorded definition and units determine its meaning.
+
+See [work history](../nexus-work-history/SKILL.md) for execution-flow states,
+source qualification, native invocation returns and explicit async consumption.
