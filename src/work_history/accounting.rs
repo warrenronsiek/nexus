@@ -60,9 +60,8 @@ pub struct WorkIntervalNode {
     pub elapsed: Option<Elapsed>,
     pub executor: Option<String>,
     pub accounting_role: WorkAccountingRole,
-    #[serde(default)]
+    pub execution_qualified: bool,
     pub call_mode: WorkCallMode,
-    #[serde(default)]
     pub returned_at: Option<DateTime<Utc>>,
     pub conflicts: Vec<String>,
     pub gaps: Vec<String>,
@@ -79,7 +78,8 @@ impl From<&WorkSummary> for WorkIntervalNode {
             Some("asynchronous") => WorkCallMode::Asynchronous,
             _ => WorkCallMode::Unknown,
         };
-        let returned_at = if summary.conflicts.is_empty() {
+        let execution_qualified = source_interval(summary).is_some();
+        let returned_at = if execution_qualified {
             if call_mode == WorkCallMode::Synchronous {
                 summary.finished_at
             } else {
@@ -95,6 +95,7 @@ impl From<&WorkSummary> for WorkIntervalNode {
         Self {
             call_mode,
             returned_at,
+            execution_qualified,
             id: summary.subject.id().into(),
             title: summary.title.clone(),
             kind: summary.kind.clone(),
@@ -464,4 +465,23 @@ fn incomplete_source(summary: &WorkSummary) -> bool {
                 | "request_context_evicted"
         )
     })
+}
+
+#[cfg(test)]
+mod flow_qualification_tests {
+    use super::*;
+    #[test]
+    fn queue_clock_anomaly_does_not_disqualify_execution() {
+        let mut summary =
+            WorkSummary::unobserved(&super::super::WorkSubject::Activity { id: "tool".into() });
+        summary.started_at = Some("2026-11-07T12:00:00Z".parse().unwrap());
+        summary.finished_at = Some("2026-11-07T12:00:01Z".parse().unwrap());
+        summary.elapsed = Some(Elapsed {
+            nanoseconds: "1000000000".into(),
+            method: "source".into(),
+            clock_id: None,
+        });
+        summary.gaps.push("queue_wall_clock_anomaly".into());
+        assert!(WorkIntervalNode::from(&summary).execution_qualified);
+    }
 }

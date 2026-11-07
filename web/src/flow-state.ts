@@ -6,12 +6,10 @@ import type { Span } from "./chart-model";
 import type { FlowNode } from "./flow-layout";
 export interface FlowSegment { start: number; end: number; state: "active" | "wait" | "unknown" }
 export function qualified(span: Span): boolean {
-  return !span.conflicts?.length && !span.gaps?.some(gap => /clock|projection_limit/.test(gap)) &&
-    span.start !== null && span.end !== null && span.end >= span.start;
+  return span.executionQualified === true && span.start !== null && span.end !== null && span.end >= span.start;
 }
 export function returnTime(span: Span): number | null {
   if (!qualified(span)) return null;
-  if (span.callMode === "synchronous") return span.end;
   return span.returnedAt != null && span.returnedAt >= span.end! ? span.returnedAt : null;
 }
 export function connected(node: FlowNode, at: number): boolean {

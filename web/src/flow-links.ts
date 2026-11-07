@@ -3,14 +3,13 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/work-history.md
 import * as d3 from "d3";
-import { labelBox, type Box, type FlowNode } from "./flow-layout";
+import { type Box } from "./flow-layout";
 interface Link { left: number; right: number; direction: number; at: number }
 type Point = [number, number];
 
 /** Transport links detour around labels; their source-time endpoints stay fixed. */
-export function flowLink(from: number, to: number, at: number, nodes: FlowNode[]): string {
+export function flowLink(from: number, to: number, at: number, boxes: Box[]): string {
   const link: Link = { left: Math.min(from, to), right: Math.max(from, to), direction: Math.sign(to - from), at };
-  const boxes = nodes.filter(node => node.span.kind !== "work.session").map(labelBox);
   const points: Point[] = [[from, at]];
   for (const box of blockers(boxes, link)) points.push(...detour(box, boxes, link));
   points.push([to, at]);

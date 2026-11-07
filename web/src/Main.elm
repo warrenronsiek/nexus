@@ -659,9 +659,9 @@ waterfallNodes doc =
     let
         root = Wire.field "selected_session" doc.root
         rootId = Wire.str "id" (Wire.field "subject" root)
-        rootNode = { id = rootId, parent = Nothing, label = Wire.str "title" root, kind = "work.session", start = maybeText (Wire.field "started_at" root), end = maybeText (Wire.field "finished_at" root), queued = maybeText (Wire.field "queued_at" root), count = 1, body = root }
+        rootNode = { id = rootId, parent = Nothing, label = Wire.str "title" root, kind = "work.session", start = maybeText (Wire.field "started_at" root), end = maybeText (Wire.field "finished_at" root), queued = maybeText (Wire.field "queued_at" root), body = root }
     in
-    if rootId == "" then [] else Waterfall.build rootNode (List.map (\node -> { id = node.id, parent = node.parent, label = node.label, kind = node.kind, start = node.start, end = node.end, queued = node.queued, count = 1, body = node.body }) doc.intervals)
+    if rootId == "" then [] else rootNode :: (List.map (\node -> { id = node.id, parent = node.parent, label = node.label, kind = node.kind, start = node.start, end = node.end, queued = node.queued, body = node.body }) doc.intervals)
 
 
 keyboard : String -> Model -> ( Model, Cmd Msg )
@@ -789,7 +789,7 @@ maybeText value_ =
 
 encodeNode : String -> Waterfall.Node -> E.Value
 encodeNode rootId node =
-    E.object [ ( "id", E.string node.id ), ( "label", E.string node.label ), ( "kind", E.string node.kind ), ( "parent", (if node.id == rootId then Nothing else node.parent |> orElse (Just rootId)) |> Maybe.map E.string |> Maybe.withDefault E.null ), ( "start", encodeTime node.start ), ( "end", encodeTime node.end ), ( "queued", encodeTime node.queued ), ( "role", E.string (Wire.str "accounting_role" node.body) ), ( "callMode", E.string (Wire.str "call_mode" node.body) ), ( "returnedAt", Wire.field "returned_at" node.body ), ( "executor", Wire.field "executor" node.body ), ( "conflicts", E.list E.string (Wire.strings "conflicts" node.body) ), ( "gaps", E.list E.string (Wire.strings "gaps" node.body) ) ]
+    E.object [ ( "id", E.string node.id ), ( "label", E.string node.label ), ( "kind", E.string node.kind ), ( "parent", (if node.id == rootId then Nothing else node.parent |> orElse (Just rootId)) |> Maybe.map E.string |> Maybe.withDefault E.null ), ( "start", encodeTime node.start ), ( "end", encodeTime node.end ), ( "queued", encodeTime node.queued ), ( "executionQualified", Wire.field "execution_qualified" node.body ), ( "role", E.string (Wire.str "accounting_role" node.body) ), ( "callMode", E.string (Wire.str "call_mode" node.body) ), ( "returnedAt", Wire.field "returned_at" node.body ), ( "executor", Wire.field "executor" node.body ), ( "conflicts", E.list E.string (Wire.strings "conflicts" node.body) ), ( "gaps", E.list E.string (Wire.strings "gaps" node.body) ) ]
 
 
 encodeTime : Maybe String -> E.Value
@@ -1235,6 +1235,7 @@ sessionView model doc =
     else
         panel (Wire.str "title" root) caption
             [ div [ class "graph-controls" ] [ div [ class "legend" ] (List.map (\( css, legendCaption ) -> span [ class css ] [ span [ class "legend-swatch", attribute "aria-hidden" "true" ] [], text legendCaption ]) [ ( "agent", "Subagent" ), ( "test", "Test" ), ( "script", "Script" ), ( "review", "Review" ), ( "tool", "Tool / command" ), ( "session", "Prompt / session" ) ]), div [] [ button [ onClick (Zoom (0.5 / model.zoom)), attribute "aria-label" "Fit timeline" ] [ text "Fit" ], button [ onClick (Zoom 0.7), attribute "aria-label" "Zoom out" ] [ Icon.view Icon.ZoomOut ], button [ onClick (Zoom 1.4), attribute "aria-label" "Zoom in" ] [ Icon.view Icon.ZoomIn ] ] ]
+            , div [ class "legend flow-state-key" ] [ span [ class "flow-key-active" ] [ span [ class "flow-key-mark" ] [], text "Execution" ], span [ class "flow-key-wait" ] [ span [ class "flow-key-mark" ] [], text "Waiting / queued" ], span [ class "flow-key-unknown" ] [ span [ class "flow-key-mark" ] [], text "Unobserved" ] ]
             , div [ class "waterfall-scroll", attribute "tabindex" "0", preventDefaultOn "keydown" (D.field "key" D.string |> D.map (\key -> ( Keyboard key, List.member key [ "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight" ] ))), attribute "aria-label" "Session work tree. Arrow keys select tasks, parents and children." ] [ chart "work-waterfall" ]
             , p [ class "selection-line", attribute "aria-live" "polite" ] [ text (picked |> Maybe.map Waterfall.summary |> Maybe.withDefault "Time flows down. Filled: observed execution; dotted: waiting; hollow: unknown. Arrows show observed returns. Select an individual call for evidence.") ]
             ]

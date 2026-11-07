@@ -555,4 +555,28 @@ fn execution_flow_projects_observed_returns_and_safe_tool_labels() {
     assert_eq!(value["title"], "Bash · cargo test");
     assert_eq!(value["call_mode"], "synchronous");
     assert_eq!(value["returned_at"], "2026-10-29T12:00:02Z");
+    record(
+        &mut store,
+        &project,
+        vec![observation(
+            "second-operation",
+            "activity",
+            "call",
+            json!({"event":"milestone","name":"Tool operation observed","context":{"labels":{"nexus.tool.operation":"git diff"}}}),
+        )],
+    );
+    let WorkResponse::Dashboard { dashboard: next } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("root"),
+        WorkSessionOrigin::All,
+    )
+    .unwrap() else {
+        panic!("dashboard")
+    };
+    assert_eq!(next.intervals[0].title, "Bash");
+    assert!(next.intervals[0]
+        .gaps
+        .iter()
+        .any(|gap| gap == "ambiguous_tool_operation"));
 }

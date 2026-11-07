@@ -184,3 +184,9 @@ phone keyboard label reveal. The fixture does not seed or modify live history.
 A metadata-only layout benchmark placed 512 simultaneous calls in 44 ms versus
 704 ms before spatial indexing, and the full 4096-node source bound in 2.54 s
 on this machine. This is a layout benchmark, not a rendering or production SLA.
+
+Delivery port: the current-main candidate passes the canonical gate with CI's
+pinned BCA 2.2.0 (the previous checkout used BCA 2.5.1). Advisory review prompted
+server-owned execution qualification, queue-clock regression coverage, removal
+of grouped-node residue, and cached label obstacles. The queue anomaly and
+ambiguous-operation regressions were observed red before their fixes passed.

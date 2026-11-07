@@ -482,7 +482,8 @@ No source event, historical parent or timestamp is rewritten.
 
 ## Execution flow evidence
 
-Compact interval nodes retain `accounting_role`, `executor`, `call_mode` and
+Compact interval nodes retain server-owned `execution_qualified`,
+`accounting_role`, `executor`, `call_mode` and
 `returned_at`, plus source conflicts and gaps. `nexus.flow.mode` in the activity's
 declaration context or an `Invocation observed` milestone may be `synchronous` or
 `asynchronous`; absence stays unknown.

@@ -56,6 +56,22 @@ fn contexts<'a>(
             _ => None,
         })
 }
+enum Agreement<T> {
+    Absent,
+    One(T),
+    Conflict,
+}
+fn agreement<T: Ord>(values: impl IntoIterator<Item = T>) -> Agreement<T> {
+    let mut values: BTreeSet<T> = values.into_iter().collect();
+    if values.len() > 1 {
+        Agreement::Conflict
+    } else {
+        values
+            .pop_first()
+            .map(Agreement::One)
+            .unwrap_or(Agreement::Absent)
+    }
+}
 fn role(value: &str) -> bool {
     matches!(value, "container" | "execution" | "wait")
 }
@@ -73,15 +89,15 @@ fn accounting_role(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     {
         roles.insert(declared.clone());
     }
-    match roles.len() {
-        0 => {}
-        1 => {
-            summary.context.labels.insert(
-                "nexus.accounting.role".into(),
-                roles.into_iter().next().expect("one role"),
-            );
+    match agreement(roles) {
+        Agreement::Absent => {}
+        Agreement::One(value) => {
+            summary
+                .context
+                .labels
+                .insert("nexus.accounting.role".into(), value);
         }
-        _ => {
+        Agreement::Conflict => {
             summary
                 .context
                 .labels
@@ -118,11 +134,13 @@ fn executor(summary: &mut WorkSummary, events: &[&WorkObservation]) {
             identities.insert(identity.clone());
         }
     }
-    if identities.len() > 1 {
-        summary.executor = None;
-        summary.conflicts.push("conflicting_executors".into());
-    } else {
-        summary.executor = identities.into_iter().next();
+    match agreement(identities) {
+        Agreement::Conflict => {
+            summary.executor = None;
+            summary.conflicts.push("conflicting_executors".into());
+        }
+        Agreement::One(value) => summary.executor = Some(value),
+        Agreement::Absent => summary.executor = None,
     }
 }
 fn session_title(summary: &mut WorkSummary, events: &[&WorkObservation]) {
@@ -210,8 +228,10 @@ fn tool_operation_title(summary: &mut WorkSummary, events: &[&WorkObservation]) 
                 !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
             })
             .collect();
-        if operations.len() == 1 {
-            summary.title = format!("{} · {}", summary.title, operations.first().unwrap());
+        match agreement(operations) {
+            Agreement::One(value) => summary.title = format!("{} · {}", summary.title, value),
+            Agreement::Conflict => summary.gaps.push("ambiguous_tool_operation".into()),
+            Agreement::Absent => {}
         }
     }
 }
@@ -223,15 +243,15 @@ fn invocation_mode(summary: &mut WorkSummary, events: &[&WorkObservation]) {
         .filter(|value| matches!(value.as_str(), "synchronous" | "asynchronous"))
         .cloned()
         .collect();
-    match modes.len() {
-        0 => {}
-        1 => {
+    match agreement(modes) {
+        Agreement::Absent => {}
+        Agreement::One(value) => {
             summary
                 .context
                 .labels
-                .insert("nexus.flow.mode".into(), modes.into_iter().next().unwrap());
+                .insert("nexus.flow.mode".into(), value);
         }
-        _ => {
+        Agreement::Conflict => {
             summary.context.labels.remove("nexus.flow.mode");
             summary
                 .conflicts
@@ -250,15 +270,15 @@ fn consumed_result(summary: &mut WorkSummary, events: &[&WorkObservation]) {
             _ => None,
         })
         .collect();
-    match returns.len() {
-        0 => {}
-        1 => {
-            summary.context.labels.insert(
-                "nexus.flow.returned_at".into(),
-                returns.first().unwrap().to_rfc3339(),
-            );
+    match agreement(returns) {
+        Agreement::Absent => {}
+        Agreement::One(value) => {
+            summary
+                .context
+                .labels
+                .insert("nexus.flow.returned_at".into(), value.to_rfc3339());
         }
-        _ => {
+        Agreement::Conflict => {
             summary.context.labels.remove("nexus.flow.returned_at");
             summary.conflicts.push("conflicting_returns".into());
         }

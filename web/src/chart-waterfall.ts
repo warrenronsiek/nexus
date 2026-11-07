@@ -5,7 +5,7 @@
 import * as d3 from "d3";
 import type { Chart, Choose, Span } from "./chart-model";
 import { actionable, attrs, element, type Svg, type Group } from "./chart-svg";
-import { layoutFlow, type FlowNode } from "./flow-layout";
+import { layoutFlow, labelBox, type Box, type FlowNode } from "./flow-layout";
 import { flowLink } from "./flow-links";
 import { connected, returnTime, segments, type FlowSegment } from "./flow-state";
 
@@ -40,10 +40,12 @@ class ExecutionFlow {
   private nodes: FlowNode[];
   private fullWidth: number;
   private arrow: string;
+  private labelBoxes: Box[];
   constructor(private svg: Svg, private chart: Chart, width: number, private choose: Choose) {
     this.projection = geometry(chart);
     this.nodes = layoutFlow(chart.spans ?? [], this.projection.y, this.projection.horizon);
     this.fullWidth = Math.max(width, 900, ...this.nodes.map(node => node.x + node.labelWidth + 30));
+    this.labelBoxes = this.nodes.filter(node => node.span.kind !== "work.session").map(labelBox);
     this.arrow = `${chart.id}-return-arrow`;
   }
   draw(): void {
@@ -69,7 +71,7 @@ class ExecutionFlow {
   private connector(group: Group, node: FlowNode, at: number, kind: "dispatch" | "return"): void {
     const parent = node.parent!.x + 6, child = node.x - 6, y = this.projection.y(at);
     const [from, to] = kind === "return" ? [child, parent] : [parent, child];
-    element(group, "path", { class: `flow-${kind}`, "data-at": at, "data-owner": node.span.id, d: flowLink(from, to, y, this.nodes), "stroke-linejoin": "round", stroke: "var(--muted)", "stroke-width": 1.2, fill: "none", "marker-end": `url(#${this.arrow})` });
+    element(group, "path", { class: `flow-${kind}`, "data-at": at, "data-owner": node.span.id, d: flowLink(from, to, y, this.labelBoxes), "stroke-linejoin": "round", stroke: "var(--muted)", "stroke-width": 1.2, fill: "none", "marker-end": `url(#${this.arrow})` });
   }
   private drawNode(node: FlowNode): void {
     const { span, x } = node;

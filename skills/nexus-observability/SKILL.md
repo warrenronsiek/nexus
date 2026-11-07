@@ -138,13 +138,5 @@ waterfall legend; use labels and metadata to distinguish kinds without color.
 All fonts and icons are served by Nexus itself. No chart color implies whether an
 eval result improved: its recorded definition and units determine its meaning.
 
-For execution-flow inspection, filled ribbons mean qualified observed execution,
-dotted hollow ribbons mean waiting/queued, and grey hollow dashes mean unknown.
-Native tool callbacks record synchronous invocation returns; a background worker
-retains its independent lifetime. Direct adapters can label an activity declaration
-`nexus.flow.mode=synchronous` or `asynchronous` and record a `Result consumed`
-milestone on the asynchronous activity when its result is actually consumed.
-Do not use worker completion as an inferred join. Record explicit execution/wait
-intervals with the exact executor to qualify container state; never label the
-gaps between tool calls as model reasoning without source evidence. The chart's
-Fit/zoom, independent call labels and return paths are visual projections only.
+See [work history](../nexus-work-history/SKILL.md) for execution-flow states,
+source qualification, native invocation returns and explicit async consumption.

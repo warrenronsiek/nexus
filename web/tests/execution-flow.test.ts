@@ -12,8 +12,8 @@ function render(spans: NonNullable<ChartInput["spans"]>) {
   renderChart(host, { id: "flow", type: "waterfall", spans }, () => {});
   return host;
 }
-const root = { id: "main", parent: null, label: "Main", kind: "agent", start: 0, end: 60000, queued: null, role: "execution" as const };
-const call = { id: "read", parent: "main", label: "Read", kind: "tool", start: 10000, end: 20000, queued: null, role: "execution" as const, callMode: "synchronous" as const };
+const root = { executionQualified: true, id: "main", parent: null, label: "Main", kind: "agent", start: 0, end: 60000, queued: null, role: "execution" as const };
+const call = { executionQualified: true, returnedAt: 20000, id: "read", parent: "main", label: "Read", kind: "tool", start: 10000, end: 20000, queued: null, role: "execution" as const, callMode: "synchronous" as const };
 const returned = (host: HTMLElement, id: string) => host.querySelector(`.flow-return[data-owner="${id}"]`);
 const node = (host: HTMLElement, id: string) => host.querySelector(`[data-node-id='${id}']`)!;
 
@@ -31,7 +31,7 @@ it("does not turn asynchronous child execution into parent waiting or invent its
   const host = render([root, { ...call, callMode: "asynchronous", returnedAt: 45000 }]);
   expect(node(host, "main").querySelector(".flow-wait")).toBeNull();
   expect(returned(host, "read")?.getAttribute("data-at")).toBe("45000");
-  const unknownJoin = render([root, { ...call, callMode: "asynchronous" }]);
+  const unknownJoin = render([root, { ...call, callMode: "asynchronous", returnedAt: null }]);
   expect(returned(unknownJoin, "read")).toBeNull();
 });
 
@@ -45,7 +45,7 @@ it("keeps containers and missing finishes unfilled without a false completion", 
 });
 
 it("staggered short calls retain individual labels without moving source times", () => {
-  const calls = Array.from({ length: 5 }, (_, i) => ({ ...call, id: `call-${i}`, label: `Bash · git diff ${i}`, start: 10000 + i, end: 10000 + i }));
+  const calls = Array.from({ length: 5 }, (_, i) => ({ ...call, id: `call-${i}`, label: `Bash · git diff ${i}`, start: 10000 + i, end: 10000 + i, returnedAt: 10000 + i }));
   const host = render([root, ...calls]);
   const nodes = calls.map(call => node(host, call.id));
   expect(new Set(nodes.map(node => node.getAttribute("data-x"))).size).toBe(5);
@@ -64,7 +64,7 @@ it("keeps an async worker's own synchronous wait independent of its parent's sta
 });
 
 it("never draws causal returns for conflicting boundaries or unresolved ancestry", () => {
-  const host = render([root, { ...call, conflicts: ["conflicting_finishes"] }, { ...call, id: "orphan", parent: "absent" }]);
+  const host = render([root, { ...call, executionQualified: false, conflicts: ["conflicting_finishes"] }, { ...call, id: "orphan", parent: "absent" }]);
   expect(returned(host, "read")).toBeNull();
   expect(node(host, "main").querySelector(".flow-wait")).toBeNull();
   expect(returned(host, "orphan")).toBeNull();
@@ -107,4 +107,10 @@ it("branches at an observed synchronous queue boundary and leaves the caller wai
   expect(host.querySelector('.flow-dispatch[data-owner="read"]')?.getAttribute("data-at")).toBe("5000");
   expect(node(host, "main").querySelector(".flow-wait")?.getAttribute("data-start")).toBe("5000");
   expect(node(host, "read").querySelector(".flow-queue")?.getAttribute("data-end")).toBe("10000");
+});
+
+it("uses server execution qualification independently of a queue clock anomaly", () => {
+  const host = render([root, { ...call, executionQualified: true, gaps: ["queue_wall_clock_anomaly"] }]);
+  expect(node(host, "read").querySelector(".flow-active")).not.toBeNull();
+  expect(returned(host, "read")).not.toBeNull();
 });

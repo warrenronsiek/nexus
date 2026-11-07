@@ -321,7 +321,6 @@ summary .icon { vertical-align: -4px; margin: 0 6px 0 3px; }
 .flow-origin, .flow-meta { fill: var(--muted); font-size: 11px; }
 .flow-label { font-size: 12px; }
 .flow-edges { pointer-events: none; }
-.waterfall-node { cursor: pointer; }
 .waterfall-node:hover .flow-label, .waterfall-node.selected .flow-label { fill: var(--accent); }
 .waterfall-node:focus { outline: none; }
 .waterfall-node:focus .flow-label-ground, .waterfall-node.selected .flow-label-ground { stroke: var(--accent); stroke-width: 1; }

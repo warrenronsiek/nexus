@@ -2,7 +2,7 @@
 -- @feature work-history
 -- @spec docs/features/observability-ui.md
 -- @spec docs/features/work-history.md
-module Waterfall exposing (Node, build, summary)
+module Waterfall exposing (Node, summary)
 
 {-| Retains individual observed activities and their exact parentage for execution flow. -}
 
@@ -10,24 +10,15 @@ import Json.Decode as D
 
 
 type alias Node =
-    { id : String, parent : Maybe String, label : String, kind : String, start : Maybe String, end : Maybe String, queued : Maybe String, count : Int, body : D.Value }
-
-
-build : Node -> List Node -> List Node
-build root intervals =
-    root :: intervals
+    { id : String, parent : Maybe String, label : String, kind : String, start : Maybe String, end : Maybe String, queued : Maybe String, body : D.Value }
 
 
 {-| A one-line description of a selected node: kind, recorded elapsed time and outcome. -}
 summary : Node -> String
 summary node =
     let
-        members = D.decodeValue (D.field "members" (D.list D.value)) node.body |> Result.withDefault [ node.body ]
-        seconds = List.filterMap elapsedSeconds members
-        outcomes = List.map (\body -> D.decodeValue (D.field "outcome" D.string) body |> Result.withDefault "unknown") members
-        succeeded = List.length (List.filter ((==) "succeeded") outcomes)
-        elapsed = if List.isEmpty seconds then "elapsed unknown" else duration (List.sum seconds) ++ (if List.length seconds < List.length members then " recorded" else "")
-        outcome = if node.count > 1 then String.fromInt succeeded ++ "/" ++ String.fromInt node.count ++ " succeeded" else List.head outcomes |> Maybe.withDefault "unknown"
+        elapsed = elapsedSeconds node.body |> Maybe.map duration |> Maybe.withDefault "elapsed unknown"
+        outcome = D.decodeValue (D.field "outcome" D.string) node.body |> Result.withDefault "unknown"
     in
     String.join " · " [ node.label, node.kind, elapsed, outcome ]
 
