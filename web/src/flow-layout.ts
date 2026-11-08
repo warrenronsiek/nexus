@@ -9,7 +9,7 @@ export function dispatchTime(span: Span): number | null {
 }
 export interface FlowNode { span: Span; x: number; labelY: number; parent: FlowNode | null; labelWidth: number }
 export interface Box { left: number; right: number; top: number; bottom: number }
-const pitch = 180;
+const pitch = 72;
 function intersects(a: Box, b: Box): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
@@ -20,14 +20,15 @@ function boxes(node: FlowNode, y: (at: number) => number, horizon: number): Box[
   const start = dispatchTime(node.span) ?? node.span.end ?? horizon;
   const label = labelBox(node);
   return [
-    { left: node.x - 12, right: node.x + 12, top: y(start) - 5, bottom: y(node.span.end ?? horizon) + 8 },
+    { left: node.x - 12, right: node.x + 12, top: y(start) - 5, bottom: y(node.span.end ?? (node.span.role === "container" ? horizon : start)) + 8 },
     { left: label.left - 1, right: label.right + 7, top: label.top - 8, bottom: label.bottom + 4 },
   ];
 }
 function placeNode(span: Span, parent: FlowNode | null, occupied: ObstacleIndex, y: (at: number) => number, horizon: number): FlowNode {
   const top = dispatchTime(span) ?? span.end;
   const labelY = top === null ? 88 : Math.max(86, y(top) - 12);
-  const node = { span, parent, x: parent ? parent.x + pitch : 140, labelY, labelWidth: Math.max(120, Math.min(184, span.label.length * 7.4)) };
+  const metadataWidth = ((span.operations ?? []).map(operation => operation.category_name).join(", ").length + 8) * 6.2;
+  const node = { span, parent, x: parent ? parent.x + pitch : 140, labelY, labelWidth: Math.max(120, Math.min(184, Math.max(span.label.length * 7.4, metadataWidth))) };
   if (span.kind === "work.session" && parent === null) { node.x = 90; return node; }
   if (parent?.span.kind === "work.session") node.x = parent.x + 50;
   for (;;) {

@@ -65,6 +65,7 @@ mod tests {
             returned_at: None,
             conflicts: vec!["parent_cycle".into()],
             gaps: vec![],
+            operations: vec![],
         }
     }
 

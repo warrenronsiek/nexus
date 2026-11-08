@@ -261,3 +261,15 @@ waiting, and hollow dashes mean unobserved state. Background workers retain thei
 own state and join only at observed consumption. Elm owns state and controls;
 D3 owns geometry. See [work history](work-history.md#execution-flow-evidence)
 for capture and qualification contracts.
+
+Work labels use concrete operations and activity buckets from Tools when exact
+invocation correlation exists. Selection retains classification provenance.
+Missing execution finishes show an open marker instead of a session-long dotted
+ribbon; the original source gap remains explicit. Collision packing reuses space
+past these markers and keeps unobstructed children close to their parent.
+The compact timeline has a 512 KiB sub-budget for enriched interval records,
+within the existing 896 KiB overall dashboard cap and 1 MiB browser response cap.
+Secondary lists are trimmed before the primary timeline when necessary; all
+remaining truncation is disclosed.
+Duration labels prefer reported elapsed nanoseconds. UTC coordinates locate the
+observation; they do not independently qualify its elapsed duration.

@@ -186,14 +186,18 @@ impl HostCapture {
         let operations: Vec<_> = crate::analytics::capture::resolve(input, &[])
             .into_iter()
             .filter(|action| action.origin == crate::analytics::types::Origin::StandardCli)
-            .map(|action| action.name)
             .take(3)
             .collect();
         if !operations.is_empty() {
             let mut context = self.role_context("execution");
-            context
-                .labels
-                .insert("nexus.tool.operation".into(), operations.join("; "));
+            context.labels.insert(
+                "nexus.tool.operation".into(),
+                operations
+                    .iter()
+                    .map(|action| action.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
             self.observations.push(event(
                 subject.clone(),
                 "operation",
@@ -202,7 +206,34 @@ impl HostCapture {
                     context,
                 },
             ));
+            self.tool_classification(subject, &operations);
         }
+    }
+
+    fn tool_classification(
+        &mut self,
+        subject: &WorkSubject,
+        operations: &[crate::analytics::types::Action],
+    ) {
+        let mut context = self.role_context("execution");
+        for (index, operation) in operations.iter().enumerate() {
+            context.labels.insert(
+                format!("nexus.tool.operation.{index}"),
+                operation.name.clone(),
+            );
+            context.labels.insert(
+                format!("nexus.tool.category.{index}"),
+                operation.category_id.clone(),
+            );
+        }
+        self.observations.push(event(
+            subject.clone(),
+            "classification",
+            WorkEvent::Milestone {
+                name: "Tool classification observed".into(),
+                context,
+            },
+        ));
     }
 
     fn prompt(&mut self, _input: &crate::coordination::domain::UserPromptInput) {
@@ -477,6 +508,15 @@ mod flow_tests {
             "nexus.tool.operation",
         );
         assert_eq!(operation.map(String::as_str), Some("cargo test"));
+        assert_eq!(
+            milestone_label(
+                &observations,
+                "Tool classification observed",
+                "nexus.tool.category.0"
+            )
+            .map(String::as_str),
+            Some("validation.test")
+        );
         assert!(!serde_json::to_string(&observations)
             .unwrap()
             .contains("PRIVATE_VALUE"));

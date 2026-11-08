@@ -120,3 +120,41 @@ it("uses the valid execution start when a queue timestamp is inverted", () => {
   expect(host.querySelector('.flow-dispatch[data-owner="read"]')?.getAttribute("data-at")).toBe("10000");
   expect(node(host, "main").querySelector(".flow-wait")?.getAttribute("data-start")).toBe("10000");
 });
+
+it("does not reserve the rest of a session as occupied execution for a missing tool finish", () => {
+  const spans = Array.from({ length: 20 }, (_, i) => ({ ...call, id: `open-${i}`, label: "rg", start: i * 2000, end: null, returnedAt: null }));
+  const host = render([root, ...spans]);
+  const xs = spans.map(span => Number(node(host, span.id).getAttribute("data-x")));
+  expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(240);
+  expect(node(host, "open-0").querySelector(".flow-unknown")).toBeNull();
+  expect(node(host, "open-0").querySelector(".flow-open-boundary")).not.toBeNull();
+  expect(node(host, "open-0").textContent).toContain("finish unobserved");
+});
+
+it("keeps a separated child near its parent when there are no label collisions", () => {
+  const host = render([root, { ...call, start: 30000, end: 40000, returnedAt: 40000 }]);
+  const distance = Number(node(host, "read").getAttribute("data-x")) - Number(node(host, "main").getAttribute("data-x"));
+  expect(distance).toBeLessThanOrEqual(90);
+});
+
+it("labels a concrete operation with the same activity bucket and evidence as Tools", () => {
+  const host = render([root, { ...call, label: "rg", operations: [{ name: "rg", category_id: "code.search", category_name: "code search", description: "Search source", evidence: "deterministic" }] }]);
+  expect(node(host, "read").querySelector(".flow-label")?.textContent).toBe("rg");
+  expect(node(host, "read").querySelector(".flow-meta")?.textContent).toContain("code search");
+  expect(node(host, "read").getAttribute("aria-label")).toContain("deterministic");
+});
+
+it("gives a long sequence enough source-time height instead of spreading labels across dozens of lanes", () => {
+  const calls = Array.from({ length: 100 }, (_, i) => ({ ...call, id: `dense-${i}`, label: "rg", start: 5000 + i * 500, end: 5050 + i * 500, returnedAt: 5050 + i * 500 }));
+  const host = render([root, ...calls]);
+  expect(Number(host.querySelector("svg")!.getAttribute("width"))).toBeLessThanOrEqual(1400);
+  expect(Number(host.querySelector("svg")!.getAttribute("height"))).toBeGreaterThan(2000);
+  expect(returned(host, "dense-99")?.getAttribute("data-at")).toBe(String(calls[99].end));
+});
+
+it("uses the reported duration and does not qualify an unrelated UTC subtraction", () => {
+  const host = render([root, { ...call, elapsed: { nanoseconds: "1500000000" } }, { ...call, id: "clock-unknown", executionQualified: false, returnedAt: null }]);
+  expect(node(host, "read").querySelector(".flow-meta")?.textContent).toContain("1.5s");
+  expect(node(host, "clock-unknown").querySelector(".flow-meta")?.textContent).toContain("duration unqualified");
+  expect(returned(host, "clock-unknown")).toBeNull();
+});

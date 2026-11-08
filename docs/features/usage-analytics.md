@@ -104,3 +104,12 @@ The server reserves at most one attempt per project/pattern/policy/day and enfor
 Migration V11 adds separate call, operation, resource, exposure, category, and revision projections on SQLite and PostgreSQL. Portable stream version 3 includes all six tables and still accepts complete version-2 streams. The web application rejects superseded scope responses, preserves successful data on read errors with a stale notice, renders retained text safely, and discloses provenance/model metadata on demand.
 
 The initial built-in category catalog is seeded in one database transaction. Concurrent readers cannot observe a partially seeded taxonomy, and the first lifecycle hook pays for one catalog commit rather than one durable commit per category.
+
+Work history reuses these same persisted operation classifications through exact
+native invocation identity. Concrete operation labels and category/evidence
+metadata in Work therefore agree with Tools, including for historical calls;
+viewing Work does not launch another classifier or reconstruct missing arguments.
+The work outbox independently retains up to three deterministic operation/category
+pairs from this same resolver, so optional analytics enrichment failure does not
+remove the safe operation label from new work captures. Persisted Tools labels
+and inference provenance take precedence when present.

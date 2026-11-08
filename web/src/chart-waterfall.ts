@@ -14,10 +14,15 @@ function color(kind: string): string {
   return `var(--${({ host: "agent", agent: "agent", subagent: "agent", test: "test", script: "script", review: "review", tool: "tool", command: "tool" } as Record<string, string>)[family] ?? "session"})`;
 }
 function duration(span: Span): string {
-  if (span.start === null || span.end === null) return "duration unknown";
+  if (span.start === null) return "start unobserved";
+  if (span.end === null) return "finish unobserved";
   if (span.end < span.start) return "conflicting boundaries";
-  const seconds = (span.end - span.start) / 1000;
+  const seconds = span.elapsed ? Number(span.elapsed.nanoseconds) / 1e9 : (span.end - span.start) / 1000;
+  if (span.executionQualified !== true || !Number.isFinite(seconds) || seconds < 0) return "duration unqualified";
   return seconds >= 3600 ? `${d3.format(".2~f")(seconds / 3600)}h` : seconds >= 60 ? `${d3.format(".1~f")(seconds / 60)}m` : `${d3.format(".2~f")(seconds)}s`;
+}
+function activityBucket(span: Span): string {
+  return [...new Set((span.operations ?? []).map(operation => operation.category_name))].join(", ");
 }
 function qualification(node: FlowNode): string {
   if (node.span.conflicts?.length) return " · conflicting evidence";
@@ -27,7 +32,8 @@ function qualification(node: FlowNode): string {
 function geometry(chart: Chart) {
   const times = (chart.spans ?? []).flatMap(node => [node.queued, node.start, node.end, node.returnedAt]).filter((value): value is number => value != null && Number.isFinite(value));
   const origin = times.length ? Math.min(...times) : 0, horizon = times.length ? Math.max(...times) : 0;
-  const height = Math.max(360, 1000 * (chart.zoom ?? 1));
+  const readableHeight = Math.max(1000, (chart.spans?.length ?? 0) * 40);
+  const height = Math.max(360, readableHeight * (chart.zoom ?? 1));
   const y = d3.scaleLinear().domain([origin, Math.max(origin + 1, horizon)]).range([116, height - 48]);
   return { origin, horizon, height, y, timed: times.length > 0 };
 }
@@ -79,15 +85,21 @@ class ExecutionFlow {
 
     this.intervals(group, node);
     this.label(group, node);
-    const detail = `${span.label} · ${span.kind} · ${duration(span)}${qualification(node)} · ${span.role ?? "unknown"}`;
-    element(group, "title", {}, `${detail}${span.end === null ? " · finish unknown" : ""}`);
+    const purpose = (span.operations ?? []).map(operation => `${operation.category_name} (${operation.evidence})`).join("; ");
+    const detail = `${span.label} · ${span.kind} · ${duration(span)}${qualification(node)} · ${span.role ?? "unknown"}${purpose ? ` · ${purpose}` : ""}`;
+    element(group, "title", {}, detail);
     group.attr("aria-label", detail);
     actionable(group, span.id, this.choose);
   }
   private intervals(group: Group, node: FlowNode): void {
     const { span, x } = node, { y, horizon } = this.projection;
     if (span.queued !== null) this.stripe(group, node, { start: span.queued, end: span.start ?? span.end ?? horizon, state: "wait" }, "flow-queue");
-    for (const segment of segments(node, this.nodes, horizon)) this.stripe(group, node, segment);
+    if (span.end === null && span.role !== "container") {
+      const at = span.start ?? span.queued;
+      if (at !== null) element(group, "circle", { class: "flow-open-boundary", "data-at": at, cx: x, cy: y(at), r: 5, fill: "none", stroke: "var(--muted)", "stroke-dasharray": "2 2" });
+    } else {
+      for (const segment of segments(node, this.nodes, horizon)) this.stripe(group, node, segment);
+    }
     if (span.end !== null && !span.conflicts?.length) element(group, "line", { class: "flow-end", "data-at": span.end, x1: x - 9, x2: x + 9, y1: y(span.end), y2: y(span.end), stroke: color(span.kind), "stroke-width": 3 });
     if (span.start === null && span.queued === null && span.end !== null) element(group, "circle", { cx: x, cy: y(span.end), r: 5, fill: "none", stroke: color(span.kind) });
   }
@@ -103,7 +115,8 @@ class ExecutionFlow {
     }
     element(group, "rect", { class: "flow-label-ground", x: x + 13, y: labelY - 14, width: node.labelWidth, height: 38, rx: 2, fill: "var(--ground)" });
     element(group, "text", { class: "chart-label flow-label", x: x + 20, y: labelY }, label);
-    element(group, "text", { class: "chart-label flow-meta", x: x + 20, y: labelY + 17 }, `${duration(span)}${qualification(node)}`);
+    const meta = `${duration(span)}${qualification(node)}${activityBucket(span) ? ` · ${activityBucket(span)}` : ""}`;
+    element(group, "text", { class: "chart-label flow-meta", x: x + 20, y: labelY + 17 }, meta.length > 26 ? `${meta.slice(0, 25)}…` : meta);
     if (span.start === null && span.queued === null && span.end === null) element(group, "text", { class: "chart-label", x, y: labelY + 46 }, "Source boundaries unavailable");
   }
   private stripe(group: Group, node: FlowNode, segment: FlowSegment, extra = ""): void {

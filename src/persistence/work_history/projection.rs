@@ -14,6 +14,7 @@ use diesel::prelude::*;
 use std::collections::HashMap;
 
 mod prefetch;
+mod tool_operations;
 
 const PROJECTION_LIMIT: i64 = 1024;
 
@@ -74,6 +75,7 @@ pub(super) struct Projection<'a> {
     known: HashMap<WorkSubject, bool>,
     children: HashMap<WorkSubject, bool>,
     observations: HashMap<WorkSubject, Vec<WorkObservation>>,
+    operations: tool_operations::OperationCache,
 }
 impl<'a> Projection<'a> {
     fn links_from_observations(
@@ -124,6 +126,7 @@ impl<'a> Projection<'a> {
             known: HashMap::new(),
             children: HashMap::new(),
             observations: HashMap::new(),
+            operations: Default::default(),
         }
     }
     fn observed(&mut self, subject: &WorkSubject) -> Result<(Vec<WorkObservation>, bool)> {
@@ -224,6 +227,8 @@ impl<'a> Projection<'a> {
         summary.conflicts = diagnostics.conflicts;
         summary.gaps = diagnostics.gaps;
         project_events(&mut summary, &active);
+        self.operations
+            .enrich(self.connection, self.project, &mut summary, &active)?;
         include_root_membership(&mut summary);
         summary.has_children = match self.children.get(subject) {
             Some(value) => *value,

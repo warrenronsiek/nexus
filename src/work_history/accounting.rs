@@ -65,6 +65,8 @@ pub struct WorkIntervalNode {
     pub returned_at: Option<DateTime<Utc>>,
     pub conflicts: Vec<String>,
     pub gaps: Vec<String>,
+    #[serde(default)]
+    pub operations: Vec<super::WorkToolOperation>,
 }
 impl From<&WorkSummary> for WorkIntervalNode {
     fn from(summary: &WorkSummary) -> Self {
@@ -92,6 +94,10 @@ impl From<&WorkSummary> for WorkIntervalNode {
         } else {
             None
         };
+        let mut gaps = summary.gaps.clone();
+        if summary.operations.len() > 3 {
+            gaps.push("tool_operations_truncated".into());
+        }
         Self {
             call_mode,
             returned_at,
@@ -110,7 +116,8 @@ impl From<&WorkSummary> for WorkIntervalNode {
             executor: summary.executor.clone(),
             accounting_role: WorkAccountingRole::of(summary),
             conflicts: summary.conflicts.clone(),
-            gaps: summary.gaps.clone(),
+            gaps,
+            operations: summary.operations.iter().take(3).cloned().collect(),
         }
     }
 }
