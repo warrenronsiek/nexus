@@ -27,7 +27,7 @@ impl DashboardProjection {
     fn bound_timeline(&mut self) -> Result<bool> {
         self.view.intervals =
             retention::recent_with_ancestors(std::mem::take(&mut self.view.intervals));
-        let intervals = bound_items(&mut self.view.intervals, SOURCE_LIMIT, 384 * 1024)?;
+        let intervals = bound_items(&mut self.view.intervals, SOURCE_LIMIT, 512 * 1024)?;
         let mut gaps = false;
         if let Some(accounting) = &mut self.view.accounting {
             gaps = bound_items(&mut accounting.unobserved_intervals, 4097, 64 * 1024)?;

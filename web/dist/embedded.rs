@@ -19,7 +19,7 @@ pub(super) fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
         "/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff" => Some(("font/woff", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff")))),
         "/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2" => Some(("font/woff2", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2")))),
         "/assets/index-BP_p4FON.css" => Some(("text/css; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/index-BP_p4FON.css")))),
-        "/assets/index-BsfMzTs5.js" => Some(("text/javascript; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/index-BsfMzTs5.js")))),
+        "/assets/index-Bx7KCWIk.js" => Some(("text/javascript; charset=utf-8", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/index-Bx7KCWIk.js")))),
         "/assets/public-sans-latin-400-normal-8Rpg0ruU.woff2" => Some(("font/woff2", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/public-sans-latin-400-normal-8Rpg0ruU.woff2")))),
         "/assets/public-sans-latin-400-normal-SBbinRkI.woff" => Some(("font/woff", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/public-sans-latin-400-normal-SBbinRkI.woff")))),
         "/assets/public-sans-latin-500-normal-NlrCPXnF.woff2" => Some(("font/woff2", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/web/dist/assets/public-sans-latin-500-normal-NlrCPXnF.woff2")))),

@@ -3,7 +3,8 @@
 // @spec docs/features/observability-ui.md
 // @spec docs/features/work-history.md
 // @boundary chart-ports: Elm owns domain state; this protocol contains display inputs and selection identities only.
-export interface SpanEvidence { executionQualified?: boolean; executor?: string | null; role?: "container" | "execution" | "wait" | "unknown"; callMode?: "synchronous" | "asynchronous" | "unknown"; returnedAt?: number | null; conflicts?: string[]; gaps?: string[] }
+export interface ToolOperation { name: string; category_id: string; category_name: string; description: string; evidence: string }
+export interface SpanEvidence { elapsed?: { nanoseconds: string } | null; operations?: ToolOperation[] | null; executionQualified?: boolean; executor?: string | null; role?: "container" | "execution" | "wait" | "unknown"; callMode?: "synchronous" | "asynchronous" | "unknown"; returnedAt?: number | null; conflicts?: string[]; gaps?: string[] }
 export interface Span extends SpanEvidence { id: string; parent: string | null; label: string; kind: string; start: number | null; end: number | null; queued: number | null }
 export interface Point { id: string; label: string; at: number; value: number | null }
 export interface Bar { id: string; label: string; value: number | null; detail: string }

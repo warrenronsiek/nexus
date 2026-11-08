@@ -507,3 +507,34 @@ The browser subtracts observed synchronous call waits from their caller's ribbon
 Explicit same-executor execution/wait children may qualify parts of a container;
 all other container time remains unknown. Existing aggregate accounting definitions
 and immutable source observations are unchanged.
+
+Work projections reuse the existing Tools operation records by exact
+project/host/session/invocation identity. `operations` preserves concrete names,
+category IDs and names, descriptions, and deterministic/inferred evidence; no
+command is reparsed or classified again during a read. This works for legacy
+native callback records as well as new captures. Reads retain one bounded
+session cache (8192 operation rows / 4 MiB), disclose truncation, and omit a
+partially fetched invocation. Native companion tool callbacks establish a
+synchronous invocation even when they predate the explicit mode milestone;
+caller-authored activities and background worker completion do not establish it.
+Analytics receipt timestamps never fill missing source start or finish times.
+
+An execution with no observed finish has an open boundary marker and a
+`finish unobserved` label. It does not reserve or paint the remainder of the
+session as a task duration. Container envelopes may span the observed session
+horizon, retaining unknown state. Unobstructed children start 72 pixels from
+their parent and collision packing adds space only where required.
+
+New native captures also put up to three deterministic operation/category pairs
+in a separate `Tool classification observed` milestone in the durable work outbox.
+This reuses the same resolver as Tools and survives an unavailable analytics write;
+the original operation milestone and declaration stay replay-compatible. Richer
+persisted Tools classifications take precedence on reads. Compact interval nodes
+include at most three operations and disclose `tool_operations_truncated`; full
+activity detail retains all correlated operations. Default chart height grows
+with the number of activities so a long sequence uses vertical scrolling rather
+than forcing labels into dozens of horizontal lanes. UTC time remains proportional.
+The compact timeline's 512 KiB sub-budget accommodates category evidence within
+the existing overall dashboard response bound; source and display truncation
+remain separate. Reads never repair a missing callback using analytics receipt
+times or infer model reasoning from gaps between tool calls.

@@ -13,6 +13,7 @@ pub(super) fn project(summary: &mut WorkSummary, events: &[&WorkObservation]) {
     accounting_role(summary, events);
     executor(summary, events);
     tool_operation_title(summary, events);
+    tool_classification(summary, events);
     invocation_mode(summary, events);
     consumed_result(summary, events);
 }
@@ -282,5 +283,58 @@ fn consumed_result(summary: &mut WorkSummary, events: &[&WorkObservation]) {
             summary.context.labels.remove("nexus.flow.returned_at");
             summary.conflicts.push("conflicting_returns".into());
         }
+    }
+}
+
+fn tool_classification(summary: &mut WorkSummary, events: &[&WorkObservation]) {
+    if summary.kind != "tool" {
+        return;
+    }
+    let classifications = contexts(events, "Tool classification observed")
+        .map(|context| {
+            (0..3)
+                .filter_map(|index| {
+                    let name = context
+                        .labels
+                        .get(&format!("nexus.tool.operation.{index}"))?;
+                    let category = context
+                        .labels
+                        .get(&format!("nexus.tool.category.{index}"))?;
+                    (!name.is_empty()
+                        && name.len() <= 128
+                        && !name.chars().any(char::is_control)
+                        && !category.is_empty()
+                        && category.len() <= 64
+                        && category.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+                        }))
+                    .then(|| (name.clone(), category.clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+    match agreement(classifications) {
+        Agreement::One(items) => {
+            summary.title = items
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            summary.operations = items
+                .into_iter()
+                .map(|(name, category_id)| {
+                    let category_name = category_id.replace(['.', '_', '-'], " ");
+                    WorkToolOperation {
+                        name,
+                        category_id,
+                        description: category_name.clone(),
+                        category_name,
+                        evidence: "deterministic".into(),
+                    }
+                })
+                .collect();
+        }
+        Agreement::Conflict => summary.gaps.push("ambiguous_tool_classification".into()),
+        Agreement::Absent => {}
     }
 }

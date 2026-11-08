@@ -322,6 +322,19 @@ pub struct WorkSummary {
     pub conflicts: Vec<String>,
     pub gaps: Vec<String>,
     pub context: WorkContext,
+    #[serde(default)]
+    pub operations: Vec<WorkToolOperation>,
+}
+
+/// Existing Tools classification joined by exact native invocation identity.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkToolOperation {
+    pub name: String,
+    pub category_id: String,
+    pub category_name: String,
+    pub description: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -353,6 +366,7 @@ impl WorkSummary {
             conflicts: vec![],
             gaps: vec![],
             context: WorkContext::default(),
+            operations: vec![],
         }
     }
     pub(crate) fn disclose_limit(&mut self) {

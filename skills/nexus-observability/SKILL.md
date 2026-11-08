@@ -140,3 +140,8 @@ eval result improved: its recorded definition and units determine its meaning.
 
 See [work history](../nexus-work-history/SKILL.md) for execution-flow states,
 source qualification, native invocation returns and explicit async consumption.
+
+Work shares concrete command names and category/evidence with Tools through exact
+native invocation identity. Missing finishes appear as open boundary markers;
+select their source gaps before interpreting them as ongoing work. A published
+binary update does not replace code already loaded in an existing MCP companion.

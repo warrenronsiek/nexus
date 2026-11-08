@@ -20,7 +20,7 @@ summary node =
         elapsed = elapsedSeconds node.body |> Maybe.map duration |> Maybe.withDefault "elapsed unknown"
         outcome = D.decodeValue (D.field "outcome" D.string) node.body |> Result.withDefault "unknown"
     in
-    String.join " · " [ node.label, node.kind, elapsed, outcome ]
+    String.join " · " ([ node.label, node.kind, elapsed, outcome ] ++ operationSummaries node.body)
 
 
 elapsedSeconds : D.Value -> Maybe Float
@@ -31,3 +31,13 @@ elapsedSeconds body =
 duration : Float -> String
 duration seconds =
     if seconds >= 3600 then String.fromFloat (toFloat (round (seconds / 36)) / 100) ++ "h" else if seconds >= 60 then String.fromFloat (toFloat (round (seconds / 6)) / 10) ++ "m" else String.fromFloat (toFloat (round (seconds * 100)) / 100) ++ "s"
+
+
+operationSummaries : D.Value -> List String
+operationSummaries body =
+    D.decodeValue
+        (D.field "operations"
+            (D.list (D.map3 (\name category evidence -> name ++ " / " ++ category ++ " (" ++ evidence ++ ")") (D.field "name" D.string) (D.field "category_name" D.string) (D.field "evidence" D.string)))
+        )
+        body
+        |> Result.withDefault []

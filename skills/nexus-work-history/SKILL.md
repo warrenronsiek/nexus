@@ -186,3 +186,15 @@ Do not use worker completion as an inferred join. Record explicit execution/wait
 intervals with the exact executor to qualify container state; never label the
 gaps between tool calls as model reasoning without source evidence. The chart's
 Fit/zoom, independent call labels and return paths are visual projections only.
+
+Work's concrete operation names, activity buckets, and classification evidence
+reuse Tools through exact invocation identities, including historical native
+callbacks. An open marker with `finish unobserved` indicates missing source
+completion; it is not a long-running measured task. Compare `work health` and
+native host evidence when auditing these gaps. Analytics receipt times cannot
+repair missing source execution times. After updating Nexus, reconnect existing
+MCP companions so new callbacks use the updated capture code.
+New capture retains safe deterministic operation/category pairs in the durable
+work outbox independently of optional analytics enrichment. The compact timeline
+shows at most three operations with a truncation gap; full activity detail keeps
+all correlated operations. Dense sessions get more vertical source-time space.

@@ -190,3 +190,14 @@ pinned BCA 2.2.0 (the previous checkout used BCA 2.5.1). Advisory review prompte
 server-owned execution qualification, queue-clock regression coverage, removal
 of grouped-node residue, and cached label obstacles. The queue anomaly and
 ambiguous-operation regressions were observed red before their fixes passed.
+
+### Execution-flow audit follow-up
+
+Concrete command labels and activity buckets reuse Tools' persisted classification
+by exact invocation identity; selection preserves evidence labels. An unobserved
+execution finish is an open source-boundary marker rather than a ribbon extended
+to the session horizon. Its label states `finish unobserved`. Container envelopes
+retain their separate unknown-state meaning. Collision packing reserves only
+observed task geometry, with 72px initial child offsets and extra space for actual
+label conflicts. D3 remains the visualization owner; Elm retains application and
+selection state.
