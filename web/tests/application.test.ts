@@ -8,7 +8,7 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; filter?: Record<string, string> } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; filter?: { bucket?: string; group_by?: string; measure?: { kind: string } } } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 let configuredInterval = 30000;
@@ -26,9 +26,19 @@ function readFixture(body: RequestBody): string {
   if (!body.query) throw new Error("Browser read omitted its closed query");
   const query = body.query;
   if (query.kind === "coordination") return JSON.stringify({ ...JSON.parse(fixture("coordination")), refresh_interval_ms: configuredInterval });
-  if (query.kind === "work_dashboard" && query.work_session_id) return fixture("work-session");
-  if (query.kind === "eval_dashboard" && query.group_id) return fixture("eval-group");
-  return fixture(query.kind);
+  if (query.kind === "code_map") return codeMapFixture(query.filter);
+  const detail = query.work_session_id && query.kind === "work_dashboard" ? "work-session"
+    : query.group_id && query.kind === "eval_dashboard" ? "eval-group" : query.kind;
+  return fixture(detail);
+}
+function codeMapFixture(filter: NonNullable<RequestBody["query"]>["filter"]): string {
+  const body = JSON.parse(fixture(filter?.bucket ? "code_map_drill" : "code_map"));
+  body.map.group_by = filter?.group_by ?? "file";
+  if (filter?.measure?.kind === "published") {
+    body.map.measure = filter.measure;
+    body.map.title = "Branch load";
+  }
+  return JSON.stringify(body);
 }
 class FixtureXhr extends EventTarget {
   status = 200;
@@ -143,6 +153,7 @@ async function inspectReports(): Promise<void> {
   row("Router cache race"); await content("Seen in the router suite");
   document.querySelector<HTMLButtonElement>(".pagination button")!.click();
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toEqual({ kind: "concern_list", filter: { area_id: "router-area", after: "32" } }));
+  await inspectCodeMap();
   await navigate("papercuts", "Slow local fixture");
   row("Slow local fixture"); await content("Hit it again while running the router tests");
   await navigate("sos", "Unexpected live email");
@@ -150,6 +161,29 @@ async function inspectReports(): Promise<void> {
   await navigate("memory", "Keep router evidence attributable");
   await content("Level 1 · 2 notes");
   row("Router evidence notes"); await content("Router tests must not share a cache");
+}
+async function inspectCodeMap(): Promise<void> {
+  const tab = [...document.querySelectorAll<HTMLButtonElement>(".subnav button")].find(button => button.textContent === "Code map");
+  expect(tab).toBeDefined();
+  tab!.click();
+  await content("Reported concern encounters");
+  pick("Group by", "team");
+  await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({ kind: "code_map", filter: { group_by: "team" } }));
+  await content("Reported concern encounters");
+  pick("Measure", JSON.stringify({kind: "published", producer: "ci", measure: "branch_load"}));
+  await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({
+    kind: "code_map", filter: { group_by: "team", measure: { kind: "published", producer: "ci", measure: "branch_load" } }
+  }));
+  await content("Branch load");
+  pick("Measure", JSON.stringify({kind: "encounters"}));
+  await content("Reported concern encounters");
+  expect([...document.querySelectorAll("select[aria-label='Group by'] option")].some(option => option.textContent === "team")).toBe(true);
+  await chartClick("code-map", "Router cache");
+  await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({ kind: "code_map", filter: { bucket: "value:cache" } }));
+  await chartClick("code-map", "src/router.rs");
+  await content("Router cache race");
+  row("Router cache race");
+  await content("Seen in the router suite");
 }
 function assertReadOnly(): void {
   expect(document.body.querySelectorAll("input[name=password]")).toHaveLength(0);

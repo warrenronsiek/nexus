@@ -164,6 +164,11 @@ enum WorkRead {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ConcernRead {
+    #[serde(rename = "code_map")]
+    Map {
+        #[serde(default)]
+        filter: crate::code_map::MapQuery,
+    },
     #[serde(rename = "concern_dashboard")]
     Dashboard {
         #[serde(default)]
@@ -430,6 +435,10 @@ impl WorkRead {
 impl ConcernRead {
     fn into_action(self, project_id: Option<String>) -> ConcernAction {
         match self {
+            Self::Map { filter } => ConcernAction::Map {
+                project_id,
+                query: filter,
+            },
             Self::Dashboard { filter } => ConcernAction::Dashboard {
                 project_id,
                 query: filter,

@@ -331,3 +331,15 @@ summary .icon { vertical-align: -4px; margin: 0 6px 0 3px; }
 .flow-key-active .flow-key-mark { background: var(--muted); }
 .flow-key-wait .flow-key-mark { border-style: dotted; }
 .flow-key-unknown .flow-key-mark { border-style: dashed; opacity: .6; }
+
+.code-map-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 4px 18px 10px; }
+.code-map-controls label { display: grid; gap: 4px; min-width: 0; }
+.code-map-controls select { max-width: 100%; }
+.code-map-caption { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.panel > .code-map-caption { padding: 0 18px 8px; }
+.chart.code-map-chart svg { min-width: 0; }
+.code-map-tile rect { fill: color-mix(in srgb, var(--accent) 19%, var(--panel)); }
+.code-map-tile[data-selected="true"] rect { stroke: var(--accent); stroke-width: 2; }
+.code-map-evidence { padding: 0 18px 16px; overflow-wrap: anywhere; }
+.code-map-evidence ul { margin: 8px 0; padding: 0; list-style: none; }
+.code-map-evidence li + li { margin-top: 5px; }

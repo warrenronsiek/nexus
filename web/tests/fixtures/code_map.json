@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "response": "map",
+  "map": {
+    "title": "Reported concern encounters",
+    "unit": "encounters",
+    "reducer": "sum",
+    "size_by_samples": false,
+    "source": null,
+    "measures": [
+      {
+        "kind": "encounters"
+      },
+      {
+        "kind": "open_concerns"
+      },
+      {
+        "kind": "published",
+        "producer": "ci",
+        "measure": "branch_load"
+      }
+    ],
+    "measure": {
+      "kind": "encounters"
+    },
+    "measures_partial": false,
+    "dimensions": [
+      "file",
+      "subject",
+      "team"
+    ],
+    "group_by": "file",
+    "partial": false,
+    "bucket": null,
+    "groups": [
+      {
+        "key": "value:cache",
+        "label": "Router cache",
+        "value": 1.0,
+        "weight": 1.0,
+        "samples": 1,
+        "evidence": [
+          {
+            "subject": "Router cache race",
+            "concern_id": "router-concern",
+            "reference": "router-event"
+          }
+        ]
+      }
+    ]
+  }
+}

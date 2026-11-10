@@ -4,6 +4,7 @@
 -- @boundary browser-api: all domain data is decoded by Wire; credentials exist only in Elm form state until login completes.
 port module Main exposing (main)
 
+import CodeMap
 import Browser
 import Browser.Navigation as Nav
 import Dict exposing (Dict)
@@ -108,6 +109,9 @@ type Msg
     | PollingReceived Int (Result Http.Error String)
     | Toggle String Query
     | SelectNode String
+    | MapMeasure E.Value
+    | MapDimension String
+    | MapTile String
     | ChartSelected D.Value
     | Zoom Float
     | Mode String
@@ -526,8 +530,32 @@ update msg model =
             in
             ( next, draw next )
 
+        MapMeasure measure ->
+            let
+                filters = mapFilters model
+            in
+            load (mapQuery [ ( "measure", measure ), ( "group_by", E.string filters.dimension ) ]) { model | trail = [], selected = Nothing }
+
+        MapDimension dimension ->
+            let
+                filters = mapFilters model
+            in
+            load (mapQuery (( "group_by", E.string dimension ) :: pinnedMapFilters filters)) { model | trail = [], selected = Nothing }
+
+        MapTile tileId ->
+            let
+                filters = mapFilters model
+            in
+            if filters.drilled || filters.dimension == "subject" then
+                update (SelectNode tileId) model
+            else
+                update (Navigate (mapQuery ([ ( "group_by", E.string filters.dimension ), ( "bucket", E.string tileId ) ] ++ pinnedMapFilters filters))) model
+
         ChartSelected event ->
             case D.decodeValue (D.map2 Tuple.pair (D.field "chart" D.string) (D.field "id" D.string)) event of
+                Ok ( "code-map", tileId ) ->
+                    update (MapTile tileId) model
+
                 Ok ( "work-waterfall", nodeId ) ->
                     update (SelectNode nodeId) model
 
@@ -623,7 +651,11 @@ modeQuery screen mode =
     query <|
         case screen of
             Tools -> if mode == "capabilities" then "analytics_catalog" else if mode == "opportunities" then "analytics_opportunities" else "analytics_summary"
-            Concerns -> if mode == "all" then "concern_list" else "concern_dashboard"
+            Concerns ->
+                case mode of
+                    "all" -> "concern_list"
+                    "map" -> "code_map"
+                    _ -> "concern_dashboard"
             _ -> (primary screen Nothing).kind
 
 
@@ -715,7 +747,10 @@ screenCharts model doc =
             if model.focus == Nothing then [] else List.indexedMap (\index metric -> encodeTrend ("metric-" ++ String.fromInt index) False metric.points) doc.metrics
 
         Concerns ->
-            if model.query.kind == "concern_dashboard" then [ barsChart "summary-bars" doc.bars, encodeTrend "summary-trend" True doc.points ] else []
+            case model.query.kind of
+                "concern_dashboard" -> [ barsChart "summary-bars" doc.bars, encodeTrend "summary-trend" True doc.points ]
+                "code_map" -> [ CodeMap.chart model.selected (Wire.field "map" doc.root) ]
+                _ -> []
 
         Tools ->
             if model.query.kind == "analytics_summary" then commandCharts model doc else []
@@ -983,7 +1018,7 @@ subnav model =
     let
         modes = case model.screen of
             Tools -> [ ( "", "Activities" ), ( "capabilities", "Capabilities" ), ( "opportunities", "Opportunities" ) ]
-            Concerns -> [ ( "", "Problem areas" ), ( "all", "All concerns" ) ]
+            Concerns -> [ ( "", "Problem areas" ), ( "all", "All concerns" ), ( "map", "Code map" ) ]
             _ -> []
     in
     if List.isEmpty modes then text "" else div [ class "subnav" ] (List.map (\( mode, caption ) -> button [ class (if mode == model.mode then "active" else ""), onClick (Mode mode) ] [ text caption ]) modes)
@@ -1361,7 +1396,9 @@ skillText loaded =
 
 concernsView : Model -> Document -> Html Msg
 concernsView model doc =
-    if model.query.kind == "concern_dashboard" then
+    if model.query.kind == "code_map" then
+        codeMapView model doc
+    else if model.query.kind == "concern_dashboard" then
         let
             counts = Wire.field "counts" doc.root
         in
@@ -1374,6 +1411,59 @@ concernsView model doc =
     else
         panel "Concerns" "Open a concern to read its encounters and the remedies already tried."
             [ if List.isEmpty doc.rows then nothingRecorded "No concerns were reported for this scope." else div [ class "record-list" ] (List.map (\row -> expandable model { key = "concern:" ++ row.id, load = query "concern_get" |> with "concern_id" row.id, icon = Icon.Bug, title = row.title, subtitle = row.subtitle, aside = text "" } concernDetail) doc.rows) ]
+
+
+mapQuery : List ( String, E.Value ) -> Query
+mapQuery fields =
+    Query "code_map" [ ( "filter", E.object fields ) ]
+
+
+mapFilters : Model -> { measure : E.Value, dimension : String, snapshot : String, drilled : Bool }
+mapFilters model =
+    model.data.value
+        |> Maybe.map (\doc -> Wire.field "map" doc.root)
+        |> Maybe.withDefault E.null
+        |> CodeMap.filters
+
+
+pinnedMapFilters : { a | measure : E.Value, snapshot : String } -> List ( String, E.Value )
+pinnedMapFilters filters =
+    ( "measure", filters.measure )
+        :: (if filters.snapshot == "" then [] else [ ( "snapshot_id", E.string filters.snapshot ) ])
+
+
+codeMapView : Model -> Document -> Html Msg
+codeMapView model doc =
+    let
+        body = Wire.field "map" doc.root
+        controls =
+            { measure = MapMeasure
+            , dimension = MapDimension
+            , choose = MapTile
+            , evidence = mapEvidence model
+            }
+    in
+    panel "Code map"
+        (String.join " · " (List.filter (\part -> part /= "") [ Wire.str "title" body, Wire.str "bucket_label" body ]))
+        (CodeMap.view controls model.selected body)
+
+
+mapEvidence : Model -> CodeMap.Evidence -> Html Msg
+mapEvidence model evidence =
+    case evidence.concernId of
+        Just concernId ->
+            expandable model
+                { key = "concern:" ++ concernId
+                , load = query "concern_get" |> with "concern_id" concernId
+                , icon = Icon.Bug
+                , title = evidence.subject
+                , subtitle = ""
+                , aside = text ""
+                }
+                concernDetail
+
+        Nothing ->
+            div [] [ text evidence.subject, evidence.reference |> Maybe.map (\reference -> span [] [ text (" · " ++ reference) ]) |> Maybe.withDefault (text "") ]
 
 
 concernDetail : Maybe Document -> Html Msg

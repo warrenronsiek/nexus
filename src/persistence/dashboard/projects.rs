@@ -11,7 +11,7 @@ use crate::coordination::domain::{query_window_limit, RecordWindow};
 use crate::persistence::backend::DbConnection;
 use crate::persistence::models::parse_time;
 use crate::persistence::schema::{
-    analytics_calls, analytics_exposures, analytics_resources, capability_uses,
+    analytics_calls, analytics_exposures, analytics_resources, capability_uses, code_map_snapshots,
     concern_observations, eval_records, events, memory_spaces, papercuts, projects, sessions,
     sos_issues, sos_reports, work_observations,
 };
@@ -188,6 +188,12 @@ fn record_activity(connection: &mut DbConnection) -> QueryResult<Vec<ActivityRow
             eval_records,
             eval_records::recorded_at,
             eval_records::recorded_at
+        ),
+        activity!(
+            connection,
+            code_map_snapshots,
+            code_map_snapshots::observed_at,
+            code_map_snapshots::observed_at
         ),
         activity!(
             connection,

@@ -190,7 +190,8 @@ impl ConcernEncounter {
                 .iter()
                 .try_for_each(ConcernArea::validate)?;
         }
-        self.evidence.iter().try_for_each(ConcernEvidence::validate)
+        crate::code_map::validate_concern_dimensions(&self.dimensions)
+            .and_then(|()| self.evidence.iter().try_for_each(ConcernEvidence::validate))
     }
 }
 impl ConcernEvidence {

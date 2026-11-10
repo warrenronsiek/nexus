@@ -599,7 +599,7 @@ diesel::table! {
         project_id -> Text, event_id -> Text, concern_id -> Text, reported_concern_id -> Text,
         source_key -> Nullable<Text>, work_session_id -> Nullable<Text>, host_session_key -> Nullable<Text>,
         source_time -> Nullable<Text>, effective_time -> Text, observed_at -> Text, effective_day -> Text,
-        repository -> Nullable<Text>, returned_after_resolution -> Integer,
+        repository -> Nullable<Text>, returned_after_resolution -> Integer, map_dimensions_json -> Text,
     }
 }
 diesel::table! {
@@ -623,5 +623,17 @@ diesel::allow_tables_to_appear_in_same_query!(
 diesel::table! {
     concern_decisions (project_id,proposal_id) {
         project_id -> Text, proposal_id -> Text, event_id -> Text, concern_id -> Text, decision -> Text,
+    }
+}
+
+diesel::table! {
+    code_map_snapshots (project_id, id) {
+        project_id -> Text,
+        id -> Text,
+        producer -> Text,
+        measure -> Text,
+        observed_at -> Text,
+        reporter -> Text,
+        payload_json -> Text,
     }
 }

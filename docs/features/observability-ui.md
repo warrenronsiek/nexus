@@ -26,6 +26,10 @@ port in Docker Compose; there is no separately versioned UI container. `nexus we
 serves the same interface using the invoking CLI's configured local SQLite daemon
 or remote service transport.
 
+The Code concerns destination includes a [code map](code-map.md). Its measure
+and grouping selectors reflect project data, and a selected tile drills into
+subjects or opens the contributing concern evidence.
+
 ## Developer metrics design
 
 The browser follows the pinned Leonxlnx taste-skill's data-terminal app direction:

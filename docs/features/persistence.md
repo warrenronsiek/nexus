@@ -82,7 +82,7 @@ The remote deployment has one authoritative `nexus-server` process per PostgreSQ
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
-The CLI transfer uses a version-five newline-delimited JSON record stream. A header fixes the format,
+The CLI transfer uses a version-seven newline-delimited JSON record stream. It includes immutable [code map](code-map.md) snapshots and continues to read versions two through six. A header fixes the format,
 typed table batches follow in foreign-key dependency order, and a mandatory footer confirms the
 application row count. Each ordinary batch holds at most sixteen rows; PostgreSQL export uses its
 row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated

@@ -190,6 +190,7 @@ validateEnvelope kind root =
                 "work_timeline" -> Just ( "response", "timeline" )
                 "work_get" -> Just ( "response", "detail" )
                 "work_events" -> Just ( "response", "events" )
+                "code_map" -> Just ( "response", "map" )
                 "concern_dashboard" -> Just ( "response", "dashboard" )
                 "concern_list" -> Just ( "response", "page" )
                 "concern_get" -> Just ( "response", "detail" )
