@@ -22,6 +22,13 @@ CLI/MCP operations. The UI never runs an eval, executes a remedy, advances
 delivery, or fetches artifact bytes. Raw response JSON is not shown; use the
 MCP/CLI reads below when exact source records are needed.
 
+## Code map
+
+Open Code concerns → Code map to change the measure independently from its
+grouping and to drill into contributing records. The available labels come from
+the selected measure's project data. Published snapshots show the revision and
+when the producer observed it.
+
 ## Choose a view
 
 | Question | View and evidence |

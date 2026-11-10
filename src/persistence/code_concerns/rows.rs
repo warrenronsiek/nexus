@@ -89,6 +89,7 @@ pub(super) struct EncounterRow {
     pub effective_day: String,
     pub repository: Option<String>,
     pub returned_after_resolution: i32,
+    pub map_dimensions_json: String,
 }
 #[derive(Clone, Queryable, Selectable, Insertable)]
 #[diesel(table_name=concern_areas)]

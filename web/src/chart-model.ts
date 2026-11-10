@@ -9,7 +9,8 @@ export interface Span extends SpanEvidence { id: string; parent: string | null; 
 export interface Point { id: string; label: string; at: number; value: number | null }
 export interface Bar { id: string; label: string; value: number | null; detail: string }
 export interface Bin { start: number; count: number }
-export interface Chart { id: string; type: "bars" | "trend" | "waterfall" | "histogram"; bars?: Bar[]; points?: Point[]; spans?: Span[]; bins?: Bin[]; binSeconds?: number; line?: boolean; selected?: string | null; zoom?: number }
+export interface Tile { id: string; label: string; value: string; weight: number }
+export interface Chart { id: string; type: "bars" | "trend" | "waterfall" | "histogram" | "treemap"; tiles?: Tile[]; bars?: Bar[]; points?: Point[]; spans?: Span[]; bins?: Bin[]; binSeconds?: number; line?: boolean; selected?: string | null; zoom?: number }
 export interface ChartInput extends Omit<Chart, "points" | "spans" | "bins"> { points?: (Omit<Point, "at"> & { at: string | number })[]; spans?: (Omit<Span, "start" | "end" | "queued" | "returnedAt"> & { returnedAt?: string | number | null; start: string | number | null; end: string | number | null; queued: string | number | null })[]; bins?: { start: string | number; count: number }[] }
 export interface ChartEvent { chart: string; id: string }
 export type Choose = (id: string) => void;

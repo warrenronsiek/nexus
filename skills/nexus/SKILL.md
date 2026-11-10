@@ -32,6 +32,7 @@ source checkout is required only for source-development commands.
 | `agent-memory` | Retain bounded, deliberate notes and retrieve relevant knowledge across sessions. | [nexus-agent-memory](../nexus-agent-memory/SKILL.md) |
 | `papercuts` | Record recurring development friction, support existing reports, and retain resolution history. | [nexus-papercuts](../nexus-papercuts/SKILL.md) |
 | `sos` | Record unusual situations encountered by agents inside a running application, retaining evidence and triage. | [nexus-sos](../nexus-sos/SKILL.md) |
+| `code-map` | Group concern encounters and caller-defined measures by project dimensions. | [nexus-code-concerns](../nexus-code-concerns/SKILL.md) |
 | `code-concerns` | Learn which code problems recur across areas and sessions, what was tried, and why. | [nexus-code-concerns](../nexus-code-concerns/SKILL.md) |
 | `usage-analytics` | Understand available versus used tools, skills, scripts, and semantic activity categories. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
 | `observability-ui` | Inspect current coordination and historical records through the authenticated read-only web interface. | [nexus-observability](../nexus-observability/SKILL.md) |

@@ -35,6 +35,14 @@ pub(super) enum ConcernCliCommand {
     Respond(recording::RespondArgs),
     /// Submit {format_version:1,observations:[...]}; - reads stdin.
     Record { file: PathBuf },
+    /// Query the code map. Optionally pass a JSON MapQuery file or - for stdin.
+    Map {
+        query: Option<PathBuf>,
+        #[arg(long)]
+        project_id: Option<String>,
+    },
+    /// Publish an immutable, producer-defined code measure snapshot.
+    PublishMeasure { file: PathBuf },
     /// List concerns, including resolved ones unless a status is selected.
     List(QueryArgs),
     /// Show problem-area recurrence totals and trends.
@@ -129,6 +137,16 @@ pub(super) async fn run(
 
 fn action(command: ConcernCliCommand, caller: &recording::CallerContext) -> Result<ConcernAction> {
     match command {
+        ConcernCliCommand::Map { query, project_id } => query
+            .map(|path| map_json(&path, 16 * 1024))
+            .transpose()
+            .map(|query| ConcernAction::Map {
+                project_id,
+                query: query.unwrap_or_default(),
+            }),
+        ConcernCliCommand::PublishMeasure { file } => {
+            map_json(&file, 512 * 1024).map(|snapshot| ConcernAction::PublishMeasure { snapshot })
+        }
         ConcernCliCommand::List(args) => {
             let (project_id, query) = args.query()?;
             Ok(ConcernAction::List { project_id, query })
@@ -159,6 +177,10 @@ fn action(command: ConcernCliCommand, caller: &recording::CallerContext) -> Resu
         ConcernCliCommand::Record { file } => recording::read_bundle(&file),
         command => recording::action(command, caller),
     }
+}
+
+fn map_json<T: serde::de::DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<T> {
+    Ok(serde_json::from_slice(&recording::read(path, max_bytes)?)?)
 }
 
 impl QueryArgs {

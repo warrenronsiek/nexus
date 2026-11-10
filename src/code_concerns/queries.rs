@@ -52,6 +52,14 @@ pub enum ConcernAction {
         observation: Box<ConcernObservationInput>,
         reporter_token: String,
     },
+    Map {
+        project_id: Option<String>,
+        #[serde(default)]
+        query: crate::code_map::MapQuery,
+    },
+    PublishMeasure {
+        snapshot: crate::code_map::MapSnapshot,
+    },
     List {
         project_id: Option<String>,
         #[serde(default)]
@@ -84,8 +92,12 @@ pub enum ConcernAction {
 impl ConcernAction {
     pub fn read_project(&self) -> Option<&str> {
         match self {
-            Self::Record { .. } | Self::Import { .. } | Self::Respond { .. } => None,
-            Self::List { project_id, .. }
+            Self::Record { .. }
+            | Self::Import { .. }
+            | Self::Respond { .. }
+            | Self::PublishMeasure { .. } => None,
+            Self::Map { project_id, .. }
+            | Self::List { project_id, .. }
             | Self::Dashboard { project_id, .. }
             | Self::Get { project_id, .. }
             | Self::History { project_id, .. }
@@ -180,6 +192,13 @@ pub struct ConcernReceipt {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConcernResponse {
+    Map {
+        map: crate::code_map::MapView,
+    },
+    MeasurePublished {
+        id: String,
+        inserted: bool,
+    },
     Recorded {
         inserted: usize,
         replayed: usize,

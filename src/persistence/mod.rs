@@ -12,6 +12,7 @@ mod analytics;
 mod backend;
 mod batch;
 mod code_concerns;
+mod code_map;
 mod conflicts;
 mod dashboard;
 mod evals;

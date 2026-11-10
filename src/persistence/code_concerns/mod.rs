@@ -8,6 +8,7 @@ mod declarations;
 mod duplicates;
 mod indexing;
 mod ingestion;
+mod map;
 mod projection;
 mod publication;
 mod queries;
@@ -29,6 +30,17 @@ impl Store {
             .validate_read()
             .map_err(|error| ConcernRejection::Invalid(error.to_string()))?;
         match action {
+            ConcernAction::Map { query, .. } => Ok(ConcernResponse::Map {
+                map: self.code_map(project, query)?,
+            }),
+            ConcernAction::PublishMeasure { snapshot } => {
+                actor.validate()?;
+                let inserted = self.publish_code_map(project, &actor.agent, snapshot)?;
+                Ok(ConcernResponse::MeasurePublished {
+                    id: snapshot.id.clone(),
+                    inserted,
+                })
+            }
             ConcernAction::Record { observations } => {
                 self.record_concerns(project, actor, observations, &[], None)
             }
@@ -56,4 +68,5 @@ impl Store {
         }
     }
 }
+pub(super) use map::map_points;
 pub(super) use snapshot::rebuild_snapshot;

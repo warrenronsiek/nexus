@@ -9,6 +9,7 @@
 pub mod agents;
 pub(crate) mod analytics;
 pub mod code_concerns;
+pub mod code_map;
 pub mod config;
 pub mod coordination;
 pub mod evals;

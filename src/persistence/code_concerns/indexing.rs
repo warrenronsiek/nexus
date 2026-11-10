@@ -36,7 +36,7 @@ impl<'a> IndexedObservation<'a> {
         let Some(encounter) = self.observation.input.body.encounter() else {
             return Ok(());
         };
-        let row = self.encounter_row(encounter);
+        let row = self.encounter_row(encounter)?;
         diesel::insert_into(e::table)
             .values(row)
             .on_conflict_do_nothing()
@@ -68,7 +68,7 @@ impl<'a> IndexedObservation<'a> {
         }
         Ok(())
     }
-    fn encounter_row(&self, encounter: &ConcernEncounter) -> EncounterRow {
+    fn encounter_row(&self, encounter: &ConcernEncounter) -> Result<EncounterRow> {
         let input = &self.observation.input;
         let source_key = encounter.source.as_ref().map(|s| {
             crate::identity::stable_id(&[
@@ -84,7 +84,7 @@ impl<'a> IndexedObservation<'a> {
             .clone()
             .or_else(|| encounter.areas.first().map(|v| v.area.repository.clone()))
             .or_else(|| encounter.source.as_ref().map(|v| v.repository.clone()));
-        EncounterRow {
+        Ok(EncounterRow {
             project_id: self.row.project_id.clone(),
             event_id: self.row.id.clone(),
             concern_id: self.canonical.clone(),
@@ -98,7 +98,8 @@ impl<'a> IndexedObservation<'a> {
             effective_day: self.row.effective_time[..10].into(),
             repository,
             returned_after_resolution: 0,
-        }
+            map_dimensions_json: serde_json::to_string(&encounter.dimensions)?,
+        })
     }
     fn host_session_key(&self) -> Option<String> {
         let actor = self

@@ -8,14 +8,16 @@
 // @entrypoint Store::import_streamed_snapshot
 // @boundary portable-database-stream
 use super::super::backend::DbConnection;
+use super::super::code_map::CodeMapSnapshotRow;
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
-    analytics_resources, analytics_revisions, capability_uses, claims, concern_observations,
-    conflicts, database_imports, eval_blob_chunks, eval_blobs, eval_dimensions, eval_links,
-    eval_records, events, memory_activations, memory_compaction_attempts, memory_compaction_queue,
-    memory_entries, memory_frontier_snapshots, memory_spaces, memory_summaries,
-    papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts, sessions,
-    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts, work_observations,
+    analytics_resources, analytics_revisions, capability_uses, claims, code_map_snapshots,
+    concern_observations, conflicts, database_imports, eval_blob_chunks, eval_blobs,
+    eval_dimensions, eval_links, eval_records, events, memory_activations,
+    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
+    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
+    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
+    sos_triage_attempts, work_observations,
 };
 use super::super::Store;
 use super::rows::*;
@@ -72,7 +74,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 6;
+const FORMAT_VERSION: i32 = 7;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -195,6 +197,7 @@ batches! {
     31: EvalBlobChunks(EvalBlobChunkTransfer) => eval_blob_chunks, (eval_blob_chunks::project_id.asc(),eval_blob_chunks::digest.asc(),eval_blob_chunks::chunk_index.asc());
     32: WorkObservations(WorkObservationTransfer) => work_observations, (work_observations::project_id.asc(),work_observations::id.asc());
     33: ConcernObservations(ConcernObservationTransfer) => concern_observations, (concern_observations::project_id.asc(),concern_observations::id.asc());
+    34: CodeMapSnapshots(CodeMapSnapshotRow) => code_map_snapshots, (code_map_snapshots::project_id.asc(),code_map_snapshots::id.asc());
 }
 
 #[derive(Serialize, Deserialize)]
@@ -374,6 +377,11 @@ impl ImportProgress {
                 .maximum_event_id
                 .max(events.iter().map(|event| event.id).max().unwrap_or(0));
         }
+        if let Batch::CodeMapSnapshots(snapshots) = &data {
+            snapshots
+                .iter()
+                .try_for_each(CodeMapSnapshotRow::validate)?;
+        }
         data.insert(connection)?;
         self.rows += data.len();
         Ok(())
@@ -400,6 +408,10 @@ fn import(connection: &mut DbConnection, mut input: impl BufRead) -> Result<Snap
         Some(Record::Header { format_version: 5 }) => {
             progress.format_version = 5;
             33
+        }
+        Some(Record::Header { format_version: 6 }) => {
+            progress.format_version = 6;
+            34
         }
         Some(Record::Header {
             format_version: FORMAT_VERSION,

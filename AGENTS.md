@@ -23,6 +23,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
 - `papercuts`: timestamped development-friction reports, upvotes, duplicate review, consolidation, resolution, and complete registry export.
 - `sos`: unusual situations reported by agents inside running applications, repeated-report aggregation, lifecycle tracking, and triage history.
+- `code-map`: grouped code concerns and producer-defined numeric snapshots, with source drill-down.
 - `code-concerns`: attributable code problems, area recurrence, attempted remedies, Git locations, and historical review evidence.
 - `evals`: Git-backed evaluation definitions, motivations, caller-owned results, grading history, artifacts, comparisons, and browser retrieval.
 - `work-history`: durable work sessions, nested activity timing, deterministic capture, caller-owned delivery evidence, and browser waterfalls.

@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 pub(super) fn definition() -> Value {
     json!({
         "name":"nexus_concerns",
-        "description":"Record and investigate code defects and recurring problem areas across work sessions. Distinct from development-environment Papercuts and live-application SOS reports. Record immutable encounters, locations, remedies and why they were tried; retrieve concern histories, area recurrence summaries, and timelines. Shared source failures are counted separately from reporter observations. Callers own fixes and review decisions. Nexus binds submitter/project provenance.",
+        "description":"Record and investigate code defects and recurring problem areas across work sessions. Distinct from development-environment Papercuts and live-application SOS reports. Record immutable encounters, locations, remedies and why they were tried; retrieve concern histories, area recurrence summaries, and timelines. Shared source failures are counted separately from reporter observations. The code map groups concerns and accepts immutable snapshots of producer-defined numeric measures. Callers own measurement, fixes and review decisions. Nexus binds submitter/project provenance.",
         "inputSchema":super::concern_reporting::schema()
     })
 }

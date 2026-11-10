@@ -71,6 +71,11 @@ A recorded product review of the live console set these rules:
 - Eval results are separate observations, so they draw as dots, not a line.
 - Date axes step by whole days so a label never repeats.
 
+The Code map uses a single blue treemap inside Code concerns. Area reflects
+either the additive measurement or the sample count, as labeled in the map.
+Tiles expose exact values on hover and through accessible labels. Selecting a
+tile drills into its scope or opens supporting evidence below the map.
+
 ## Icons
 
 [Lucide Static](https://lucide.dev/guide/static) **1.66.0** is pinned as a development

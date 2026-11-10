@@ -40,6 +40,11 @@ cannot authorize semantic consolidation. Proposals never approve themselves.
 Work history and concerns share the typed original-receipt primitive while
 retaining their own actor validation, lifecycle and publication rules.
 
+The [code map](code-map.md) groups these observations using affected areas and
+optional encounter-level dimensions. It assigns overlapping memberships to a
+Shared bucket for sizing. Concern-area queries retain their existing overlapping
+counts.
+
 ## Recording and attribution
 
 `nexus concerns` and `nexus_concerns` expose this feature independently of the

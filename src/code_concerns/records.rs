@@ -117,6 +117,8 @@ pub struct ConcernEncounter {
     pub workaround: Option<String>,
     pub source: Option<ConcernFailureSource>,
     pub areas: Vec<ConcernAreaAttribution>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub dimensions: std::collections::BTreeMap<String, String>,
     pub evidence: Vec<ConcernEvidence>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

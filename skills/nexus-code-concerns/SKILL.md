@@ -47,6 +47,22 @@ concern for the encounter/remedy/return timeline and evidence metadata. These
 views are read-only. Overlapping areas are not additive defect totals, and
 reported problems are not a code-quality score.
 
+## Group observations in the code map
+
+Open Code concerns → Code map or run `nexus concerns map`. Select reported
+encounters, open concerns, or a published project measure. Group by recorded
+file, directory, feature, subsystem, or caller-defined dimensions. Include
+scalar labels such as `"dimensions": {"team":"storage"}` inside the encounter.
+Keep using structured affected areas for the built-in location dimensions.
+Shared and Unattributed buckets preserve one placement per point.
+
+Publish an external numeric snapshot with `nexus concerns publish-measure FILE`
+or the `nexus_concerns` action `publish_measure`. Supply an immutable ID,
+producer, measure key, title, unit, reducer (`sum`, `max`, or `mean`), revision,
+observation time and samples. Samples identify a subject, numeric value and
+optional dimensions and evidence reference. The producer owns the computation.
+Read the current schema with `nexus concerns schema`.
+
 ## Record an encounter with its real source
 
 For an ordinary agent observation, the dedicated MCP shortcut needs only a
