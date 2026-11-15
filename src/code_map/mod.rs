@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub(crate) use projection::{project, MapPoint, Placement};
+pub(crate) use projection::{project, DimensionPlacement, MapPoint, Placement};
 pub(crate) use validation::{validate_concern_dimensions, MAX_BYTES, MAX_POINTS};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

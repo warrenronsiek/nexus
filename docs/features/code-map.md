@@ -58,6 +58,12 @@ flowchart TD
    on the selected snapshot. A leaf opens its supporting concern or displays
    the producer's evidence reference as text.
 
+Internally, published labels and concern locations contribute typed dimension
+placements through one aggregation owner. It keeps an ordered index by dimension
+and a distinct placement set, including when open concerns combine encounters.
+File identities remain repository-qualified even when their display paths match.
+Bounded database batches and encounter grouping retain owned local accumulation.
+
 The first release bounds a snapshot to 4,096 samples and 384 KiB after encoding,
 with up to 32 dimension keys per snapshot. The built-in map uses up to 4,096
 recent encounters and discloses partial coverage. Map responses show up to 64

@@ -1,40 +1,49 @@
 // @feature coordination
 // @spec docs/features/coordination.md
 pub(super) fn synopsis(prompt: &str, max_chars: usize) -> String {
-    let mut result = String::with_capacity(max_chars.min(prompt.len()));
-    let mut chars = 0_usize;
-    let mut pending_space = false;
-    for character in prompt.chars() {
-        if character == '.' {
-            break;
-        }
-        if character.is_whitespace() {
-            pending_space |= !result.is_empty();
-            continue;
-        }
-        if pending_space {
-            result.push(' ');
-            chars += 1;
-            if chars == max_chars {
-                break;
-            }
-            pending_space = false;
-        }
-        if chars == max_chars {
-            break;
-        }
-        result.push(character);
-        chars += 1;
-        if chars == max_chars {
-            break;
-        }
-    }
-    result
+    let characters = prompt.chars().take_while(|&character| character != '.');
+    // Emit separators before words, using adjacent characters rather than an
+    // accumulator. Skip the separator introduced by the initial space sentinel.
+    std::iter::once(' ')
+        .chain(characters.clone())
+        .zip(characters)
+        .filter(|(_, current)| !current.is_whitespace())
+        .flat_map(|(previous, current)| {
+            previous
+                .is_whitespace()
+                .then_some(' ')
+                .into_iter()
+                .chain(std::iter::once(current))
+        })
+        .skip(1)
+        .take(max_chars)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::synopsis;
+
+    #[test]
+    fn synopsis_normalizes_whitespace_before_applying_unicode_character_bounds() {
+        for (prompt, normalized) in [
+            ("", ""),
+            (".ignored", ""),
+            (" \t\n\r ", ""),
+            (" \talpha\u{2003} beta  .ignored", "alpha beta"),
+            ("é🙂\u{a0}界  e\u{301}. ignored", "é🙂 界 e\u{301}"),
+            ("alpha! beta? gamma. ignored", "alpha! beta? gamma"),
+            ("alpha\n\t", "alpha"),
+        ] {
+            for limit in 0..=normalized.chars().count() + 2 {
+                assert_eq!(
+                    synopsis(prompt, limit),
+                    normalized.chars().take(limit).collect::<String>(),
+                    "prompt={prompt:?}, limit={limit}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn synopsis_stops_at_its_output_bound_before_scanning_a_large_tail() {

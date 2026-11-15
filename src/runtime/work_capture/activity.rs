@@ -28,58 +28,88 @@ pub struct WorkExecutor {
 
 impl CaptureContext {
     pub fn from_environment(root: &Path) -> Self {
-        let mut context = Self::from_hook(HookContext {
-            session_id: std::env::var("NEXUS_HOST_SESSION_ID")
-                .unwrap_or_else(|_| format!("command-{}", process_instance_id())),
-            agent: std::env::var("NEXUS_AGENT").unwrap_or_else(|_| "nexus-cli".into()),
+        let handoff = host_context::environment_handoff();
+        let inherited = handoff.as_ref().ok().and_then(Option::as_ref);
+        let hook = HookContext {
+            session_id: match std::env::var("NEXUS_HOST_SESSION_ID") {
+                Ok(value) => value,
+                Err(std::env::VarError::NotPresent) => inherited
+                    .map(|value| value.host_session_id.clone())
+                    .unwrap_or_else(|| format!("command-{}", process_instance_id())),
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    format!("command-{}", process_instance_id())
+                }
+            },
+            agent: match std::env::var("NEXUS_AGENT") {
+                Ok(value) => value,
+                Err(std::env::VarError::NotPresent) => inherited
+                    .map(|value| value.agent.clone())
+                    .unwrap_or_else(|| "nexus-cli".into()),
+                Err(std::env::VarError::NotUnicode(_)) => "nexus-cli".into(),
+            },
             project_root: Some(root.to_string_lossy().into_owned()),
-            turn_id: std::env::var("NEXUS_TURN_ID").ok(),
-            model: std::env::var("NEXUS_MODEL").ok(),
-        });
-        if let Ok(value) = std::env::var("NEXUS_WORK_CONTEXT") {
-            if let Ok(handoff) = super::WorkHandoff::decode(value.as_bytes()) {
-                handoff.apply_defaults(&mut context);
-            }
-        }
-        context
+            turn_id: std::env::var("NEXUS_TURN_ID")
+                .ok()
+                .or_else(|| inherited.and_then(|value| value.turn_id.clone())),
+            model: std::env::var("NEXUS_MODEL")
+                .ok()
+                .or_else(|| inherited.and_then(|value| value.model.clone())),
+        };
+        Self::from_decoded_handoff(hook, handoff)
     }
 
     pub fn from_hook(hook: HookContext) -> Self {
-        let mut context = Self {
+        Self::from_decoded_handoff(hook, host_context::environment_handoff())
+    }
+
+    fn from_decoded_handoff(hook: HookContext, handoff: Result<Option<WorkHandoff>>) -> Self {
+        let (work_session_id, parent_activity_id, context_gap) = match handoff {
+            Ok(Some(value)) => (Some(value.work_session_id), value.parent_activity_id, None),
+            Ok(None) => (None, None, None),
+            Err(_) => (None, None, Some("invalid_context_handoff".into())),
+        };
+        Self {
             hook,
-            work_session_id: std::env::var("NEXUS_WORK_SESSION_ID").ok(),
-            parent_activity_id: std::env::var("NEXUS_PARENT_ACTIVITY_ID").ok(),
+            work_session_id: std::env::var("NEXUS_WORK_SESSION_ID")
+                .ok()
+                .or(work_session_id),
+            parent_activity_id: std::env::var("NEXUS_PARENT_ACTIVITY_ID")
+                .ok()
+                .or(parent_activity_id),
             executor: None,
             environment: std::env::var("NEXUS_WORK_ENVIRONMENT").ok(),
             accounting_role: WorkAccountingRole::Execution,
-            context_gap: None,
-        };
-        if let Ok(value) = std::env::var("NEXUS_WORK_CONTEXT") {
-            match super::WorkHandoff::decode(value.as_bytes()) {
-                Ok(handoff) => {
-                    context.work_session_id =
-                        context.work_session_id.or(Some(handoff.work_session_id));
-                    context.parent_activity_id =
-                        context.parent_activity_id.or(handoff.parent_activity_id);
-                }
-                Err(_) => context.context_gap = Some("invalid_context_handoff".into()),
-            }
+            context_gap,
         }
-        context
     }
 
-    pub fn with_active_host(mut self, loaded: &LoadedConfig) -> Self {
+    pub fn with_active_host(self, loaded: &LoadedConfig) -> Self {
         // Only an exact caller-supplied host identity can consult this project bridge.
-        if std::env::var_os("NEXUS_HOST_SESSION_ID").is_some()
-            && std::env::var_os("NEXUS_AGENT").is_some()
-        {
-            if let Ok(active) =
-                super::active_host_context(loaded, &self.hook.agent, &self.hook.session_id)
-            {
-                active.apply_defaults(&mut self);
+        match (
+            std::env::var_os("NEXUS_HOST_SESSION_ID"),
+            std::env::var_os("NEXUS_AGENT"),
+        ) {
+            (Some(_), Some(_)) => {
+                match super::active_host_context(loaded, &self.hook.agent, &self.hook.session_id) {
+                    Ok(active) => self.with_handoff_defaults(active),
+                    Err(_) => self,
+                }
             }
+            _ => self,
         }
-        self
+    }
+
+    pub(super) fn with_handoff_defaults(self, handoff: WorkHandoff) -> Self {
+        Self {
+            work_session_id: self.work_session_id.or(Some(handoff.work_session_id)),
+            parent_activity_id: self.parent_activity_id.or(handoff.parent_activity_id),
+            hook: HookContext {
+                turn_id: self.hook.turn_id.or(handoff.turn_id),
+                model: self.hook.model.or(handoff.model),
+                ..self.hook
+            },
+            ..self
+        }
     }
 
     pub(super) fn work_context(&self) -> WorkContext {

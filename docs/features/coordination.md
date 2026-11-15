@@ -68,6 +68,13 @@ flowchart TD
 
 The primary entry point is `NexusService::handle` in `src/coordination/service.rs`. `ServiceRequest` and response records live in `api.rs`; domain states such as `RecordScope`, `ConflictScope`, `ToolCompletion`, `ClaimState`, and `Severity` live in `domain.rs`. Memory and papercut request handling are delegated to feature-scoped service modules and return typed feature-domain values. Memory consolidation and papercut duplicate review never run in a lifecycle request.
 
+Prompt synopses are lazy character transformations: stop at the first period,
+collapse Unicode whitespace between words, and apply the configured character
+limit without scanning a remaining prompt tail. Adjacent characters determine
+separators without a mutable output counter or pending-space flag. The service
+then enforces the independent UTF-8 byte ceiling before persistence; synopsis
+storage and full-prompt storage retain their separate privacy settings.
+
 `classifier.rs` owns deterministic tool-payload extraction and overlap classification. One tool call can yield at most 256 distinct path intents, 256 KiB of aggregate canonical path text, and 4 KiB per path. Patch and shell parsing accepts at most 1 MiB of source text, and patch scanning stops after 8,192 lines. Inputs beyond those observation bounds contribute no additional claims rather than extending store-mutex work without limit; the underlying tool remains permitted. `usage_detection.rs` separately identifies conservative script invocations inside observed shell commands; analytics normalization and fail-open recording live in `usage.rs`. Open-ended tool input is isolated behind `ToolPayload`. Its boundary accepts
 native objects and a single JSON-encoded object layer from Claude MCP hook
 templates. Decoding is limited to 1 MiB; ordinary strings, non-object JSON,

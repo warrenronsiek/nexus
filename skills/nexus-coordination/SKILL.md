@@ -125,6 +125,11 @@ output/error payloads; minimize or sanitize those at a custom integration's
 boundary. Keep credentials out of prompts and descriptive labels. Usage/work
 telemetry has a separate, narrower metadata-only capture contract.
 
+When changing synopsis generation, preserve first-sentence termination, Unicode
+whitespace normalization, character and UTF-8 byte limits, and lazy stopping
+before the unused prompt tail. A whole-prompt split or normalization pass can
+violate the lifecycle work bound even when the returned text is correct.
+
 Verify a custom adapter with two isolated sessions that overlap a real fixture,
 a failed tool call, and an unavailable Nexus service. Check that advisories
 arrive, completion IDs match, session stop releases claims, and workload results

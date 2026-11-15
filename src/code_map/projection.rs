@@ -10,6 +10,12 @@ pub(crate) struct Placement {
     pub label: String,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct DimensionPlacement {
+    pub dimension: String,
+    pub placement: Placement,
+}
+
 impl Placement {
     pub fn value(key: &str, label: &str) -> Self {
         Self {
@@ -35,34 +41,47 @@ pub(crate) struct MapPoint {
 
 impl From<MapSample> for MapPoint {
     fn from(sample: MapSample) -> Self {
-        Self {
+        let mut point = Self {
             subject: Placement::value(&sample.subject, &sample.subject),
             value: sample.value,
-            dimensions: sample
-                .dimensions
-                .into_iter()
-                .map(|(key, value)| (key, BTreeSet::from([Placement::value(&value, &value)])))
-                .collect(),
+            dimensions: BTreeMap::new(),
             evidence: MapEvidence {
                 subject: sample.subject,
                 concern_id: None,
                 reference: sample.evidence,
             },
-        }
+        };
+        point.include_dimensions(sample.dimensions.into_iter().map(|(dimension, value)| {
+            DimensionPlacement {
+                dimension,
+                placement: Placement::value(&value, &value),
+            }
+        }));
+        point
     }
 }
 
 impl MapPoint {
-    fn placement(&self, dimension: &str) -> Placement {
-        if dimension == "subject" {
-            return self.subject.clone();
+    pub(crate) fn include_dimensions(
+        &mut self,
+        dimensions: impl IntoIterator<Item = DimensionPlacement>,
+    ) {
+        for value in dimensions {
+            self.dimensions
+                .entry(value.dimension)
+                .or_default()
+                .insert(value.placement);
         }
-        match self.dimensions.get(dimension) {
-            Some(values) if values.len() > 1 => Placement::special("shared", "Shared"),
-            Some(values) if !values.is_empty() => {
-                values.first().expect("nonempty placement").clone()
-            }
-            _ => Placement::special("unattributed", "Unattributed"),
+    }
+
+    fn placement(&self, dimension: &str) -> Placement {
+        match dimension {
+            "subject" => self.subject.clone(),
+            _ => match self.dimensions.get(dimension) {
+                Some(values) if values.len() > 1 => Placement::special("shared", "Shared"),
+                Some(values) => values.first().expect("nonempty dimension").clone(),
+                None => Placement::special("unattributed", "Unattributed"),
+            },
         }
     }
 }

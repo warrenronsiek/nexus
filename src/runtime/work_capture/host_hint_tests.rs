@@ -143,3 +143,243 @@ fn empty_executor_hint_remains_unknown_without_weakening_parent_identity() {
         .validate()
         .is_err());
 }
+
+#[test]
+fn capture_context_preserves_handoff_precedence() {
+    let handoff = host_handoff(
+        "handoff-agent",
+        "handoff-session",
+        Some("handoff-turn"),
+        Some("handoff-model"),
+    );
+    if let Ok(case) = std::env::var("NEXUS_TEST_CONTEXT_CASE") {
+        assert_capture_context(&case, &handoff);
+        return;
+    }
+    for case in [
+        "missing",
+        "malformed",
+        "handoff",
+        "explicit",
+        "partial",
+        "nulls",
+        "empty",
+        "non_unicode",
+    ] {
+        let output = context_command(case, &handoff).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn context_command(case: &str, handoff: &WorkHandoff) -> std::process::Command {
+    use std::os::unix::ffi::OsStringExt;
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "runtime::work_capture::host_hint_tests::capture_context_preserves_handoff_precedence",
+            "--nocapture",
+        ])
+        .env("NEXUS_TEST_CONTEXT_CASE", case);
+    for variable in [
+        "NEXUS_HOST_SESSION_ID",
+        "NEXUS_AGENT",
+        "NEXUS_WORK_SESSION_ID",
+        "NEXUS_PARENT_ACTIVITY_ID",
+        "NEXUS_TURN_ID",
+        "NEXUS_MODEL",
+        "NEXUS_WORK_ENVIRONMENT",
+        "NEXUS_WORK_CONTEXT",
+    ] {
+        command.env_remove(variable);
+    }
+    let value = match case {
+        "missing" => None,
+        "malformed" => Some("not-json".into()),
+        "nulls" => Some(
+            serde_json::to_string(&WorkHandoff {
+                parent_activity_id: None,
+                request_activity_id: None,
+                turn_id: None,
+                model: None,
+                ..handoff.clone()
+            })
+            .unwrap(),
+        ),
+        _ => Some(serde_json::to_string(&handoff).unwrap()),
+    };
+    command.envs(value.map(|value| ("NEXUS_WORK_CONTEXT", value)));
+    match case {
+        "explicit" => {
+            for (name, value) in [
+                ("NEXUS_HOST_SESSION_ID", "explicit-session"),
+                ("NEXUS_AGENT", "explicit-agent"),
+                ("NEXUS_WORK_SESSION_ID", "explicit-work"),
+                ("NEXUS_PARENT_ACTIVITY_ID", "explicit-parent"),
+                ("NEXUS_TURN_ID", "explicit-turn"),
+                ("NEXUS_MODEL", "explicit-model"),
+            ] {
+                command.env(name, value);
+            }
+        }
+        "partial" => {
+            command.env("NEXUS_AGENT", "explicit-agent");
+        }
+        "empty" => {
+            for name in [
+                "NEXUS_HOST_SESSION_ID",
+                "NEXUS_AGENT",
+                "NEXUS_WORK_SESSION_ID",
+                "NEXUS_PARENT_ACTIVITY_ID",
+                "NEXUS_TURN_ID",
+                "NEXUS_MODEL",
+            ] {
+                command.env(name, "");
+            }
+        }
+        "non_unicode" => {
+            command
+                .env(
+                    "NEXUS_HOST_SESSION_ID",
+                    std::ffi::OsString::from_vec(vec![255]),
+                )
+                .env("NEXUS_AGENT", std::ffi::OsString::from_vec(vec![255]));
+        }
+        _ => {}
+    }
+    command
+}
+
+fn assert_capture_context(case: &str, handoff: &WorkHandoff) {
+    use super::CaptureContext;
+    let hook = HookContext {
+        session_id: "hook-session".into(),
+        agent: "hook-agent".into(),
+        project_root: Some("/fixture".into()),
+        turn_id: None,
+        model: None,
+    };
+    let native = CaptureContext::from_hook(hook);
+    let environment = CaptureContext::from_environment(std::path::Path::new("/fixture"));
+    let work = match case {
+        "missing" | "malformed" => None,
+        "explicit" => Some("explicit-work"),
+        "empty" => Some(""),
+        _ => Some(handoff.work_session_id.as_str()),
+    };
+    let parent = match case {
+        "missing" | "malformed" | "nulls" => None,
+        "explicit" => Some("explicit-parent"),
+        "empty" => Some(""),
+        _ => handoff.parent_activity_id.as_deref(),
+    };
+    for context in [&native, &environment] {
+        assert_eq!(context.work_session_id.as_deref(), work);
+        assert_eq!(context.parent_activity_id.as_deref(), parent);
+        assert_eq!(
+            context
+                .work_context()
+                .labels
+                .get("nexus.capture.gap")
+                .map(String::as_str),
+            (case == "malformed").then_some("invalid_context_handoff")
+        );
+    }
+    assert_eq!(
+        (
+            &*native.hook.session_id,
+            &*native.hook.agent,
+            native.hook.turn_id,
+            native.hook.model
+        ),
+        ("hook-session", "hook-agent", None, None)
+    );
+    assert_environment_context(case, environment, handoff);
+}
+
+fn assert_environment_context(case: &str, context: super::CaptureContext, handoff: &WorkHandoff) {
+    let generated = format!("command-{}", super::process_instance_id());
+    let (session, agent) = match case {
+        "missing" | "malformed" | "non_unicode" => (&*generated, "nexus-cli"),
+        "explicit" => ("explicit-session", "explicit-agent"),
+        "empty" => ("", ""),
+        "partial" => (&*handoff.host_session_id, "explicit-agent"),
+        _ => (&*handoff.host_session_id, &*handoff.agent),
+    };
+    let (turn, model) = match case {
+        "missing" | "malformed" | "nulls" => (None, None),
+        "explicit" => (Some("explicit-turn"), Some("explicit-model")),
+        "empty" => (Some(""), Some("")),
+        _ => (handoff.turn_id.as_deref(), handoff.model.as_deref()),
+    };
+    assert_eq!(
+        (
+            &*context.hook.session_id,
+            &*context.hook.agent,
+            context.hook.turn_id.as_deref(),
+            context.hook.model.as_deref()
+        ),
+        (session, agent, turn, model)
+    );
+}
+
+#[test]
+fn active_handoff_preserves_bound_identity_and_supplied_executor() {
+    use super::{CaptureContext, WorkExecutor};
+    let handoff = host_handoff(
+        "active-agent",
+        "active-host",
+        Some("active-turn"),
+        Some("m"),
+    );
+    let mut context = CaptureContext::from_hook(HookContext {
+        session_id: "bound-host".into(),
+        agent: "bound-agent".into(),
+        project_root: Some("/fixture".into()),
+        turn_id: None,
+        model: Some("explicit-model".into()),
+    });
+    context.work_session_id = None;
+    context.parent_activity_id = Some("supplied-parent".into());
+    context.environment = Some("test-environment".into());
+    context.executor = Some(WorkExecutor {
+        name: "executor".into(),
+        model_id: Some("executor-model".into()),
+        instance_id: "executor-instance".into(),
+    });
+    let inherited = context.with_handoff_defaults(handoff.clone());
+    assert_eq!(inherited.work_session_id, Some(handoff.work_session_id));
+    assert_eq!(
+        inherited.parent_activity_id.as_deref(),
+        Some("supplied-parent")
+    );
+    assert_eq!(inherited.environment.as_deref(), Some("test-environment"));
+    assert_eq!(
+        (
+            &*inherited.hook.session_id,
+            &*inherited.hook.agent,
+            inherited.hook.turn_id,
+            inherited.hook.model
+        ),
+        (
+            "bound-host",
+            "bound-agent",
+            handoff.turn_id,
+            Some("explicit-model".into())
+        )
+    );
+    let executor = inherited.executor.unwrap();
+    assert_eq!(
+        (executor.name, executor.model_id, executor.instance_id),
+        (
+            "executor".into(),
+            Some("executor-model".into()),
+            "executor-instance".into()
+        )
+    );
+}

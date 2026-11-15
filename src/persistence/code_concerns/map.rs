@@ -4,7 +4,9 @@
 // @spec docs/features/code-concerns.md
 use super::counts::Population;
 use crate::code_concerns::{ConcernQuery, ConcernQueryStatus};
-use crate::code_map::{MapEvidence, MapMeasure, MapPoint, MapView, Placement, MAX_POINTS};
+use crate::code_map::{
+    DimensionPlacement, MapEvidence, MapMeasure, MapPoint, MapView, Placement, MAX_POINTS,
+};
 use crate::persistence::backend::DbConnection;
 use crate::persistence::schema::{
     code_concerns as c, concern_areas as a, concern_attributions as l, concern_encounters as e,
@@ -13,7 +15,7 @@ use anyhow::Result;
 use diesel::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-type Dimensions = BTreeMap<String, BTreeSet<Placement>>;
+type DimensionContributions = Vec<DimensionPlacement>;
 
 struct Encounter {
     event: String,
@@ -29,40 +31,34 @@ pub(in crate::persistence) fn map_points(
     measure: &MapMeasure,
     view: &mut MapView,
 ) -> Result<Vec<MapPoint>> {
-    let open = *measure == MapMeasure::OpenConcerns;
-    view.title = if open {
-        "Open concerns"
-    } else {
-        "Reported concern encounters"
-    }
-    .into();
-    view.unit = if open { "concerns" } else { "encounters" }.into();
+    let (title, unit, status) = match measure {
+        MapMeasure::OpenConcerns => ("Open concerns", "concerns", Some(ConcernQueryStatus::Open)),
+        _ => ("Reported concern encounters", "encounters", None),
+    };
+    view.title = title.into();
+    view.unit = unit.into();
     view.dimensions
         .extend(["directory", "feature", "file", "repository", "subsystem"].map(String::from));
 
-    let mut encounters = encounters(connection, project, open)?;
+    let mut encounters = encounters(connection, project, status)?;
     view.partial = encounters.len() > MAX_POINTS;
     encounters.truncate(MAX_POINTS);
     let mut attributions = attributions(connection, project, &encounters)?;
     let mut points = BTreeMap::new();
     for encounter in encounters {
-        let identity = if open {
-            &encounter.concern
-        } else {
-            &encounter.event
+        let identity = match measure {
+            MapMeasure::OpenConcerns => &encounter.concern,
+            _ => &encounter.event,
         };
-        let mut dimensions = attributions.remove(&encounter.event).unwrap_or_default();
-        add_reported_dimensions(&mut dimensions, &encounter)?;
+        let dimensions = attributions
+            .remove(&encounter.event)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(reported_dimensions(&encounter)?);
         let point = points
             .entry(identity.clone())
             .or_insert_with(|| encounter_point(&encounter));
-        for (dimension, values) in dimensions {
-            point
-                .dimensions
-                .entry(dimension)
-                .or_default()
-                .extend(values);
-        }
+        point.include_dimensions(dimensions);
     }
     view.dimensions.extend(
         points
@@ -73,9 +69,13 @@ pub(in crate::persistence) fn map_points(
     Ok(points.into_values().map(place_subject).collect())
 }
 
-fn encounters(connection: &mut DbConnection, project: &str, open: bool) -> Result<Vec<Encounter>> {
+fn encounters(
+    connection: &mut DbConnection,
+    project: &str,
+    status: Option<ConcernQueryStatus>,
+) -> Result<Vec<Encounter>> {
     let query = ConcernQuery {
-        status: open.then_some(ConcernQueryStatus::Open),
+        status,
         ..ConcernQuery::default()
     };
     let population = Population {
@@ -116,8 +116,8 @@ fn attributions(
     connection: &mut DbConnection,
     project: &str,
     encounters: &[Encounter],
-) -> Result<BTreeMap<String, Dimensions>> {
-    let mut result = BTreeMap::<String, Dimensions>::new();
+) -> Result<BTreeMap<String, BTreeSet<DimensionPlacement>>> {
+    let mut result = BTreeMap::<String, BTreeSet<DimensionPlacement>>::new();
     for chunk in encounters.chunks(256) {
         let rows = l::table
             .inner_join(a::table.on(a::project_id.eq(l::project_id).and(a::id.eq(l::area_id))))
@@ -127,57 +127,66 @@ fn attributions(
             .select((l::event_id, a::repository, a::kind, a::area_key))
             .load::<(String, String, String, String)>(connection)?;
         for (event, repository, kind, key) in rows {
-            add_area(result.entry(event).or_default(), &repository, &kind, &key);
+            result
+                .entry(event)
+                .or_default()
+                .extend(area_dimensions(&repository, &kind, &key));
         }
     }
     Ok(result)
 }
 
-fn add_reported_dimensions(dimensions: &mut Dimensions, encounter: &Encounter) -> Result<()> {
-    if let Some(repository) = &encounter.repository {
-        dimensions
-            .entry("repository".into())
-            .or_default()
-            .insert(Placement::value(repository, repository));
-    }
+fn reported_dimensions(encounter: &Encounter) -> Result<DimensionContributions> {
     let custom: BTreeMap<String, String> = serde_json::from_str(&encounter.dimensions)?;
-    for (key, value) in custom {
-        dimensions
-            .entry(key)
-            .or_default()
-            .insert(Placement::value(&value, &value));
-    }
-    Ok(())
+    Ok(encounter
+        .repository
+        .iter()
+        .map(|repository| DimensionPlacement {
+            dimension: "repository".into(),
+            placement: Placement::value(repository, repository),
+        })
+        .chain(
+            custom
+                .into_iter()
+                .map(|(dimension, value)| DimensionPlacement {
+                    dimension,
+                    placement: Placement::value(&value, &value),
+                }),
+        )
+        .collect())
 }
 
-fn add_area(dimensions: &mut Dimensions, repository: &str, kind: &str, key: &str) {
-    dimensions
-        .entry("repository".into())
-        .or_default()
-        .insert(Placement::value(repository, repository));
-    if !matches!(kind, "feature" | "subsystem" | "file") {
-        return;
-    }
-    insert_area(dimensions, repository, kind, key);
-    if kind == "file" {
-        let directory = key.rsplit_once('/').map_or(".", |(parent, _)| parent);
-        insert_area(dimensions, repository, "directory", directory);
-    }
-}
-
-fn insert_area(dimensions: &mut Dimensions, repository: &str, dimension: &str, key: &str) {
-    let identity = crate::identity::stable_id(&["code-map", repository, dimension, key]);
-    dimensions
-        .entry(dimension.into())
-        .or_default()
-        .insert(Placement::value(&identity, key));
+fn area_dimensions(repository: &str, kind: &str, key: &str) -> DimensionContributions {
+    let areas = match kind {
+        "file" => [
+            Some(("file", key)),
+            Some((
+                "directory",
+                key.rsplit_once('/').map_or(".", |(parent, _)| parent),
+            )),
+        ],
+        "feature" | "subsystem" => [Some((kind, key)), None],
+        _ => [None, None],
+    };
+    std::iter::once(DimensionPlacement {
+        dimension: "repository".into(),
+        placement: Placement::value(repository, repository),
+    })
+    .chain(areas.into_iter().flatten().map(|(dimension, key)| {
+        let identity = crate::identity::stable_id(&["code-map", repository, dimension, key]);
+        DimensionPlacement {
+            dimension: dimension.into(),
+            placement: Placement::value(&identity, key),
+        }
+    }))
+    .collect()
 }
 
 fn encounter_point(encounter: &Encounter) -> MapPoint {
     MapPoint {
         subject: Placement::value(&encounter.concern, &encounter.title),
         value: 1.0,
-        dimensions: Dimensions::new(),
+        dimensions: BTreeMap::new(),
         evidence: MapEvidence {
             subject: encounter.title.clone(),
             concern_id: Some(encounter.concern.clone()),
