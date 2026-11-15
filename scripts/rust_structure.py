@@ -122,7 +122,6 @@ class TypeBinding:
 @dataclass(frozen=True)
 class TypeNames:
     bindings: tuple[TypeBinding, ...] = ()
-    imports: tuple[SourceSpan, ...] = ()
     qualified: tuple[SourceSpan, ...] = ()
 
     @classmethod
@@ -131,12 +130,11 @@ class TypeNames:
         declared = filter(None, (local_binding(node, nodes, lines) for node in nodes if node.kind in {"struct_item", "enum_item", "trait_item", "type_item", "type_parameter"}))
         return cls(
             bindings=tuple(binding for node in imports for binding in imported_bindings(node, nodes, lines)) + tuple(declared),
-            imports=tuple(node.span for node in imports),
             qualified=tuple(node.span for node in nodes if node.kind == "scoped_type_identifier"),
         )
 
     def is_dynamic(self, node: RustNode, text: str) -> bool:
-        if node.kind not in {"type_identifier", "scoped_type_identifier"} or any(span.contains(node.span) for span in self.imports):
+        if node.kind not in {"type_identifier", "scoped_type_identifier"}:
             return False
         if node.kind == "type_identifier" and any(span.contains(node.span) for span in self.qualified):
             return False
