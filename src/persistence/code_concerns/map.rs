@@ -117,6 +117,8 @@ fn attributions(
     project: &str,
     encounters: &[Encounter],
 ) -> Result<BTreeMap<String, BTreeSet<DimensionPlacement>>> {
+    // Deduplicate while retaining the 4,096-encounter attribution page; waiting
+    // for final MapPoint aggregation would retain repeated repository/directory payloads.
     let mut result = BTreeMap::<String, BTreeSet<DimensionPlacement>>::new();
     for chunk in encounters.chunks(256) {
         let rows = l::table

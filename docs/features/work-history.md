@@ -130,9 +130,6 @@ can fill missing identity from the handoff. Active-host defaults preserve bound
 host and executor identity and fill only absent work, parent, turn, and model
 fields. A missing handoff preserves ordinary defaults; a malformed one preserves
 those defaults and marks `invalid_context_handoff` rather than guessing identity.
-The former public Rust helper `WorkHandoff::apply_defaults` is removed; its
-internal callers now use context construction and an owned value merge. CLI,
-MCP, environment-variable, and handoff JSON contracts remain unchanged.
 
 The local outbox lives beside the configured SQLite database; remote clients use
 an endpoint/project-keyed directory under the user's local data directory.
