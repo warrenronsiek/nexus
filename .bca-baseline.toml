@@ -14,33 +14,9 @@ tier = "hard"
 
 [[entry]]
 path = "scripts/complexity_analysis.py"
-qualified = "find_repetition"
-metric = "cognitive"
-value = 21.0
-
-[[entry]]
-path = "scripts/complexity_analysis.py"
 qualified = "main"
 metric = "cognitive"
 value = 29.0
-
-[[entry]]
-path = "scripts/complexity_analysis.py"
-qualified = "main"
-metric = "cyclomatic"
-value = 20.0
-
-[[entry]]
-path = "scripts/complexity_analysis.py"
-qualified = "main"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
-path = "scripts/complexity_analysis.py"
-qualified = "ranking_score"
-metric = "nargs"
-value = 6.0
 
 [[entry]]
 path = "scripts/complexity_analysis.py"

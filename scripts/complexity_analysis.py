@@ -15,19 +15,17 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, fields, replace
 from enum import Enum
+from operator import attrgetter
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import feature_map
+import rust_structure
 
 ANALYZABLE_SUFFIXES = {".js", ".jsx", ".mjs", ".py", ".rs", ".ts", ".tsx"}
 BCA_METRICS = "cognitive,cyclomatic,lloc,nargs,nexits,nom,tokens,halstead,mi,abc"
-RANKING_FORMULA = (
-    "LLOC + 3*arguments + 8*declarations + "
-    "5*max(cyclomatic-1, 0) + 2*cognitive"
-)
 TOKEN_PATTERN = re.compile(
     r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|'
     r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|"
@@ -92,9 +90,80 @@ class AnalysisError(RuntimeError):
 class RankingWeights:
     lloc: float
     arguments: float
-    declarations: float
+    functions: float
     cyclomatic: float
     cognitive: float
+    mutation_sites: float
+    state_types: float
+    dynamic_types: float
+
+
+@dataclass(frozen=True)
+class RankingSignals:
+    lloc: float = 0.0
+    arguments: float = 0.0
+    functions: float = 0.0
+    cyclomatic: float = 0.0
+    cognitive: float = 0.0
+    mutation_sites: float = 0.0
+    state_types: float = 0.0
+    dynamic_types: float = 0.0
+
+
+def ranking_formula(weights: RankingWeights) -> str:
+    labels = {"lloc": "LLOC", "cyclomatic": "branching"}
+    return " + ".join(f"{getattr(weights, item.name):g}*{labels.get(item.name, item.name)}" for item in fields(RankingSignals))
+
+
+def contributions(weights: RankingWeights, signals: RankingSignals) -> RankingSignals:
+    return RankingSignals(**{item.name: getattr(weights, item.name) * getattr(signals, item.name) for item in fields(RankingSignals)})
+
+
+@dataclass(frozen=True)
+class SourceEvidence:
+    path: Path
+    lines: Sequence[str]
+    nodes: Sequence[rust_structure.RustNode]
+    span: rust_structure.SourceSpan
+    names: rust_structure.TypeNames
+
+    def scoped(self, space: Mapping[str, object], owner: rust_structure.RustNode | None) -> SourceEvidence:
+        if owner is None:
+            span = rust_structure.SourceSpan.whole_lines(as_integer(space.get("start_line")), as_integer(space.get("end_line")))
+            return replace(self, span=span)
+        actual = (rust_structure.SPACE_KINDS[owner.kind], owner.span.start_line, owner.span.end_line)
+        expected = (space.get("kind"), space.get("start_line"), space.get("end_line"))
+        if actual != expected:
+            raise AnalysisError(f"BCA metric/node scope mismatch in {self.path}: {expected} != {actual}")
+        return SourceEvidence(self.path, self.lines, tuple(node for node in self.nodes if owner.span.contains(node.span)), owner.span, self.names)
+
+    def metric_units(self, root: Path, document: Mapping[str, object], weights: RankingWeights) -> list[UnitMetric]:
+        spaces = spaces_in_document(document)
+        owners: Sequence[rust_structure.RustNode | None] = [None] * len(spaces)
+        if self.path.suffix == ".rs":
+            owners = [None, *(node for node in self.nodes if node.kind in rust_structure.SPACE_KINDS)]
+            if len(owners) != len(spaces):
+                raise AnalysisError(f"BCA metric/node scope count mismatch in {self.path}")
+        return [unit_from_space(root, self.scoped(space, owner), space, weights) for space, owner in zip(spaces, owners)]
+
+    def ranking_signals(self, space: Mapping[str, object]) -> RankingSignals:
+        metrics = as_mapping(space.get("metrics"))
+        loc = as_mapping(metrics.get("loc"))
+        nargs = as_mapping(metrics.get("nargs"))
+        nom = as_mapping(metrics.get("nom"))
+        cyclomatic = as_mapping(metrics.get("cyclomatic"))
+        cognitive = as_mapping(metrics.get("cognitive"))
+        syntax = rust_structure.signals_in_span(self.nodes, self.lines, self.span, self.names)
+        return RankingSignals(
+            lloc=as_number(loc.get("lloc")),
+            arguments=syntax.arguments if self.path.suffix == ".rs" else as_number(nargs.get("function_args", nargs.get("total"))),
+            functions=syntax.functions if self.path.suffix == ".rs" else as_number(nom.get("functions")),
+            cyclomatic=max(as_number(cyclomatic.get("sum", cyclomatic.get("value"))) - space_count(space), 0.0),
+            cognitive=as_number(cognitive.get("sum", cognitive.get("value"))),
+            mutation_sites=syntax.mutation_sites,
+            state_types=syntax.state_types,
+            dynamic_types=syntax.dynamic_types,
+        )
 
 
 @dataclass(frozen=True)
@@ -115,14 +184,17 @@ class UnitMetric:
     path: str
     name: str
     kind: str
-    start_line: int
-    end_line: int
-    declarations: int
+    span: rust_structure.SourceSpan
     architectural_load: float
     metrics: Mapping[str, object]
+    signals: RankingSignals = field(default_factory=RankingSignals)
+    contributions: RankingSignals = field(default_factory=RankingSignals)
+
+    def contains(self, other: UnitMetric) -> bool:
+        return self.path == other.path and self.span.contains(other.span)
 
     def label(self) -> str:
-        return f"{self.path}:{self.start_line}:{self.name}"
+        return f"{self.path}:{self.span.start_line}:{self.name}"
 
 
 @dataclass(frozen=True)
@@ -166,9 +238,12 @@ def load_policy(root: Path) -> AnalysisPolicy:
         ranking=RankingWeights(
             lloc=as_number(ranking.get("lloc")),
             arguments=as_number(ranking.get("arguments")),
-            declarations=as_number(ranking.get("declarations")),
+            functions=as_number(ranking.get("functions")),
             cyclomatic=as_number(ranking.get("cyclomatic")),
             cognitive=as_number(ranking.get("cognitive")),
+            mutation_sites=as_number(ranking.get("mutation_sites")),
+            state_types=as_number(ranking.get("state_types")),
+            dynamic_types=as_number(ranking.get("dynamic_types")),
         ),
         repetition=RepetitionPolicy(
             minimum_tokens=as_integer(repetition.get("minimum_tokens")),
@@ -285,90 +360,33 @@ def run_bca_check(root: Path, paths: Sequence[Path]) -> int:
     return completed.returncode
 
 
-def declaration_count(path: Path, lines: Sequence[str], start: int, end: int) -> int:
-    body = "\n".join(lines[max(start - 1, 0) : end])
-    if path.suffix == ".rs":
-        pattern = re.compile(
-            r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?"
-            r"(?:let|const|static|struct|enum|trait|type)\b"
-        )
-    elif path.suffix in {".js", ".jsx", ".mjs", ".ts", ".tsx"}:
-        pattern = re.compile(
-            r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?"
-            r"(?:function|class|interface|type|enum|const|let|var)\b"
-        )
-    else:
-        pattern = re.compile(
-            r"(?m)^\s*(?:async\s+def|def|class)\s+|"
-            r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*(?::[^=\n]+)?=(?!=)"
-        )
-    return len(pattern.findall(body))
+def space_count(space: Mapping[str, object]) -> int:
+    children = space.get("spaces")
+    return 1 + sum(space_count(as_mapping(child)) for child in children) if isinstance(children, list) else 1
 
 
-def ranking_score(
-    weights: RankingWeights,
-    lloc: int,
-    arguments: int,
-    declarations: int,
-    cyclomatic: float,
-    cognitive: float,
-) -> float:
-    return (
-        weights.lloc * lloc
-        + weights.arguments * arguments
-        + weights.declarations * declarations
-        + weights.cyclomatic * max(cyclomatic - 1.0, 0.0)
-        + weights.cognitive * cognitive
-    )
-
-
-def unit_from_space(
-    root: Path,
-    path: Path,
-    lines: Sequence[str],
-    space: Mapping[str, object],
-    weights: RankingWeights,
-) -> UnitMetric:
-    metrics = as_mapping(space.get("metrics"))
-    loc = as_mapping(metrics.get("loc"))
-    nargs = as_mapping(metrics.get("nargs"))
-    cyclomatic_metric = as_mapping(metrics.get("cyclomatic"))
-    cognitive_metric = as_mapping(metrics.get("cognitive"))
-    start = as_integer(space.get("start_line"))
-    end = as_integer(space.get("end_line"))
-    declarations = declaration_count(path, lines, start, end)
+def unit_from_space(root: Path, source: SourceEvidence, space: Mapping[str, object], weights: RankingWeights) -> UnitMetric:
+    signals = source.ranking_signals(space)
+    weighted = contributions(weights, signals)
     return UnitMetric(
-        path=str(path.relative_to(root)),
-        name=str(space.get("name", path.name)),
+        path=str(source.path.relative_to(root)),
+        name=str(space.get("name", source.path.name)),
         kind=str(space.get("kind", "unit")),
-        start_line=start,
-        end_line=end,
-        declarations=declarations,
-        architectural_load=ranking_score(
-            weights,
-            as_integer(loc.get("lloc")),
-            as_integer(nargs.get("total")),
-            declarations,
-            as_number(cyclomatic_metric.get("value")),
-            as_number(cognitive_metric.get("value")),
-        ),
-        metrics=metrics,
+        span=source.span,
+        architectural_load=sum(asdict(weighted).values()),
+        metrics=as_mapping(space.get("metrics")),
+        signals=signals,
+        contributions=weighted,
     )
 
 
-def units_from_space(
-    root: Path,
-    path: Path,
-    lines: Sequence[str],
-    space: Mapping[str, object],
-    weights: RankingWeights,
-) -> list[UnitMetric]:
-    units = [unit_from_space(root, path, lines, space, weights)]
+def spaces_in_document(space: Mapping[str, object]) -> list[Mapping[str, object]]:
+    spaces = [space]
     children = space.get("spaces")
     if isinstance(children, list):
         for child in children:
-            units.extend(units_from_space(root, path, lines, as_mapping(child), weights))
-    return units
+            spaces.extend(spaces_in_document(as_mapping(child)))
+    return spaces
 
 
 def collect_units(
@@ -376,12 +394,32 @@ def collect_units(
     documents: Sequence[Mapping[str, object]],
     weights: RankingWeights,
 ) -> list[UnitMetric]:
+    paths = [root / str(document.get("name", "")) for document in documents]
+    try:
+        nodes = rust_structure.read_nodes(require_bca(), root, paths)
+    except RuntimeError as error:
+        raise AnalysisError(str(error)) from error
     units: list[UnitMetric] = []
-    for document in documents:
-        path = root / str(document.get("name", ""))
+    for document, path in zip(documents, paths):
         lines = path.read_text(encoding="utf-8").splitlines()
-        units.extend(units_from_space(root, path, lines, document, weights))
+        file_nodes = nodes.get(path, ())
+        span = rust_structure.SourceSpan.whole_lines(as_integer(document.get("start_line")), as_integer(document.get("end_line")))
+        source = SourceEvidence(path, lines, file_nodes, span, rust_structure.TypeNames.from_source(file_nodes, lines))
+        units.extend(source.metric_units(root, document, weights))
     return units
+
+
+def scope_document(units: Sequence[UnitMetric]) -> dict[str, object]:
+    selected: list[UnitMetric] = []
+    for unit in sorted(units, key=lambda item: (item.path, item.span.start_line, item.span.start_column, -item.span.end_line, -item.span.end_column)):
+        if not any(parent.contains(unit) for parent in selected):
+            selected.append(unit)
+    totals = RankingSignals(**{item.name: sum(getattr(unit.contributions, item.name) for unit in selected) for item in fields(RankingSignals)})
+    return {
+        "architectural_load": sum(unit.architectural_load for unit in selected),
+        "contributions": asdict(totals),
+        "units": [unit.label() for unit in selected],
+    }
 
 
 def normalized_tokens(text: str) -> tuple[str, ...]:
@@ -418,11 +456,7 @@ class ComparableUnit:
     shingles: frozenset[tuple[str, ...]]
 
     def contains_or_is_contained_by(self, other: ComparableUnit) -> bool:
-        left, right = self.unit, other.unit
-        return left.path == right.path and (
-            (left.start_line <= right.start_line and left.end_line >= right.end_line)
-            or (right.start_line <= left.start_line and right.end_line >= left.end_line)
-        )
+        return self.unit.contains(other.unit) or other.unit.contains(self.unit)
 
 
 def comparable_units(root: Path, units: Sequence[UnitMetric], minimum_tokens: int) -> list[ComparableUnit]:
@@ -434,7 +468,7 @@ def comparable_units(root: Path, units: Sequence[UnitMetric], minimum_tokens: in
         if unit.path not in lines_by_path:
             lines_by_path[unit.path] = (root / unit.path).read_text(encoding="utf-8").splitlines()
         lines = lines_by_path[unit.path]
-        tokens = normalized_tokens("\n".join(lines[max(unit.start_line - 1, 0):unit.end_line]))
+        tokens = normalized_tokens(unit.span.source(lines))
         if len(tokens) >= minimum_tokens:
             result.append(ComparableUnit(unit, tokens, frozenset(token_shingles(tokens))))
     return result
@@ -477,11 +511,11 @@ def unit_document(unit: UnitMetric) -> dict[str, object]:
         "path": unit.path,
         "name": unit.name,
         "kind": unit.kind,
-        "start_line": unit.start_line,
-        "end_line": unit.end_line,
-        "declarations": unit.declarations,
+        **asdict(unit.span),
         "architectural_load": unit.architectural_load,
         "metrics": dict(unit.metrics),
+        "signals": asdict(unit.signals),
+        "contributions": asdict(unit.contributions),
     }
 
 
@@ -502,22 +536,26 @@ def print_text(
     units: Sequence[UnitMetric],
     candidates: Sequence[RepetitionCandidate],
     limit: int,
+    weights: RankingWeights,
 ) -> None:
     print(f"scope: {scope}")
-    print(f"ranking: {RANKING_FORMULA}")
+    print(f"ranking: {ranking_formula(weights)}")
+    print(f"scope architectural load: {scope_document(units)['architectural_load']:.1f} (outermost units counted once)")
     print("hotspots (review leads; inspect raw metrics before changing code):")
-    ranked = sorted(units, key=lambda unit: unit.architectural_load, reverse=True)
+    ranked = sorted(units, key=attrgetter("architectural_load"), reverse=True)
     for unit in ranked[:limit]:
         print(
-            f"  {unit.architectural_load:7.1f}  {unit.path}:{unit.start_line} "
+            f"  {unit.architectural_load:7.1f}  {unit.path}:{unit.span.start_line} "
             f"{unit.kind} {unit.name} | "
             f"lloc={nested_metric(unit, 'loc', 'lloc'):g} "
-            f"args={nested_metric(unit, 'nargs', 'total'):g} "
-            f"decls={unit.declarations} "
-            f"cyclo={nested_metric(unit, 'cyclomatic', 'value'):g} "
-            f"cognitive={nested_metric(unit, 'cognitive', 'value'):g} "
+            f"args={unit.signals.arguments:g} "
+            f"functions={unit.signals.functions:g} "
+            f"mutation={unit.signals.mutation_sites:g} state={unit.signals.state_types:g} dynamic={unit.signals.dynamic_types:g} "
+            f"branching={unit.signals.cyclomatic:g} "
+            f"cognitive={unit.signals.cognitive:g} "
             f"abc={nested_metric(unit, 'abc', 'value'):.1f}"
         )
+        print("    costs: " + " ".join(f"{name}={value:g}" for name, value in asdict(unit.contributions).items()))
     print("repetition candidates (verify shared invariants before abstracting):")
     if not candidates:
         print("  none")
@@ -551,6 +589,20 @@ def selected_units(root: Path, paths: Sequence[Path], weights: RankingWeights, s
     return units
 
 
+def report_document(scope: str, purpose: AnalysisPurpose, units: Sequence[UnitMetric], candidates: Sequence[RepetitionCandidate], policy: AnalysisPolicy) -> dict[str, object]:
+    return {
+        "scope": scope,
+        "comparison": purpose.value,
+        "formula": ranking_formula(policy.ranking),
+        "weights": asdict(policy.ranking),
+        "total": scope_document(units),
+        "units": [unit_document(unit) for unit in units],
+        "repetition": [repetition_document(candidate) for candidate in candidates],
+        "thresholds": asdict(policy.repetition),
+        "violations": [repetition_document(candidate) for candidate in candidates if candidate.breaches(policy.repetition.fail_similarity)],
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parse_args(argv)
     root = arguments.root.resolve()
@@ -575,31 +627,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             else "repository"
         )
         if arguments.format == "json":
-            print(
-                json.dumps(
-                    {
-                        "scope": scope,
-                        "comparison": purpose.value,
-                        "formula": RANKING_FORMULA,
-                        "units": [unit_document(unit) for unit in units],
-                        "repetition": [
-                            repetition_document(candidate) for candidate in candidates
-                        ],
-                        "thresholds": {
-                            "minimum_tokens": policy.repetition.minimum_tokens,
-                            "warning_similarity": policy.repetition.warning_similarity,
-                            "fail_similarity": policy.repetition.fail_similarity,
-                        },
-                        "violations": [
-                            repetition_document(candidate) for candidate in violations
-                        ],
-                    },
-                    indent=2,
-                )
-            )
+            print(json.dumps(report_document(scope, purpose, units, candidates, policy), indent=2))
         else:
             print(f"comparison: {purpose.value} (omit --check for advisory comparisons)")
-            print_text(scope, units, candidates, arguments.limit)
+            print_text(scope, units, candidates, arguments.limit, policy.ranking)
 
         bca_status = run_bca_check(root, paths) if arguments.check else 0
         if bca_status == 1:

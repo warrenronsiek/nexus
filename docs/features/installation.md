@@ -94,6 +94,13 @@ library; source-development commands explicitly require a Nexus checkout.
 Installation tests compare the complete source skill resource tree with both
 host installations so a new reference cannot be omitted from the bundle.
 
+The library also includes `functional-rust` for immutable transformations,
+explicit domain types, and deep Rust interfaces, plus
+`code-complexity-analysis` for structural measurement and interpretation.
+Both are discoverable through `nexus` and `nexus-development`, installed for
+Codex and Claude, and refreshed with the other bundled resources while
+preserving adjacent user files.
+
 Setup also installs `nexus-work-history` for Codex and Claude, including its
 integration and host-adapter references and the canonical `work-capture.sh` and
 `nexus-work-github.py` sources under the installed skill's `scripts/` directory.
