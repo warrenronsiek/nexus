@@ -123,6 +123,14 @@ and measures elapsed time before attempting telemetry delivery. It propagates
 work/parent/host/agent/model context to child processes. Optional
 `NEXUS_WORK_ENVIRONMENT` is an explicit caller environment label.
 
+Context construction decodes a supplied handoff once and resolves precedence as
+returned values. Explicit work/parent values win over inherited values. Native
+hook context retains its supplied host, agent, turn, and model; command context
+can fill missing identity from the handoff. Active-host defaults preserve bound
+host and executor identity and fill only absent work, parent, turn, and model
+fields. A missing handoff preserves ordinary defaults; a malformed one preserves
+those defaults and marks `invalid_context_handoff` rather than guessing identity.
+
 The local outbox lives beside the configured SQLite database; remote clients use
 an endpoint/project-keyed directory under the user's local data directory.
 `NEXUS_WORK_OUTBOX_DIR` can explicitly select another directory. Directories and

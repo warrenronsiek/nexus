@@ -303,6 +303,16 @@ struct MemoryConsolidator<'a> {
     service: &'a NexusService,
 }
 
+enum MemoryProviderAttempt {
+    Primary(ModelProvider),
+    Fallback(ModelProvider),
+}
+
+struct RecordedMemoryAttempt<'a> {
+    job: &'a MemoryCompactionJob,
+    outcome: MemoryCompactionOutcome,
+}
+
 impl MemoryConsolidator<'_> {
     fn run(&self) -> Result<MemoryConsolidationReport> {
         self.repair_stale_frontiers()?;
@@ -322,6 +332,58 @@ impl MemoryConsolidator<'_> {
             });
         }
         self.consolidate_jobs(primary, fallback, &jobs)
+    }
+
+    fn consolidate_jobs(
+        &self,
+        primary: ModelProvider,
+        fallback: ModelProvider,
+        jobs: &[MemoryCompactionJob],
+    ) -> Result<MemoryConsolidationReport> {
+        let primary_jobs = self.provider_ready_jobs(jobs, primary)?;
+        let primary_attempts =
+            self.attempt_provider(MemoryProviderAttempt::Primary(primary), &primary_jobs)?;
+        let fallback_jobs = self
+            .provider_ready_jobs(jobs, fallback)?
+            .into_iter()
+            .filter(|job| {
+                !primary_attempts.iter().any(|attempt| {
+                    attempt.job.job_id == job.job_id && !attempt.outcome.is_failure()
+                })
+            })
+            .collect::<Vec<_>>();
+        let fallback_attempts =
+            self.attempt_provider(MemoryProviderAttempt::Fallback(fallback), &fallback_jobs)?;
+        let report = MemoryConsolidationReport {
+            ok: true,
+            fallback_uses: fallback_attempts.len(),
+            ..MemoryConsolidationReport::default()
+        };
+        Ok(primary_attempts
+            .into_iter()
+            .chain(fallback_attempts)
+            .fold(report, |report, attempt| {
+                let report = MemoryConsolidationReport {
+                    attempted: report.attempted + 1,
+                    ..report
+                };
+                match attempt.outcome {
+                    MemoryCompactionOutcome::Succeeded => MemoryConsolidationReport {
+                        succeeded: report.succeeded + 1,
+                        ..report
+                    },
+                    MemoryCompactionOutcome::Stale => MemoryConsolidationReport {
+                        stale: report.stale + 1,
+                        ..report
+                    },
+                    MemoryCompactionOutcome::Failed
+                    | MemoryCompactionOutcome::TimedOut
+                    | MemoryCompactionOutcome::InvalidOutput => MemoryConsolidationReport {
+                        failed: report.failed + 1,
+                        ..report
+                    },
+                }
+            }))
     }
 
     fn repair_stale_frontiers(&self) -> Result<()> {
@@ -358,27 +420,6 @@ impl MemoryConsolidator<'_> {
             )
     }
 
-    fn consolidate_jobs(
-        &self,
-        primary: ModelProvider,
-        fallback: ModelProvider,
-        jobs: &[MemoryCompactionJob],
-    ) -> Result<MemoryConsolidationReport> {
-        let mut report = MemoryConsolidationReport {
-            ok: true,
-            ..MemoryConsolidationReport::default()
-        };
-        let primary_jobs = self.provider_ready_jobs(jobs, primary)?;
-        let completed = self.attempt_provider(primary, &primary_jobs, false, &mut report)?;
-        let fallback_jobs = self
-            .provider_ready_jobs(jobs, fallback)?
-            .into_iter()
-            .filter(|job| !completed.contains(&job.job_id))
-            .collect::<Vec<_>>();
-        let _ = self.attempt_provider(fallback, &fallback_jobs, true, &mut report)?;
-        Ok(report)
-    }
-
     fn provider_ready_jobs(
         &self,
         jobs: &[MemoryCompactionJob],
@@ -391,133 +432,124 @@ impl MemoryConsolidator<'_> {
             .store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
-        let mut ready = Vec::new();
-        for job in jobs {
-            if store.memory_provider_can_attempt(job, provider, now)? {
-                ready.push(job.clone());
-            }
-        }
-        Ok(ready)
+        jobs.iter()
+            .filter_map(|job| {
+                store
+                    .memory_provider_can_attempt(job, provider, now)
+                    .map(|ready| ready.then(|| job.clone()))
+                    .transpose()
+            })
+            .collect()
     }
 
-    fn attempt_provider(
+    fn attempt_provider<'a>(
         &self,
-        provider: ModelProvider,
-        jobs: &[MemoryCompactionJob],
-        was_fallback: bool,
-        report: &mut MemoryConsolidationReport,
-    ) -> Result<HashSet<String>> {
+        attempt: MemoryProviderAttempt,
+        jobs: &'a [MemoryCompactionJob],
+    ) -> Result<Vec<RecordedMemoryAttempt<'a>>> {
         if jobs.is_empty() {
-            return Ok(HashSet::new());
+            return Ok(Vec::new());
         }
-        let attempt = model::invoke_memory_consolidation(
-            &self.service.loaded.config.analyst,
-            provider,
-            jobs,
-            None,
-        );
-        match attempt {
-            Ok(result) => self.record_summaries(jobs, result, was_fallback, report),
-            Err(failure) => self.record_failure(jobs, provider, failure, was_fallback, report),
-        }
-    }
-
-    fn record_failure(
-        &self,
-        jobs: &[MemoryCompactionJob],
-        provider: ModelProvider,
-        failure: model::MemoryConsolidationFailure,
-        was_fallback: bool,
-        report: &mut MemoryConsolidationReport,
-    ) -> Result<HashSet<String>> {
-        let outcome = match failure.kind {
-            MemoryConsolidationFailureKind::Invocation => MemoryCompactionOutcome::Failed,
-            MemoryConsolidationFailureKind::Timeout => MemoryCompactionOutcome::TimedOut,
-            MemoryConsolidationFailureKind::InvalidOutput => MemoryCompactionOutcome::InvalidOutput,
+        let provider = match &attempt {
+            MemoryProviderAttempt::Primary(provider)
+            | MemoryProviderAttempt::Fallback(provider) => *provider,
         };
         let analyst = &self.service.loaded.config.analyst;
-        let model_id = analyst.model(provider).model.clone();
-        let provider_name = model::provider_name(provider);
+        let result = model::invoke_memory_consolidation(analyst, provider, jobs, None);
         let mut store = self
             .service
             .store
             .lock()
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
-        for job in jobs {
-            store.record_memory_compaction_attempt(
-                job,
-                &MemoryCompactionAttempt {
-                    provider: provider_name.into(),
-                    model_id: model_id.clone(),
-                    outcome,
-                    diagnostic: Some(failure.diagnostic().into()),
-                    was_fallback,
-                    attempted_at: Utc::now(),
-                },
-            )?;
-        }
-        report.attempted += jobs.len();
-        report.failed += jobs.len();
-        if was_fallback {
-            report.fallback_uses += jobs.len();
-        }
-        Ok(HashSet::new())
+        let recorded = jobs
+            .iter()
+            .map(|job| {
+                let outcome = self.record_provider_result(&mut store, job, &result, &attempt)?;
+                Ok(RecordedMemoryAttempt { job, outcome })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let affected_scopes = recorded
+            .iter()
+            .filter(|attempt| attempt.outcome == MemoryCompactionOutcome::Succeeded)
+            .map(|attempt| &attempt.job.scope)
+            .collect::<HashSet<_>>();
+        affected_scopes
+            .into_iter()
+            .try_for_each(|scope| store.repair_memory_frontier(scope).map(|_| ()))?;
+        Ok(recorded)
     }
 
-    fn record_summaries(
+    fn record_provider_result(
         &self,
-        jobs: &[MemoryCompactionJob],
-        result: model::MemoryConsolidationResult,
-        was_fallback: bool,
-        report: &mut MemoryConsolidationReport,
-    ) -> Result<HashSet<String>> {
-        let provider = model::provider_name(result.provider);
-        let mut completed = HashSet::new();
-        let mut affected_scopes = HashSet::new();
-        let mut store = self
-            .service
-            .store
-            .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
-        for (job, summary) in jobs.iter().zip(result.summaries) {
-            let inserted = store.insert_memory_summary(
-                job,
-                &summary.summary,
-                provider,
+        store: &mut Store,
+        job: &MemoryCompactionJob,
+        result: &std::result::Result<
+            model::MemoryConsolidationResult,
+            model::MemoryConsolidationFailure,
+        >,
+        attempt: &MemoryProviderAttempt,
+    ) -> Result<MemoryCompactionOutcome> {
+        let (provider, was_fallback) = match attempt {
+            MemoryProviderAttempt::Primary(provider) => (*provider, false),
+            MemoryProviderAttempt::Fallback(provider) => (*provider, true),
+        };
+        let (provider, model_id) = match result {
+            Ok(result) => (
+                model::provider_name(result.provider),
                 result.model_id.as_deref(),
-            )?;
-            let outcome = match inserted {
-                MemorySummaryInsert::Inserted(_) | MemorySummaryInsert::AlreadyPresent(_) => {
-                    report.succeeded += 1;
-                    affected_scopes.insert(job.scope.clone());
-                    MemoryCompactionOutcome::Succeeded
-                }
-                MemorySummaryInsert::Stale => {
-                    report.stale += 1;
-                    MemoryCompactionOutcome::Stale
-                }
-            };
-            store.record_memory_compaction_attempt(
-                job,
-                &MemoryCompactionAttempt {
-                    provider: provider.into(),
-                    model_id: result.model_id.clone(),
-                    outcome,
-                    diagnostic: None,
-                    was_fallback,
-                    attempted_at: Utc::now(),
-                },
-            )?;
-            report.attempted += 1;
-            if was_fallback {
-                report.fallback_uses += 1;
+            ),
+            Err(_) => (
+                model::provider_name(provider),
+                self.service
+                    .loaded
+                    .config
+                    .analyst
+                    .model(provider)
+                    .model
+                    .as_deref(),
+            ),
+        };
+        let (outcome, diagnostic) = match result {
+            Ok(result) => {
+                // The model adapter validates exactly one summary for every job.
+                let summary = result
+                    .summaries
+                    .iter()
+                    .find(|summary| summary.job_id == job.job_id)
+                    .expect("validated memory summary job");
+                let inserted =
+                    store.insert_memory_summary(job, &summary.summary, provider, model_id)?;
+                let outcome = match inserted {
+                    MemorySummaryInsert::Inserted(_) | MemorySummaryInsert::AlreadyPresent(_) => {
+                        MemoryCompactionOutcome::Succeeded
+                    }
+                    MemorySummaryInsert::Stale => MemoryCompactionOutcome::Stale,
+                };
+                (outcome, None)
             }
-            completed.insert(job.job_id.clone());
-        }
-        for scope in affected_scopes {
-            store.repair_memory_frontier(&scope)?;
-        }
-        Ok(completed)
+            Err(failure) => (
+                match failure.kind {
+                    MemoryConsolidationFailureKind::Invocation => MemoryCompactionOutcome::Failed,
+                    MemoryConsolidationFailureKind::Timeout => MemoryCompactionOutcome::TimedOut,
+                    MemoryConsolidationFailureKind::InvalidOutput => {
+                        MemoryCompactionOutcome::InvalidOutput
+                    }
+                },
+                Some(failure.diagnostic().into()),
+            ),
+        };
+        store.record_memory_compaction_attempt(
+            job,
+            &MemoryCompactionAttempt {
+                provider: provider.into(),
+                model_id: model_id.map(str::to_owned),
+                outcome,
+                diagnostic,
+                was_fallback,
+                attempted_at: Utc::now(),
+            },
+        )?;
+        Ok(outcome)
     }
 }
 

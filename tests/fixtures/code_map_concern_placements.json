@@ -1,0 +1,22 @@
+{
+  "action": "record",
+  "observations": [
+    {"id": "a-old", "concern_id": "issue", "observed_at": "2026-11-10T00:00:00Z",
+     "body": {"event": "reported", "title": "Repeated problem", "description": "Description",
+              "encounter": {"areas": [
+                  {"area": {"repository": "repo-a", "kind": "file", "key": "src/shared.rs", "display_name": "File"}, "relation": "affected"}
+              ]}}},
+    {"id": "z-new", "concern_id": "issue", "observed_at": "2026-11-10T01:00:00Z",
+     "body": {"event": "encountered", "encounter": {"areas": [
+         {"area": {"repository": "repo-a", "kind": "file", "key": "src/shared.rs", "display_name": "File"}, "relation": "affected"},
+         {"area": {"repository": "repo-a", "kind": "file", "key": "src/suspected.rs", "display_name": "Suspect"}, "relation": "suspected_cause"}
+     ]}}},
+    {"id": "other", "concern_id": "other-repo", "observed_at": "2026-11-10T00:00:00Z",
+     "body": {"event": "reported", "title": "Other repository", "description": "Description",
+              "encounter": {"areas": [
+                  {"area": {"repository": "repo-b", "kind": "file", "key": "src/shared.rs", "display_name": "File"}, "relation": "affected"}
+              ]}}},
+    {"id": "unknown", "concern_id": "unlocated", "observed_at": "2026-11-10T00:00:00Z",
+     "body": {"event": "reported", "title": "Unknown location", "description": "Description", "encounter": {}}}
+  ]
+}

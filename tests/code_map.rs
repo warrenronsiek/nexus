@@ -99,6 +99,86 @@ fn concern_reports_keep_custom_dimensions_and_count_shared_concerns_once() {
     );
 }
 
+fn concern_area_fixture() -> (tempfile::TempDir, Store) {
+    use nexus::code_concerns::{ConcernAction, ConcernActor};
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("map.sqlite")).unwrap();
+    let actor = ConcernActor {
+        agent: "test".into(),
+        session_id: "map".into(),
+        model_id: None,
+        config_hash: "map".into(),
+    };
+    let action: ConcernAction =
+        serde_json::from_str(include_str!("fixtures/code_map_concern_placements.json")).unwrap();
+    store.concern_command("alpha", &actor, &action).unwrap();
+    (temporary, store)
+}
+
+#[test]
+fn concern_map_preserves_area_identity_placement_and_measure_provenance() {
+    let (_temporary, mut store) = concern_area_fixture();
+    let query = MapQuery {
+        group_by: Some("file".into()),
+        ..MapQuery::default()
+    };
+    let encounters = store.code_map("alpha", &query).unwrap();
+    assert_eq!(encounters.title, "Reported concern encounters");
+    assert_eq!(encounters.unit, "encounters");
+    assert_eq!(encounters.groups.len(), 3);
+    assert_eq!(encounters.groups[0].label, "src/shared.rs");
+    assert_eq!(encounters.groups[0].value, 2.0);
+    assert_eq!(encounters.groups[0].samples, 2);
+    assert_eq!(encounters.groups[0].evidence.len(), 1);
+    assert_eq!(
+        encounters.groups[0].evidence[0].reference.as_deref(),
+        Some("a-old")
+    );
+    let file_keys = encounters
+        .groups
+        .iter()
+        .filter(|group| group.label == "src/shared.rs")
+        .map(|group| &group.key)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(file_keys.len(), 2);
+    assert!(encounters
+        .groups
+        .iter()
+        .any(|group| group.label == "Unattributed" && group.value == 1.0));
+    assert!(!encounters.partial);
+}
+
+#[test]
+fn open_concern_drilldown_counts_once_and_preserves_latest_provenance() {
+    let (_temporary, mut store) = concern_area_fixture();
+    let query = MapQuery {
+        group_by: Some("file".into()),
+        ..MapQuery::default()
+    };
+    let encounters = store.code_map("alpha", &query).unwrap();
+    let open_query = MapQuery {
+        measure: MapMeasure::OpenConcerns,
+        bucket: Some(encounters.groups[0].key.clone()),
+        ..query
+    };
+    let open = store.code_map("alpha", &open_query).unwrap();
+    assert_eq!(open.title, "Open concerns");
+    assert_eq!(open.unit, "concerns");
+    assert_eq!(open.bucket_label.as_deref(), Some("src/shared.rs"));
+    assert_eq!(open.groups.len(), 1);
+    assert_eq!(open.groups[0].label, "src/shared.rs");
+    assert_eq!(open.groups[0].value, 1.0);
+    assert_eq!(
+        open.groups[0].evidence[0].reference.as_deref(),
+        Some("z-new")
+    );
+    assert!(store
+        .code_map("beta", &open_query)
+        .unwrap()
+        .groups
+        .is_empty());
+}
+
 #[test]
 fn map_bounds_encoded_evidence_for_large_concern_records() {
     use nexus::code_concerns::{ConcernAction, ConcernActor};

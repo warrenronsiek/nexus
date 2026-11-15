@@ -3,7 +3,7 @@
 // @spec docs/features/work-history.md
 // @spec docs/features/runtime.md
 // @boundary explicit-work-context: decode only bounded caller-supplied identity handoffs; never guess from checkout, PID, or time.
-use super::{lifecycle::stable_id, CaptureContext};
+use super::lifecycle::stable_id;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,13 @@ pub fn host_handoff(
     }
 }
 
+pub(super) fn environment_handoff() -> Result<Option<WorkHandoff>> {
+    std::env::var("NEXUS_WORK_CONTEXT")
+        .ok()
+        .map(|value| WorkHandoff::decode(value.as_bytes()))
+        .transpose()
+}
+
 impl WorkHandoff {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > 16 * 1024 {
@@ -52,7 +59,7 @@ impl WorkHandoff {
         if value.format_version != 1 {
             bail!("unsupported work context format");
         }
-        for text in [
+        if [
             Some(value.work_session_id.as_str()),
             value.parent_activity_id.as_deref(),
             value.request_activity_id.as_deref(),
@@ -63,33 +70,11 @@ impl WorkHandoff {
         ]
         .into_iter()
         .flatten()
-        {
-            if text.trim().is_empty() || text.len() > 512 || text.chars().any(char::is_control) {
-                bail!("invalid work context identity");
-            }
+        .any(|text| {
+            text.trim().is_empty() || text.len() > 512 || text.chars().any(char::is_control)
+        }) {
+            bail!("invalid work context identity");
         }
         Ok(value)
-    }
-
-    /// Explicit individual environment values and CLI options take precedence over this default handoff.
-    pub fn apply_defaults(&self, context: &mut CaptureContext) {
-        if context.work_session_id.is_none() {
-            context.work_session_id = Some(self.work_session_id.clone());
-        }
-        if context.parent_activity_id.is_none() {
-            context.parent_activity_id = self.parent_activity_id.clone();
-        }
-        if std::env::var_os("NEXUS_HOST_SESSION_ID").is_none() {
-            context.hook.session_id = self.host_session_id.clone();
-        }
-        if std::env::var_os("NEXUS_AGENT").is_none() {
-            context.hook.agent = self.agent.clone();
-        }
-        if context.hook.turn_id.is_none() {
-            context.hook.turn_id = self.turn_id.clone();
-        }
-        if context.hook.model.is_none() {
-            context.hook.model = self.model.clone();
-        }
     }
 }

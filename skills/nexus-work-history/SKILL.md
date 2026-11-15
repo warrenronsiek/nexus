@@ -41,6 +41,10 @@ and a durable capture acknowledgment answer different questions.
 - Preserve one structural parent for nested work. Propagate work-session and
   parent-activity context when dispatching a child. Record descendants under
   that child rather than flattening them into the original session.
+- Explicit work/parent context takes precedence over an inherited handoff.
+  Native hooks retain their supplied identity; command launchers can fill absent
+  context from a handoff. Active-host defaults retain a bound host and supplied
+  executor. Treat malformed handoffs as capture gaps, without inventing identity.
 - Keep shared CI or release execution canonical once; use additional `member_of`
   links for other work sessions. Dependencies, delegation, evidence, and produced
   or deployed revisions are separate relationships, not reasons to reparent it.

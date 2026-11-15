@@ -55,6 +55,10 @@ file, directory, feature, subsystem, or caller-defined dimensions. Include
 scalar labels such as `"dimensions": {"team":"storage"}` inside the encounter.
 Keep using structured affected areas for the built-in location dimensions.
 Shared and Unattributed buckets preserve one placement per point.
+Reported encounters count each report; open concerns count a canonical concern
+once and combine its recorded labels. Repeated identical placements stay one
+label, differing labels become Shared, and missing labels remain Unattributed.
+The same relative file path in different repositories retains separate identity.
 
 Publish an external numeric snapshot with `nexus concerns publish-measure FILE`
 or the `nexus_concerns` action `publish_measure`. Supply an immutable ID,
