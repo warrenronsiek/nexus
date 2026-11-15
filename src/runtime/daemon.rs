@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature runtime
 // @feature agent-memory
 // @spec docs/features/runtime.md
@@ -32,6 +34,8 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
         dispatch::PeriodicMaintenance::memory_consolidation(runtime.service.clone());
     let conflict_closure = dispatch::PeriodicMaintenance::conflict_closure(runtime.service.clone());
     let model_work = dispatch::ModelWorkScheduler::start(runtime.service.clone());
+    let delivery_watcher =
+        crate::runtime::delivery_watch::DeliveryWatcher::start(runtime.service.clone());
     let result = run_event_loop(
         &runtime.listener,
         runtime.service.clone(),
@@ -43,6 +47,7 @@ pub async fn serve(loaded: LoadedConfig) -> Result<()> {
     drop(memory_scheduler);
     drop(conflict_closure);
     drop(model_work);
+    drop(delivery_watcher);
     while Arc::strong_count(&runtime.service) > 1 {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }

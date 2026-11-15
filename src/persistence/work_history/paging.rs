@@ -2,6 +2,7 @@
 // @feature work-history
 // @spec docs/features/persistence.md
 // @spec docs/features/work-history.md
+use crate::persistence::window::WindowBudget;
 use anyhow::{bail, Result};
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -49,7 +50,7 @@ pub(super) struct Page<T> {
     pub limit: i64,
     items: Vec<T>,
     last: Option<String>,
-    bytes: usize,
+    budget: WindowBudget,
     stopped: bool,
 }
 pub(super) struct PageResult<T> {
@@ -64,18 +65,16 @@ impl<T: Serialize> Page<T> {
             limit: limit.unwrap_or(24).clamp(1, 64) as i64,
             items: vec![],
             last: None,
-            bytes: 0,
+            budget: WindowBudget::new(limit.unwrap_or(24).clamp(1, 64) as usize, 512 * 1024),
             stopped: false,
         })
     }
     pub fn include(&mut self, id: String, item: Option<T>) -> Result<bool> {
         if let Some(item) = item {
-            let size = serde_json::to_vec(&item)?.len();
-            if self.bytes + size > 512 * 1024 {
+            if !self.budget.include(&item)? {
                 self.stopped = true;
                 return Ok(false);
             }
-            self.bytes += size;
             self.items.push(item);
         }
         self.last = Some(id);
@@ -93,23 +92,4 @@ impl<T: Serialize> Page<T> {
             truncated: self.stopped,
         })
     }
-}
-pub(super) fn bound_items<T: Serialize>(
-    items: &mut Vec<T>,
-    count: usize,
-    byte_limit: usize,
-) -> Result<bool> {
-    let mut bytes = 0;
-    let mut keep = 0;
-    for item in items.iter().take(count) {
-        let size = serde_json::to_vec(item)?.len();
-        if bytes + size > byte_limit {
-            break;
-        }
-        bytes += size;
-        keep += 1;
-    }
-    let truncated = items.len() > keep;
-    items.truncate(keep);
-    Ok(truncated)
 }

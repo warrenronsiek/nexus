@@ -9,6 +9,7 @@ python3 scripts/feature_map.py --root . --feature coordination
 
 Read the returned specification and entry-point files before editing. The current feature catalog is:
 
+- `delivery-coordination`: contribution provenance, PR and rollout shepherds, provider watching, and remediation handoffs.
 - `coordination`: session observation, claims, classification, advisories, and reconciliation.
 - `persistence`: Diesel models, migrations, events, and projections.
 - `runtime`: CLI, daemon protocol, MCP adapter, and host hook generation.

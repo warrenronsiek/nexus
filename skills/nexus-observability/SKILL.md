@@ -13,7 +13,7 @@ and configure a public HTTPS origin when needed. Agent API bearer credentials
 stay server-side; do not paste them into the browser.
 
 The application has Coordination, SOS, Tools, Skills, Memory, Papercuts, Evals,
-Work, and Code concerns views. Choose a project, then — on Coordination, Work and
+Work, Code concerns, and Pull requests views. Choose a project, then — on Coordination, Work and
 Evals — a session or agent from the second picker; the choice is part of the URL,
 so links and the browser's Back button restore it. Lists expand in place to show
 their evidence. Every view is read-only, including Memory. Reporting, adding
@@ -34,6 +34,7 @@ when the producer observed it.
 | Question | View and evidence |
 | --- | --- |
 | Which sessions overlapped, and what were agents told? | Coordination → session picker → conversation of overlaps and messages |
+| Who shepherds this release and who implemented its changes? | Pull requests → registered PR → original contributions, rollout attempts, and remediation evidence |
 | What kinds of work do tools perform? | Tools → Activities → expand an activity → commands and runs over time |
 | Which supplied capabilities went unused? | Tools → Capabilities → observed implementations |
 | Which improvised work repeats? | Tools → Opportunities → observed examples |
@@ -139,7 +140,7 @@ a failed configuration read.
 ## Read the developer metrics layout
 
 The interface uses compact graphite panels, a divided summary strip, labeled
-Lucide navigation, and tabular figures. On tablet and phone, Menu reveals all nine
+Lucide navigation, and tabular figures. On tablet and phone, Menu reveals all
 views and closes after navigation. Task colors are semantic and match the
 waterfall legend; use labels and metadata to distinguish kinds without color.
 All fonts and icons are served by Nexus itself. No chart color implies whether an

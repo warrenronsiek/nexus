@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature persistence
 // @feature usage-analytics
 // @feature agent-memory
@@ -637,3 +639,5 @@ diesel::table! {
         payload_json -> Text,
     }
 }
+
+include!("schema/delivery.rs");

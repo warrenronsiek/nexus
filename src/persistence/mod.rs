@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature persistence
 // @feature usage-analytics
 // @feature agent-memory
@@ -15,6 +17,8 @@ mod code_concerns;
 mod code_map;
 mod conflicts;
 mod dashboard;
+mod delivery;
+mod delivery_watch;
 mod evals;
 mod liveness;
 mod lookup;

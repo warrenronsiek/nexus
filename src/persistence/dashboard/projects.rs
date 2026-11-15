@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature persistence
 // @feature observability-ui
 // @spec docs/features/persistence.md
@@ -12,8 +14,8 @@ use crate::persistence::backend::DbConnection;
 use crate::persistence::models::parse_time;
 use crate::persistence::schema::{
     analytics_calls, analytics_exposures, analytics_resources, capability_uses, code_map_snapshots,
-    concern_observations, eval_records, events, memory_spaces, papercuts, projects, sessions,
-    sos_issues, sos_reports, work_observations,
+    concern_observations, delivery_observations, eval_records, events, memory_spaces, papercuts,
+    projects, sessions, sos_issues, sos_reports, work_observations,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -177,6 +179,12 @@ fn coordination_activity(connection: &mut DbConnection) -> QueryResult<Vec<Activ
 /// Caller-owned records that exist without any host session.
 fn record_activity(connection: &mut DbConnection) -> QueryResult<Vec<ActivityRows>> {
     [
+        activity!(
+            connection,
+            delivery_observations,
+            delivery_observations::recorded_at,
+            delivery_observations::recorded_at
+        ),
         activity!(
             connection,
             work_observations,

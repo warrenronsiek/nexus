@@ -1,4 +1,6 @@
 -- @feature observability-ui
+-- @feature delivery-coordination
+-- @spec docs/features/delivery-coordination.md
 -- @spec docs/features/observability-ui.md
 -- @boundary browser-json: validate the closed response envelopes and presentation records; retain original response text for exact immutable evidence.
 module Wire exposing (Bar, Document, Interval, Metric, Point, Row, decode, field, list, number, optional, refreshInterval, sessionName, str, strings, valueAt)
@@ -195,6 +197,9 @@ validateEnvelope kind root =
                 "concern_list" -> Just ( "response", "page" )
                 "concern_get" -> Just ( "response", "detail" )
                 "concern_history" -> Just ( "response", "history" )
+                "delivery_list" -> Just ( "response", "page" )
+                "delivery_get" -> Just ( "response", "detail" )
+                "delivery_watches" -> Just ( "response", "watches" )
                 "eval_dashboard" -> Just ( "action", "dashboard" )
                 "eval_list" -> Just ( "action", "listed" )
                 "eval_get" -> Just ( "action", "detailed" )
@@ -322,6 +327,15 @@ shape kind root =
 
         "concern_history" ->
             rows "observations" (D.map2 (\body input -> Row (str "id" input) (str "event" (field "body" input)) (str "observed_at" input) "concern_observation" body) D.value (D.field "input" D.value))
+
+        "delivery_list" ->
+            rows "items" (D.map4 (\identity recordKind title body -> Row identity title (str "state" body) recordKind body) (D.at [ "subject", "id" ] D.string) (D.at [ "subject", "kind" ] D.string) (D.field "title" D.string) D.value)
+
+        "delivery_get" ->
+            required "record" (D.nullable D.value) root |> Result.map (\_ -> base)
+
+        "delivery_watches" ->
+            required "watches" (D.list D.value) root |> Result.map (\_ -> base)
 
         "memory_context" ->
             D.decodeValue (D.at [ "context", "nodes" ] (D.list memoryNode)) root |> Result.map (\items -> { base | rows = items })

@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature runtime
 // @feature agent-memory
 // @feature papercuts
@@ -12,6 +14,7 @@ pub mod code_concerns;
 pub mod code_map;
 pub mod config;
 pub mod coordination;
+pub mod delivery;
 pub mod evals;
 mod git_process;
 mod identity;

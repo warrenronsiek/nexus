@@ -1,4 +1,6 @@
 -- @feature observability-ui
+-- @feature delivery-coordination
+-- @spec docs/features/delivery-coordination.md
 -- @spec docs/features/observability-ui.md
 -- Lucide 1.66.0, ISC license. See web/dist/THIRD_PARTY_LICENSES.txt.
 module Icon exposing (Icon(..), view)
@@ -12,6 +14,7 @@ import Svg.Attributes as A
 type Icon
     = Activity
     | Branch
+    | PullRequest
     | Flask
     | Tools
     | Book
@@ -53,6 +56,9 @@ shapes icon =
 
         Branch ->
             [ Svg.path [ A.d "M15 6a9 9 0 0 0-9 9V3" ] [], Svg.circle [ A.cx "18", A.cy "6", A.r "3" ] [], Svg.circle [ A.cx "6", A.cy "18", A.r "3" ] [] ]
+
+        PullRequest ->
+            [ Svg.circle [ A.cx "18", A.cy "18", A.r "3" ] [], Svg.circle [ A.cx "6", A.cy "6", A.r "3" ] [], Svg.path [ A.d "M13 6h3a2 2 0 0 1 2 2v7" ] [], Svg.line [ A.x1 "6", A.x2 "6", A.y1 "9", A.y2 "21" ] [] ]
 
         Flask ->
             [ Svg.path [ A.d "M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2" ] [], Svg.path [ A.d "M6.453 15h11.094" ] [], Svg.path [ A.d "M8.5 2h7" ] [] ]

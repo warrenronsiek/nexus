@@ -244,8 +244,9 @@ fn bound_evidence(
     mut links: Vec<WorkLink>,
     projection_truncated: bool,
 ) -> Result<WorkDetail> {
-    let links_truncated = super::paging::bound_items(&mut links, 128, 128 * 1024)?;
-    let observations_truncated = super::paging::bound_items(&mut observations, 64, 512 * 1024)?;
+    let links_truncated = crate::persistence::window::bound_items(&mut links, 128, 128 * 1024)?;
+    let observations_truncated =
+        crate::persistence::window::bound_items(&mut observations, 64, 512 * 1024)?;
     Ok(WorkDetail {
         summary,
         observations,

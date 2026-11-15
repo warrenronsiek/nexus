@@ -1,6 +1,8 @@
 // @feature work-history
 // @spec docs/features/work-history.md
 // @feature installation
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature sos
@@ -115,6 +117,7 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
         "nexus-hillclimb",
         "nexus-eval-history",
         "nexus-work-history",
+        "nexus-pr-management",
     ];
     for root in [&codex_home, &home.join(".claude")] {
         for name in ["nexus", "nexus-build-eval", "nexus-work-history"] {

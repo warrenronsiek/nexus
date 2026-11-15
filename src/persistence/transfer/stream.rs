@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature persistence
 // @spec docs/features/persistence.md
 // @feature evals
@@ -12,12 +14,12 @@ use super::super::code_map::CodeMapSnapshotRow;
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
     analytics_resources, analytics_revisions, capability_uses, claims, code_map_snapshots,
-    concern_observations, conflicts, database_imports, eval_blob_chunks, eval_blobs,
-    eval_dimensions, eval_links, eval_records, events, memory_activations,
-    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
-    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
-    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
-    sos_triage_attempts, work_observations,
+    concern_observations, conflicts, database_imports, delivery_observations, delivery_watches,
+    eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records, events,
+    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
+    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
+    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
+    sos_issues, sos_reports, sos_triage_attempts, work_observations,
 };
 use super::super::Store;
 use super::rows::*;
@@ -74,7 +76,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 7;
+const FORMAT_VERSION: i32 = 8;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -198,6 +200,8 @@ batches! {
     32: WorkObservations(WorkObservationTransfer) => work_observations, (work_observations::project_id.asc(),work_observations::id.asc());
     33: ConcernObservations(ConcernObservationTransfer) => concern_observations, (concern_observations::project_id.asc(),concern_observations::id.asc());
     34: CodeMapSnapshots(CodeMapSnapshotRow) => code_map_snapshots, (code_map_snapshots::project_id.asc(),code_map_snapshots::id.asc());
+    35: DeliveryObservations(DeliveryObservationTransfer) => delivery_observations,(delivery_observations::project_id.asc(),delivery_observations::ordinal.asc());
+    36: DeliveryWatches(DeliveryWatchTransfer) => delivery_watches,(delivery_watches::project_id.asc(),delivery_watches::id.asc());
 }
 
 #[derive(Serialize, Deserialize)]
@@ -392,35 +396,11 @@ fn import(connection: &mut DbConnection, mut input: impl BufRead) -> Result<Snap
     let mut hash = blake3::Hasher::new();
     let mut progress = ImportProgress::default();
     let header = read_record(&mut input, &mut hash, &mut progress.bytes)?;
-    let tables = match header {
-        Some(Record::Header { format_version: 2 }) => {
-            progress.format_version = 2;
-            21
-        }
-        Some(Record::Header { format_version: 3 }) => {
-            progress.format_version = 3;
-            27
-        }
-        Some(Record::Header { format_version: 4 }) => {
-            progress.format_version = 4;
-            32
-        }
-        Some(Record::Header { format_version: 5 }) => {
-            progress.format_version = 5;
-            33
-        }
-        Some(Record::Header { format_version: 6 }) => {
-            progress.format_version = 6;
-            34
-        }
-        Some(Record::Header {
-            format_version: FORMAT_VERSION,
-        }) => {
-            progress.format_version = FORMAT_VERSION;
-            TABLE_COUNT
-        }
-        _ => bail!("unsupported or missing portable stream header"),
+    let Some(Record::Header { format_version }) = header else {
+        bail!("unsupported or missing portable stream header")
     };
+    let tables = format_tables(format_version)?;
+    progress.format_version = format_version;
     loop {
         match read_record(&mut input, &mut hash, &mut progress.bytes)? {
             Some(Record::Batch { data }) => progress.accept_batch(data, connection)?,
@@ -455,6 +435,8 @@ fn finish_import(
 
 /// Snapshots carry authoritative history; derived projections are rebuilt from it.
 fn rebuild_projections(connection: &mut DbConnection) -> Result<()> {
+    super::super::delivery::rebuild_snapshot(connection)?;
+    super::super::delivery_watch::validate_snapshot(connection)?;
     super::super::work_history::rebuild_snapshot(connection)?;
     super::super::code_concerns::rebuild_snapshot(connection)?;
     super::super::dashboard::rebuild_project_catalog(connection)?;
@@ -539,3 +521,16 @@ fn export_papercut(
 #[cfg(all(test, feature = "sqlite"))]
 #[path = "stream_tests.rs"]
 mod tests;
+
+fn format_tables(version: i32) -> Result<usize> {
+    Ok(match version {
+        2 => 21,
+        3 => 27,
+        4 => 32,
+        5 => 33,
+        6 => 34,
+        7 => 35,
+        FORMAT_VERSION => TABLE_COUNT,
+        _ => bail!("unsupported portable stream version"),
+    })
+}

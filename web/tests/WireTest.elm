@@ -1,4 +1,6 @@
 -- @feature observability-ui
+-- @feature delivery-coordination
+-- @spec docs/features/delivery-coordination.md
 -- @feature evals
 -- @feature work-history
 -- @spec docs/features/observability-ui.md
@@ -18,6 +20,14 @@ tests =
         [ test "wrong work response variant cannot become a dashboard" <|
             \_ ->
                 Wire.decode "work_dashboard" "{\"ok\":true,\"response\":\"page\",\"sessions\":[]}"
+                    |> Expect.err
+        , test "delivery detail cannot be interpreted as a PR listing" <|
+            \_ ->
+                Wire.decode "delivery_list" "{\"ok\":true,\"response\":\"detail\",\"record\":null}"
+                    |> Expect.err
+        , test "malformed delivery identities are rejected rather than made into rows" <|
+            \_ ->
+                Wire.decode "delivery_list" "{\"ok\":true,\"response\":\"page\",\"items\":[{\"title\":\"PR without identity\"}]}"
                     |> Expect.err
         , test "ownership timeline uses its distinct typed response envelope" <|
             \_ ->

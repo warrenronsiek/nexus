@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature evals
@@ -99,6 +101,7 @@ impl NexusService {
             ServiceRequest::Sos(_) => self.handle_command(request, project),
             ServiceRequest::Evals(_) => self.handle_command(request, project),
             ServiceRequest::Work(_) => self.handle_command(request, project),
+            ServiceRequest::Delivery(_) => self.handle_command(request, project),
             ServiceRequest::Concerns(_) => self.handle_command(request, project),
         }
     }
@@ -165,6 +168,7 @@ impl NexusService {
             ServiceRequest::Sos(command) => self.dispatch_sos(command, project).response,
             ServiceRequest::Evals(command) => self.eval_command(command, project),
             ServiceRequest::Work(command) => self.work_command(command, project),
+            ServiceRequest::Delivery(command) => self.delivery_command(command, project),
             ServiceRequest::Concerns(command) => self.concern_command(command, project),
             ServiceRequest::Analytics(command) => self.analytics_command(command, project),
             _ => unreachable!("non-command request routed as command"),

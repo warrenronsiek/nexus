@@ -28,7 +28,7 @@ desktop and 14px on phone; metadata is 12px and axes at least 11px.
 
 Intentional adaptations of the dealt sheet:
 
-- Nine evidence destinations require a **220px labeled sidebar**, rather than a
+- Ten evidence destinations require a **220px labeled sidebar**, rather than a
   50px icon rail. Below 1100px, Menu folds it into a two/three-column labeled menu.
 - Surface colors are neutralized to avoid a violet cast. Rectangular controls
   and panels fit a dense developer workbench rather than pill controls.
@@ -46,6 +46,7 @@ Intentional adaptations of the dealt sheet:
 | --- | --- |
 | Coordination | Which sessions overlapped, and what did Nexus tell each agent? |
 | Work | Where does time go, and how did a selected prompt branch into work? |
+| Pull requests | Who shepherds delivery, and which original agents can explain the included changes? |
 | Evaluations | How did a named agent measure over time, under which definition? |
 | Tools | What semantic activities occurred, which commands performed them, and when? |
 | Skills | Which named skills were used in the seven-day window, and what do they say? |
@@ -78,6 +79,15 @@ tile drills into its scope or opens supporting evidence below the map.
 
 ## Icons
 
+Pull requests uses compact registry rows. Each row names the PR, registered
+shepherd, recorded state, and last observation. Details put exact revision/check
+evidence and original contributions beside the shepherd and related rollout and
+remediation records. Full hashes and session IDs wrap within their cells. The
+desktop evidence columns stack on tablet; phone registry rows and definition
+lists become one column. Failure and success colors refer only to recorded
+outcomes; unknown availability and freshness remain text. The PR icon copies
+`lucide-static/icons/git-pull-request.svg` from the locked set.
+
 [Lucide Static](https://lucide.dev/guide/static) **1.66.0** is pinned as a development
 source. `src/Icon.elm` contains the selected upstream SVG primitives and a typed
 icon API; no runtime icon loader, icon font, or DOM mutation is involved. The
@@ -99,7 +109,7 @@ Lucide's ISC/Feather MIT notices and Elm SVG's BSD license, in
 Run `npm run check` and `npm run build` from `web`, then stage the generated bundle
 before `./scripts/check.sh` (which verifies deterministic assets). The actual Elm
 browser test covers decorative SVG navigation, unchanged names/current route,
-menu expansion and closure on navigation, nine read-only screens, selected work
+menu expansion and closure on navigation, ten read-only destinations, selected work
 metadata, exact eval values, project scope, and refresh behavior.
 
 Use an isolated fixture service for browser QA; never seed sample observations

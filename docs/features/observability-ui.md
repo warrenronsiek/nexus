@@ -7,12 +7,12 @@ feature: observability-ui
 ## What this feature does
 
 Nexus serves an authenticated browser application for Coordination, SOS, Tools,
-Skills, Memory, Papercuts, Evals, Work, and Code concerns. Visual summaries come
+Skills, Memory, Papercuts, Evals, Work, Code concerns, and Pull requests. Visual summaries come
 first; selecting a session, metric, area, or record reveals its evidence. The
 application replaces the native and Pi terminal dashboards. Pi retains its
 headless tool/skill capture, capability inventory, and automatic memory context.
 
-The application is read-only across all nine surfaces. Memory supports browsing,
+The application is read-only across all ten surfaces. Memory supports browsing,
 search, summary expansion, and health inspection. Adding notes remains a CLI/MCP
 operation; summary invalidation and requested consolidation remain CLI administration. Login and
 logout change only browser authentication state. Viewing history never runs an
@@ -29,6 +29,20 @@ or remote service transport.
 The Code concerns destination includes a [code map](code-map.md). Its measure
 and grouping selectors reflect project data, and a selected tile drills into
 subjects or opens the contributing concern evidence.
+
+The [delivery coordination](delivery-coordination.md) destination lists PRs and
+their registered shepherds, with Rollouts and Remediation tabs. Selected records
+show exact Git revisions, observed checks, original contributions and rationale,
+feature/file mappings, environment attempts, and responsibility history. Contact
+availability stays unknown without matching presence evidence. The watch panel
+shows retained attempt/success times and failures; it does not assert that a
+cached provider snapshot is current. Registration, handoff, request responses,
+native messaging, Git operations, and promotion stay outside browser reads.
+PR and contribution details request the project's existing coordination dashboard
+for mapped paths only. The current claims/overlaps panel shows source time and
+sample truncation, names counterpart sessions where retained, and links to their
+Coordination views. It keeps current activity separate from contribution
+provenance and preserves a labeled stale snapshot when that supplemental read fails.
 
 ## Developer metrics design
 
