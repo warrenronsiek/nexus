@@ -100,6 +100,8 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
     fs::create_dir_all(&command_directory).unwrap();
     fake_host(&command_directory, "codex");
     let names = [
+        "code-complexity-analysis",
+        "functional-rust",
         "nexus",
         "nexus-setup",
         "nexus-coordination",
@@ -117,7 +119,13 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
         "nexus-work-history",
     ];
     for root in [&codex_home, &home.join(".claude")] {
-        for name in ["nexus", "nexus-build-eval", "nexus-work-history"] {
+        for name in [
+            "code-complexity-analysis",
+            "functional-rust",
+            "nexus",
+            "nexus-build-eval",
+            "nexus-work-history",
+        ] {
             let skill = root.join("skills").join(name);
             fs::create_dir_all(&skill).unwrap();
             fs::write(skill.join("SKILL.md"), "stale bundled content").unwrap();
@@ -157,7 +165,13 @@ fn assert_installed_skills(root: &Path, names: &[&str]) {
     assert!(root
         .join("skills/nexus-eval-history/references/nexus-evals.md")
         .is_file());
-    for name in ["nexus", "nexus-build-eval", "nexus-work-history"] {
+    for name in [
+        "code-complexity-analysis",
+        "functional-rust",
+        "nexus",
+        "nexus-build-eval",
+        "nexus-work-history",
+    ] {
         assert_eq!(
             fs::read_to_string(root.join("skills").join(name).join("personal-notes.md")).unwrap(),
             "keep me"

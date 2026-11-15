@@ -37,6 +37,13 @@ give intentional open-ended decoding an explanatory `@boundary`. Prefer a shared
 typed implementation when lifecycle, policy, errors, and reasons to change agree.
 Similar syntax alone does not establish that agreement.
 
+For Rust design choices, apply [functional-rust](../functional-rust/SKILL.md):
+prefer immutable value transformations and explicit domain types behind small,
+coherent interfaces. Use
+[code-complexity-analysis](../code-complexity-analysis/SKILL.md) when comparing
+their structural cost; preserve behavior and meaningful abstractions when
+interpreting the measurements.
+
 Read [source structure and complexity](references/source-structure.md) for
 annotations, feature specifications, structural metrics, or repeated code shapes.
 Read [persistence and validation](references/persistence-validation.md) for schema
