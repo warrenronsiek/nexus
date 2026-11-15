@@ -1,10 +1,14 @@
 -- @feature observability-ui
+-- @feature delivery-coordination
+-- @spec docs/features/delivery-coordination.md
 -- @spec docs/features/observability-ui.md
 -- @entrypoint main
 -- @boundary browser-api: all domain data is decoded by Wire; credentials exist only in Elm form state until login completes.
 port module Main exposing (main)
 
 import CodeMap
+import Delivery
+import DeliveryOverlap
 import Browser
 import Browser.Navigation as Nav
 import Dict exposing (Dict)
@@ -31,6 +35,7 @@ port chartSelection : (D.Value -> msg) -> Sub msg
 type Screen
     = Coordination
     | Work
+    | PullRequests
     | Evals
     | Tools
     | Skills
@@ -56,7 +61,7 @@ type Detail
 
 
 type alias Route =
-    { screen : Screen, project : Maybe String, focus : Maybe String }
+    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String }
 
 
 type alias Model =
@@ -75,6 +80,7 @@ type alias Model =
     , data : State.Remote Document
     , polling : State.Remote Float
     , supplemental : Dict String Document
+    , deliveryOverlap : State.Remote Document
     , details : Dict String Detail
     , expanded : Dict String ()
     , query : Query
@@ -131,7 +137,7 @@ init _ url key =
     let
         wanted = route url
     in
-    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, details = Dict.empty, expanded = Dict.empty, query = primary wanted.screen wanted.focus, trail = [], selected = Nothing, zoom = 1, mode = "", durationMode = "average", navigationOpen = False }
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -142,7 +148,7 @@ init _ url key =
 
 screens : List Screen
 screens =
-    [ Coordination, Work, Evals, Tools, Skills, Concerns, Papercuts, Sos, Memory ]
+    [ Coordination, Work, PullRequests, Evals, Tools, Skills, Concerns, Papercuts, Sos, Memory ]
 
 
 slug : Screen -> String
@@ -150,6 +156,7 @@ slug screen =
     case screen of
         Coordination -> "coordination"
         Work -> "work"
+        PullRequests -> "pull-requests"
         Evals -> "evals"
         Tools -> "tools"
         Skills -> "skills"
@@ -164,6 +171,7 @@ title screen =
     case screen of
         Coordination -> "Coordination"
         Work -> "Work history"
+        PullRequests -> "Pull requests"
         Evals -> "Evaluations"
         Tools -> "Tool intelligence"
         Skills -> "Skills"
@@ -178,6 +186,7 @@ intro screen =
     case screen of
         Coordination -> "Which sessions overlapped, and what Nexus told each agent about it."
         Work -> "Where time goes, and how each human prompt branched into work."
+        PullRequests -> "Who is shepherding delivery, and who can explain each original change."
         Evals -> "How each agent measured over time, under which definition."
         Tools -> "How agents interface with the world — and where a better tool is missing."
         Skills -> "The guidance agents actually use, across the last seven days."
@@ -194,6 +203,7 @@ focusParam screen =
         Coordination -> Just "session"
         Work -> Just "session"
         Evals -> Just "set"
+        PullRequests -> Just "record"
         _ -> Nothing
 
 
@@ -203,7 +213,7 @@ route url =
         screen = List.filter (\candidate -> String.endsWith ("/" ++ slug candidate) url.path) screens |> List.head |> Maybe.withDefault Coordination
         params = url.query |> Maybe.map parameters |> Maybe.withDefault Dict.empty
     in
-    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params) }
+    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if screen == PullRequests then Dict.get "view" params |> Maybe.withDefault "" else "" }
 
 
 parameters : String -> Dict String String
@@ -248,6 +258,7 @@ primary screen focus =
     case screen of
         Coordination -> query "coordination"
         Work -> focused "work_dashboard" "work_session_id"
+        PullRequests -> deliveryQuery focus
         Evals -> focused "eval_dashboard" "group_id"
         Tools -> query "analytics_summary"
         Skills -> query "usage"
@@ -255,6 +266,23 @@ primary screen focus =
         Papercuts -> query "papercuts"
         Sos -> query "sos_list"
         Memory -> query "memory_context"
+
+
+deliveryQuery : Maybe String -> Query
+deliveryQuery focus =
+    case focus |> Maybe.map (String.split ":") of
+        Just (kind :: identity) ->
+            if List.member kind [ "pull_request", "rollout", "contribution", "deployment", "remediation" ] && not (List.isEmpty identity) then
+                Query "delivery_get" [ ( "subject", E.object [ ( "kind", E.string kind ), ( "id", E.string (String.join ":" identity) ) ] ) ]
+            else
+                modeQuery PullRequests ""
+
+        _ -> modeQuery PullRequests ""
+
+
+routeQuery : Route -> Query
+routeQuery wanted =
+    if wanted.screen == PullRequests && wanted.focus == Nothing then modeQuery PullRequests wanted.mode else primary wanted.screen wanted.focus
 
 
 {-| Companion reads that complete a screen: its picker index, focused evidence, or health. -}
@@ -269,6 +297,10 @@ companions model =
 
         Memory ->
             [ ( "health", query "memory_status" ) ]
+
+        PullRequests ->
+            [ ( "delivery_watches", query "delivery_watches" ) ]
+                ++ (if model.query.kind == "delivery_get" && List.any (\kind -> String.startsWith (kind ++ ":") (Maybe.withDefault "" model.focus)) [ "pull_request", "contribution" ] then [ ( "delivery_coordination", query "coordination" ) ] else [])
 
         _ ->
             []
@@ -322,12 +354,15 @@ load wanted model =
         pending = State.begin (if wanted == model.query then previous else { previous | value = Nothing })
         next = { model | data = pending, query = wanted }
         extras = if List.isEmpty model.trail then companions next else []
+        overlaps = if List.any (\( key, _ ) -> key == "delivery_coordination") extras then { value = next.deliveryOverlap.value, generation = pending.generation, loading = True, error = Nothing } else { previousOverlap | loading = False }
+        previousOverlap = next.deliveryOverlap
+        reading = { next | deliveryOverlap = overlaps }
     in
     if scoped model.screen && model.project == Nothing && wanted.kind /= "memory_expand" then
-        ( { next | data = State.accept pending.generation (Err "Choose a project to inspect its history.") pending }, Cmd.none )
+        ( { reading | data = State.accept pending.generation (Err "Choose a project to inspect its history.") pending }, Cmd.none )
 
     else
-        ( next, Cmd.batch (read model.project wanted (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project q (Received pending.generation key False)) extras) )
+        ( reading, Cmd.batch (read model.project wanted (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project q (Received pending.generation key False)) extras) )
 
 
 {-| A new screen, project or focus starts from that screen's primary read with no stale selection. -}
@@ -336,19 +371,20 @@ reset wanted model =
     let
         sameScreen = wanted.screen == model.screen && wanted.project == model.project
     in
-    load (primary wanted.screen wanted.focus)
+    load (routeQuery wanted)
         { model
             | screen = wanted.screen
             , project = wanted.project
             , focus = wanted.focus
             , data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }
             , supplemental = if sameScreen then Dict.remove "timeline" model.supplemental else Dict.empty
+            , deliveryOverlap = if sameScreen then model.deliveryOverlap else State.empty
             , details = if sameScreen then model.details else Dict.empty
             , expanded = if sameScreen then model.expanded else Dict.empty
             , trail = []
             , selected = Nothing
             , zoom = 1
-            , mode = if sameScreen then model.mode else ""
+            , mode = if wanted.screen == PullRequests then wanted.mode else if sameScreen then model.mode else ""
             , navigationOpen = False
         }
 
@@ -423,7 +459,7 @@ update msg model =
         Projects result ->
             case result |> Result.mapError httpError |> Result.andThen (Wire.decode "projects") of
                 Ok doc ->
-                    reset { screen = model.screen, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id), focus = model.focus } { model | projectsError = Nothing, projects = doc.rows }
+                    reset { screen = model.screen, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id), focus = model.focus, mode = model.mode } { model | projectsError = Nothing, projects = doc.rows }
 
                 Err reason ->
                     ( { model | projectsError = Just reason, data = { value = Nothing, generation = model.data.generation + 1, error = Just ("The project list could not be loaded. " ++ reason), loading = False } }, Cmd.none )
@@ -446,7 +482,7 @@ update msg model =
                     load previous { model | trail = rest, selected = Nothing }
 
                 [] ->
-                    reset { screen = model.screen, project = model.project, focus = model.focus } model
+                    reset { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode } model
 
         Refresh ->
             let
@@ -456,7 +492,7 @@ update msg model =
             ( refreshed, Cmd.batch [ reading, configuration ] )
 
         Tick _ ->
-            if model.authenticated == Just True && not model.data.loading && model.selected == Nothing then
+            if model.authenticated == Just True && not model.data.loading && not model.deliveryOverlap.loading && model.selected == Nothing then
                 load model.query model
 
             else
@@ -476,7 +512,7 @@ update msg model =
                         let
                             wireKind = if isPrimary then kind else companionKind kind
                             decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode wireKind)
-                            updated = if isPrimary then { model | data = State.accept generation decoded model.data } else { model | supplemental = decoded |> Result.map (\doc -> Dict.insert kind doc model.supplemental) |> Result.withDefault model.supplemental }
+                            updated = if isPrimary then { model | data = State.accept generation decoded model.data } else if kind == "delivery_coordination" then { model | deliveryOverlap = State.accept generation decoded model.deliveryOverlap } else { model | supplemental = decoded |> Result.map (\doc -> Dict.insert kind doc model.supplemental) |> Result.withDefault model.supplemental }
                         in
                         ( updated, draw updated )
 
@@ -575,7 +611,11 @@ update msg model =
             ( next, draw next )
 
         Mode mode ->
-            load (modeQuery model.screen mode) { model | mode = mode, trail = [], selected = Nothing }
+            if model.screen == PullRequests then
+                let home = location PullRequests model.project Nothing in
+                ( model, Nav.pushUrl model.key (home ++ (if String.contains "?" home then "&" else "?") ++ "view=" ++ Url.percentEncode mode) )
+            else
+                load (modeQuery model.screen mode) { model | mode = mode, trail = [], selected = Nothing }
 
         Keyboard key ->
             keyboard key model
@@ -595,6 +635,7 @@ companionKind key =
         "timeline" -> "coordination_session_timeline"
         "groups" -> "eval_dashboard"
         "health" -> "memory_status"
+        "delivery_coordination" -> "coordination"
         _ -> key
 
 
@@ -626,7 +667,7 @@ bootstrapPolling model =
 
 signedOut : Model -> Model
 signedOut model =
-    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, details = Dict.empty, expanded = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
+    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, details = Dict.empty, expanded = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
 
 
 httpError : Http.Error -> String
@@ -648,7 +689,10 @@ orElse fallback preferred =
 
 modeQuery : Screen -> String -> Query
 modeQuery screen mode =
-    query <|
+    if screen == PullRequests then
+        Query "delivery_list" [ ( "filter", E.object [ ( "kind", E.string (if mode == "rollouts" then "rollout" else if mode == "remediation" then "remediation" else "pull_request") ) ] ) ]
+
+    else query <|
         case screen of
             Tools -> if mode == "capabilities" then "analytics_catalog" else if mode == "opportunities" then "analytics_opportunities" else "analytics_summary"
             Concerns ->
@@ -671,7 +715,7 @@ more model =
                     "analytics_examples" -> D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing |> Maybe.map E.int
                     _ -> doc.next
                 wanted cursor =
-                    if List.member model.query.kind [ "concern_list", "concern_dashboard" ] then
+                    if List.member model.query.kind [ "concern_list", "concern_dashboard", "delivery_list" ] then
                         let
                             active = List.filter (\( key, _ ) -> key == "filter") model.query.fields |> List.head |> Maybe.map Tuple.second |> Maybe.andThen (D.decodeValue (D.keyValuePairs D.value) >> Result.toMaybe) |> Maybe.withDefault []
                         in
@@ -905,6 +949,7 @@ screenIcon screen =
     case screen of
         Coordination -> Icon.Activity
         Work -> Icon.Branch
+        PullRequests -> Icon.PullRequest
         Evals -> Icon.Flask
         Tools -> Icon.Tools
         Skills -> Icon.Book
@@ -1002,6 +1047,7 @@ documentView model doc =
         , case model.screen of
             Coordination -> coordinationView model doc
             Work -> workView model doc
+            PullRequests -> div [] [ Delivery.view model.project (location PullRequests model.project Nothing) doc.root (Dict.get "delivery_watches" model.supplemental |> Maybe.map .root), DeliveryOverlap.view model.project doc.root model.deliveryOverlap ]
             Evals -> evalView model doc
             Tools -> toolsView model doc
             Skills -> skillsView model doc
@@ -1019,6 +1065,7 @@ subnav model =
         modes = case model.screen of
             Tools -> [ ( "", "Activities" ), ( "capabilities", "Capabilities" ), ( "opportunities", "Opportunities" ) ]
             Concerns -> [ ( "", "Problem areas" ), ( "all", "All concerns" ), ( "map", "Code map" ) ]
+            PullRequests -> [ ( "", "Pull requests" ), ( "rollouts", "Rollouts" ), ( "remediation", "Remediation" ) ]
             _ -> []
     in
     if List.isEmpty modes then text "" else div [ class "subnav" ] (List.map (\( mode, caption ) -> button [ class (if mode == model.mode then "active" else ""), onClick (Mode mode) ] [ text caption ]) modes)

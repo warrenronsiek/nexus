@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature evals
@@ -63,6 +65,8 @@ pub enum ServiceResponse {
     Evals(Box<super::EvalResponse>),
     Work(Box<super::WorkEnvelope>),
     WorkError(super::WorkErrorEnvelope),
+    Delivery(Box<super::DeliveryEnvelope>),
+    DeliveryError(super::DeliveryErrorEnvelope),
     Concerns(Box<super::ConcernEnvelope>),
     ConcernError(super::ConcernErrorEnvelope),
     Analytics(crate::analytics::types::AnalyticsResponse),

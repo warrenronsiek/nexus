@@ -4,15 +4,17 @@
 // @feature usage-analytics
 // @feature evals
 // @feature work-history
+// @feature delivery-coordination
 // @spec docs/features/installation.md
 // @spec docs/features/code-concerns.md
 // @spec docs/features/sos.md
 // @spec docs/features/usage-analytics.md
 // @spec docs/features/evals.md
 // @spec docs/features/work-history.md
+// @spec docs/features/delivery-coordination.md
 // Bundled source assets form one installation manifest shared by both hosts.
 
-pub(super) const SKILL_NAMES: [&str; 20] = [
+pub(super) const SKILL_NAMES: [&str; 21] = [
     "code-architect",
     "code-complexity-analysis",
     "code-deletion",
@@ -33,8 +35,9 @@ pub(super) const SKILL_NAMES: [&str; 20] = [
     "nexus-hillclimb",
     "nexus-eval-history",
     "nexus-work-history",
+    "nexus-pr-management",
 ];
-pub(super) const SKILL_FILES: [(&str, &str); 30] = [
+pub(super) const SKILL_FILES: [(&str, &str); 31] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -131,6 +134,10 @@ pub(super) const SKILL_FILES: [(&str, &str); 30] = [
     (
         "nexus-work-history/SKILL.md",
         include_str!("../skills/nexus-work-history/SKILL.md"),
+    ),
+    (
+        "nexus-pr-management/SKILL.md",
+        include_str!("../skills/nexus-pr-management/SKILL.md"),
     ),
     (
         "nexus-work-history/references/integration.md",

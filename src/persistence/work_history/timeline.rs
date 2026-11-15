@@ -2,13 +2,10 @@
 // @feature work-history
 // @spec docs/features/persistence.md
 // @spec docs/features/work-history.md
-use super::{
-    paging::{bound_items, Page},
-    projection,
-    rows::SubjectRow,
-};
+use super::{paging::Page, projection, rows::SubjectRow};
 use crate::persistence::backend::DbConnection;
 use crate::persistence::schema::{work_links, work_subjects};
+use crate::persistence::window::bound_items;
 use crate::work_history::*;
 use anyhow::{bail, Result};
 use diesel::prelude::*;

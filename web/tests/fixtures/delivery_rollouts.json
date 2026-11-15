@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "response": "page",
+  "items": [
+    {
+      "subject": {
+        "kind": "rollout",
+        "id": "november"
+      },
+      "title": "November promotion",
+      "repository": "acme/service",
+      "state": "registered",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": null,
+      "shepherd": null,
+      "body": {
+        "kind": "rollout",
+        "rollout": {
+          "id": "november",
+          "repository": "acme/service",
+          "title": "November promotion",
+          "pull_request_ids": [
+            "release-pr"
+          ],
+          "contribution_ids": [
+            "cache-change"
+          ],
+          "environments": [
+            "development",
+            "staging",
+            "production"
+          ]
+        }
+      }
+    }
+  ],
+  "next_cursor": null
+}

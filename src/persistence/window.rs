@@ -1,5 +1,54 @@
 // @feature persistence
 // @spec docs/features/persistence.md
+use anyhow::Result;
+use serde::Serialize;
+
+/// Count and serialized-byte limits shared by bounded reads. Cursor and receipt
+/// semantics remain with the feature that owns the query.
+pub(super) struct WindowBudget {
+    remaining_items: usize,
+    remaining_bytes: usize,
+}
+
+impl WindowBudget {
+    pub fn new(items: usize, bytes: usize) -> Self {
+        Self {
+            remaining_items: items,
+            remaining_bytes: bytes,
+        }
+    }
+
+    pub fn include<T: Serialize>(&mut self, item: &T) -> Result<bool> {
+        if self.remaining_items == 0 {
+            return Ok(false);
+        }
+        let bytes = serde_json::to_vec(item)?.len();
+        if bytes > self.remaining_bytes {
+            return Ok(false);
+        }
+        self.remaining_items -= 1;
+        self.remaining_bytes -= bytes;
+        Ok(true)
+    }
+}
+
+pub(super) fn bound_items<T: Serialize>(
+    items: &mut Vec<T>,
+    count: usize,
+    bytes: usize,
+) -> Result<bool> {
+    let mut budget = WindowBudget::new(count, bytes);
+    let mut keep = 0;
+    for item in items.iter() {
+        if !budget.include(item)? {
+            break;
+        }
+        keep += 1;
+    }
+    let truncated = items.len() > keep;
+    items.truncate(keep);
+    Ok(truncated)
+}
 
 /// Defines a Diesel-backed projection reader whose query and response share one hard limit.
 ///

@@ -22,6 +22,8 @@
 // @boundary cli-and-json
 #[path = "main/concerns.rs"]
 mod concerns_cli;
+#[path = "main/delivery.rs"]
+mod delivery_cli;
 #[path = "main/evals.rs"]
 mod evals_cli;
 #[path = "main/history_client.rs"]
@@ -173,6 +175,9 @@ enum Command {
         #[command(subcommand)]
         command: evals_cli::EvalCliCommand,
     },
+    /// Coordinate PRs, contribution provenance, rollouts, and remediation handoffs.
+    #[command(subcommand)]
+    Delivery(delivery_cli::DeliveryCliCommand),
     /// Record and navigate work sessions and their nested activity history.
     Work {
         #[command(subcommand)]
@@ -522,6 +527,9 @@ async fn run_admin_command(
     match command {
         Command::Eval { command } => evals_cli::run(command, root, loaded).await,
         Command::Work { command } => work_cli::run(command, root, loaded, explicit_config).await,
+        Command::Delivery(command) => {
+            delivery_cli::run(command, root, loaded, explicit_config).await
+        }
         Command::Concerns { command } => {
             concerns_cli::run(command, root, loaded, explicit_config).await
         }
@@ -598,23 +606,6 @@ async fn run_doctor(loaded: &LoadedConfig) -> Result<()> {
     Ok(())
 }
 
-fn print_integration(host: IntegrationHost, explicit_config: Option<&Path>) -> Result<()> {
-    let host = match host {
-        IntegrationHost::Codex => Host::Codex,
-        IntegrationHost::Claude => Host::Claude,
-    };
-    let executable = std::env::current_exe()?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&integration::instructions(
-            host,
-            &executable,
-            explicit_config,
-        ))?
-    );
-    Ok(())
-}
-
 async fn run_memory_command(
     command: MemoryCommand,
     root: &Path,
@@ -685,7 +676,7 @@ impl From<PapercutReviewDecisionCli> for PapercutReviewDecision {
 
 #[path = "main/output.rs"]
 mod output;
-use output::request_and_print;
+use output::{print_integration, request_and_print};
 
 #[cfg(test)]
 #[path = "main/tests.rs"]

@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature work-history
 // @feature code-concerns
 // @spec docs/features/work-history.md

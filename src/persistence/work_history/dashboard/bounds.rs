@@ -3,8 +3,8 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/work-history.md
 // Display and transport bounds; aggregates keep the scanned population.
-use super::super::paging::bound_items;
 use super::{retention, DashboardProjection, SOURCE_LIMIT};
+use crate::persistence::window::bound_items;
 use anyhow::Result;
 
 impl DashboardProjection {

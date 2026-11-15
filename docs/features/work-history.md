@@ -207,6 +207,14 @@ Git handoff, arbitrary environments, and later source reconciliation.
 
 ## Recording and retrieval
 
+Delivery coordination reuses work actor/session identities and revision
+references, while owning its durable contribution lineage, PR responsibility,
+watch health and remediation state. Existing `produced`/`deployed` work links
+remain caller evidence. A commit operation producing a revision identifies the
+integration operation; it does not establish authorship of every staged hunk.
+Delivery watches poll independently of lifecycle hooks and retain their own
+refresh health. See [delivery coordination](delivery-coordination.md).
+
 `nexus work open`, `start`, `finish`, `milestone`, and `link` record caller facts;
 `record FILE` accepts `{format_version:1,observations:[...]}` with `-` for stdin.
 `list`, `activities`, `show`, `timeline`, and `events` retrieve bounded history.

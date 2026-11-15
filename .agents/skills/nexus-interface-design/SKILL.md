@@ -19,7 +19,7 @@ Use the branching session waterfall as the product's signature visualization.
 Keep Elm responsible for the interface and D3 responsible only for charts. Never
 invent observations, optimization directions, time windows, comparison deltas,
 or controls without supported reads. Preserve source precision and uncertainty.
-Authentication and all nine evidence surfaces remain read-only. Do not add
+Authentication and all evidence surfaces remain read-only. Do not add
 marketing heroes, gradients, glowing surfaces, placeholder glyphs, or icon tiles.
 
 Check real screens at desktop, tablet, and phone widths, including long identifiers,

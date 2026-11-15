@@ -37,6 +37,7 @@ source checkout is required only for source-development commands.
 | `usage-analytics` | Understand available versus used tools, skills, scripts, and semantic activity categories. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
 | `observability-ui` | Inspect current coordination and historical records through the authenticated read-only web interface. | [nexus-observability](../nexus-observability/SKILL.md) |
 | `work-history` | Preserve logical work, nested attempts, agents, timing, CI, and delivery evidence across sessions. | [nexus-work-history](../nexus-work-history/SKILL.md) |
+| `delivery-coordination` | Discover PR shepherds, trace changes to implementation agents, and retain rollout and remediation handoffs. | [nexus-pr-management](../nexus-pr-management/SKILL.md) |
 | `evals` | Retain eval versions, reasons for change, call context, flexible metrics, artifacts, and caller-run results. | [nexus-eval-history](../nexus-eval-history/SKILL.md) |
 | `architecture-tooling` | Find and maintain feature-shaped source ownership and specifications when changing Nexus. | [nexus-development](../nexus-development/SKILL.md) |
 | `complexity-analysis` | Use structural measurements and repetition evidence to review Nexus changes. | [nexus-development](../nexus-development/SKILL.md) |

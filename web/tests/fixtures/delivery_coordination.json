@@ -1,0 +1,128 @@
+{
+  "ok": true,
+  "project_id": "fixture-project",
+  "generated_at": "2026-11-15T16:00:00Z",
+  "refresh_interval_ms": 30000,
+  "counts": {
+    "active_sessions": 3,
+    "active_claims": 20,
+    "open_conflicts": 2,
+    "events": 0,
+    "recent_conflicts": 2,
+    "recent_advisories": 3
+  },
+  "sessions": {
+    "items": [
+      {
+        "session_id": "live-cache",
+        "project_id": "fixture-project",
+        "agent": "codex",
+        "display_name": "Cache refresh",
+        "task_summary": "Cache refresh",
+        "status": "active",
+        "worktree": "/fixture/live-cache",
+        "last_seen_at": "2026-11-15T16:00:00Z"
+      },
+      {
+        "session_id": "live-peer",
+        "project_id": "fixture-project",
+        "agent": "codex",
+        "display_name": "Retry policy",
+        "task_summary": "Retry policy",
+        "status": "active",
+        "worktree": "/fixture/live-peer",
+        "last_seen_at": "2026-11-15T16:00:00Z"
+      },
+      {
+        "session_id": "unrelated-session",
+        "project_id": "fixture-project",
+        "agent": "codex",
+        "display_name": "Unrelated editor",
+        "task_summary": "Unrelated editor",
+        "status": "active",
+        "worktree": "/fixture/unrelated-session",
+        "last_seen_at": "2026-11-15T16:00:00Z"
+      }
+    ],
+    "truncated": false
+  },
+  "claims": {
+    "items": [
+      {
+        "id": "claim-cache",
+        "project_id": "fixture-project",
+        "session_id": "live-cache",
+        "tool_use_id": "tool-claim-cache",
+        "path": "src/cache.rs",
+        "operation": "write",
+        "line_start": 10,
+        "line_end": 14,
+        "state": "modified",
+        "expires_at": "2026-11-15T16:10:00Z",
+        "updated_at": "2026-11-15T16:00:00Z"
+      },
+      {
+        "id": "claim-peer",
+        "project_id": "fixture-project",
+        "session_id": "live-peer",
+        "tool_use_id": "tool-claim-peer",
+        "path": "src/cache.rs",
+        "operation": "write",
+        "line_start": 10,
+        "line_end": 14,
+        "state": "modified",
+        "expires_at": "2026-11-15T16:10:00Z",
+        "updated_at": "2026-11-15T16:00:00Z"
+      },
+      {
+        "id": "unrelated-claim",
+        "project_id": "fixture-project",
+        "session_id": "unrelated-session",
+        "tool_use_id": "tool-unrelated-claim",
+        "path": "src/unrelated.rs",
+        "operation": "write",
+        "line_start": 10,
+        "line_end": 14,
+        "state": "modified",
+        "expires_at": "2026-11-15T16:10:00Z",
+        "updated_at": "2026-11-15T16:00:00Z"
+      }
+    ],
+    "truncated": true
+  },
+  "conflicts": {
+    "items": [
+      {
+        "id": "cache-overlap",
+        "project_id": "fixture-project",
+        "left_claim_id": "claim-cache",
+        "right_claim_id": "claim-peer",
+        "path": "src/cache.rs",
+        "severity": "critical",
+        "kind": "overlapping_hunks",
+        "status": "open",
+        "message": "Overlapping edits",
+        "created_at": "2026-11-15T16:00:00Z",
+        "updated_at": "2026-11-15T16:00:00Z"
+      },
+      {
+        "id": "unrelated-overlap",
+        "project_id": "fixture-project",
+        "left_claim_id": "unrelated-claim",
+        "right_claim_id": "unrelated-claim",
+        "path": "src/unrelated.rs",
+        "severity": "critical",
+        "kind": "overlapping_hunks",
+        "status": "open",
+        "message": "Overlapping edits",
+        "created_at": "2026-11-15T16:00:00Z",
+        "updated_at": "2026-11-15T16:00:00Z"
+      }
+    ],
+    "truncated": false
+  },
+  "events": {
+    "items": [],
+    "truncated": false
+  }
+}

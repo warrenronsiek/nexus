@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 // @feature observability-ui
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @spec docs/features/observability-ui.md
 // @boundary browser-test: exercise the compiled Elm program against the closed HTTP read contract.
 import { readFileSync } from "node:fs";
@@ -8,9 +10,10 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; filter?: { bucket?: string; group_by?: string; measure?: { kind: string } } } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
+const failedReadKinds = new Set<string>();
 let configuredInterval = 30000;
 let remoteViewer: { default_project_id: string; global_project_reads: false } | null = null;
 function fixture(name: string): string {
@@ -22,14 +25,25 @@ function response(url: string, body: RequestBody): string {
   if (url.endsWith("/logout")) return '{"authenticated":false}';
   return readFixture(body);
 }
+type ReadQuery = NonNullable<RequestBody["query"]>;
+const deliveryDetails: Readonly<Record<string, string>> = { contribution: "delivery_contribution" };
+const deliveryLists: Readonly<Record<string, string>> = { rollout: "delivery_rollouts", remediation: "delivery_remediations" };
+const fixtureReaders: Readonly<Record<string, (query: ReadQuery) => string>> = {
+  coordination: coordinationFixture,
+  code_map: query => codeMapFixture(query.filter),
+  delivery_get: query => fixture(deliveryDetails[query.subject?.kind ?? ""] ?? query.kind),
+  delivery_list: query => fixture(deliveryLists[query.filter?.kind ?? ""] ?? query.kind),
+  work_dashboard: query => fixture(query.work_session_id ? "work-session" : query.kind),
+  eval_dashboard: query => fixture(query.group_id ? "eval-group" : query.kind),
+};
 function readFixture(body: RequestBody): string {
   if (!body.query) throw new Error("Browser read omitted its closed query");
-  const query = body.query;
-  if (query.kind === "coordination") return JSON.stringify({ ...JSON.parse(fixture("coordination")), refresh_interval_ms: configuredInterval });
-  if (query.kind === "code_map") return codeMapFixture(query.filter);
-  const detail = query.work_session_id && query.kind === "work_dashboard" ? "work-session"
-    : query.group_id && query.kind === "eval_dashboard" ? "eval-group" : query.kind;
-  return fixture(detail);
+  const reader = fixtureReaders[body.query.kind];
+  return reader ? reader(body.query) : fixture(body.query.kind);
+}
+function coordinationFixture(): string {
+  const focusedDelivery = window.location.pathname.endsWith("/pull-requests") && window.location.search.includes("record=");
+  return JSON.stringify({ ...JSON.parse(fixture(focusedDelivery ? "delivery_coordination" : "coordination")), refresh_interval_ms: configuredInterval });
 }
 function codeMapFixture(filter: NonNullable<RequestBody["query"]>["filter"]): string {
   const body = JSON.parse(fixture(filter?.bucket ? "code_map_drill" : "code_map"));
@@ -54,7 +68,10 @@ class FixtureXhr extends EventTarget {
   send(raw: string | undefined): void {
     const body = raw ? JSON.parse(raw) as RequestBody : {};
     requests.push({ url: this.url, body, timeout: this.timeout });
-    try { this.response = response(this.url, body); }
+    try {
+      this.status = body.query && failedReadKinds.has(body.query.kind) ? 503 : 200;
+      this.response = this.status === 503 ? '{"error":"Fixture read unavailable"}' : response(this.url, body);
+    }
     catch (error) { throw new Error(`Fixture failed for ${body.query?.kind}: ${String(error)}`); }
     setTimeout(() => { completions.push(`${this.url} ${this.response.length}`); this.dispatchEvent(new Event("load")); }, 0);
   }
@@ -194,9 +211,9 @@ function assertReadOnly(): void {
 
 async function inspectNavigation(): Promise<HTMLButtonElement> {
   const links = [...document.querySelectorAll<HTMLAnchorElement>("nav[aria-label='Workspace'] a")];
-  expect(links).toHaveLength(9);
+  expect(links).toHaveLength(10);
   expect(links.every(link => link.querySelector("svg[aria-hidden='true'] path"))).toBe(true);
-  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Evaluations", "Tool intelligence", "Skills", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
+  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Pull requests", "Evaluations", "Tool intelligence", "Skills", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
   expect(links.find(link => link.getAttribute("aria-current") === "page")?.textContent).toBe("Coordination");
   const menu = document.querySelector<HTMLButtonElement>("button[aria-controls='workspace-navigation']")!;
   expect(menu).not.toBeNull();
@@ -206,7 +223,89 @@ async function inspectNavigation(): Promise<HTMLButtonElement> {
   return menu;
 }
 
-it("runs the actual Elm login, nine screens, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
+async function inspectPullRequestRegistry(): Promise<void> {
+  const link = document.querySelector<HTMLAnchorElement>("nav a[href^='/ui/pull-requests']");
+  expect(link, "PR discovery is a labeled workspace destination").not.toBeNull();
+  link!.click();
+  await content("November release");
+  await content("Release shepherd");
+  expect(requests.some(request => request.body.query?.kind === "delivery_list")).toBe(true);
+}
+async function inspectPullRequestEvidence(): Promise<void> {
+  document.querySelector<HTMLAnchorElement>(".delivery-row")!.click();
+  await Promise.all(["Staging integration", "development → staging", "Cache implementer", "Each request needs an isolated cache", "November promotion", "Investigate staging regression", "AvailabilityUnknown"].map(content));
+  expect(window.location.search).toContain("record=pull_request%3Arelease-pr");
+  expect(document.body.textContent).toContain("b".repeat(40));
+}
+async function inspectCurrentDeliveryOverlaps(): Promise<void> {
+  await content("Current claims and overlaps");
+  const panel = document.querySelector<HTMLElement>("[aria-label='Current delivery overlaps']")!;
+  expect(panel).not.toBeNull();
+  expect(panel.textContent).toContain("src/cache.rs");
+  expect(panel.textContent).toContain("Cache refresh");
+  expect(panel.textContent).toContain("Retry policy");
+  expect(panel.textContent).toContain("critical");
+  expect(panel.textContent).toContain("Coordination sample is truncated");
+  expect(panel.textContent).toContain("src/isolated.rs");
+  expect(panel.textContent).toContain("No overlap in the observed coordination window.");
+  expect(panel.textContent).not.toMatch(/src\/unrelated.rs|Unrelated editor/);
+  expect(panel.querySelector("a[href*='session=live-peer']")?.getAttribute("href")).toContain("project=fixture-project");
+  expect(requests.filter(request => request.body.query?.kind === "coordination").at(-1)?.body.project_id).toBe("fixture-project");
+}
+async function inspectOverlapRefreshFailure(): Promise<void> {
+  failedReadKinds.add("coordination");
+  try {
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Refresh")!.click();
+    await content("Current overlap refresh failed.");
+    const panel = document.querySelector<HTMLElement>("[aria-label='Current delivery overlaps']")!;
+    expect(panel.textContent).toContain("Showing the last successful coordination snapshot.");
+    expect(panel.textContent).toContain("2026-11-15T16:00:00Z");
+    expect(panel.textContent).toContain("critical overlap");
+  } finally {
+    failedReadKinds.clear();
+  }
+}
+async function inspectOriginalContribution(): Promise<void> {
+  document.querySelector<HTMLAnchorElement>(".delivery-related a[href*='contribution']")!.click();
+  await Promise.all(["Why this changed", "old 10–12 → new 10–14", "supplied · squash"].map(content));
+  expect(document.querySelector(".delivery-detail-grid")?.textContent).not.toContain("Responsibility and observed availability are separate.");
+  expect(document.querySelector("a[href^='/ui/work?session=cache-work']")).not.toBeNull();
+}
+function deliveryTab(caption: string): void {
+  const button = [...document.querySelectorAll<HTMLButtonElement>(".subnav button")].find(candidate => candidate.textContent === caption);
+  expect(button, `Delivery tab ${caption} is available`).toBeDefined();
+  button!.click();
+}
+async function inspectDeliveryViews(): Promise<void> {
+  deliveryTab("Rollouts");
+  await content("November promotion");
+  expect(window.location.search, "A list tab clears the previous record deep link").not.toContain("record=");
+  expect(requests.filter(request => request.body.query?.kind === "delivery_list").at(-1)?.body.query?.filter?.kind).toBe("rollout");
+  deliveryTab("Remediation");
+  await content("Investigate staging regression");
+}
+function assertDeliveryReadOnly(): void {
+  expect([...document.querySelectorAll("button")].map(button => button.textContent).join(" ")).not.toMatch(/assign|deploy|merge|send|resume/i);
+  const reads = requests.filter(request => request.body.query?.kind.startsWith("delivery_"));
+  expect(reads.every(request => ["delivery_list", "delivery_get", "delivery_watches"].includes(request.body.query!.kind))).toBe(true);
+}
+
+it("discovers PR shepherds and reads rollout evidence without exposing delivery actions", async () => {
+  window.history.replaceState(null, "", "/ui/coordination");
+  await loginProgram();
+  await inspectPullRequestRegistry();
+  await inspectPullRequestEvidence();
+  await inspectCurrentDeliveryOverlaps();
+  await inspectOverlapRefreshFailure();
+  await inspectOriginalContribution();
+  await inspectDeliveryViews();
+  assertDeliveryReadOnly();
+  [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
+  await content("Welcome to Nexus");
+  vi.unstubAllGlobals();
+});
+
+it("runs the actual Elm login, ten destinations, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
   window.history.replaceState(null, "", "/ui/coordination");
   await loginProgram();
   const menu = await inspectNavigation();

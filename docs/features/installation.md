@@ -87,7 +87,9 @@ The installed `nexus` skill maps the feature catalog to focused guides:
 `nexus-usage-analytics`, and `nexus-observability` cover their respective
 capabilities; `nexus-development` covers architecture tooling, complexity,
 commit review, and persistence. Existing eval and work-history guides retain
-their contracts. References and cross-skill links resolve within the installed
+their contracts. `nexus-pr-management` covers PR shepherds, original contribution
+provenance, rollout observations, and remediation handoffs. References and
+cross-skill links resolve within the installed
 library; source-development commands explicitly require a Nexus checkout.
 Installation tests compare the complete source skill resource tree with both
 host installations so a new reference cannot be omitted from the bundle.
@@ -109,7 +111,7 @@ caller-owned execution, nested identity, qualified timing, metadata privacy, and
 fail-open hooks. Isolated installation tests exercise the bundled shell helper's
 exactly-once fallback, preserved output/exit status, and runnable Python adapter.
 
-`setup_machine` and `install_repository` in `src/installation.rs` are the onboarding entry points. `src/installation_assets.rs` contains the embedded skill and Pi module inventories; setup installs all twenty named skills and their references. Setup is idempotent: skill and Pi-extension contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`. Both entry points load typed client configuration before touching persistence: local mode opens and migrates SQLite, while remote mode reports remote storage and creates no local database. The generated host integration is transport-neutral because `nexus mcp` and the session-end command both use the centralized configured client. An explicit setup configuration path is retained in both installed commands and Pi's generated launch context, and every MCP argv names its host so process-bound memory and papercut provenance remains accurate.
+`setup_machine` and `install_repository` in `src/installation.rs` are the onboarding entry points. `src/installation_assets.rs` contains the embedded skill and Pi module inventories; setup installs all named skills and their references. Setup is idempotent: skill and Pi-extension contents are replaced only when different, the named MCP registration is refreshed, and generated Nexus hook entries replace only prior Nexus entries. Repository installation never overwrites an existing `nexus.toml`. Both entry points load typed client configuration before touching persistence: local mode opens and migrates SQLite, while remote mode reports remote storage and creates no local database. The generated host integration is transport-neutral because `nexus mcp` and the session-end command both use the centralized configured client. An explicit setup configuration path is retained in both installed commands and Pi's generated launch context, and every MCP argv names its host so process-bound memory and papercut provenance remains accurate.
 
 The source bootstrap entry point is `./scripts/install.sh`. Source builds require Rust 1.88 or newer. The script installs with Cargo's locked dependency graph into `NEXUS_INSTALL_ROOT`, `CARGO_HOME`, or the normal `~/.cargo` prefix in that order, then calls the installed binary's `nexus setup` command. Subsequent updates use verified release assets through `nexus update`; they require neither this checkout nor a Rust build.
 
