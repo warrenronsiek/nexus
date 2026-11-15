@@ -51,8 +51,8 @@ impl Fixture {
         self.record(vec![
             event("c1", contribution("one", "implementer-one")),
             event("c2", contribution("two", "implementer-two")),
-            event("m1", mapping("map-one", "one", 10, 'f')),
-            event("m2", mapping("map-two", "two", 40, 'e')),
+            event("m1", mapping("shared-label", "one", 10, 'f')),
+            event("m2", mapping("shared-label", "two", 40, 'e')),
         ])
         .unwrap();
     }
@@ -84,7 +84,7 @@ fn postgres_origin_indexes_preserve_hunk_attribution_replay_and_project_isolatio
     let mut source = Fixture::new();
     source.seed_origins();
     let replay = source
-        .record(vec![event("m1", mapping("map-one", "one", 10, 'f'))])
+        .record(vec![event("m1", mapping("shared-label", "one", 10, 'f'))])
         .unwrap();
     assert_eq!(replay["replayed"], 1);
     let query = json!({"action":"resolve_origin","query":{"revision":revision('c'),"path":"src/router.rs","line_start":11,"line_end":12}});

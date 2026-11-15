@@ -22,7 +22,7 @@ CREATE TABLE delivery_origins (
  project_id TEXT NOT NULL,mapping_id TEXT NOT NULL,hunk_index INTEGER NOT NULL,
  contribution_id TEXT NOT NULL,repository TEXT NOT NULL,revision TEXT NOT NULL,
  path TEXT NOT NULL,fingerprint TEXT,new_start BIGINT NOT NULL,new_lines BIGINT NOT NULL,
- PRIMARY KEY(project_id,mapping_id,hunk_index)
+ PRIMARY KEY(project_id,contribution_id,mapping_id,hunk_index)
 );
 CREATE INDEX delivery_origin_lookup ON delivery_origins(project_id,repository,revision,path,new_start);
 CREATE INDEX delivery_origin_fingerprint ON delivery_origins(project_id,repository,fingerprint);

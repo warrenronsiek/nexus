@@ -44,7 +44,9 @@ chat. Bound MCP supplies reporter context; a recorded contribution's `origin`
 must still name the actual known agent/session. Do not invent missing identity.
 When recording directly, use `contribution_registered` and `revision_mapped`
 observations. A mapping names the source contribution, resulting revision,
-source revisions, Git operation, verification, and changed hunks. Preserve
+source revisions, Git operation, verification, and changed hunks. The mapping ID
+is local to that contribution; another contribution may reuse the same label.
+Retain both the contribution ID and mapping ID when referring to its evidence. Preserve
 supplied, mechanically verified, model suggested, and unknown evidence distinctly.
 
 Squashing, rebasing, cherry-picking, or resolving a merge needs an explicit

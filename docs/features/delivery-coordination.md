@@ -92,7 +92,10 @@ client-local evidence; a remote service never reads a path on a client's behalf.
 Independent clones require a shared project binding to participate in the same
 namespace. Repository identity and full Git object IDs qualify provenance across
 branches, rebases, squashes, and cherry-picks. A mapping absent from the recorded
-evidence remains unknown.
+evidence remains unknown. Mapping IDs are local to their contribution: storage and
+origin queries qualify each mapping with its Nexus project and contribution ID.
+Independent contributions may reuse the same mapping label without sharing
+revision or hunk evidence.
 
 Immutable observations use stable IDs, retain source and receipt times, and reject
 changed replay under the same ID. Typed projections and queries use Diesel on

@@ -112,14 +112,13 @@ workers, provider timestamps reject older snapshots, and unchanged state does
 not append another delivery observation. Shutdown cancels the poller; durable
 reservations expire so a restarted service can recover unfinished polls.
 
-Explicit contribution capture reads committed base/head revisions, tree and blob
-identities, changed paths, hunk ranges/fingerprints, and bounded feature
-annotations from the selected Git objects. It stores no patch text and assigns no
+Explicit contribution capture reads committed base/head revisions, changed paths,
+hunk ranges/fingerprints, and bounded feature annotations from the selected Git
+objects. It stores no patch text and assigns no
 author. A caller explicitly attests responsibility; shared-worktree dirt and Git
 author fields do not establish authorship. Capture is bounded to 128 files,
 2,048 hunks, 2 MiB per Git response, and 15 seconds overall. Renames are retained
-as deletion/addition evidence without inferring a rename relationship. Feature
-annotation reads that exceed their independent bound remain visibly unavailable.
+as deletion/addition evidence without inferring a rename relationship.
 
 Code concerns uses the dedicated `nexus concerns` CLI and `nexus_concerns` MCP
 tool through a closed `ConcernAction` and bound `ContextCommand` envelope. Its

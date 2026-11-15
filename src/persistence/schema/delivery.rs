@@ -16,7 +16,7 @@ diesel::table! {
  }
 }
 diesel::table! {
- delivery_origins (project_id,mapping_id,hunk_index) {
+ delivery_origins (project_id,contribution_id,mapping_id,hunk_index) {
  project_id -> Text,mapping_id -> Text,hunk_index -> Integer,contribution_id -> Text,repository -> Text,revision -> Text,
  path -> Text,fingerprint -> Nullable<Text>,new_start -> BigInt,new_lines -> BigInt,
  }

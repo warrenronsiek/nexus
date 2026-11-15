@@ -78,16 +78,6 @@ pub struct DeliveryWatch {
     pub provider_updated_at: Option<DateTime<Utc>>,
 }
 
-impl DeliveryWatch {
-    pub fn stale_at(&self, now: DateTime<Utc>) -> bool {
-        self.enabled
-            && self.last_success_at.is_none_or(|last| {
-                now.signed_duration_since(last).num_seconds()
-                    > (self.registration.interval_seconds.saturating_mul(3) as i64)
-            })
-    }
-}
-
 pub enum DeliveryWatchOutcome {
     Observed {
         snapshot: Box<super::PullRequestSnapshot>,

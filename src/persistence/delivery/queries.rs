@@ -4,7 +4,12 @@
 // @spec docs/features/delivery-coordination.md
 use super::{projection, rows::*, *};
 use crate::persistence::schema::{delivery_presence, delivery_records, delivery_relations};
+use crate::persistence::window::WindowBudget;
 use anyhow::Context;
+use serde::{
+    de::{value::Error as LabelError, IntoDeserializer},
+    Deserialize,
+};
 use std::collections::BTreeSet;
 mod origins;
 mod selection;
@@ -81,16 +86,14 @@ fn list(
         .select(RecordRow::as_select())
         .load(connection)?;
     let mut items = Vec::new();
-    let mut bytes = 0;
+    let mut budget = WindowBudget::new(cap as usize, 512 * 1024);
     let mut partial = rows.len() as i64 > cap;
     for row in rows.into_iter().take(cap as usize) {
         let record = enrich_presence(connection, project, row.record()?)?;
-        let size = serde_json::to_vec(&record)?.len();
-        if bytes + size > 512 * 1024 {
+        if !budget.include(&record)? {
             partial = true;
             break;
         }
-        bytes += size;
         items.push(record);
     }
     let next_cursor = if partial { items.last().map(key) } else { None };
@@ -134,16 +137,14 @@ fn events(
     let rows = observations(connection, project, subject, after, cap + 1)?;
     let mut partial = rows.len() as i64 > cap;
     let mut output = Vec::new();
-    let mut bytes = 0;
+    let mut budget = WindowBudget::new(cap as usize, 512 * 1024);
     let mut next = None;
     for row in rows.into_iter().take(cap as usize) {
         let observation = row.observation()?;
-        let size = serde_json::to_vec(&observation)?.len();
-        if bytes + size > 512 * 1024 {
+        if !budget.include(&observation)? {
             partial = true;
             break;
         }
-        bytes += size;
         next = Some(row.ordinal.to_string());
         output.push(observation);
     }
@@ -165,17 +166,16 @@ fn related(
         .collect::<BTreeSet<_>>();
     let mut partial = ids.len() > 64;
     let mut records = Vec::new();
-    let mut bytes = 0;
+    let mut budget = WindowBudget::new(64, 128 * 1024);
     for (kind, id) in ids.into_iter().take(64) {
-        let kind = parse_kind(&kind)?;
+        let kind = DeliveryKind::deserialize(kind.into_deserializer())
+            .map_err(|_: LabelError| anyhow::anyhow!("invalid stored delivery kind"))?;
         if let Some(record) = projection::load(connection, project, &DeliverySubject { kind, id })?
         {
-            let size = serde_json::to_vec(&record)?.len();
-            if bytes + size > 128 * 1024 {
+            if !budget.include(&record)? {
                 partial = true;
                 break;
             }
-            bytes += size;
             records.push(record);
         }
     }
@@ -213,15 +213,13 @@ fn history_preview(
         observations: vec![],
         truncated: history.len() > 8,
     };
-    let mut bytes = 0;
+    let mut budget = WindowBudget::new(8, 128 * 1024);
     for row in history.into_iter().take(8) {
         let observation = row.observation()?;
-        let size = serde_json::to_vec(&observation)?.len();
-        if bytes + size > 128 * 1024 {
+        if !budget.include(&observation)? {
             result.truncated = true;
             break;
         }
-        bytes += size;
         result.observations.push(observation);
     }
     Ok(result)
@@ -305,15 +303,4 @@ fn presence(
             Ok(presence)
         })
         .transpose()
-}
-
-fn parse_kind(kind: &str) -> Result<DeliveryKind> {
-    Ok(match kind {
-        "contribution" => DeliveryKind::Contribution,
-        "pull_request" => DeliveryKind::PullRequest,
-        "rollout" => DeliveryKind::Rollout,
-        "deployment" => DeliveryKind::Deployment,
-        "remediation" => DeliveryKind::Remediation,
-        _ => anyhow::bail!("invalid stored delivery kind"),
-    })
 }

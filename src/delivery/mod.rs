@@ -3,6 +3,6 @@
 // @entrypoint DeliveryAction
 mod records;
 mod validation;
-pub mod watch;
+mod watch;
 pub use records::*;
 pub use watch::*;

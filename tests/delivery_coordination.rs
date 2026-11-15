@@ -487,3 +487,41 @@ fn rollout_origin_manifest_stays_frozen_when_its_source_pr_gains_contributions()
         .iter()
         .all(|item| item["qualification"] == "candidates"));
 }
+#[path = "delivery_coordination/mapping_identity.rs"]
+mod mapping_identity;
+
+#[test]
+fn delivery_windows_preserve_record_and_event_cursor_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temp.path().join("delivery.db")).unwrap();
+    record(
+        &mut store,
+        vec![
+            event("one", contribution("one", "one")),
+            event("two", contribution("two", "two")),
+        ],
+    )
+    .unwrap();
+    let first = command(
+        &mut store,
+        "project",
+        json!({"action":"list","query":{"kind":"contribution","limit":1}}),
+    )
+    .unwrap();
+    assert_eq!(first["items"].as_array().unwrap().len(), 1);
+    assert_eq!(first["next_cursor"], "contribution\0one");
+    let second=command(&mut store,"project",json!({"action":"list","query":{"kind":"contribution","limit":1,"after":first["next_cursor"]}})).unwrap();
+    assert_eq!(second["items"][0]["subject"]["id"], "two");
+    assert!(second["next_cursor"].is_null());
+    let events = command(&mut store, "project", json!({"action":"export","limit":1})).unwrap();
+    assert_eq!(events["observations"].as_array().unwrap().len(), 1);
+    assert_eq!(events["next_cursor"], "1");
+    let continued = command(
+        &mut store,
+        "project",
+        json!({"action":"export","limit":1,"after":events["next_cursor"]}),
+    )
+    .unwrap();
+    assert_eq!(continued["observations"][0]["input"]["id"], "two");
+    assert!(continued["next_cursor"].is_null());
+}

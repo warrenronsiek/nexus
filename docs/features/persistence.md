@@ -233,7 +233,8 @@ rows. Import validates observation payloads, scalar indexes, immutable hashes, o
 actors, then rebuilds the delivery projections in journal ordinal order. It validates
 watch registration generations and watch-to-PR scope against that rebuilt state. Historical watcher health survives
 rebuilding. Delivery-only activity also populates the project catalog. Ordinary pages
-and history previews have separate count and encoded-byte bounds; no page claims
+and history previews share the count and encoded-byte budget used by Work history;
+each feature retains its own cursor and receipt semantics. No page claims
 complete external capture. Inputs are capped at 64 KiB per observation and 768 KiB per
 batch of at most 64. A contribution projection has at most 256 mappings and 384 KiB;
 exceeding either limit rejects the complete transaction and leaves prior evidence intact.

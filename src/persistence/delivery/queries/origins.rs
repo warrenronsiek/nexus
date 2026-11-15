@@ -8,14 +8,13 @@ use std::collections::HashSet;
 #[derive(Default)]
 struct Candidates {
     ids: Vec<String>,
-    mapping_ids: HashSet<String>,
+    mapping_ids: HashSet<(String, String)>,
     gaps: Vec<String>,
 }
-#[derive(Default)]
 struct Resolution {
     matches: Vec<OriginMatch>,
     gaps: Vec<String>,
-    bytes: usize,
+    budget: WindowBudget,
 }
 pub(super) fn resolve(
     connection: &mut DbConnection,
@@ -28,11 +27,12 @@ pub(super) fn resolve(
     let candidates = candidates(connection, project, query)?;
     let mut result = Resolution {
         gaps: candidates.gaps.clone(),
-        ..Default::default()
+        matches: vec![],
+        budget: WindowBudget::new(limit(query.limit) as usize, 512 * 1024),
     };
     for id in &candidates.ids {
         for item in contribution_matches(connection, project, query, id, &candidates)? {
-            result.push(item, limit(query.limit) as usize)?;
+            result.push(item)?;
         }
     }
     qualify_fingerprint(query, &mut result.matches);
@@ -47,30 +47,35 @@ pub(super) fn resolve(
     })
 }
 impl Resolution {
-    fn push(&mut self, item: OriginMatch, cap: usize) -> Result<()> {
-        let size = serde_json::to_vec(&item)?.len();
-        if self.matches.len() >= cap || self.bytes + size > 512 * 1024 {
-            self.gaps.push("origin_result_limit".into());
-        } else {
-            self.bytes += size;
+    fn push(&mut self, item: OriginMatch) -> Result<()> {
+        if self.budget.include(&item)? {
             self.matches.push(item);
+        } else {
+            self.gaps.push("origin_result_limit".into());
         }
         Ok(())
     }
 }
+
 fn candidates(
     connection: &mut DbConnection,
     project: &str,
     query: &OriginQuery,
 ) -> Result<Candidates> {
+    let composition = selected_composition(connection, project, query)?;
     let mut result = if query.revision.is_some() || query.fingerprint.is_some() {
-        revision_candidates(connection, project, query)?
-    } else if query.pull_request_id.is_some() || query.rollout_id.is_some() {
-        composition_candidates(connection, project, query)?
+        let mut result = revision_candidates(connection, project, query)?;
+        if let Some(composition) = composition {
+            let ids = composition.ids.into_iter().collect::<HashSet<_>>();
+            result.ids.retain(|id| ids.contains(id));
+            result.gaps.extend(composition.gaps);
+        }
+        result
+    } else if let Some(composition) = composition {
+        composition
     } else {
         repository_candidates(connection, project, query)?
     };
-    restrict_composition(connection, project, query, &mut result)?;
     result.ids.sort();
     result.ids.dedup();
     Ok(result)
@@ -124,8 +129,10 @@ impl Candidates {
             result.gaps.push("origin_index_limit".into());
         }
         for row in rows.into_iter().take(1024) {
+            result
+                .mapping_ids
+                .insert((row.contribution_id.clone(), row.mapping_id));
             result.ids.push(row.contribution_id);
-            result.mapping_ids.insert(row.mapping_id);
         }
         result
     }
@@ -162,30 +169,7 @@ fn repository_candidates(
         ..Default::default()
     })
 }
-fn composition_candidates(
-    connection: &mut DbConnection,
-    project: &str,
-    query: &OriginQuery,
-) -> Result<Candidates> {
-    let subject = match (&query.pull_request_id, &query.rollout_id) {
-        (Some(id), _) => DeliverySubject {
-            kind: DeliveryKind::PullRequest,
-            id: id.clone(),
-        },
-        (_, Some(id)) => DeliverySubject {
-            kind: DeliveryKind::Rollout,
-            id: id.clone(),
-        },
-        _ => unreachable!("composition query selected"),
-    };
-    let mut composition = Composition::default();
-    composition.collect(connection, project, &subject, 0)?;
-    Ok(Candidates {
-        ids: composition.ids,
-        gaps: composition.gaps,
-        ..Default::default()
-    })
-}
+
 fn contribution_matches(
     connection: &mut DbConnection,
     project: &str,
@@ -216,7 +200,11 @@ fn contribution_matches(
     }
     let mappings = mappings
         .into_iter()
-        .filter(|m| candidates.mapping_ids.contains(&m.id))
+        .filter(|m| {
+            candidates
+                .mapping_ids
+                .contains(&(contribution.id.clone(), m.id.clone()))
+        })
         .collect::<Vec<_>>();
     let selected = if query.revision.is_some() || query.fingerprint.is_some() {
         mappings.into_iter().map(Some).collect()
@@ -418,7 +406,8 @@ impl Composition {
                 connection,
                 project,
                 &DeliverySubject {
-                    kind: parse_kind(&kind)?,
+                    kind: DeliveryKind::deserialize(kind.into_deserializer())
+                        .map_err(|_: LabelError| anyhow::anyhow!("invalid stored delivery kind"))?,
                     id,
                 },
                 depth + 1,
@@ -428,12 +417,12 @@ impl Composition {
     }
 }
 
-fn restrict_composition(
+fn selected_composition(
     connection: &mut DbConnection,
     project: &str,
     query: &OriginQuery,
-    result: &mut Candidates,
-) -> Result<()> {
+) -> Result<Option<Candidates>> {
+    let mut selected: Option<Candidates> = None;
     for (kind, id) in [
         (DeliveryKind::PullRequest, &query.pull_request_id),
         (DeliveryKind::Rollout, &query.rollout_id),
@@ -449,12 +438,23 @@ fn restrict_composition(
                 },
                 0,
             )?;
-            let ids = composition.ids.into_iter().collect::<HashSet<_>>();
-            result.ids.retain(|id| ids.contains(id));
-            result.gaps.extend(composition.gaps);
+            match &mut selected {
+                Some(previous) => {
+                    let ids = composition.ids.into_iter().collect::<HashSet<_>>();
+                    previous.ids.retain(|id| ids.contains(id));
+                    previous.gaps.extend(composition.gaps);
+                }
+                None => {
+                    selected = Some(Candidates {
+                        ids: composition.ids,
+                        gaps: composition.gaps,
+                        ..Default::default()
+                    })
+                }
+            }
         }
     }
-    Ok(())
+    Ok(selected)
 }
 
 fn qualify_fingerprint(query: &OriginQuery, matches: &mut [OriginMatch]) {

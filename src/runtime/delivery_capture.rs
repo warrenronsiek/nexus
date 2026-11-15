@@ -25,7 +25,6 @@ pub struct CapturedContribution {
     pub repository: String,
     pub base: GitRevision,
     pub head: GitRevision,
-    pub tree: String,
     pub branch: Option<String>,
     pub worktree: String,
     pub files: Vec<CapturedFile>,
@@ -34,26 +33,8 @@ pub struct CapturedContribution {
 #[serde(deny_unknown_fields)]
 pub struct CapturedFile {
     pub path: String,
-    pub operation: CapturedOperation,
-    pub old_blob: String,
-    pub new_blob: String,
     pub hunks: Vec<CapturedHunk>,
     pub features: Vec<String>,
-    pub feature_coverage: FeatureCoverage,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CapturedOperation {
-    Added,
-    Modified,
-    Deleted,
-    TypeChanged,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum FeatureCoverage {
-    Observed,
-    Unavailable,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -87,13 +68,17 @@ pub fn capture(
     };
     let base = context.revision(base)?;
     let head = context.revision(head)?;
-    let (tree, branch) = context.tree_and_branch(&head.commit)?;
+    let branch = git_text(
+        &root,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+        deadline,
+    )
+    .ok();
     let files = context.files(&base.commit, &head.commit)?;
     Ok(CapturedContribution {
         repository: repository.into(),
         base,
         head,
-        tree,
         branch,
         worktree: root.to_string_lossy().into_owned(),
         files,
@@ -115,20 +100,6 @@ struct CaptureGit<'a> {
     deadline: Instant,
 }
 impl CaptureGit<'_> {
-    fn tree_and_branch(&self, head: &str) -> Result<(String, Option<String>)> {
-        let tree = git_text(
-            self.root,
-            &["rev-parse", "--verify", &format!("{head}^{{tree}}")],
-            self.deadline,
-        )?;
-        let branch = git_text(
-            self.root,
-            &["symbolic-ref", "--quiet", "--short", "HEAD"],
-            self.deadline,
-        )
-        .ok();
-        Ok((tree, branch))
-    }
     fn revision(&self, value: &str) -> Result<GitRevision> {
         anyhow::ensure!(
             value.len() <= 1024 && !value.chars().any(char::is_control),
@@ -160,8 +131,7 @@ impl CaptureGit<'_> {
             self.root,
             &[
                 "diff",
-                "--raw",
-                "--no-abbrev",
+                "--name-status",
                 "--no-renames",
                 "--no-ext-diff",
                 "--no-textconv",
@@ -196,16 +166,15 @@ impl CaptureGit<'_> {
 
     fn file(&self, metadata: &[u8], path: String, base: &str, head: &str) -> Result<CapturedFile> {
         let metadata = std::str::from_utf8(metadata)?;
-        let metadata: Vec<_> = metadata.split_ascii_whitespace().collect();
-        anyhow::ensure!(
-            metadata.len() == 5 && metadata[0].starts_with(':'),
-            "invalid Git change metadata"
-        );
         anyhow::ensure!(
             path.len() <= 4096 && !path.chars().any(char::is_control),
             "changed path exceeds contribution contract"
         );
-        let operation = operation(metadata[4])?;
+        let feature_revision = match metadata {
+            "D" => base,
+            "A" | "M" | "T" => head,
+            _ => anyhow::bail!("unsupported Git change metadata"),
+        };
         let patch = git(
             self.root,
             &[
@@ -223,40 +192,20 @@ impl CaptureGit<'_> {
             MAX_OUTPUT,
         )?;
         let hunks = parse_hunks(&patch)?;
-        let feature_revision = if matches!(operation, CapturedOperation::Deleted) {
-            base
-        } else {
-            head
-        };
         let feature_source = git(
             self.root,
             &["show", &format!("{feature_revision}:{path}")],
             self.deadline,
             128 * 1024,
         );
-        let (features, feature_coverage) = match feature_source {
-            Ok(bytes) => (feature_annotations(&bytes), FeatureCoverage::Observed),
-            Err(_) => (Vec::new(), FeatureCoverage::Unavailable),
-        };
+        let features = feature_source
+            .map(|bytes| feature_annotations(&bytes))
+            .unwrap_or_default();
         Ok(CapturedFile {
             path,
-            operation,
-            old_blob: metadata[2].into(),
-            new_blob: metadata[3].into(),
             hunks,
             features,
-            feature_coverage,
         })
-    }
-}
-
-fn operation(status: &str) -> Result<CapturedOperation> {
-    match status {
-        "A" => Ok(CapturedOperation::Added),
-        "D" => Ok(CapturedOperation::Deleted),
-        "M" => Ok(CapturedOperation::Modified),
-        "T" => Ok(CapturedOperation::TypeChanged),
-        _ => anyhow::bail!("unsupported Git change metadata"),
     }
 }
 
