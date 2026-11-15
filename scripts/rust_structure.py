@@ -20,6 +20,7 @@ NODE_TYPES = (
     "function_type", "scoped_identifier", "impl_item", "trait_item",
     "use_declaration", "mod_item", "block", "struct_item", "enum_item",
     "type_item", "type_parameter", "line_comment", "block_comment",
+    "if_expression", "let_condition", "for_expression", "while_expression", "loop_expression",
 )
 NODE_LINE = re.compile(
     r"^╰─ \{([a-z_]+):\d+\} from \((\d+), (\d+)\) to \((\d+), (\d+)\)(?: :.*)? *$"
@@ -71,6 +72,9 @@ class RustSignals:
     mutation_sites: int = 0
     state_types: int = 0
     dynamic_types: int = 0
+    ordinary_conditionals: int = 0
+    imperative_loops: int = 0
+    boolean_parameters: int = 0
 
 
 def read_nodes(executable: str, root: Path, paths: Sequence[Path]) -> dict[Path, tuple[RustNode, ...]]:
@@ -164,10 +168,15 @@ def local_binding(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str
     return None if name is None else TypeBinding(name.span.source(lines), None, binding_scope(node, nodes, len(lines)))
 
 
-def imported_bindings(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str]) -> tuple[TypeBinding, ...]:
+def uncommented_source(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str]) -> str:
     text = node.span.source(lines)
     for comment in (item for item in nodes if item.kind in {"line_comment", "block_comment"} and node.span.contains(item.span)):
-        text = text.replace(comment.span.source(lines), "")
+        text = text.replace(comment.span.source(lines), " ")
+    return text
+
+
+def imported_bindings(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str]) -> tuple[TypeBinding, ...]:
+    text = uncommented_source(node, nodes, lines)
     tokens = re.findall(r"(?:r#)?\w+|::|[{},*]", text)
     scope = binding_scope(node, nodes, len(lines))
     return tuple(TypeBinding(name, path, scope) for name, path in import_bindings(iter(tokens[tokens.index("use") + 1 :])))
@@ -201,17 +210,29 @@ def import_bindings(tokens: Iterator[str], prefix: tuple[str, ...] = ()) -> tupl
     return (*bindings, *import_leaf(path or ()))
 
 
-def parameter_count(nodes: Sequence[RustNode]) -> int:
+def enclosing_node(node: RustNode, owners: Sequence[RustNode]) -> RustNode | None:
+    return min((owner for owner in owners if owner.span.contains(node.span)), key=lambda owner: span_size(owner.span), default=None)
+
+
+def named_parameters(nodes: Sequence[RustNode]) -> tuple[RustNode, ...]:
     owners = tuple(node for node in nodes if node.kind in {"function_item", "function_signature_item", "closure_expression", "function_type"})
-    arguments = 0
-    for parameter in (node for node in nodes if node.kind in {"parameter", "self_parameter"}):
-        owner = min(
-            (node for node in owners if node.span.contains(parameter.span)),
-            key=lambda node: span_size(node.span),
-            default=None,
-        )
-        arguments += owner is not None and owner.kind in {"function_item", "function_signature_item"}
-    return arguments
+    return tuple(
+        node for node in nodes if node.kind in {"parameter", "self_parameter"}
+        if (owner := enclosing_node(node, owners)) is not None and owner.kind in {"function_item", "function_signature_item"}
+    )
+
+
+def pattern_conditionals(nodes: Sequence[RustNode]) -> frozenset[SourceSpan]:
+    owners = tuple(node for node in nodes if node.kind in {"if_expression", "while_expression", "block", "closure_expression"})
+    return frozenset(
+        owner.span for node in nodes if node.kind == "let_condition"
+        if (owner := enclosing_node(node, owners)) is not None and owner.kind == "if_expression"
+    )
+
+
+def is_boolean_parameter(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str]) -> bool:
+    parameter_type = re.split(r"(?<!:):(?!:)", uncommented_source(node, nodes, lines), maxsplit=1)[-1].strip()
+    return re.fullmatch(r"(?:&\s*(?:'\w+\s*)?(?:mut\s+)?)*bool", parameter_type) is not None
 
 
 def is_state_type(node: RustNode, text: str) -> bool:
@@ -221,23 +242,30 @@ def is_state_type(node: RustNode, text: str) -> bool:
     return node.kind == "scoped_identifier" and len(parts) >= 2 and parts[-2] in STATE_TYPES and parts[-1] in {"new", "default", "from"}
 
 
-def node_signals(node: RustNode, lines: Sequence[str], names: TypeNames) -> RustSignals:
+def node_signals(node: RustNode, lines: Sequence[str], names: TypeNames, patterns: frozenset[SourceSpan]) -> RustSignals:
     text = node.span.source(lines)
     return RustSignals(
         functions=int(node.kind in {"function_item", "function_signature_item"}),
         mutation_sites=int(node.kind in {"mutable_specifier", "assignment_expression", "compound_assignment_expr"}),
         state_types=int(is_state_type(node, text)),
         dynamic_types=int(names.is_dynamic(node, text)),
+        ordinary_conditionals=int(node.kind == "if_expression" and node.span not in patterns),
+        imperative_loops=int(node.kind in {"for_expression", "while_expression", "loop_expression"}),
     )
 
 
 def signals_in_span(nodes: Sequence[RustNode], lines: Sequence[str], span: SourceSpan, names: TypeNames) -> RustSignals:
     selected = tuple(node for node in nodes if span.contains(node.span))
-    evidence = tuple(node_signals(node, lines, names) for node in selected)
+    parameters = named_parameters(selected)
+    patterns = pattern_conditionals(selected)
+    evidence = tuple(node_signals(node, lines, names, patterns) for node in selected)
     return RustSignals(
         functions=sum(item.functions for item in evidence),
-        arguments=parameter_count(selected),
+        arguments=len(parameters),
         mutation_sites=sum(item.mutation_sites for item in evidence),
         state_types=sum(item.state_types for item in evidence),
         dynamic_types=sum(item.dynamic_types for item in evidence),
+        ordinary_conditionals=sum(item.ordinary_conditionals for item in evidence),
+        imperative_loops=sum(item.imperative_loops for item in evidence),
+        boolean_parameters=sum(is_boolean_parameter(node, selected, lines) for node in parameters),
     )

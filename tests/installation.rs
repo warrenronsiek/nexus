@@ -102,8 +102,8 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
     fs::create_dir_all(&command_directory).unwrap();
     fake_host(&command_directory, "codex");
     let names = [
+        "code-architect",
         "code-complexity-analysis",
-        "functional-rust",
         "nexus",
         "nexus-setup",
         "nexus-coordination",
@@ -142,7 +142,22 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
             .output()
             .unwrap();
         assert_success(&setup);
+        for root in [&codex_home, &home.join(".claude")] {
+            assert!(
+                !root.join("skills/functional-rust/SKILL.md").exists(),
+                "setup retained the retired functional-rust activation in {}",
+                root.display()
+            );
+            assert!(root
+                .join("skills/code-architect/references/rust.md")
+                .is_file());
+        }
         let report: Value = serde_json::from_slice(&setup.stdout).unwrap();
+        assert!(!report["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "functional-rust"));
         for name in names {
             assert!(
                 report["skills"]
@@ -157,6 +172,39 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
     for root in [&codex_home, &home.join(".claude")] {
         assert_installed_skills(root, &names);
     }
+}
+
+#[test]
+fn machine_setup_surfaces_a_retired_skill_removal_error() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path().join("home");
+    let codex_home = home.join(".codex");
+    let commands = temporary.path().join("commands");
+    let retired = codex_home.join("skills/functional-rust/SKILL.md");
+    fs::create_dir_all(&commands).unwrap();
+    fs::create_dir_all(&retired).unwrap();
+    fs::write(retired.join("personal-notes.md"), "keep me").unwrap();
+    fake_host(&commands, "codex");
+
+    let setup = nexus_command(
+        &home,
+        &codex_home,
+        &commands,
+        &temporary.path().join("hosts.log"),
+    )
+    .arg("setup")
+    .output()
+    .unwrap();
+    assert!(!setup.status.success());
+    assert!(
+        String::from_utf8_lossy(&setup.stderr).contains("remove retired Nexus resource"),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(retired.join("personal-notes.md")).unwrap(),
+        "keep me"
+    );
 }
 
 fn assert_installed_skills(root: &Path, names: &[&str]) {

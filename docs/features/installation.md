@@ -94,12 +94,17 @@ library; source-development commands explicitly require a Nexus checkout.
 Installation tests compare the complete source skill resource tree with both
 host installations so a new reference cannot be omitted from the bundle.
 
-The library also includes `functional-rust` for immutable transformations,
-explicit domain types, and deep Rust interfaces, plus
-`code-complexity-analysis` for structural measurement and interpretation.
-Both are discoverable through `nexus` and `nexus-development`, installed for
-Codex and Claude, and refreshed with the other bundled resources while
-preserving adjacent user files.
+The library includes `code-architect` for immutable transformations, explicit
+domain types, and deep interfaces, with Rust-specific guidance in its
+`references/rust.md`, plus `code-complexity-analysis` for structural measurement
+and interpretation. Both are discoverable through `nexus` and
+`nexus-development`, installed for Codex and Claude, and refreshed with the other
+bundled resources. Setup removes the retired `functional-rust/SKILL.md`
+activation from both hosts while preserving adjacent personal notes and other
+user resources. Only known retired file paths are removed; missing files are
+normal on repeated setup, while other removal errors are reported. Installation
+tests cover the migration, complete new resource content, preserved personal
+files, repeat setup, and a removal failure that retains directory contents.
 
 Setup also installs `nexus-work-history` for Codex and Claude, including its
 integration and host-adapter references and the canonical `work-capture.sh` and

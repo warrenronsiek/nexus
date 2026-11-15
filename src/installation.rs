@@ -27,7 +27,9 @@ use std::process::{Command, Stdio};
 
 #[path = "installation_assets.rs"]
 mod assets;
-use assets::{PI_EXTENSION_FILES, RETIRED_PI_UI_FILES, SKILL_FILES, SKILL_NAMES};
+use assets::{
+    PI_EXTENSION_FILES, RETIRED_PI_UI_FILES, RETIRED_SKILL_FILES, SKILL_FILES, SKILL_NAMES,
+};
 
 const PROJECT_CONFIG: &str = "schema_version = 1\n";
 
@@ -123,9 +125,11 @@ fn install_agent_resources(
     codex_home: &Path,
     claude_home: &Path,
 ) -> Result<(Vec<String>, Vec<&'static str>)> {
-    for root in [codex_home, claude_home] {
-        install_embedded_files(&root.join("skills"), &SKILL_FILES)?;
-    }
+    [codex_home, claude_home].into_iter().try_for_each(|root| {
+        let skills = root.join("skills");
+        install_embedded_files(&skills, &SKILL_FILES)?;
+        remove_retired_files(&skills, &RETIRED_SKILL_FILES)
+    })?;
     let hosts = install_host_integrations(executable, explicit_config, codex_home, claude_home)?;
     let extensions = if command_available("pi") {
         install_pi_extension(
@@ -148,18 +152,7 @@ fn install_pi_extension(
     install_embedded_files(root, &PI_EXTENSION_FILES)?;
     let launch_context = pi_launch_context(executable, explicit_config)?;
     install_embedded_files(root, &[("launch-context.ts", launch_context.as_str())])?;
-    for module in RETIRED_PI_UI_FILES {
-        let path = root.join(module);
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("remove retired Nexus module {}", path.display()))
-            }
-        }
-    }
-    Ok(())
+    remove_retired_files(root, &RETIRED_PI_UI_FILES)
 }
 
 fn pi_launch_context(executable: &Path, explicit_config: Option<&Path>) -> Result<String> {
@@ -276,6 +269,18 @@ fn install_embedded_files(root: &Path, files: &[(&str, &str)]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn remove_retired_files(root: &Path, files: &[&str]) -> Result<()> {
+    files.iter().try_for_each(|relative_path| {
+        let path = root.join(relative_path);
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error)
+                .with_context(|| format!("remove retired Nexus resource {}", path.display())),
+        }
+    })
 }
 
 fn command_available(command: &str) -> bool {

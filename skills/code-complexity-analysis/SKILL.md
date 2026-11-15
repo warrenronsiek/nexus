@@ -7,8 +7,9 @@ description: Analyze maintainability and repeated implementation shapes with big
 
 Use measurements to locate reader and caller burden. Keep behavior and scope
 fixed when comparing designs. Prefer deep, cohesive operations and explicit
-domain types; use [functional-rust](../functional-rust/SKILL.md) for Rust design
-choices and [code-architect](../code-architect/SKILL.md) for architectural review.
+domain types; use [code-architect](../code-architect/SKILL.md) for the design
+preferences and its [Rust guidance](../code-architect/references/rust.md) for
+language-specific choices.
 
 ## Measure the owning scope
 
@@ -40,8 +41,15 @@ An unavailable analyzer is a tooling failure, not a clean report.
 formula and contribution breakdown rather than assuming default coefficients.
 The score charges named callable declarations and arguments more than logical
 implementation lines. Rust mutation syntax, recognizable state containers, and
-dynamic type syntax add separate costs. Immutable bindings and enumerated domain
-types do not receive the expensive callable-declaration surcharge.
+dynamic type syntax add separate costs. Rust preference proxies also count
+ordinary `if` expressions (excluding `if let` and its let chains),
+`for`/`while`/`loop`, and explicit `bool` or borrowed `bool` parameters on named
+callables, including trait signatures. They do not resolve boolean aliases or
+count booleans nested in other parameter types. Existing BCA branching and
+cognitive costs still apply; matching and composition receive no bonus. Prefer
+typed matching, optional/result composition, and iterator transformations when
+they clarify the same behavior. Immutable bindings and enumerated domain types
+do not receive the expensive callable-declaration surcharge.
 Closures used by ordinary iterator composition do not create a new named API.
 
 Use the overlap-free scope total for before/after comparisons. File and container
@@ -67,6 +75,9 @@ external JSON boundaries and necessary resource mutation can be justified.
 - Keep explicit structs, enums, typed errors, and exhaustive matches when they
   remove ambiguity. Deleting types, compressing lines, expanding macros, or
   cloning data to erase `mut` does not establish an improvement.
+- Do not disguise `if` as a boolean match or `for` as a closure mutating captured
+  state. Prefer a named domain choice or value transformation that removes the
+  underlying decision or state burden; preserve necessary resource protocols.
 - Compare repeated shapes by policy, ownership, lifecycle, failure semantics,
   and reasons to change. Share a typed concept when those agree; retain separate
   implementations when their invariants differ. Token overlap is only a lead.

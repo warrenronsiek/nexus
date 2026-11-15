@@ -1,11 +1,13 @@
 ---
 name: code-architect
-description: Review and refactor code architecture for deep interfaces, simple and loosely coupled components, explicit types, intention-revealing APIs, and cohesive filesystem organization. Use for architectural code reviews, design critiques, or structural refactors; do not use for a narrow bug fix or formatting-only change unless the user also asks for architectural analysis.
+description: Design and review code architecture and write idiomatic Rust using immutable transformations, explicit domain types, deep interfaces, typed dispatch, and cohesive ownership. Use for architectural reviews, design critiques, structural refactors, or Rust implementation; apply within the requested scope.
 ---
 
 # Code Architect
 
-Evaluate architecture by how much complexity each public interface hides and how few unrelated concerns the design ties together. Preserve behavior unless the user explicitly authorizes a change.
+Make code read as typed values flowing through functions. Evaluate architecture by how much complexity each public interface hides and how few unrelated concerns the design ties together. Preserve behavior except for the requested change; applying these preferences to a narrow task does not authorize unrelated refactoring.
+
+For Rust work, also read [references/rust.md](references/rust.md) for ownership, control-flow idioms, and resource constraints.
 
 ## Code must earn its permanent cost
 
@@ -35,6 +37,7 @@ Prefer deep modules in the Ousterhout sense: a small, stable interface should hi
 - Do not extract a helper merely to shorten a function. Extraction is justified when it creates a stable abstraction, names an independently meaningful concept, provides a useful test seam, isolates an external effect, or removes genuine duplication.
 - Treat implementation length as secondary evidence. Depth is the ratio of useful capability to interface complexity, not a target line count; avoid both pass-through wrappers and incoherent god objects.
 - Keep an interface shallow only when the underlying capability is genuinely simple.
+- Count each named callable declaration and argument as more expensive than a logical implementation line. One coherent operation with few natural inputs can be simpler than several tiny functions with repeated arguments. An options record must represent a real concept, not disguise arity.
 
 ## DRY vs. WET: follow the vibes
 
@@ -55,7 +58,17 @@ Apply Rich Hickey's distinction between simple and easy. Do not braid unrelated 
 - Keep feature components loosely coupled. Depend on small domain-specific contracts rather than another component's storage layout or framework objects.
 - Make dependencies and ownership directional. Cycles, shared mutable state, action at a distance, and required temporal ordering are high-priority findings.
 - Co-locate things that change for the same reason, but do not merge concepts that merely happen to execute in sequence.
-- Prefer data transformations and explicit results over hidden mutation when that reduces temporal coupling.
+
+## Values and functional control flow
+
+- Write domain decisions as functions from explicit inputs to returned values. Prefer immutable bindings, value transformations, and composition over modifying a caller's object or maintaining orchestration state.
+- Keep I/O, persistence, clocks, randomness, synchronization, and framework objects at effect boundaries. Pass their resulting facts into domain decisions; do not invent an interpreter or interface for every effect.
+- Avoid mutable globals, shared mutable ownership, and stateful managers with setters, `run`, and `result`. Model lifecycle state only when the domain or protocol requires it, using explicit states and valid transitions.
+- Prefer typed dispatch and exhaustive pattern matching over conditional chains. Give meaningful alternatives names; do not turn a simple predicate into a boolean match merely to change syntax.
+- Represent absence and failure with optional and result types. Prefer their composition, pattern binding, and early-return syntax over null checks followed by unchecked extraction. Preserve the distinction between missing data and failure.
+- Prefer map, filter, reduction, fold, and natural recursion over imperative loops and mutable accumulators. Choose a transformation that reveals the operation; avoid deeply nested combinators that conceal its decisions.
+- Preserve required transactions, cleanup, concurrency, ordering, and bounded resource use. Keep unavoidable mutation or imperative control flow narrow and owned by its resource boundary; explain the concrete constraint. Moving mutation into a closure or opaque helper is not an improvement.
+- Do not pay for apparent purity with repeated copying, extra collections, unbounded recursion, or worse asymptotic work. Prefer concise language idioms over custom combinator frameworks or one-use abstractions.
 
 ## Explicit domain types
 
@@ -66,13 +79,15 @@ Require the core model to enumerate the states and shapes it can accept.
 - Keep raw JSON, framework request objects, database rows, and wire representations at their adapters. Domain logic should receive domain types.
 - Model closed sets of states explicitly and make invalid states difficult or impossible to construct.
 - If an external protocol is intentionally open-ended, isolate its extension data in a named boundary type rather than allowing untyped values to spread through the codebase.
+- Use constrained value types to distinguish identities, units, and validated values. Fully enumerated domain shapes do not require redundant local type annotations where inference remains static.
+- Make names and types carry the documentation. Comments should explain non-obvious rationale, constraints, and invariants rather than narrate the code.
 
 ## Boolean arguments
 
 Do not introduce boolean parameters. A call such as `run(true, false)` hides intent and usually combines multiple behaviors.
 
 - Replace a boolean choice with a named enum or sum type and exhaustive dispatch.
-- Replace independent flags with distinct operations or a typed options object whose fields express domain choices.
+- Replace independent flags with distinct operations or a typed options object whose fields use named domain choices. An options object containing the same boolean switches does not fix the abstraction.
 - Boolean state and boolean return values are acceptable when the domain itself is genuinely binary; the prohibition is on boolean arguments that select behavior.
 - When reviewing existing code, distinguish a true behavior switch from values that merely cross a serialization boundary, but decode boundary flags before they reach domain operations.
 
