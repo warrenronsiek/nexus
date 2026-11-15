@@ -41,7 +41,7 @@ formula and contribution breakdown rather than assuming default coefficients.
 The score charges named callable declarations and arguments more than logical
 implementation lines. Rust mutation syntax, recognizable state containers, and
 dynamic type syntax add separate costs. Immutable bindings and enumerated domain
-types retain raw evidence without the expensive callable-declaration surcharge.
+types do not receive the expensive callable-declaration surcharge.
 Closures used by ordinary iterator composition do not create a new named API.
 
 Use the overlap-free scope total for before/after comparisons. File and container
@@ -50,8 +50,10 @@ code repeatedly. Inspect raw BCA metrics and individual weighted contributions t
 explain the movement. Compare the same files or feature and record any change to
 the scoring configuration.
 
-Static syntax cannot prove purity, resolve every alias, discover all hidden
-dependencies, or measure semantic cohesion. Rust-only proxies are not evidence
+Direct, grouped, and renamed imports of known dynamic types carry the same cost
+as qualified uses; local type declarations can shadow those imports. Static
+syntax cannot prove purity, resolve cross-file re-exports or every type alias,
+discover all hidden dependencies, or measure semantic cohesion. Rust-only proxies are not evidence
 that another language has no state or dynamic typing. Check adapters and type
 definitions before interpreting a state or dynamic-type finding. Deliberate
 external JSON boundaries and necessary resource mutation can be justified.

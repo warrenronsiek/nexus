@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import asdict, astuple, dataclass, field
+from dataclasses import asdict, dataclass, field, fields, replace
 from enum import Enum
 from operator import attrgetter
 from pathlib import Path
@@ -93,9 +93,9 @@ class RankingWeights:
     functions: float
     cyclomatic: float
     cognitive: float
-    mutation_sites: float = 8.0
-    state_types: float = 12.0
-    dynamic_types: float = 16.0
+    mutation_sites: float
+    state_types: float
+    dynamic_types: float
 
 
 @dataclass(frozen=True)
@@ -111,12 +111,12 @@ class RankingSignals:
 
 
 def ranking_formula(weights: RankingWeights) -> str:
-    names = ("LLOC", "arguments", "functions", "branching", "cognitive", "mutation_sites", "state_types", "dynamic_types")
-    return " + ".join(f"{weight:g}*{name}" for weight, name in zip(astuple(weights), names))
+    labels = {"lloc": "LLOC", "cyclomatic": "branching"}
+    return " + ".join(f"{getattr(weights, item.name):g}*{labels.get(item.name, item.name)}" for item in fields(RankingSignals))
 
 
 def contributions(weights: RankingWeights, signals: RankingSignals) -> RankingSignals:
-    return RankingSignals(*(weight * value for weight, value in zip(astuple(weights), astuple(signals))))
+    return RankingSignals(**{item.name: getattr(weights, item.name) * getattr(signals, item.name) for item in fields(RankingSignals)})
 
 
 @dataclass(frozen=True)
@@ -124,16 +124,18 @@ class SourceEvidence:
     path: Path
     lines: Sequence[str]
     nodes: Sequence[rust_structure.RustNode]
-    owner: rust_structure.RustNode | None = None
+    span: rust_structure.SourceSpan
+    names: rust_structure.TypeNames
 
     def scoped(self, space: Mapping[str, object], owner: rust_structure.RustNode | None) -> SourceEvidence:
         if owner is None:
-            return self
-        actual = (rust_structure.SPACE_KINDS[owner.kind], owner.start_line, owner.end_line)
+            span = rust_structure.SourceSpan.whole_lines(as_integer(space.get("start_line")), as_integer(space.get("end_line")))
+            return replace(self, span=span)
+        actual = (rust_structure.SPACE_KINDS[owner.kind], owner.span.start_line, owner.span.end_line)
         expected = (space.get("kind"), space.get("start_line"), space.get("end_line"))
         if actual != expected:
             raise AnalysisError(f"BCA metric/node scope mismatch in {self.path}: {expected} != {actual}")
-        return SourceEvidence(self.path, self.lines, tuple(node for node in self.nodes if owner.contains(node)), owner)
+        return SourceEvidence(self.path, self.lines, tuple(node for node in self.nodes if owner.span.contains(node.span)), owner.span, self.names)
 
     def metric_units(self, root: Path, document: Mapping[str, object], weights: RankingWeights) -> list[UnitMetric]:
         spaces = spaces_in_document(document)
@@ -151,7 +153,7 @@ class SourceEvidence:
         nom = as_mapping(metrics.get("nom"))
         cyclomatic = as_mapping(metrics.get("cyclomatic"))
         cognitive = as_mapping(metrics.get("cognitive"))
-        syntax = rust_structure.signals_in_span(self.nodes, self.lines, as_integer(space.get("start_line")), as_integer(space.get("end_line")))
+        syntax = rust_structure.signals_in_span(self.nodes, self.lines, self.span, self.names)
         return RankingSignals(
             lloc=as_number(loc.get("lloc")),
             arguments=syntax.arguments if self.path.suffix == ".rs" else as_number(nargs.get("function_args", nargs.get("total"))),
@@ -182,24 +184,17 @@ class UnitMetric:
     path: str
     name: str
     kind: str
-    start_line: int
-    end_line: int
-    declarations: int
+    span: rust_structure.SourceSpan
     architectural_load: float
     metrics: Mapping[str, object]
     signals: RankingSignals = field(default_factory=RankingSignals)
     contributions: RankingSignals = field(default_factory=RankingSignals)
-    start_column: int = 1
-    end_column: int = sys.maxsize
 
     def contains(self, other: UnitMetric) -> bool:
-        return self.path == other.path and (self.start_line, self.start_column) <= (other.start_line, other.start_column) and (self.end_line, self.end_column) >= (other.end_line, other.end_column)
-
-    def source_text(self, lines: Sequence[str]) -> str:
-        return rust_structure.RustNode("span", self.start_line, self.start_column, self.end_line, self.end_column).source(lines)
+        return self.path == other.path and self.span.contains(other.span)
 
     def label(self) -> str:
-        return f"{self.path}:{self.start_line}:{self.name}"
+        return f"{self.path}:{self.span.start_line}:{self.name}"
 
 
 @dataclass(frozen=True)
@@ -365,49 +360,23 @@ def run_bca_check(root: Path, paths: Sequence[Path]) -> int:
     return completed.returncode
 
 
-def declaration_count(path: Path, lines: Sequence[str], start: int, end: int) -> int:
-    body = "\n".join(lines[max(start - 1, 0) : end])
-    if path.suffix == ".rs":
-        pattern = re.compile(
-            r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?"
-            r"(?:let|const|static|struct|enum|trait|type)\b"
-        )
-    elif path.suffix in {".js", ".jsx", ".mjs", ".ts", ".tsx"}:
-        pattern = re.compile(
-            r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?"
-            r"(?:function|class|interface|type|enum|const|let|var)\b"
-        )
-    else:
-        pattern = re.compile(
-            r"(?m)^\s*(?:async\s+def|def|class)\s+|"
-            r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*(?::[^=\n]+)?=(?!=)"
-        )
-    return len(pattern.findall(body))
-
-
 def space_count(space: Mapping[str, object]) -> int:
     children = space.get("spaces")
     return 1 + sum(space_count(as_mapping(child)) for child in children) if isinstance(children, list) else 1
 
 
 def unit_from_space(root: Path, source: SourceEvidence, space: Mapping[str, object], weights: RankingWeights) -> UnitMetric:
-    start = as_integer(space.get("start_line"))
-    end = as_integer(space.get("end_line"))
     signals = source.ranking_signals(space)
     weighted = contributions(weights, signals)
     return UnitMetric(
         path=str(source.path.relative_to(root)),
         name=str(space.get("name", source.path.name)),
         kind=str(space.get("kind", "unit")),
-        start_line=start,
-        end_line=end,
-        declarations=declaration_count(source.path, source.lines, start, end),
-        architectural_load=sum(astuple(weighted)),
+        span=source.span,
+        architectural_load=sum(asdict(weighted).values()),
         metrics=as_mapping(space.get("metrics")),
         signals=signals,
         contributions=weighted,
-        start_column=source.owner.start_column if source.owner is not None else 1,
-        end_column=source.owner.end_column if source.owner is not None else sys.maxsize,
     )
 
 
@@ -433,17 +402,19 @@ def collect_units(
     units: list[UnitMetric] = []
     for document, path in zip(documents, paths):
         lines = path.read_text(encoding="utf-8").splitlines()
-        source = SourceEvidence(path, lines, nodes.get(path, ()))
+        file_nodes = nodes.get(path, ())
+        span = rust_structure.SourceSpan.whole_lines(as_integer(document.get("start_line")), as_integer(document.get("end_line")))
+        source = SourceEvidence(path, lines, file_nodes, span, rust_structure.TypeNames.from_source(file_nodes, lines))
         units.extend(source.metric_units(root, document, weights))
     return units
 
 
 def scope_document(units: Sequence[UnitMetric]) -> dict[str, object]:
     selected: list[UnitMetric] = []
-    for unit in sorted(units, key=lambda item: (item.path, item.start_line, item.start_column, -item.end_line, -item.end_column)):
+    for unit in sorted(units, key=lambda item: (item.path, item.span.start_line, item.span.start_column, -item.span.end_line, -item.span.end_column)):
         if not any(parent.contains(unit) for parent in selected):
             selected.append(unit)
-    totals = RankingSignals(*(sum(getattr(unit.contributions, name) for unit in selected) for name in RankingSignals.__dataclass_fields__))
+    totals = RankingSignals(**{item.name: sum(getattr(unit.contributions, item.name) for unit in selected) for item in fields(RankingSignals)})
     return {
         "architectural_load": sum(unit.architectural_load for unit in selected),
         "contributions": asdict(totals),
@@ -497,7 +468,7 @@ def comparable_units(root: Path, units: Sequence[UnitMetric], minimum_tokens: in
         if unit.path not in lines_by_path:
             lines_by_path[unit.path] = (root / unit.path).read_text(encoding="utf-8").splitlines()
         lines = lines_by_path[unit.path]
-        tokens = normalized_tokens(unit.source_text(lines))
+        tokens = normalized_tokens(unit.span.source(lines))
         if len(tokens) >= minimum_tokens:
             result.append(ComparableUnit(unit, tokens, frozenset(token_shingles(tokens))))
     return result
@@ -540,11 +511,7 @@ def unit_document(unit: UnitMetric) -> dict[str, object]:
         "path": unit.path,
         "name": unit.name,
         "kind": unit.kind,
-        "start_line": unit.start_line,
-        "end_line": unit.end_line,
-        "start_column": unit.start_column,
-        "end_column": unit.end_column,
-        "declarations": unit.declarations,
+        **asdict(unit.span),
         "architectural_load": unit.architectural_load,
         "metrics": dict(unit.metrics),
         "signals": asdict(unit.signals),
@@ -578,7 +545,7 @@ def print_text(
     ranked = sorted(units, key=attrgetter("architectural_load"), reverse=True)
     for unit in ranked[:limit]:
         print(
-            f"  {unit.architectural_load:7.1f}  {unit.path}:{unit.start_line} "
+            f"  {unit.architectural_load:7.1f}  {unit.path}:{unit.span.start_line} "
             f"{unit.kind} {unit.name} | "
             f"lloc={nested_metric(unit, 'loc', 'lloc'):g} "
             f"args={unit.signals.arguments:g} "

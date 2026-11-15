@@ -33,6 +33,39 @@ def load_complexity_analysis() -> ModuleType:
 
 
 class ComplexityAnalysisTests(unittest.TestCase):
+    def test_imported_dynamic_types_keep_their_qualified_cost_and_scope(self) -> None:
+        analysis = load_complexity_analysis()
+        cases = {
+            "qualified.rs": ("fn work(x: serde_json::Value) -> serde_json::Value { x }\n", 2),
+            "imported.rs": ("use serde_json::Value; fn work(x: Value) -> Value { x }\n", 2),
+            "mixed.rs": ("use serde_json::Value; fn work(x: serde_json::Value) -> Value { x }\n", 2),
+            "grouped.rs": ("use serde_json::{Map, Value}; fn work(x: Value) -> Value { x }\n", 2),
+            "renamed.rs": ("use serde_json::Value as Payload; fn work(x: Payload) -> Payload { x }\n", 2),
+            "module_alias.rs": ("use serde_json as json; fn work(x: json::Value) -> json::Value { x }\n", 2),
+            "self_alias.rs": ("use serde_json::{self as json}; fn work(x: json::Value) -> json::Value { x }\n", 2),
+            "nested_group.rs": ("use std::{any::{Any as Payload}, fmt::Debug}; fn work(x: &dyn Payload) {}\n", 1),
+            "local.rs": ("struct Value; fn work(x: Value) -> Value { x }\n", 0),
+            "variant_import.rs": ("use serde_json::Value::{Null,}; struct Value; fn work(x: Value) -> Value { x }\n", 0),
+            "generic_shadow.rs": ("use serde_json::Value; fn work<Value>(x: Value) -> Value { x }\n", 0),
+            "shadowed.rs": (
+                "use serde_json::Value; fn outer(x: Value) { struct Value; fn inner(x: Value) -> Value { x } }\n",
+                1,
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            paths = [root / name for name in cases]
+            for path in paths:
+                path.write_text(cases[path.name][0])
+            weights = analysis.load_policy(Path(__file__).parents[1]).ranking
+            units = analysis.collect_units(root, analysis.run_bca_metrics(root, paths), weights)
+            named = {(unit.path, unit.name): unit for unit in units}
+            actual = {name: named[name, name].signals.dynamic_types for name in cases}
+            self.assertEqual(actual, {name: expected for name, (_, expected) in cases.items()})
+            self.assertEqual(named["qualified.rs", "qualified.rs"].architectural_load, named["imported.rs", "imported.rs"].architectural_load)
+            self.assertEqual(named["imported.rs", "work"].signals.dynamic_types, 2)
+            self.assertEqual(named["shadowed.rs", "inner"].signals.dynamic_types, 0)
+
     def test_rust_ranking_prefers_deep_immutable_typed_operations(self) -> None:
         analysis = load_complexity_analysis()
         policy = analysis.load_policy(Path(__file__).parents[1])
@@ -289,7 +322,28 @@ fn work(value: i32) -> i32 {
             selected = analysis.select_paths(root, "ui", None)
             self.assertEqual(selected, [source])
 
-    def test_unit_preserves_bca_metrics_and_adds_declarations(self) -> None:
+    def test_ranking_uses_field_names_when_weight_declarations_are_reordered(self) -> None:
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class ReorderedWeights:
+            dynamic_types: float = 19.0
+            state_types: float = 17.0
+            mutation_sites: float = 13.0
+            cognitive: float = 4.0
+            cyclomatic: float = 3.0
+            functions: float = 11.0
+            arguments: float = 7.0
+            lloc: float = 2.0
+
+        analysis = load_complexity_analysis()
+        weights = analysis.RankingWeights(2.0, 7.0, 11.0, 3.0, 4.0, 13.0, 17.0, 19.0)
+        signals = analysis.RankingSignals(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0)
+        reordered = ReorderedWeights()
+        self.assertEqual(analysis.contributions(weights, signals), analysis.contributions(reordered, signals))
+        self.assertEqual(analysis.ranking_formula(weights), analysis.ranking_formula(reordered))
+
+    def test_unit_preserves_bca_metrics(self) -> None:
         analysis = load_complexity_analysis()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -309,23 +363,29 @@ fn work(value: i32) -> i32 {
                 "spaces": [{"name": "work", "kind": "function", "start_line": 1, "end_line": 3, "spaces": [], "metrics": raw_metrics}],
                 "metrics": raw_metrics,
             }
-            weights = analysis.RankingWeights(1.0, 3.0, 8.0, 5.0, 2.0)
+            weights = analysis.RankingWeights(1.0, 3.0, 8.0, 5.0, 2.0, 8.0, 12.0, 16.0)
             units = analysis.collect_units(root, [document], weights)
-            self.assertEqual(units[0].declarations, 1)
             self.assertEqual(units[0].metrics, raw_metrics)
             self.assertEqual(units[0].architectural_load, 13.0)
 
-    def test_typescript_declarations_are_counted_explicitly(self) -> None:
+    def test_python_function_spans_preserve_same_file_repetition(self) -> None:
         analysis = load_complexity_analysis()
-        source = Path("chart.ts")
-        lines = [
-            "export interface Bucket { count: number }",
-            "export type Renderer = (bucket: Bucket) => void;",
-            "const colors = {};",
-            "export function render(bucket: Bucket): void {}",
-        ]
-
-        self.assertEqual(analysis.declaration_count(source, lines, 1, 4), 4)
+        function = "def {name}(value: int) -> int:\n    first = value + 1\n    second = first * 2\n    third = second - 3\n    fourth = third * 4\n    fifth = fourth + 5\n    sixth = fifth * 6\n    seventh = sixth + 7\n    eighth = seventh * 8\n    return eighth\n"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            path = root / "sample.py"
+            path.write_text(function.format(name="alpha") + "\n" + function.format(name="beta"))
+            documents = analysis.run_bca_metrics(root, [path])
+            weights = analysis.load_policy(Path(__file__).parents[1]).ranking
+            units = analysis.collect_units(root, documents, weights)
+            functions = [unit for unit in units if unit.kind == "function"]
+            expected = {space["name"]: analysis.rust_structure.SourceSpan.whole_lines(space["start_line"], space["end_line"]) for space in documents[0]["spaces"]}
+            self.assertEqual({unit.name: unit.span for unit in functions}, expected)
+            self.assertFalse(functions[0].contains(functions[1]))
+            self.assertFalse(functions[1].contains(functions[0]))
+            policy = analysis.RepetitionPolicy(48, 0.82, 0.96)
+            candidates = analysis.find_repetition(root, functions, policy)
+            self.assertTrue(any(candidate.breaches(policy.fail_similarity) for candidate in candidates))
 
     def test_enforcement_preserves_every_full_report_violation(self) -> None:
         analysis = load_complexity_analysis()
@@ -336,7 +396,7 @@ fn work(value: i32) -> i32 {
             for index, source in enumerate(sources):
                 name = f"unit{index}.rs"
                 (root / name).write_text(source)
-                units.append(analysis.UnitMetric(name, name, "function", 1, 1, 0, 0.0, {}))
+                units.append(analysis.UnitMetric(name, name, "function", analysis.rust_structure.SourceSpan.whole_lines(1, 1), 0.0, {}))
             for minimum in (0, 4):
                 policy = analysis.RepetitionPolicy(minimum, 0.5, 0.96)
                 expected = [candidate for candidate in analysis.find_repetition(root, units, policy) if candidate.breaches(policy.fail_similarity)]
@@ -353,7 +413,7 @@ fn work(value: i32) -> i32 {
             for index, source in enumerate(sources):
                 name = f"unit{index}.rs"
                 (root / name).write_text(source)
-                units.append(analysis.UnitMetric(name, name, "function", 1, 1, 0, 0.0, {}))
+                units.append(analysis.UnitMetric(name, name, "function", analysis.rust_structure.SourceSpan.whole_lines(1, 1), 0.0, {}))
             with patch.object(analysis.difflib, "SequenceMatcher", side_effect=AssertionError("unnecessary sequence comparison")):
                 candidates = analysis.find_repetition(root, units, analysis.RepetitionPolicy(4, 0.5, 0.96), analysis.AnalysisPurpose.ENFORCE)
             self.assertEqual(candidates, [])

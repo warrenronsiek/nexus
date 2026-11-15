@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-from dataclasses import astuple, dataclass
+import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
 
 
 NODE_TYPES = (
@@ -17,6 +18,8 @@ NODE_TYPES = (
     "assignment_expression", "compound_assignment_expr", "type_identifier",
     "scoped_type_identifier", "parameter", "self_parameter", "closure_expression",
     "function_type", "scoped_identifier", "impl_item", "trait_item",
+    "use_declaration", "mod_item", "block", "struct_item", "enum_item",
+    "type_item", "type_parameter", "line_comment", "block_comment",
 )
 NODE_LINE = re.compile(
     r"^╰─ \{([a-z_]+):\d+\} from \((\d+), (\d+)\) to \((\d+), (\d+)\)(?: :.*)? *$"
@@ -33,8 +36,7 @@ DYNAMIC_TYPES = frozenset({
 
 
 @dataclass(frozen=True)
-class RustNode:
-    kind: str
+class SourceSpan:
     start_line: int
     start_column: int
     end_line: int
@@ -48,8 +50,18 @@ class RustNode:
         selected[0] = selected[0][self.start_column - 1 :]
         return b"\n".join(selected).decode("utf-8")
 
-    def contains(self, other: RustNode) -> bool:
+    def contains(self, other: SourceSpan) -> bool:
         return (self.start_line, self.start_column) <= (other.start_line, other.start_column) and (self.end_line, self.end_column) >= (other.end_line, other.end_column)
+
+    @classmethod
+    def whole_lines(cls, start: int, end: int) -> SourceSpan:
+        return cls(start, 1, end, sys.maxsize)
+
+
+@dataclass(frozen=True)
+class RustNode:
+    kind: str
+    span: SourceSpan
 
 
 @dataclass(frozen=True)
@@ -97,7 +109,98 @@ def parse_node(line: str) -> RustNode:
     match = NODE_LINE.fullmatch(line)
     if match is None:
         raise RuntimeError(f"unrecognized BCA node output: {line[:120]}")
-    return RustNode(match[1], *(int(match[i]) for i in range(2, 6)))
+    return RustNode(match[1], SourceSpan(*(int(match[i]) for i in range(2, 6))))
+
+
+@dataclass(frozen=True)
+class TypeBinding:
+    name: str
+    qualified: str | None
+    scope: SourceSpan
+
+
+@dataclass(frozen=True)
+class TypeNames:
+    bindings: tuple[TypeBinding, ...] = ()
+    imports: tuple[SourceSpan, ...] = ()
+    qualified: tuple[SourceSpan, ...] = ()
+
+    @classmethod
+    def from_source(cls, nodes: Sequence[RustNode], lines: Sequence[str]) -> TypeNames:
+        imports = tuple(node for node in nodes if node.kind == "use_declaration")
+        declared = filter(None, (local_binding(node, nodes, lines) for node in nodes if node.kind in {"struct_item", "enum_item", "trait_item", "type_item", "type_parameter"}))
+        return cls(
+            bindings=tuple(binding for node in imports for binding in imported_bindings(node, nodes, lines)) + tuple(declared),
+            imports=tuple(node.span for node in imports),
+            qualified=tuple(node.span for node in nodes if node.kind == "scoped_type_identifier"),
+        )
+
+    def is_dynamic(self, node: RustNode, text: str) -> bool:
+        if node.kind not in {"type_identifier", "scoped_type_identifier"} or any(span.contains(node.span) for span in self.imports):
+            return False
+        if node.kind == "type_identifier" and any(span.contains(node.span) for span in self.qualified):
+            return False
+        parts = text.lstrip(":").split("::")
+        matches = (binding for binding in self.bindings if binding.name == parts[0] and binding.scope.contains(node.span))
+        binding = min(matches, key=lambda item: span_size(item.scope), default=None)
+        if binding is None:
+            return text.lstrip(":") in DYNAMIC_TYPES
+        return binding.qualified is not None and "::".join((binding.qualified, *parts[1:])) in DYNAMIC_TYPES
+
+
+def span_size(span: SourceSpan) -> tuple[int, int]:
+    return span.end_line - span.start_line, span.end_column - span.start_column
+
+
+def binding_scope(node: RustNode, nodes: Sequence[RustNode], line_count: int) -> SourceSpan:
+    kinds = {"block", "mod_item"}
+    if node.kind == "type_parameter":
+        kinds |= {"function_item", "function_signature_item", "struct_item", "enum_item", "trait_item", "impl_item"}
+    scopes = (item.span for item in nodes if item.kind in kinds and item.span.contains(node.span))
+    return min(scopes, key=span_size, default=SourceSpan.whole_lines(1, line_count))
+
+
+def local_binding(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str]) -> TypeBinding | None:
+    names = (item for item in nodes if item.kind == "type_identifier" and node.span.contains(item.span))
+    name = next(names, None)
+    return None if name is None else TypeBinding(name.span.source(lines), None, binding_scope(node, nodes, len(lines)))
+
+
+def imported_bindings(node: RustNode, nodes: Sequence[RustNode], lines: Sequence[str]) -> tuple[TypeBinding, ...]:
+    text = node.span.source(lines)
+    for comment in (item for item in nodes if item.kind in {"line_comment", "block_comment"} and node.span.contains(item.span)):
+        text = text.replace(comment.span.source(lines), "")
+    tokens = re.findall(r"(?:r#)?\w+|::|[{},*]", text)
+    scope = binding_scope(node, nodes, len(lines))
+    return tuple(TypeBinding(name, path, scope) for name, path in import_bindings(iter(tokens[tokens.index("use") + 1 :])))
+
+
+def import_leaf(path: tuple[str, ...], alias: str | None = None) -> tuple[tuple[str, str], ...]:
+    if not path or path[-1] == "*":
+        return ()
+    qualified = path[:-1] if path[-1] == "self" else path
+    return ((alias or qualified[-1], "::".join(qualified)),)
+
+
+def import_bindings(tokens: Iterator[str], prefix: tuple[str, ...] = ()) -> tuple[tuple[str, str], ...]:
+    bindings: list[tuple[str, str]] = []
+    path: tuple[str, ...] | None = None
+    for token in tokens:
+        pending = path or ()
+        if token == "}":
+            return (*bindings, *import_leaf(pending))
+        if token == ",":
+            bindings.extend(import_leaf(pending))
+            path = None
+        elif token == "{":
+            bindings.extend(import_bindings(tokens, pending or prefix))
+            path = None
+        elif token == "as":
+            bindings.extend(import_leaf(pending, next(tokens)))
+            path = None
+        elif token != "::":
+            path = (*prefix, token) if path is None else (*path, token)
+    return (*bindings, *import_leaf(path or ()))
 
 
 def parameter_count(nodes: Sequence[RustNode]) -> int:
@@ -105,8 +208,8 @@ def parameter_count(nodes: Sequence[RustNode]) -> int:
     arguments = 0
     for parameter in (node for node in nodes if node.kind in {"parameter", "self_parameter"}):
         owner = min(
-            (node for node in owners if node.contains(parameter)),
-            key=lambda node: (node.end_line - node.start_line, node.end_column - node.start_column),
+            (node for node in owners if node.span.contains(parameter.span)),
+            key=lambda node: span_size(node.span),
             default=None,
         )
         arguments += owner is not None and owner.kind in {"function_item", "function_signature_item"}
@@ -120,19 +223,23 @@ def is_state_type(node: RustNode, text: str) -> bool:
     return node.kind == "scoped_identifier" and len(parts) >= 2 and parts[-2] in STATE_TYPES and parts[-1] in {"new", "default", "from"}
 
 
-def node_signals(node: RustNode, lines: Sequence[str]) -> RustSignals:
-    text = node.source(lines)
+def node_signals(node: RustNode, lines: Sequence[str], names: TypeNames) -> RustSignals:
+    text = node.span.source(lines)
     return RustSignals(
         functions=int(node.kind in {"function_item", "function_signature_item"}),
         mutation_sites=int(node.kind in {"mutable_specifier", "assignment_expression", "compound_assignment_expr"}),
         state_types=int(is_state_type(node, text)),
-        dynamic_types=int(node.kind == "scoped_type_identifier" and text.lstrip(":") in DYNAMIC_TYPES),
+        dynamic_types=int(names.is_dynamic(node, text)),
     )
 
 
-def signals_in_span(nodes: Sequence[RustNode], lines: Sequence[str], start: int, end: int) -> RustSignals:
-    selected = tuple(node for node in nodes if start <= node.start_line and node.end_line <= end)
-    evidence = tuple(node_signals(node, lines) for node in selected)
-    totals = [sum(values) for values in zip(*(astuple(item) for item in evidence))] if evidence else [0] * 5
-    totals[1] = parameter_count(selected)
-    return RustSignals(*totals)
+def signals_in_span(nodes: Sequence[RustNode], lines: Sequence[str], span: SourceSpan, names: TypeNames) -> RustSignals:
+    selected = tuple(node for node in nodes if span.contains(node.span))
+    evidence = tuple(node_signals(node, lines, names) for node in selected)
+    return RustSignals(
+        functions=sum(item.functions for item in evidence),
+        arguments=parameter_count(selected),
+        mutation_sites=sum(item.mutation_sites for item in evidence),
+        state_types=sum(item.state_types for item in evidence),
+        dynamic_types=sum(item.dynamic_types for item in evidence),
+    )
