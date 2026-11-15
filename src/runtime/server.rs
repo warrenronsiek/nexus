@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature runtime
 // @feature analyst
 // @feature sos
@@ -171,6 +173,7 @@ pub async fn serve_listener(
     let _memory_scheduler = dispatch::PeriodicMaintenance::memory_consolidation(service.clone());
     let _conflict_closure = dispatch::PeriodicMaintenance::conflict_closure(service.clone());
     let model_work = dispatch::ModelWorkScheduler::start(service.clone());
+    let _delivery_watcher = crate::runtime::delivery_watch::DeliveryWatcher::start(service.clone());
     let state = Arc::new(ServerState {
         service,
         model_work,

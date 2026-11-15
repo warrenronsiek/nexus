@@ -90,6 +90,37 @@ flowchart TD
 
 ## Implementation details
 
+Delivery coordination has an independent GitHub poller in both the daemon and
+the shared service. Persisted watch registrations survive agent and service
+restarts; the running daemon/service resumes due watches without a live agent
+session. `NEXUS_DELIVERY_GITHUB_TOKEN_FILE` optionally names an owner-only token
+file on that service host; public repositories can be observed without a token.
+`NEXUS_DELIVERY_GITHUB_API_URL` selects an HTTPS GitHub API base, including an
+operator-configured enterprise endpoint. Credentials are never retained in watch
+registrations, observations, URLs, or health records.
+
+Each poll resolves the PR head, reads check runs and combined commit statuses
+under that immutable SHA, then rereads the PR to reject a head/base change during
+collection. Provider metadata is decoded through bounded typed adapters. A poll
+has a 30-second overall deadline, five-second HTTP request deadlines, at most two
+100-record pages per collection, 1 MiB per response, a combined 128-check ceiling,
+and a 60 KiB canonical snapshot budget. Transient HTTP failures have bounded retries. Limit failures remain
+explicit health failures rather than publishing a complete-looking partial
+snapshot. Requests run outside the database mutex. Changed snapshots and refresh
+health commit atomically; reservations and registration generations fence old
+workers, provider timestamps reject older snapshots, and unchanged state does
+not append another delivery observation. Shutdown cancels the poller; durable
+reservations expire so a restarted service can recover unfinished polls.
+
+Explicit contribution capture reads committed base/head revisions, tree and blob
+identities, changed paths, hunk ranges/fingerprints, and bounded feature
+annotations from the selected Git objects. It stores no patch text and assigns no
+author. A caller explicitly attests responsibility; shared-worktree dirt and Git
+author fields do not establish authorship. Capture is bounded to 128 files,
+2,048 hunks, 2 MiB per Git response, and 15 seconds overall. Renames are retained
+as deletion/addition evidence without inferring a rename relationship. Feature
+annotation reads that exceed their independent bound remain visibly unavailable.
+
 Code concerns uses the dedicated `nexus concerns` CLI and `nexus_concerns` MCP
 tool through a closed `ConcernAction` and bound `ContextCommand` envelope. Its
 identities and lifecycle policy remain independent of development-environment

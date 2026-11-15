@@ -1,5 +1,7 @@
 // @feature runtime
 // @feature observability-ui
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @spec docs/features/runtime.md
 // @spec docs/features/observability-ui.md
 // @boundary browser-http: caller-controlled origins, credentials and closed read queries.
@@ -185,6 +187,9 @@ async fn browser_read_contract_rejects_mutations_and_unknown_fields() {
         json!({"kind":"analytics_inventory"}),
         json!({"kind":"projects","method":"memory_consolidate"}),
         json!({"kind":"eval_list","filter":{"action":"record"}}),
+        json!({"kind":"delivery_record","observations":[]}),
+        json!({"kind":"delivery_assign","subject":{"kind":"pull_request","id":"pr"}}),
+        json!({"kind":"delivery_list","filter":{"action":"record"}}),
     ] {
         assert_eq!(
             app.read(&cookie, query.clone()).await.status(),
@@ -202,6 +207,37 @@ async fn browser_read_contract_rejects_mutations_and_unknown_fields() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn browser_delivery_reads_are_project_scoped_and_mutations_stay_outside_the_contract() {
+    let app = Browser::start(None).await;
+    let cookie = app.cookie().await;
+    for query in [
+        json!({"kind":"delivery_list","filter":{"kind":"pull_request"}}),
+        json!({"kind":"delivery_get","subject":{"kind":"pull_request","id":"missing-pr"}}),
+        json!({"kind":"delivery_inbox"}),
+        json!({"kind":"delivery_watches"}),
+        json!({"kind":"delivery_origins","query":{"repository":"acme/service","feature":"cache"}}),
+    ] {
+        let response = app.read(&cookie, query.clone()).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "delivery read rejected: {query}"
+        );
+        let value: Value = response.json().await.unwrap();
+        assert_eq!(value["ok"], true);
+        assert!(value.get("response").is_some());
+        let unscoped = app
+            .post("/ui/api/read")
+            .header("cookie", &cookie)
+            .json(&json!({"project_id":null,"query":query}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unscoped.status(), StatusCode::BAD_REQUEST);
+    }
 }
 
 #[tokio::test]
@@ -412,7 +448,7 @@ async fn local_browser_papercuts_rank_by_encounters_and_detail_lists_reports() {
 #[tokio::test]
 async fn browser_assets_are_whitelisted_and_route_reloads_keep_the_same_security_headers() {
     let app = Browser::start(None).await;
-    for path in ["/", "/ui/work", "/ui/evals"] {
+    for path in ["/", "/ui/work", "/ui/evals", "/ui/pull-requests"] {
         let response = app
             .client
             .get(format!("{}{path}", app.origin))

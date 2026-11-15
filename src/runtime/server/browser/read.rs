@@ -1,12 +1,15 @@
 // @feature runtime
 // @feature observability-ui
+// @feature delivery-coordination
 // @spec docs/features/runtime.md
 // @spec docs/features/observability-ui.md
+// @spec docs/features/delivery-coordination.md
 // @boundary browser-read: closed feature-owned reads map to validated service operations, never arbitrary methods.
 use crate::analytics::types::AnalyticsCommand;
 use crate::code_concerns::{ConcernAction, ConcernQuery};
 use crate::coordination::api::*;
 use crate::coordination::domain::{ConflictScope, HookContext, RecordScope};
+use crate::delivery::{AgentIdentity, DeliveryAction, DeliveryQuery, DeliverySubject, OriginQuery};
 use crate::evals::EvalQuery;
 use crate::work_history::{WorkAction, WorkQuery, WorkSessionOrigin, WorkSubject};
 use anyhow::{ensure, Result};
@@ -30,6 +33,28 @@ enum BrowserRead {
     Evals(EvalRead),
     Work(WorkRead),
     Concerns(ConcernRead),
+    Delivery(DeliveryRead),
+}
+#[derive(Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum DeliveryRead {
+    #[serde(rename = "delivery_list")]
+    List {
+        #[serde(default)]
+        filter: DeliveryQuery,
+    },
+    #[serde(rename = "delivery_get")]
+    Get { subject: DeliverySubject },
+    #[serde(rename = "delivery_origins")]
+    Origins { query: OriginQuery },
+    #[serde(rename = "delivery_inbox")]
+    Inbox {
+        recipient: Option<AgentIdentity>,
+        after: Option<String>,
+        limit: Option<u32>,
+    },
+    #[serde(rename = "delivery_watches")]
+    Watches {},
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -238,6 +263,33 @@ impl BrowserRead {
             Self::Evals(read) => ServiceRequest::Evals(bound(read.into_action(project))),
             Self::Work(read) => ServiceRequest::Work(bound(read.into_action(project))),
             Self::Concerns(read) => ServiceRequest::Concerns(bound(read.into_action(project))),
+            Self::Delivery(read) => ServiceRequest::Delivery(bound(read.into_action(project))),
+        }
+    }
+}
+impl DeliveryRead {
+    fn into_action(self, project_id: Option<String>) -> DeliveryAction {
+        match self {
+            Self::List { filter } => DeliveryAction::List {
+                project_id,
+                query: filter,
+            },
+            Self::Get { subject } => DeliveryAction::Get {
+                project_id,
+                subject,
+            },
+            Self::Origins { query } => DeliveryAction::ResolveOrigin { project_id, query },
+            Self::Inbox {
+                recipient,
+                after,
+                limit,
+            } => DeliveryAction::Inbox {
+                project_id,
+                recipient,
+                after,
+                limit,
+            },
+            Self::Watches {} => DeliveryAction::Watches { project_id },
         }
     }
 }

@@ -8,6 +8,8 @@ pub(crate) mod checkout_visits;
 pub mod client;
 pub mod daemon;
 pub mod daemon_control;
+pub mod delivery_capture;
+pub mod delivery_watch;
 mod dispatch;
 pub mod hooks;
 mod host_state;

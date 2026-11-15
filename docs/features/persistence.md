@@ -82,7 +82,7 @@ The remote deployment has one authoritative `nexus-server` process per PostgreSQ
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
-The CLI transfer uses a version-seven newline-delimited JSON record stream. It includes immutable [code map](code-map.md) snapshots and continues to read versions two through six. A header fixes the format,
+The CLI transfer uses a version-eight newline-delimited JSON record stream. It includes immutable [code map](code-map.md) snapshots, the [delivery coordination](delivery-coordination.md) journal and watch health, and continues to read versions two through seven. A header fixes the format,
 typed table batches follow in foreign-key dependency order, and a mandatory footer confirms the
 application row count. Each ordinary batch holds at most sixteen rows; PostgreSQL export uses its
 row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated
@@ -217,3 +217,23 @@ inside one project, bound every query before materialization (at most 501 newest
 party conflicts and advisories for a timeline; 201 most recently seen sessions plus
 the owners of 201 most recently updated conflicts for the index), and use grouped
 Diesel aggregates for per-session conflict and advisory counts.
+
+### Delivery coordination
+
+Migration V23 installs the immutable project-scoped delivery observation journal,
+its ordered receipt index, and rebuildable contribution, PR, rollout, deployment,
+remediation, relation, feature, branch/environment target, presence, and changed-hunk
+indexes. Exact Git revisions and optional content fingerprints support indexed origin
+lookup; the recorded verification qualifier remains visible. Shepherd assignment and
+deployment/remediation transitions compare the caller's expected predecessor inside
+one transaction. Lifecycle path leases remain independent of these durable records.
+
+Portable streams retain the authoritative journal and the watcher scheduling/health
+rows. Import validates observation payloads, scalar indexes, immutable hashes, original
+actors, then rebuilds the delivery projections in journal ordinal order. It validates
+watch registration generations and watch-to-PR scope against that rebuilt state. Historical watcher health survives
+rebuilding. Delivery-only activity also populates the project catalog. Ordinary pages
+and history previews have separate count and encoded-byte bounds; no page claims
+complete external capture. Inputs are capped at 64 KiB per observation and 768 KiB per
+batch of at most 64. A contribution projection has at most 256 mappings and 384 KiB;
+exceeding either limit rejects the complete transaction and leaves prior evidence intact.

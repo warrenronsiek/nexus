@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature evals
@@ -35,6 +37,7 @@ mod analytics_schema;
 mod checkouts;
 mod concern_reporting;
 mod concerns_schema;
+mod delivery_schema;
 mod evals_schema;
 mod git_intents;
 mod hook_output;
@@ -116,10 +119,9 @@ pub async fn serve_stdio(
 ) -> Result<()> {
     let loaded = Arc::new(loaded);
     let invocation_context = Arc::new(McpInvocationContext::from_process(agent)?);
-    let explicit_config = explicit_config.map(Path::to_path_buf);
     let invoker = Arc::new(ConfiguredInvoker::from_loaded(
         loaded.clone(),
-        explicit_config.clone(),
+        explicit_config.map(Path::to_path_buf),
     ));
     let reconciler = spawn_remote_reconciler(
         loaded.config.coordination.reconcile_seconds,
@@ -227,20 +229,26 @@ pub(crate) async fn respond(
         "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
         "tools/list" => json!({"jsonrpc":"2.0","id":id,"result":{"tools":tool_definitions()}}),
         "tools/call" => tool_call(invoker, invocation_context, id, params).await,
-        "resources/list" => json!({"jsonrpc":"2.0","id":id,"result":{"resources":[
-            {"uri":"nexus://status","name":"Nexus status","mimeType":"application/json"},
-            {"uri":"nexus://sessions","name":"Active agent sessions","mimeType":"application/json"},
-            {"uri":"nexus://claims","name":"Active advisory claims","mimeType":"application/json"},
-            {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
-            {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"},
-            {"uri":"nexus://papercuts","name":"Complete current-project papercut registry","mimeType":"application/json"},
-            {"uri":"nexus://sos","name":"Complete current-project SOS registry","mimeType":"application/json"}
-        ]}}),
+        "resources/list" => {
+            json!({"jsonrpc":"2.0","id":id,"result":{"resources":resource_definitions()}})
+        }
         "resources/read" => resource_read(invoker, invocation_context, id, params).await,
         _ => {
             json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":format!("method not found: {method}")}})
         }
     }
+}
+
+fn resource_definitions() -> Value {
+    json!([
+        {"uri":"nexus://status","name":"Nexus status","mimeType":"application/json"},
+        {"uri":"nexus://sessions","name":"Active agent sessions","mimeType":"application/json"},
+        {"uri":"nexus://claims","name":"Active advisory claims","mimeType":"application/json"},
+        {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
+        {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"},
+        {"uri":"nexus://papercuts","name":"Complete current-project papercut registry","mimeType":"application/json"},
+        {"uri":"nexus://sos","name":"Complete current-project SOS registry","mimeType":"application/json"}
+    ])
 }
 
 pub(crate) fn valid_request_id(id: &Value) -> bool {
@@ -370,7 +378,7 @@ fn bind_tool_context(
             arguments = serde_json::to_value(command).expect("typed concern command serializable");
         }
     }
-    if matches!(method, "evals" | "work" | "concerns") {
+    if matches!(method, "evals" | "work" | "concerns" | "delivery") {
         arguments = json!({
             "context": {
                 "session_id":invocation_context.session_id,

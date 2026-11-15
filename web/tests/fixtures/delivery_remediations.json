@@ -1,0 +1,49 @@
+{
+  "ok": true,
+  "response": "page",
+  "items": [
+    {
+      "subject": {
+        "kind": "remediation",
+        "id": "cache-fix"
+      },
+      "title": "Investigate staging regression",
+      "repository": "acme/service",
+      "state": "requested",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": null,
+      "shepherd": null,
+      "body": {
+        "kind": "remediation",
+        "remediation": {
+          "id": "cache-fix",
+          "repository": "acme/service",
+          "title": "Investigate staging regression",
+          "recipient": {
+            "agent": "Cache implementer",
+            "session_id": "cache-thread"
+          },
+          "pull_request_id": "release-pr",
+          "rollout_id": "november",
+          "contribution_id": "cache-change",
+          "deployment_id": "staging-1",
+          "concern_id": null,
+          "activity_id": null,
+          "failure_revision": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "evidence": [
+            "Integration case credential isolation failed."
+          ],
+          "request": "Investigate the cache isolation failure with the original constraints."
+        },
+        "state": "requested",
+        "reason": null,
+        "fixing_revision": null
+      }
+    }
+  ],
+  "next_cursor": null
+}

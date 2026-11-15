@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature persistence
 // @feature usage-analytics
 // @feature agent-memory
@@ -15,11 +17,12 @@
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
     analytics_resources, analytics_revisions, capability_uses, claims, concern_observations,
-    conflicts, eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records, events,
-    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
-    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
-    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
-    sos_issues, sos_reports, sos_triage_attempts, work_observations,
+    conflicts, delivery_observations, delivery_watches, eval_blob_chunks, eval_blobs,
+    eval_dimensions, eval_links, eval_records, events, memory_activations,
+    memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
+    memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
+    papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
+    sos_triage_attempts, work_observations,
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -458,3 +461,12 @@ mod base64_bytes {
             .map_err(serde::de::Error::custom)
     }
 }
+
+portable_row!(DeliveryObservationTransfer,delivery_observations,{
+ project_id:String,id:String,ordinal:i64,subject_kind:String,subject_id:String,occurred_at:String,
+ recorded_at:String,payload_json:String,content_hash:String,provenance_json:String,source_json:Option<String>,
+});
+portable_row!(DeliveryWatchTransfer,delivery_watches,{
+ project_id:String,id:String,pull_request_id:String,registration_json:String,actor_json:String,generation:String,
+ enabled:i32,next_poll_at:String,last_attempt_at:Option<String>,last_success_at:Option<String>,last_error:Option<String>,last_digest:Option<String>,provider_updated_at:Option<String>,
+});

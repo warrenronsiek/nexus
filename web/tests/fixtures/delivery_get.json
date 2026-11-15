@@ -1,0 +1,304 @@
+{
+  "ok": true,
+  "response": "detail",
+  "record": {
+    "subject": {
+      "kind": "pull_request",
+      "id": "release-pr"
+    },
+    "title": "November release",
+    "repository": "acme/service",
+    "state": "open",
+    "updated_at": "2026-11-15T15:05:00Z",
+    "assignment_event_id": "assign-1",
+    "shepherd": {
+      "event_id": "assign-1",
+      "agent": {
+        "agent": "Release shepherd",
+        "session_id": "release-thread"
+      },
+      "assigned_at": "2026-11-15T14:00:00Z",
+      "reason": "Own the promotion and route regressions to implementers."
+    },
+    "body": {
+      "kind": "pull_request",
+      "pull_request": {
+        "id": "release-pr",
+        "repository": "acme/service",
+        "provider": "github",
+        "number": 73,
+        "url": "https://github.com/acme/service/pull/73",
+        "title": "November release",
+        "base": {
+          "repository": "acme/service",
+          "object_format": "sha1",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "head": {
+          "repository": "acme/service",
+          "object_format": "sha1",
+          "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "contribution_ids": [
+          "cache-change"
+        ],
+        "rollout_id": "november",
+        "head_ref": "development",
+        "base_ref": "staging"
+      },
+      "snapshot": {
+        "observed_at": "2026-11-15T15:00:00Z",
+        "state": "open",
+        "base": {
+          "repository": "acme/service",
+          "object_format": "sha1",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "head": {
+          "repository": "acme/service",
+          "object_format": "sha1",
+          "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "checks": [
+          {
+            "id": "integration",
+            "name": "Staging integration",
+            "state": "failed",
+            "revision": {
+              "repository": "acme/service",
+              "object_format": "sha1",
+              "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "url": "https://github.com/acme/service/actions/runs/456"
+          }
+        ],
+        "head_ref": "development",
+        "base_ref": "staging"
+      }
+    }
+  },
+  "related": [
+    {
+      "subject": {
+        "kind": "contribution",
+        "id": "cache-change"
+      },
+      "title": "Preserve cache isolation",
+      "repository": "acme/service",
+      "state": "registered",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": null,
+      "shepherd": null,
+      "body": {
+        "kind": "contribution",
+        "contribution": {
+          "id": "cache-change",
+          "repository": "acme/service",
+          "title": "Preserve cache isolation",
+          "origin": {
+            "agent": "Cache implementer",
+            "session_id": "cache-thread"
+          },
+          "work_session_id": "cache-work",
+          "activity_id": null,
+          "worktree": "/worktrees/cache",
+          "branch": "feature/cache-isolation",
+          "base_revision": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "head_revision": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "features": [
+            "cache",
+            "runtime"
+          ],
+          "rationale": "Each request needs an isolated cache to avoid sharing credentials.",
+          "constraints": [
+            "Preserve request-local scope."
+          ],
+          "route": {
+            "host": "codex",
+            "thread_id": "cache-thread",
+            "url": null
+          }
+        },
+        "mappings": [
+          {
+            "id": "cache-map",
+            "contribution_id": "cache-change",
+            "revision": {
+              "repository": "acme/service",
+              "object_format": "sha1",
+              "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "source_revisions": [
+              {
+                "repository": "acme/service",
+                "object_format": "sha1",
+                "commit": "cccccccccccccccccccccccccccccccccccccccc"
+              }
+            ],
+            "operation": "squash",
+            "verification": "supplied",
+            "hunks": [
+              {
+                "path": "src/cache.rs",
+                "old_path": null,
+                "old_start": 10,
+                "old_lines": 3,
+                "new_start": 10,
+                "new_lines": 5
+              },
+              {
+                "path": "src/isolated.rs",
+                "old_path": null,
+                "old_start": 1,
+                "old_lines": 1,
+                "new_start": 1,
+                "new_lines": 2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "subject": {
+        "kind": "rollout",
+        "id": "november"
+      },
+      "title": "November promotion",
+      "repository": "acme/service",
+      "state": "registered",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": null,
+      "shepherd": null,
+      "body": {
+        "kind": "rollout",
+        "rollout": {
+          "id": "november",
+          "repository": "acme/service",
+          "title": "November promotion",
+          "pull_request_ids": [
+            "release-pr"
+          ],
+          "contribution_ids": [
+            "cache-change"
+          ],
+          "environments": [
+            "development",
+            "staging",
+            "production"
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "deployment",
+        "id": "staging-1"
+      },
+      "title": "staging \u00b7 attempt 1",
+      "repository": "acme/service",
+      "state": "failed",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": null,
+      "shepherd": null,
+      "body": {
+        "kind": "deployment",
+        "deployment": {
+          "id": "staging-1",
+          "repository": "acme/service",
+          "rollout_id": "november",
+          "environment": "staging",
+          "revision": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "artifact_digest": "sha256:fixture",
+          "attempt": 1,
+          "outcome": "failed",
+          "activity_id": null,
+          "external_url": null,
+          "rollback_of": null
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "remediation",
+        "id": "cache-fix"
+      },
+      "title": "Investigate staging regression",
+      "repository": "acme/service",
+      "state": "requested",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": null,
+      "shepherd": null,
+      "body": {
+        "kind": "remediation",
+        "remediation": {
+          "id": "cache-fix",
+          "repository": "acme/service",
+          "title": "Investigate staging regression",
+          "recipient": {
+            "agent": "Cache implementer",
+            "session_id": "cache-thread"
+          },
+          "pull_request_id": "release-pr",
+          "rollout_id": "november",
+          "contribution_id": "cache-change",
+          "deployment_id": "staging-1",
+          "concern_id": null,
+          "activity_id": null,
+          "failure_revision": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "evidence": [
+            "Integration case credential isolation failed."
+          ],
+          "request": "Investigate the cache isolation failure with the original constraints."
+        },
+        "state": "requested",
+        "reason": null,
+        "fixing_revision": null
+      }
+    }
+  ],
+  "observations": [
+    {
+      "input": {
+        "id": "assign-1",
+        "occurred_at": "2026-11-15T14:00:00Z",
+        "body": {
+          "event": "shepherd_assigned",
+          "subject": {
+            "kind": "pull_request",
+            "id": "release-pr"
+          },
+          "expected_assignment": null,
+          "agent": {
+            "agent": "Release shepherd",
+            "session_id": "release-thread"
+          },
+          "reason": "Own the promotion and route regressions to implementers."
+        }
+      },
+      "project_id": "fixture-project",
+      "recorded_at": "2026-11-15T14:00:01Z",
+      "provenance": {
+        "agent": "codex"
+      },
+      "source": null
+    }
+  ],
+  "truncated": false
+}

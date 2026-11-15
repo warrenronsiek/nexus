@@ -1,3 +1,5 @@
+// @feature delivery-coordination
+// @spec docs/features/delivery-coordination.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature evals
@@ -20,8 +22,10 @@ use serde_json::{json, Value};
 pub(super) fn tool_definitions() -> Value {
     let mut definitions = lifecycle_tool_definitions();
     definitions.extend(coordination_tool_definitions());
+    definitions.extend(memory_tool_definitions());
     definitions.push(super::evals_schema::definition());
     definitions.push(super::work_schema::definition());
+    definitions.push(super::delivery_schema::definition());
     definitions.push(super::work_schema::health_definition());
     definitions.push(super::concerns_schema::definition());
     Value::Array(definitions)
@@ -63,13 +67,18 @@ fn coordination_tool_definitions() -> Vec<Value> {
         {"name":"nexus_projects","description":"List repositories with observed Nexus activity.","inputSchema":{"type":"object","additionalProperties":false}},
         {"name":"nexus_dashboard","description":"Return bounded coordination state for the terminal interfaces.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string","maxLength":256}},"additionalProperties":false}},
         {"name":"nexus_usage","description":"Return observed tool, script, and skill usage for the rolling seven-day window.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string","maxLength":256}},"additionalProperties":false}},
-        {"name":"nexus_memory_add","description":"Record one explicit durable memory. Nexus handles background consolidation.","inputSchema":{"type":"object","required":["scope","content"],"properties":{"scope":{"type":"string","enum":["global","project"]},"content":{"type":"string","maxLength":512}},"additionalProperties":false}},
-        {"name":"nexus_memory_search","description":"Search authoritative raw memories with a case-insensitive Rust regular expression.","inputSchema":{"type":"object","required":["regex"],"properties":{"scope":{"type":"string","enum":["layered","global","project"],"default":"layered"},"regex":{"type":"string","maxLength":crate::coordination::api::MAX_MEMORY_SEARCH_REGEX_BYTES},"limit":{"type":"integer","minimum":1,"maximum":crate::memory::MAX_MEMORY_SEARCH_RESULTS,"default":50}},"additionalProperties":false}},
-        {"name":"nexus_memory_expand","description":"Expand one derived memory summary into its two source children.","inputSchema":{"type":"object","required":["summary_id"],"properties":{"summary_id":{"type":"string"}},"additionalProperties":false}},
         super::analytics_schema::definition(),
         papercut_tool_definition(),
         sos_tool_definition(),
         {"name":"nexus_config","description":"Return resolved non-secret Nexus configuration and its hash.","inputSchema":{"type":"object"}}
+    ]))
+}
+
+fn memory_tool_definitions() -> Vec<Value> {
+    json_array(json!([
+        {"name":"nexus_memory_add","description":"Record one explicit durable memory. Nexus handles background consolidation.","inputSchema":{"type":"object","required":["scope","content"],"properties":{"scope":{"type":"string","enum":["global","project"]},"content":{"type":"string","maxLength":512}},"additionalProperties":false}},
+        {"name":"nexus_memory_search","description":"Search authoritative raw memories with a case-insensitive Rust regular expression.","inputSchema":{"type":"object","required":["regex"],"properties":{"scope":{"type":"string","enum":["layered","global","project"],"default":"layered"},"regex":{"type":"string","maxLength":crate::coordination::api::MAX_MEMORY_SEARCH_REGEX_BYTES},"limit":{"type":"integer","minimum":1,"maximum":crate::memory::MAX_MEMORY_SEARCH_RESULTS,"default":50}},"additionalProperties":false}},
+        {"name":"nexus_memory_expand","description":"Expand one derived memory summary into its two source children.","inputSchema":{"type":"object","required":["summary_id"],"properties":{"summary_id":{"type":"string"}},"additionalProperties":false}}
     ]))
 }
 
