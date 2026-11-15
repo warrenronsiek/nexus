@@ -96,6 +96,9 @@ class RankingWeights:
     mutation_sites: float
     state_types: float
     dynamic_types: float
+    ordinary_conditionals: float
+    imperative_loops: float
+    boolean_parameters: float
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,9 @@ class RankingSignals:
     mutation_sites: float = 0.0
     state_types: float = 0.0
     dynamic_types: float = 0.0
+    ordinary_conditionals: float = 0.0
+    imperative_loops: float = 0.0
+    boolean_parameters: float = 0.0
 
 
 def ranking_formula(weights: RankingWeights) -> str:
@@ -163,6 +169,9 @@ class SourceEvidence:
             mutation_sites=syntax.mutation_sites,
             state_types=syntax.state_types,
             dynamic_types=syntax.dynamic_types,
+            ordinary_conditionals=syntax.ordinary_conditionals,
+            imperative_loops=syntax.imperative_loops,
+            boolean_parameters=syntax.boolean_parameters,
         )
 
 
@@ -244,6 +253,9 @@ def load_policy(root: Path) -> AnalysisPolicy:
             mutation_sites=as_number(ranking.get("mutation_sites")),
             state_types=as_number(ranking.get("state_types")),
             dynamic_types=as_number(ranking.get("dynamic_types")),
+            ordinary_conditionals=as_number(ranking.get("ordinary_conditionals")),
+            imperative_loops=as_number(ranking.get("imperative_loops")),
+            boolean_parameters=as_number(ranking.get("boolean_parameters")),
         ),
         repetition=RepetitionPolicy(
             minimum_tokens=as_integer(repetition.get("minimum_tokens")),
@@ -551,6 +563,7 @@ def print_text(
             f"args={unit.signals.arguments:g} "
             f"functions={unit.signals.functions:g} "
             f"mutation={unit.signals.mutation_sites:g} state={unit.signals.state_types:g} dynamic={unit.signals.dynamic_types:g} "
+            f"conditionals={unit.signals.ordinary_conditionals:g} loops={unit.signals.imperative_loops:g} bool_args={unit.signals.boolean_parameters:g} "
             f"branching={unit.signals.cyclomatic:g} "
             f"cognitive={unit.signals.cognitive:g} "
             f"abc={nested_metric(unit, 'abc', 'value'):.1f}"

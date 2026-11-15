@@ -14,11 +14,10 @@
 // @spec docs/features/delivery-coordination.md
 // Bundled source assets form one installation manifest shared by both hosts.
 
-pub(super) const SKILL_NAMES: [&str; 21] = [
+pub(super) const SKILL_NAMES: [&str; 20] = [
     "code-architect",
     "code-complexity-analysis",
     "code-deletion",
-    "functional-rust",
     "tdd",
     "nexus",
     "nexus-setup",
@@ -47,16 +46,16 @@ pub(super) const SKILL_FILES: [(&str, &str); 31] = [
         include_str!("../skills/code-architect/references/feature-mapping.md"),
     ),
     (
+        "code-architect/references/rust.md",
+        include_str!("../skills/code-architect/references/rust.md"),
+    ),
+    (
         "code-complexity-analysis/SKILL.md",
         include_str!("../skills/code-complexity-analysis/SKILL.md"),
     ),
     (
         "code-deletion/SKILL.md",
         include_str!("../skills/code-deletion/SKILL.md"),
-    ),
-    (
-        "functional-rust/SKILL.md",
-        include_str!("../skills/functional-rust/SKILL.md"),
     ),
     ("nexus/SKILL.md", include_str!("../skills/nexus/SKILL.md")),
     (
@@ -157,6 +156,10 @@ pub(super) const SKILL_FILES: [(&str, &str); 31] = [
         include_str!("../scripts/nexus-work-github.py"),
     ),
 ];
+
+// The Rust guidance now belongs to code-architect; preserve adjacent user files.
+pub(super) const RETIRED_SKILL_FILES: [&str; 1] = ["functional-rust/SKILL.md"];
+
 pub(super) const PI_EXTENSION_FILES: [(&str, &str); 6] = [
     ("capture.ts", include_str!("../pi-extension/src/capture.ts")),
     (

@@ -32,6 +32,87 @@ def load_complexity_analysis() -> ModuleType:
     return module
 
 
+class RustStylePreferenceTests(unittest.TestCase):
+    def test_rust_ranking_prefers_typed_dispatch_and_iterator_composition(self) -> None:
+        analysis = load_complexity_analysis()
+        cases = {
+            "conditional.rs": "fn choose(x: i32) -> i32 { if x == 0 { 1 } else { 2 } }\n",
+            "dispatch.rs": "fn choose(x: i32) -> i32 { match x { 0 => 1, _ => 2 } }\n",
+            "checked.rs": "fn choose(x: Option<i32>) -> i32 { if x.is_some() { x.unwrap() + 1 } else { 0 } }\n",
+            "optional.rs": "fn choose(x: Option<i32>) -> i32 { x.map(|value| value + 1).unwrap_or(0) }\n",
+            "loop.rs": "fn total(xs: &[i32]) -> i32 { let mut total = 0; for x in xs { total += x; } total }\n",
+            "fold.rs": "fn total(xs: &[i32]) -> i32 { xs.iter().fold(0, |total, x| total + x) }\n",
+            "flag.rs": "fn choose(enabled: bool) -> i32 { if enabled { 1 } else { 2 } }\n",
+            "mode.rs": "enum Mode { Enabled, Disabled } fn choose(mode: Mode) -> i32 { match mode { Mode::Enabled => 1, Mode::Disabled => 2 } }\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            paths = [root / name for name in cases]
+            for path in paths:
+                path.write_text(cases[path.name])
+            weights = analysis.load_policy(Path(__file__).parents[1]).ranking
+            units = analysis.collect_units(root, analysis.run_bca_metrics(root, paths), weights)
+            files = {unit.path: unit for unit in units if unit.kind == "unit"}
+            self.assertEqual(files["conditional.rs"].signals.ordinary_conditionals, 1)
+            self.assertEqual(files["loop.rs"].signals.imperative_loops, 1)
+            self.assertEqual(files["flag.rs"].signals.boolean_parameters, 1)
+            for preferred, alternative in (("dispatch.rs", "conditional.rs"), ("optional.rs", "checked.rs"), ("fold.rs", "loop.rs"), ("mode.rs", "flag.rs")):
+                with self.subTest(preferred=preferred):
+                    self.assertLess(files[preferred].architectural_load, files[alternative].architectural_load)
+
+    def test_pattern_unpacking_and_nested_conditions_keep_their_own_costs(self) -> None:
+        analysis = load_complexity_analysis()
+        source = '''fn guarded(x: Option<i32>, ready: bool) -> i32 { if ready { if let Some(value) = x { value } else { 0 } } else { 0 } }
+fn chained(x: Option<i32>) -> i32 { if let Some(value) = x && value > 0 { value } else { 0 } }
+fn unpack(x: Option<i32>) -> Option<i32> { let Some(value) = x else { return None; }; Some(value.checked_add(1)?) }
+fn nested(x: Option<i32>) { if { while let Some(value) = x { break; } true } { } }
+fn closure(x: Option<i32>) { if (|| if let Some(value) = x { true } else { false })() { } }
+fn loops(xs: &[i32]) { for x in xs { } while false { } loop { break; } }
+fn literal() { let text = r###"if enabled { for x in xs { } } fn fake(flag: bool) {}"###; /* if false { loop {} } */ }
+fn alpha(flag: bool) { if flag { } } fn beta(x: Option<i32>) { if let Some(value) = x { } }
+fn combined(flag: bool) { let first = || if flag { 1 } else { 0 }; let second = || if let Some(value) = Some(1) { value } else { 0 }; }
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            path = root / "sample.rs"
+            path.write_text(source)
+            weights = analysis.load_policy(Path(__file__).parents[1]).ranking
+            units = analysis.collect_units(root, analysis.run_bca_metrics(root, [path]), weights)
+            named = {unit.name: unit for unit in units if unit.name != "<anonymous>"}
+            expected = {"guarded": (1, 0), "chained": (0, 0), "unpack": (0, 0), "nested": (1, 1), "closure": (1, 0), "loops": (0, 3), "literal": (0, 0), "alpha": (1, 0), "beta": (0, 0), "combined": (1, 0)}
+            for name, (conditionals, loops) in expected.items():
+                with self.subTest(name=name):
+                    self.assertEqual(named[name].signals.ordinary_conditionals, conditionals)
+                    self.assertEqual(named[name].signals.imperative_loops, loops)
+            self.assertEqual(named["unpack"].signals.cyclomatic, 0)
+            self.assertEqual([unit.signals.ordinary_conditionals for unit in units if unit.name == "<anonymous>"], [0, 1, 0])
+            self.assertEqual(analysis.scope_document(units)["contributions"], analysis.unit_document(units[0])["contributions"])
+
+    def test_boolean_parameter_cost_excludes_nested_types_and_anonymous_interfaces(self) -> None:
+        analysis = load_complexity_analysis()
+        source = '''struct Flags { enabled: bool }
+type Flag = bool;
+trait Work { fn run(&self, enabled: bool, borrowed: &bool); }
+fn work(direct: bool, borrowed: &'a bool, mutable: &mut bool, twice: &&bool, values: Vec<bool>, pair: (bool, bool), array: [bool; 2], slice: &[bool], pointer: *const bool, callback: fn(bool) -> bool, alias: Flag, qualified: flags::bool) -> bool {
+    let closure = |flag: bool| flag;
+    false
+}
+fn commented(flag: /* declaration: if for bool */ & /* type: */ bool) -> bool { true }
+fn adjacent(flag: &mut/* type separator */bool) -> bool { true }
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            path = root / "sample.rs"
+            path.write_text(source)
+            weights = analysis.load_policy(Path(__file__).parents[1]).ranking
+            units = analysis.collect_units(root, analysis.run_bca_metrics(root, [path]), weights)
+            self.assertEqual(units[0].signals.boolean_parameters, 8)
+            self.assertEqual(next(unit for unit in units if unit.name == "work").signals.boolean_parameters, 4)
+            self.assertEqual(next(unit for unit in units if unit.name == "commented").signals.boolean_parameters, 1)
+            self.assertEqual(next(unit for unit in units if unit.name == "adjacent").signals.boolean_parameters, 1)
+            self.assertEqual(next(unit for unit in units if unit.name == "<anonymous>").signals.boolean_parameters, 0)
+
+
 class ComplexityAnalysisTests(unittest.TestCase):
     def test_imported_dynamic_types_keep_their_qualified_cost_and_scope(self) -> None:
         analysis = load_complexity_analysis()
@@ -149,8 +230,8 @@ fn work(value: i32) -> i32 {
 
     def test_assignments_are_mutation_evidence_and_custom_costs_add_up(self) -> None:
         analysis = load_complexity_analysis()
-        source = "fn work(mut value: i32) -> i32 { value = 2; value += 1; value }\n"
-        weights = analysis.RankingWeights(2.0, 7.0, 11.0, 3.0, 4.0, 13.0, 17.0, 19.0)
+        source = "fn work(mut value: i32, enabled: bool) -> i32 { value = 2; value += 1; if enabled { for _ in 0..1 { } } value }\n"
+        weights = analysis.RankingWeights(lloc=2.0, arguments=7.0, functions=11.0, cyclomatic=3.0, cognitive=4.0, mutation_sites=13.0, state_types=17.0, dynamic_types=19.0, ordinary_conditionals=23.0, imperative_loops=29.0, boolean_parameters=31.0)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             path = root / "sample.rs"
@@ -160,7 +241,10 @@ fn work(value: i32) -> i32 {
             self.assertEqual(document["signals"]["mutation_sites"], 3)
             self.assertEqual(document["contributions"]["mutation_sites"], 39)
             self.assertEqual(document["contributions"]["functions"], 11)
-            self.assertEqual(document["contributions"]["arguments"], 7)
+            self.assertEqual(document["contributions"]["arguments"], 14)
+            self.assertEqual(document["contributions"]["ordinary_conditionals"], 23)
+            self.assertEqual(document["contributions"]["imperative_loops"], 29)
+            self.assertEqual(document["contributions"]["boolean_parameters"], 31)
             self.assertEqual(sum(document["contributions"].values()), document["architectural_load"])
 
     def test_inline_sibling_and_closure_signals_use_exact_ast_spans(self) -> None:
@@ -248,7 +332,7 @@ fn work(value: i32) -> i32 {
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             path = root / "sample.rs"
-            path.write_text("fn work(mut x: i32) -> i32 { (0..3).map(|n| if n > 1 { x = n; x } else { 0 }).sum() }\n")
+            path.write_text("fn work(mut x: i32, enabled: bool) -> i32 { for _ in 0..1 { } (0..3).map(|n| if enabled { x = n; x } else { 0 }).sum() }\n")
             units = analysis.collect_units(root, analysis.run_bca_metrics(root, [path]), weights)
             output = io.StringIO()
             with redirect_stdout(output):
@@ -257,15 +341,21 @@ fn work(value: i32) -> i32 {
             self.assertIn(f"args={units[0].signals.arguments:g}", report)
             self.assertIn(f"branching={units[0].signals.cyclomatic:g}", report)
             self.assertIn(f"mutation_sites={units[0].contributions.mutation_sites:g}", report)
+            self.assertIn(f"conditionals={units[0].signals.ordinary_conditionals:g}", report)
+            self.assertIn(f"loops={units[0].signals.imperative_loops:g}", report)
+            self.assertIn(f"bool_args={units[0].signals.boolean_parameters:g}", report)
 
     def test_ranking_formula_reports_configured_weights(self) -> None:
         analysis = load_complexity_analysis()
-        weights = analysis.RankingWeights(2.0, 7.0, 11.0, 3.0, 4.0, 13.0, 17.0, 19.0)
+        weights = analysis.RankingWeights(lloc=2.0, arguments=7.0, functions=11.0, cyclomatic=3.0, cognitive=4.0, mutation_sites=13.0, state_types=17.0, dynamic_types=19.0, ordinary_conditionals=23.0, imperative_loops=29.0, boolean_parameters=31.0)
         formula = analysis.ranking_formula(weights)
         self.assertIn("2*LLOC", formula)
         self.assertIn("7*arguments", formula)
         self.assertIn("11*functions", formula)
         self.assertIn("13*mutation_sites", formula)
+        self.assertIn("23*ordinary_conditionals", formula)
+        self.assertIn("29*imperative_loops", formula)
+        self.assertIn("31*boolean_parameters", formula)
 
     def test_normalized_tokens_surface_same_shape(self) -> None:
         analysis = load_complexity_analysis()
@@ -327,6 +417,9 @@ fn work(value: i32) -> i32 {
 
         @dataclass(frozen=True)
         class ReorderedWeights:
+            boolean_parameters: float = 31.0
+            imperative_loops: float = 29.0
+            ordinary_conditionals: float = 23.0
             dynamic_types: float = 19.0
             state_types: float = 17.0
             mutation_sites: float = 13.0
@@ -337,8 +430,8 @@ fn work(value: i32) -> i32 {
             lloc: float = 2.0
 
         analysis = load_complexity_analysis()
-        weights = analysis.RankingWeights(2.0, 7.0, 11.0, 3.0, 4.0, 13.0, 17.0, 19.0)
-        signals = analysis.RankingSignals(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0)
+        weights = analysis.RankingWeights(lloc=2.0, arguments=7.0, functions=11.0, cyclomatic=3.0, cognitive=4.0, mutation_sites=13.0, state_types=17.0, dynamic_types=19.0, ordinary_conditionals=23.0, imperative_loops=29.0, boolean_parameters=31.0)
+        signals = analysis.RankingSignals(lloc=1.0, arguments=2.0, functions=3.0, cyclomatic=4.0, cognitive=5.0, mutation_sites=6.0, state_types=7.0, dynamic_types=8.0, ordinary_conditionals=9.0, imperative_loops=10.0, boolean_parameters=11.0)
         reordered = ReorderedWeights()
         self.assertEqual(analysis.contributions(weights, signals), analysis.contributions(reordered, signals))
         self.assertEqual(analysis.ranking_formula(weights), analysis.ranking_formula(reordered))
@@ -363,7 +456,7 @@ fn work(value: i32) -> i32 {
                 "spaces": [{"name": "work", "kind": "function", "start_line": 1, "end_line": 3, "spaces": [], "metrics": raw_metrics}],
                 "metrics": raw_metrics,
             }
-            weights = analysis.RankingWeights(1.0, 3.0, 8.0, 5.0, 2.0, 8.0, 12.0, 16.0)
+            weights = analysis.RankingWeights(lloc=1.0, arguments=3.0, functions=8.0, cyclomatic=5.0, cognitive=2.0, mutation_sites=8.0, state_types=12.0, dynamic_types=16.0, ordinary_conditionals=8.0, imperative_loops=8.0, boolean_parameters=8.0)
             units = analysis.collect_units(root, [document], weights)
             self.assertEqual(units[0].metrics, raw_metrics)
             self.assertEqual(units[0].architectural_load, 13.0)

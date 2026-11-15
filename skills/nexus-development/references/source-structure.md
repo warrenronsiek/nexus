@@ -61,13 +61,16 @@ report. Use the current script's `--help` for supported scope options.
 
 The preference-weighted composite charges named callable declarations and
 arguments more than logical implementation lines, with separate Rust mutation,
-state-container, and dynamic-type syntax signals. It leaves explicit domain
-types and immutable bindings free of the callable surcharge. Reports expose the
+state-container, dynamic-type, ordinary-conditional, imperative-loop, and direct
+boolean-parameter syntax signals. Pattern conditions and typed composition avoid
+the ordinary-conditional surcharge; matching and recursion receive no bonus.
+It leaves explicit domain types and immutable bindings free of the callable
+surcharge. Reports expose the
 configured formula, contribution breakdown, and an overlap-free scope total;
 do not add nested hotspot scores together for a before/after comparison.
 Syntax proxies do not resolve all aliases, macros, or effects and cannot prove
-purity. Use the bundled `functional-rust` and `code-complexity-analysis` skills
-to interpret the design tradeoffs.
+purity. Use the bundled `code-architect` skill and its Rust reference, together
+with `code-complexity-analysis`, to interpret the design tradeoffs.
 
 The composite ranks attention and retains raw metrics. It does not define
 quality by itself. A long cohesive operation may hide complexity better than

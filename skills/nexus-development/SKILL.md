@@ -37,8 +37,9 @@ give intentional open-ended decoding an explanatory `@boundary`. Prefer a shared
 typed implementation when lifecycle, policy, errors, and reasons to change agree.
 Similar syntax alone does not establish that agreement.
 
-For Rust design choices, apply [functional-rust](../functional-rust/SKILL.md):
-prefer immutable value transformations and explicit domain types behind small,
+For design choices, apply [code-architect](../code-architect/SKILL.md) and its
+[Rust guidance](../code-architect/references/rust.md): prefer immutable value
+transformations, explicit domain types, and typed dispatch behind small,
 coherent interfaces. Use
 [code-complexity-analysis](../code-complexity-analysis/SKILL.md) when comparing
 their structural cost; preserve behavior and meaningful abstractions when

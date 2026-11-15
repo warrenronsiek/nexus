@@ -9,6 +9,9 @@ functions = 8.0
 mutation_sites = 8.0
 state_types = 12.0
 dynamic_types = 16.0
+ordinary_conditionals = 8.0
+imperative_loops = 8.0
+boolean_parameters = 8.0
 cyclomatic = 5.0
 cognitive = 2.0
 

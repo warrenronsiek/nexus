@@ -49,9 +49,10 @@ an evaluation, [nexus-eval-audit](../nexus-eval-audit/SKILL.md) to assess its
 validity and evidence, or [nexus-hillclimb](../nexus-hillclimb/SKILL.md) to guide
 caller-run improvement. Each uses the same historical evidence contract.
 
-For Rust implementation and review, use
-[functional-rust](../functional-rust/SKILL.md) for immutable transformations,
-explicit domain types, and deep interfaces. Use
+For architecture and Rust implementation, use
+[code-architect](../code-architect/SKILL.md) and its
+[Rust guidance](../code-architect/references/rust.md) for immutable
+transformations, explicit domain types, typed dispatch, and deep interfaces. Use
 [code-complexity-analysis](../code-complexity-analysis/SKILL.md) to compare the
 structural cost of a design with its alternatives; the score guides source review.
 
