@@ -42,6 +42,7 @@ fn update_help_exposes_check_and_explicit_compose_adoption() {
     assert!(help.contains("--check"));
     assert!(help.contains("--compose-file"));
     assert!(help.contains("--force"));
+    assert!(help.contains("--service-updater"));
 }
 
 #[test]

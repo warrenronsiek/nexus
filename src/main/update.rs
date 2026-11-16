@@ -21,6 +21,9 @@ pub(super) struct UpdateArgs {
     /// Prove which existing Compose source file owns the configured local service.
     #[arg(long)]
     compose_file: Option<PathBuf>,
+    /// Delegate a custom service deployment to this executable (JSON protocol).
+    #[arg(long, conflicts_with_all = ["compose_file", "record_compose"])]
+    service_updater: Option<PathBuf>,
     #[arg(long, hide = true, requires = "service_endpoint")]
     record_compose: Option<PathBuf>,
     #[arg(long, hide = true, requires = "record_compose")]
@@ -39,7 +42,14 @@ pub(super) async fn run(
     let options = nexus::updater::Options {
         check: args.check,
         force: args.force,
-        compose_file: args.compose_file,
+        service: match (args.compose_file, args.service_updater) {
+            (Some(path), None) => nexus::updater::ServiceSelection::ComposeFile(path),
+            (None, Some(path)) => nexus::updater::ServiceSelection::Updater(path),
+            (None, None) => nexus::updater::ServiceSelection::Discover,
+            (Some(_), Some(_)) => {
+                unreachable!("clap enforces mutually exclusive service selection")
+            }
+        },
     };
     let report = nexus::updater::run(loaded, explicit, &options).await?;
     println!("{}", serde_json::to_string_pretty(&report)?);

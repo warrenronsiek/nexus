@@ -3,9 +3,11 @@
 // @spec docs/features/installation.md
 // @spec docs/features/runtime.md
 use serde::Serialize;
+mod companions;
 mod compose;
 mod compose_evidence;
 mod compose_format;
+mod deployment;
 mod install;
 mod operation;
 mod registry;
@@ -46,7 +48,14 @@ pub fn version() -> &'static str {
 pub struct Options {
     pub check: bool,
     pub force: bool,
-    pub compose_file: Option<std::path::PathBuf>,
+    pub service: ServiceSelection,
+}
+#[derive(Debug, Default)]
+pub enum ServiceSelection {
+    #[default]
+    Discover,
+    ComposeFile(std::path::PathBuf),
+    Updater(std::path::PathBuf),
 }
 #[derive(Serialize)]
 pub struct Report {
@@ -71,6 +80,7 @@ pub async fn run(
             explicit_config,
             executable: &executable,
             current: BuildIdentity::current(),
+            codex_home: companions::running_home(),
         },
         options,
     )

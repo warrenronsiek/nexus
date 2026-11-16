@@ -156,6 +156,8 @@ Subsequent updates use verified release assets:
 nexus --version
 nexus update --check
 nexus update
+# Equivalent portable wrapper from a source checkout:
+./scripts/update.sh
 ```
 
 `update` compares the full installed source revision with current `main`, verifies
@@ -166,8 +168,9 @@ an inactive daemon stays inactive. A proven local Docker Compose deployment
 updates only its Nexus image, retaining its project, environment, secrets, health
 checks, and volumes. The Docker server's platform selects the service image.
 External or unverifiable legacy services are explicitly reported as unmanaged.
-Existing agent MCP companions need reconnecting to load the new binary; Nexus
-does not restart the agent application.
+Generated hooks and registrations retain an executable for their exact content.
+A running Codex daemon reloads its MCP configuration after update; other hosts
+receive an explicit reconnect note. Nexus does not restart the agent application.
 
 Releases are published only after CI passes for their exact main commit. If that
 release is still building, the command reports `release_pending` and leaves the
@@ -178,6 +181,11 @@ Compose labels and configured endpoint. The startup helper and setup retain a
 private resolved snapshot automatically, so later updates need no source
 checkout. See [the installation contract](docs/features/installation.md) for
 verification, rollback, and managed-service boundaries.
+
+Custom service supervisors can participate through
+`nexus update --service-updater /path/to/deployment-updater`. Nexus verifies the
+service machine's release artifact; the deployment command owns supervision,
+health, and recovery. See the [portable update contract](docs/features/installation.md#custom-service-supervision).
 
 ## Shared PostgreSQL service
 
