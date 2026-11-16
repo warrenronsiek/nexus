@@ -15,6 +15,17 @@ File claims answer who recently touched a path; they expire and do not prove
 authorship. Delivery coordination retains explicit contribution and responsibility
 records independently of current claims, branch names, and host-session liveness.
 
+Shepherd tasks include responsibility registration before delivery work starts
+and explicit release when the requested acceptance work finishes or is canceled.
+Multi-environment work uses a rollout so responsibility can span promotion PRs
+and post-merge validation. A merge, paused agent, or stopped session does not
+establish completion of that larger task. Release uses `shepherd_assigned` with
+`agent: null` and the current assignment event ID; it preserves all prior
+assignments, release evidence, and contributors. Agents reread the record to
+verify cleanup and leave another agent's newer assignment intact. These actions
+are performed by the caller's shepherd workflow; lifecycle hooks do not infer
+delivery intent or completion from prompt text or session liveness.
+
 ```mermaid
 flowchart TD
     A[Implementer and checkout evidence] --> B[Contribution and pinned Git scope]

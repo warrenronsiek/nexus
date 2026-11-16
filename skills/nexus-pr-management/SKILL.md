@@ -1,6 +1,6 @@
 ---
 name: nexus-pr-management
-description: Register and discover PR shepherds, trace released changes to their original implementation agents, observe rollout progress, and retain evidence-backed remediation handoffs in Nexus.
+description: Use when asked to shepherd a PR, promote a release, or coordinate delivery. Register responsibility when work starts, release it when finished, trace original contributors, and retain rollout and remediation evidence in Nexus.
 ---
 
 # Keep implementation context through delivery
@@ -14,6 +14,46 @@ Discover `nexus_delivery` and its input schema, or run `nexus delivery schema`
 and the relevant subcommand's `--help`. CLI and MCP use the same typed observations
 and reads. These are deliberate records: check the acknowledgment rather than
 assuming an advisory hook proves successful delivery.
+
+## Own the complete shepherd lifecycle
+
+When the user asks you to shepherd or promote a release, registration and cleanup
+are part of that task. Session capture does not register delivery responsibility.
+Before the first promotion or deployment, discover existing responsibility in the
+actual repository/project and register your assignment using your real host
+session identity. For work spanning several PRs or environments, register and own
+one rollout; a rollout can exist before its promotion PRs do. Retain its ID in the
+caller's existing release ledger and link the PRs and deployment attempts as they
+become known. Missing implementation provenance stays qualified as unknown.
+
+Release the assignments you own when the requested work has finished or the user
+explicitly cancels it. A PR merge alone is insufficient when your responsibility
+includes post-merge deployment, seed, replay, or health validation. Pausing,
+losing a tool connection, ending a host session, or encountering a retryable
+failure is not completion; retain the assignment or explicitly hand it off.
+
+At closure, reread each owned PR/rollout and submit `shepherd_assigned` with
+`agent: null`, its current `assignment_event_id` as `expected_assignment`, and a
+reason tied to the confirmed completion or cancellation. Only release a record
+whose current shepherd is your agent/session. If another agent has taken over,
+leave that assignment intact. Use the normal immutable observation envelope:
+
+```json
+{
+  "event": "shepherd_assigned",
+  "subject": {"kind": "rollout", "id": "ROLLOUT_ID"},
+  "expected_assignment": "CURRENT_ASSIGNMENT_EVENT_ID",
+  "agent": null,
+  "reason": "Requested deployment and acceptance checks completed; release active responsibility."
+}
+```
+
+Read the record back and confirm `shepherd` is null before claiming cleanup.
+This removes active responsibility, not the PR, rollout, original contributors,
+or assignment history. Stop only watches owned exclusively by the completed task;
+shared watches retain their own lifecycle. If Nexus is unavailable, continue the
+authorized release workflow and report the unconfirmed registration or cleanup
+separately; never repeat deployment work to obtain a recording acknowledgment.
 
 ## Register implementation work
 
