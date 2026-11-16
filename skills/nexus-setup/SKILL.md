@@ -99,11 +99,33 @@ The resolved private management snapshot supports later updates after that sourc
 checkout is gone. Source or runtime drift that prevents proving the running settings is refused before replacement; restore matching configuration or explicitly adopt the proven running deployment.
 
 Read the report's `service` and `notes` fields. An external or unverifiable legacy
-service is not silently restarted; its owner must update it separately. Restart
-or reconnect existing agent MCP companions after update so those processes load
-the new binary. Do not restart the user's agent application or mutate database
+service is not silently restarted; its owner must update it separately. Updates retain a content-addressed executable for generated hooks and MCP
+registrations. A running Codex daemon is asked to trust only exact generated
+Nexus hooks and reload its MCP configuration through its control API.
+Inspect the report: unavailable control or other hosts require reconnecting their
+companions. Do not restart the user's agent application or mutate database
 volumes to force an upgrade. Failed managed transitions restore the previous
 binary and attempt service recovery; data and migrations are not rolled back.
+
+For custom supervisors, registries, reservations, or remote service machines,
+run `nexus update --service-updater /absolute/path/to/deployment-updater` from a
+private deployment wrapper. The executable receives versioned JSON on stdin:
+`inspect` proves the exact configured endpoint and returns `format_version: 1`,
+`endpoint`, the service `target`, and its previous immutable `image_id`.
+`apply` receives the verified local `archive`, new `image_id`, and `revision`;
+exit zero only after readiness. `recover` receives the previous `image_id` and
+must restore configuration/readiness even after partial application. Each request
+also includes `format_version: 1` and `endpoint`. The adapter owns privilege,
+transfer, registry publication, supervisor lifecycle, reservation cleanup, and
+volume preservation; keep those details in private deployment configuration.
+Inspection must be read-only. Failed inspection/downloads leave the installation
+untouched; failed setup/application invokes recovery. `--check` never invokes
+this command. An explicit service selection also reconciles
+the service when the client is already at main; no `--force` is needed for that
+case. Ordinary local and managed Compose updates need no adapter.
+The source `scripts/update.sh` forwards options and status to the installed CLI;
+`NEXUS_BIN` can select a different installation. See the installation specification
+in a Nexus checkout for the complete adapter contract.
 
 ## Select one state authority
 

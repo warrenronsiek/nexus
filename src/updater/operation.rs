@@ -18,6 +18,7 @@ pub(super) struct UpdateContext<'a> {
     pub(super) explicit_config: Option<&'a Path>,
     pub(super) executable: &'a Path,
     pub(super) current: BuildIdentity,
+    pub(super) codex_home: Option<std::path::PathBuf>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,18 +56,16 @@ async fn check_release(
     let relation = registry
         .compare(&context.current.revision, &revision)
         .await?;
-    let release =
-        if relation == RevisionRelation::Current && !context.current.dirty && !options.force {
-            None
-        } else {
-            registry.manifest(&revision).await?
-        };
-    let decision = decision(
-        relation,
-        context.current.dirty,
-        options.force,
-        release.is_some(),
-    );
+    let reconcile = relation == RevisionRelation::Current
+        && !context.current.dirty
+        && !matches!(options.service, super::ServiceSelection::Discover);
+    let replace = options.force || reconcile;
+    let release = if relation == RevisionRelation::Current && !context.current.dirty && !replace {
+        None
+    } else {
+        registry.manifest(&revision).await?
+    };
+    let decision = decision(relation, context.current.dirty, replace, release.is_some());
     let report = Report {
         status: match decision {
             Decision::Current => "current",
@@ -106,7 +105,11 @@ pub(super) async fn execute(
     if let Some(note) = service.note() {
         report.notes.push(note.into())
     }
-    report.notes.push("Reconnect existing agent MCP companions to load the new executable; running agents are not restarted.".into());
+    match super::companions::refresh(context.codex_home.as_deref(), context.executable, context.explicit_config).await {
+        Ok(Some(note)) => report.notes.push(note),
+        Ok(None) => report.notes.push("Reconnect existing agent MCP companions to load the new executable; no running Codex control socket was found.".into()),
+        Err(_) => report.notes.push("Nexus updated, but Codex companion reload was unavailable; reconnect MCP companions. The agent application was not restarted.".into()),
+    }
     Ok(report)
 }
 async fn install_release(
@@ -189,7 +192,8 @@ async fn rollback_update(
 }
 
 fn refresh_assets(executable: &Path, explicit: Option<&Path>) -> Result<()> {
-    let mut command = std::process::Command::new(executable);
+    let retained = super::install::versioned_executable(executable)?;
+    let mut command = std::process::Command::new(retained);
     if let Some(path) = explicit {
         command.arg("--config").arg(path);
     }
@@ -257,11 +261,58 @@ mod tests {
             Decision::Install
         );
     }
-    enum FixtureTransfer {
+    #[tokio::test]
+    async fn current_client_can_explicitly_reconcile_its_service() {
+        for check_mode in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let loaded = local_configuration(directory.path());
+            let expected = identity();
+            let reference =
+                serde_json::to_vec(&serde_json::json!({"object":{"sha":expected.revision}}))
+                    .unwrap();
+            let manifest_path = format!(
+                "/warrenronsiek/nexus/releases/download/main-{}/manifest.json",
+                expected.revision
+            );
+            let manifest = serde_json::to_vec(&crate::updater::release::tests::fixture()).unwrap();
+            let (origin, server) = crate::updater::registry::tests::serve(vec![
+                (
+                    "/repos/warrenronsiek/nexus/git/ref/heads/main",
+                    200,
+                    reference,
+                ),
+                (&manifest_path, 200, manifest),
+            ]);
+            let context = UpdateContext {
+                loaded: &loaded,
+                explicit_config: None,
+                codex_home: None,
+                executable: Path::new("unused"),
+                current: expected,
+            };
+            let check = check_release(
+                &Registry::local(&origin),
+                &context,
+                &Options {
+                    check: check_mode,
+                    service: super::super::ServiceSelection::Updater(
+                        directory.path().join("unused"),
+                    ),
+                    ..Options::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(check.decision, Decision::Install);
+            server.join().unwrap();
+        }
+    }
+    pub(super) enum FixtureTransfer {
         Metadata,
         Download,
+        Deployment,
     }
-    fn identity() -> BuildIdentity {
+    pub(super) fn identity() -> BuildIdentity {
         BuildIdentity {
             version: "0.2.0".into(),
             revision: "a".repeat(40),
@@ -269,7 +320,7 @@ mod tests {
             dirty: false,
         }
     }
-    fn local_configuration(directory: &Path) -> crate::LoadedConfig {
+    pub(super) fn local_configuration(directory: &Path) -> crate::LoadedConfig {
         let mut config = crate::Config::default();
         config.runtime.socket_path = directory.join("inactive.sock");
         config.runtime.lock_path = directory.join("inactive.lock");
@@ -280,16 +331,25 @@ mod tests {
             hash: "fixture".into(),
         }
     }
-    fn release_server(
-        expected: &BuildIdentity,
-        binary: &[u8],
-        transfer: FixtureTransfer,
-    ) -> (String, std::thread::JoinHandle<()>) {
+    fn release_inventory(binary: &[u8], transfer: &FixtureTransfer) -> serde_json::Value {
         let mut manifest = crate::updater::release::tests::fixture();
         use sha2::Digest;
         manifest["binaries"][3]["size"] = serde_json::json!(binary.len());
         manifest["binaries"][3]["sha256"] =
             serde_json::json!(format!("{:x}", sha2::Sha256::digest(binary)));
+        if matches!(transfer, FixtureTransfer::Deployment) {
+            manifest["images"][1]["size"] = serde_json::json!(b"service archive".len());
+            manifest["images"][1]["sha256"] =
+                serde_json::json!(format!("{:x}", sha2::Sha256::digest(b"service archive")));
+        }
+        manifest
+    }
+    pub(super) fn release_server(
+        expected: &BuildIdentity,
+        binary: &[u8],
+        transfer: FixtureTransfer,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        let manifest = release_inventory(binary, &transfer);
         let main_path = format!(
             "/warrenronsiek/nexus/releases/download/main-{}/manifest.json",
             expected.revision
@@ -313,8 +373,15 @@ mod tests {
             (&compare, 200, br#"{"status":"ahead"}"#.to_vec()),
             (&main_path, 200, serde_json::to_vec(&manifest).unwrap()),
         ];
-        if matches!(transfer, FixtureTransfer::Download) {
+        if matches!(
+            transfer,
+            FixtureTransfer::Download | FixtureTransfer::Deployment
+        ) {
             routes.push((&asset_path, 200, binary.to_vec()));
+        }
+        let image_path = format!("/warrenronsiek/nexus/releases/download/main-{}/nexus-service-aarch64-unknown-linux-gnu.tar", expected.revision);
+        if matches!(transfer, FixtureTransfer::Deployment) {
+            routes.push((&image_path, 200, b"service archive".to_vec()));
         }
         crate::updater::registry::tests::serve(routes)
     }
@@ -352,6 +419,7 @@ mod tests {
             UpdateContext {
                 loaded: &loaded,
                 explicit_config: Some(&explicit),
+                codex_home: None,
                 executable: &executable,
                 current,
             },
@@ -382,6 +450,7 @@ mod tests {
         let context = UpdateContext {
             loaded: &loaded,
             explicit_config: None,
+            codex_home: None,
             executable: &executable,
             current: BuildIdentity {
                 revision: "b".repeat(40),
@@ -393,6 +462,9 @@ mod tests {
             context,
             &Options {
                 check: true,
+                service: super::super::ServiceSelection::Updater(
+                    directory.path().join("must-not-execute"),
+                ),
                 ..Options::default()
             },
         )
@@ -423,6 +495,7 @@ mod tests {
         let context = UpdateContext {
             loaded: &loaded,
             explicit_config: None,
+            codex_home: None,
             executable: &executable,
             current: BuildIdentity {
                 revision: "b".repeat(40),
@@ -444,3 +517,7 @@ mod tests {
         server.join().unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "operation_deployment_tests.rs"]
+mod deployment_tests;

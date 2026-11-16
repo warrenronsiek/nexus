@@ -7,7 +7,7 @@ use super::{
     operation::UpdateContext,
     registry::Registry,
     release::ReleaseManifest,
-    Options,
+    Options, ServiceSelection,
 };
 use crate::runtime::daemon_control::{self, DaemonSnapshot};
 use anyhow::{Context, Result};
@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 pub(super) enum ServicePlan {
     Inactive,
     Local(Box<DaemonSnapshot>),
+    Deployment(super::deployment::Deployment),
     Compose {
         docker: Docker,
         deployment: ComposeDeployment,
@@ -29,28 +30,47 @@ impl ServicePlan {
         registry: &Registry,
         release: &ReleaseManifest,
     ) -> Result<Self> {
-        match &context.loaded.config.client {
-            crate::config::ClientConfig::Local => Self::local(context).await,
-            crate::config::ClientConfig::Remote(remote) => {
-                Self::compose(&remote.endpoint, options, registry, release).await
+        match (&context.loaded.config.client, &options.service) {
+            (crate::config::ClientConfig::Local, ServiceSelection::Discover) => {
+                Self::local(context).await
+            }
+            (crate::config::ClientConfig::Local, _) => {
+                anyhow::bail!("explicit service selection requires remote service configuration")
+            }
+            (crate::config::ClientConfig::Remote(remote), ServiceSelection::Updater(command)) => {
+                Ok(Self::Deployment(
+                    super::deployment::Deployment::prepare(
+                        command,
+                        &remote.endpoint,
+                        registry,
+                        release,
+                    )
+                    .await?,
+                ))
+            }
+            (crate::config::ClientConfig::Remote(remote), ServiceSelection::ComposeFile(path)) => {
+                Self::compose(&remote.endpoint, Some(path), registry, release).await
+            }
+            (crate::config::ClientConfig::Remote(remote), ServiceSelection::Discover) => {
+                Self::compose(&remote.endpoint, None, registry, release).await
             }
         }
     }
     async fn local(context: &UpdateContext<'_>) -> Result<Self> {
         match daemon_control::inspect(context.loaded).await {
             Ok(None)=>Ok(Self::Inactive),
-            Ok(Some(snapshot)) if context.executable.canonicalize().ok().is_some_and(|path|snapshot.executable.canonicalize().ok()==Some(path))=>Ok(Self::Local(Box::new(snapshot))),
+            Ok(Some(snapshot)) if super::install::manages_executable(context.executable, &snapshot.executable)=>Ok(Self::Local(Box::new(snapshot))),
             Ok(Some(_))=>Ok(Self::External("The local service uses another executable; its owner must update and restart it separately.")),
             Err(_)=>Ok(Self::External("The existing local service has no verifiable update control; the client was updated, but the service was not restarted.")),
         }
     }
     async fn compose(
         endpoint: &str,
-        options: &Options,
+        compose_file: Option<&std::path::Path>,
         registry: &Registry,
         release: &ReleaseManifest,
     ) -> Result<Self> {
-        let Some((docker, deployment)) = detect_compose(endpoint, options)? else {
+        let Some((docker, deployment)) = detect_compose(endpoint, compose_file)? else {
             return Ok(Self::External("The remote service could not be proven to be a local managed Compose deployment; only the client and installed setup assets were updated."));
         };
         let image = prepare_compose_image(&docker, registry, release).await?;
@@ -69,6 +89,7 @@ impl ServicePlan {
     }
     pub(super) async fn start(&self, context: &UpdateContext<'_>) -> Result<()> {
         match self {
+            Self::Deployment(deployment) => deployment.apply(),
             Self::Local(snapshot) => daemon_control::restart(snapshot, context.executable).await,
             Self::Compose {
                 docker,
@@ -80,6 +101,7 @@ impl ServicePlan {
     }
     pub(super) async fn recover(&self, context: &UpdateContext<'_>) -> Result<()> {
         match self {
+            Self::Deployment(deployment) => deployment.recover(),
             Self::Local(snapshot) => {
                 if let Some(current) = daemon_control::inspect(context.loaded).await? {
                     daemon_control::stop(context.loaded, &current).await?;
@@ -94,6 +116,7 @@ impl ServicePlan {
     }
     pub(super) fn status(&self) -> &'static str {
         match self {
+            Self::Deployment(_) => "deployment_restarted",
             Self::Inactive => "local_inactive",
             Self::Local(_) => "local_restarted",
             Self::Compose { .. } => "compose_restarted",
@@ -120,7 +143,7 @@ async fn prepare_compose_image(
     docker.load_image(archive.path(), &image.image_id)?;
     Ok(image.image_id.clone())
 }
-async fn verified_archive(
+pub(super) async fn verified_archive(
     registry: &Registry,
     release: &ReleaseManifest,
     image: &super::release::ImageArtifact,
@@ -135,11 +158,11 @@ async fn verified_archive(
 
 fn detect_compose(
     endpoint: &str,
-    options: &Options,
+    compose_file: Option<&std::path::Path>,
 ) -> Result<Option<(Docker, ComposeDeployment)>> {
     let detected = (|| {
         let docker = Docker::system()?;
-        let deployment = docker.discover(endpoint, options.compose_file.as_deref())?;
+        let deployment = docker.discover(endpoint, compose_file)?;
         Ok::<_, anyhow::Error>(deployment.map(|deployment| (docker, deployment)))
     })();
     match detected {
@@ -148,7 +171,7 @@ fn detect_compose(
             if error
                 .downcast_ref::<super::compose::ManagementConflict>()
                 .is_some()
-                || options.compose_file.is_some() =>
+                || compose_file.is_some() =>
         {
             Err(error).context("explicit Compose adoption failed")
         }

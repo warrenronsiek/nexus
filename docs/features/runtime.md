@@ -344,3 +344,10 @@ Compatible cached work records share a bounded bulk request with their original
 caller context. The receiver's existing transaction commits paired lifecycle
 finishes together; distinct callers and deferred callback reconciliation remain
 separate. Batch rejection retains individual reconciliation behavior.
+
+Update orchestration can refresh Nexus companions through an existing Codex
+control socket after a successful service transition. Only setup-generated user
+hooks are eligible for trust updates. It does not restart the agent application;
+unsupported hosts receive an explicit reconnect note. Custom service deployment
+commands use the [installation protocol](installation.md#custom-service-supervision)
+and retain ownership of supervisor lifecycle and readiness.

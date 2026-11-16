@@ -191,6 +191,55 @@ fn sync_parent(path: &Path) -> Result<()> {
     .context("sync installation directory")
 }
 
+/// Generated integrations retain this content-addressed executable across later upgrades.
+pub(super) fn versioned_executable(executable: &Path) -> Result<PathBuf> {
+    let bytes = fs::read(executable)?;
+    let target = retained_path(executable, &bytes)?;
+    let directory = target
+        .parent()
+        .context("retained executable has no parent")?;
+    crate::private_state::directory_at(directory)?;
+    retain_executable(directory, &bytes)
+}
+
+fn retained_path(executable: &Path, bytes: &[u8]) -> Result<PathBuf> {
+    use sha2::{Digest, Sha256};
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    Ok(executable
+        .parent()
+        .context("installation has no parent")?
+        .join(".nexus-versions")
+        .join(digest)
+        .join("nexus"))
+}
+
+pub(super) fn manages_executable(installed: &Path, running: &Path) -> bool {
+    let (Ok(installed), Ok(running)) = (installed.canonicalize(), running.canonicalize()) else {
+        return false;
+    };
+    if installed == running {
+        return true;
+    }
+    fs::read(&running)
+        .ok()
+        .is_some_and(|bytes| retained_path(&installed, &bytes).is_ok_and(|path| path == running))
+}
+
+fn retain_executable(directory: &Path, bytes: &[u8]) -> Result<PathBuf> {
+    let target = directory.join("nexus");
+    if !target.exists() {
+        let candidate = crate::private_state::temporary_in(directory, bytes)?;
+        finish_candidate(&candidate)?;
+        candidate.persist_noclobber(&target)?;
+    }
+    validate_owned(&target, 0o6022)?;
+    ensure!(
+        fs::read(&target)? == bytes,
+        "retained Nexus executable differs from its content identity"
+    );
+    Ok(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{release::Artifact, BuildIdentity};
@@ -256,5 +305,36 @@ mod tests {
         std::fs::write(&source, b"damaged").unwrap();
         assert!(PreparedBinary::verify_path(&executable, &source, &identity, &artifact).is_err());
         assert_eq!(std::fs::read(executable).unwrap(), b"old executable");
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+    #[test]
+    fn retained_daemon_is_owned_but_an_unrelated_copy_is_not() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("nexus");
+        fs::write(&executable, b"same release").unwrap();
+        let retained = versioned_executable(&executable).unwrap();
+        assert!(manages_executable(&executable, &retained));
+        fs::write(&executable, b"newer installed release").unwrap();
+        assert!(manages_executable(&executable, &retained));
+        let unrelated = directory.path().join("another installation");
+        fs::copy(&executable, &unrelated).unwrap();
+        assert!(!manages_executable(&executable, &unrelated));
+    }
+    #[test]
+    fn setup_executable_is_stable_when_the_installation_is_replaced() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("nexus");
+        fs::write(&executable, b"first release").unwrap();
+        let first = versioned_executable(&executable).unwrap();
+        assert_eq!(versioned_executable(&executable).unwrap(), first);
+        fs::write(&executable, b"second release").unwrap();
+        let second = versioned_executable(&executable).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(first).unwrap(), b"first release");
+        assert_eq!(fs::read(second).unwrap(), b"second release");
     }
 }

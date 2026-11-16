@@ -155,14 +155,28 @@ serializes updates with a private installation lock, and atomically replaces an
 owned executable in its existing directory. The previous binary remains available
 for rollback until setup refresh and the managed service transition succeed.
 Setup refresh uses `setup --refresh`, which also works on headless machines without changing the ordinary setup requirement for an installed host. It retains the explicit absolute configuration argument and merges
-host settings through the existing setup boundary. Agent applications and their
-already running MCP processes are not restarted; the report asks those hosts to
-reconnect their companions.
+host settings through the existing setup boundary. Generated integrations name a retained content-addressed executable under the
+installation directory, so a later update cannot change an already trusted hook.
+After a successful service transition, the updater connects to an existing Codex
+control socket through its Unix WebSocket control API, trusts only user hooks whose
+complete installed handlers and matchers equal the setup-generated definitions,
+and requests `config/mcpServer/reload`. It never starts or restarts the parent
+agent application. Missing or unsupported control APIs produce an explicit
+reconnect note without rolling back a healthy service. Claude and other running
+hosts still need their normal companion reconnect. Retained executables are
+kept for running or dormant companions; they are not removed during an update.
+Each distinct executable adds one binary-sized copy. There is deliberately no
+count-based eviction: a host can still invoke an older trusted hook after several
+updates, and Nexus cannot prove the liveness of every host. Operators may remove
+a retained directory only after all references to that executable have retired;
+keeping only the current and previous versions does not establish that.
 
 Local daemons expose a same-user control operation only on their private Unix
 socket. An exact instance identity binds the resolved configuration, sources,
 configuration hash, executable, and working directory. Once a stop is acknowledged, the updater waits for admitted requests and background work to finish; long drains report progress while the old binary remains installed. A managed update drains
-the running instance before restarting with that same snapshot. An inactive local
+the running instance before restarting with that same snapshot. Retained content-addressed
+executables under the same installation remain managed owners across client
+replacement; identical binaries elsewhere do not establish ownership. An inactive local
 mode remains inactive. A legacy daemon without verifiable control, a daemon
 owned by a different executable, or an external remote service is reported as
 unmanaged: client and setup assets can update, but Nexus does not claim that the
@@ -193,6 +207,49 @@ run the importer, remove volumes, or erase persisted data. A failed setup or
 service transition restores the previous executable and attempts to restore the
 previous managed service image/configuration. Database contents remain in place;
 this mechanism does not promise to reverse migrations or external writes.
+
+### Custom service supervision
+
+`./scripts/update.sh` invokes the installed `nexus update` from any working
+directory and forwards its arguments and exit status. `NEXUS_BIN` selects an
+executable outside PATH. The wrapper depends on no other checkout files, so it
+can also be copied alongside deployment scripts. The installed CLI needs no Rust
+build or source checkout. An ordinary local daemon or managed Compose deployment
+needs no additional options.
+
+A deployment with its own supervisor, registry, reservation, or remote execution
+uses `nexus update --service-updater /absolute/path/to/deployment-updater`.
+The selected executable is explicit operator configuration; Nexus never guesses
+privileged commands, invokes a shell, or adds deployment-specific paths upstream.
+A private deployment wrapper can supply this option on every machine it manages.
+It conflicts with `--compose-file` and requires remote client configuration.
+`--check` never invokes the executable or downloads service assets. An explicit service selection also reconciles
+the service when the client is already at main; no `--force` is needed for that
+case.
+
+The executable receives one JSON object on stdin and emits its receipt on stdout;
+diagnostics belong in deployment-owned logs. Every request has `format_version: 1`
+and `endpoint`, the exact configured service URL. The protocol has three operations:
+
+| Operation | Additional request fields | Successful response / contract |
+| --- | --- | --- |
+| `inspect` | none | JSON `{ "format_version": 1, "endpoint": "https://nexus.example", "target": "aarch64-unknown-linux-gnu", "image_id": "sha256:…" }`. Read-only: prove endpoint ownership, return the service machine's release target and previous immutable image. |
+| `apply` | `archive`, `image_id`, `revision` | Exit zero only after applying the exact verified image and passing deployment readiness. The local archive path remains available until the update/recovery finishes. |
+| `recover` | `image_id` | Restore the previously inspected image and readiness; safe even if application never began. |
+
+Nexus selects the service artifact by the inspected platform, independently of
+the client platform, verifies its size and SHA-256, and retains the archive for
+the whole transition. The adapter owns loading/transferring it, any registry
+publication, supervisor/configuration changes, reservation retention and cleanup,
+and health checks. It must preserve volumes and be able to recover its previous
+configuration using the supplied image ID. It must undo partial changes if it
+times out or is interrupted. Each command has a ten-minute timeout and bounded
+output; malformed inspection, an endpoint mismatch, an invalid image ID, an
+unsupported target, or a failed download aborts before binary replacement.
+Setup or apply failures restore the client/assets and invoke recovery through
+the same adapter. Recovery failure remains an error. Nexus does not reverse
+database migrations, grant privilege, or assume it can operate an arbitrary
+externally owned service without a deployment integration.
 
 `.github/workflows/release.yml` publishes only after the `ci` workflow succeeds
 for an exact push to `main` in this repository. Four native Linux/macOS x64/arm64
