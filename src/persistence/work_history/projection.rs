@@ -77,6 +77,12 @@ pub(super) struct Projection<'a> {
     observations: HashMap<WorkSubject, Vec<WorkObservation>>,
     operations: tool_operations::OperationCache,
 }
+#[derive(Clone, Copy)]
+enum SummaryPurpose {
+    Presentation,
+    Statistics,
+}
+
 impl<'a> Projection<'a> {
     fn links_from_observations(
         &mut self,
@@ -175,10 +181,17 @@ impl<'a> Projection<'a> {
         Ok(result)
     }
     pub fn summary(&mut self, subject: &WorkSubject) -> Result<Option<WorkSummary>> {
-        Ok(self.project(subject)?.map(|record| record.summary))
+        Ok(self
+            .project(subject, SummaryPurpose::Presentation)?
+            .map(|record| record.summary))
+    }
+    pub fn summary_for_statistics(&mut self, subject: &WorkSubject) -> Result<Option<WorkSummary>> {
+        Ok(self
+            .project(subject, SummaryPurpose::Statistics)?
+            .map(|record| record.summary))
     }
     pub fn detail(&mut self, subject: &WorkSubject) -> Result<Option<WorkDetail>> {
-        self.project(subject)?
+        self.project(subject, SummaryPurpose::Presentation)?
             .map(|record| {
                 bound_evidence(
                     record.summary,
@@ -189,13 +202,17 @@ impl<'a> Projection<'a> {
             })
             .transpose()
     }
-    fn project(&mut self, subject: &WorkSubject) -> Result<Option<WorkDetail>> {
+    fn project(
+        &mut self,
+        subject: &WorkSubject,
+        purpose: SummaryPurpose,
+    ) -> Result<Option<WorkDetail>> {
         let (observations, truncated) = self.observed(subject)?;
         if observations.is_empty() {
             return Ok(None);
         }
         let (links, _) = self.subject_links(subject, &observations, truncated)?;
-        let mut summary = self.summarize(subject, &observations)?;
+        let mut summary = self.summarize(subject, &observations, purpose)?;
         if truncated {
             summary.disclose_limit();
         }
@@ -211,6 +228,7 @@ impl<'a> Projection<'a> {
         &mut self,
         subject: &WorkSubject,
         observations: &[WorkObservation],
+        purpose: SummaryPurpose,
     ) -> Result<WorkSummary> {
         let mut diagnostics = Diagnostics::default();
         let active = effective(
@@ -227,8 +245,10 @@ impl<'a> Projection<'a> {
         summary.conflicts = diagnostics.conflicts;
         summary.gaps = diagnostics.gaps;
         project_events(&mut summary, &active);
-        self.operations
-            .enrich(self.connection, self.project, &mut summary, &active)?;
+        if matches!(purpose, SummaryPurpose::Presentation) {
+            self.operations
+                .enrich(self.connection, self.project, &mut summary, &active)?;
+        }
         include_root_membership(&mut summary);
         summary.has_children = match self.children.get(subject) {
             Some(value) => *value,

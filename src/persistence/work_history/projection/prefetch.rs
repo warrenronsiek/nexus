@@ -46,32 +46,41 @@ impl Projection<'_> {
             .cloned()
             .map(|subject| (subject, false))
             .collect();
-        let targets = work_links::table
-            .filter(work_links::project_id.eq(self.project))
-            .filter(work_links::target_id.eq_any(subjects.iter().map(|subject| subject.id())))
-            .filter(
-                work_links::target_scope
-                    .eq("session")
-                    .and(work_links::relation.eq("member_of"))
-                    .or(work_links::target_scope
-                        .eq("activity")
-                        .and(work_links::relation.eq("parent"))),
-            )
-            .select((work_links::target_scope, work_links::target_id))
-            .distinct()
+        let has_children = diesel::dsl::exists(
+            work_links::table
+                .filter(work_links::project_id.eq(work_subjects::project_id))
+                .filter(work_links::target_scope.eq(work_subjects::scope))
+                .filter(work_links::target_id.eq(work_subjects::id))
+                .filter(
+                    work_links::target_scope
+                        .eq("session")
+                        .and(work_links::relation.eq("member_of"))
+                        .or(work_links::target_scope
+                            .eq("activity")
+                            .and(work_links::relation.eq("parent"))),
+                ),
+        );
+        let targets = work_subjects::table
+            .filter(work_subjects::project_id.eq(self.project))
+            .filter(work_subjects::scope.eq_any(["session", "activity"]))
+            .filter(work_subjects::id.eq_any(subjects.iter().map(|subject| subject.id())))
+            .select((work_subjects::scope, work_subjects::id, has_children))
             .limit(129)
-            .load::<(String, String)>(self.connection)?;
-        for (scope, id) in targets {
+            .load::<(String, String, bool)>(self.connection)?;
+        self.cache_child_flags(targets);
+        Ok(())
+    }
+    fn cache_child_flags(&mut self, targets: Vec<(String, String, bool)>) {
+        for (scope, id, exists) in targets {
             let subject = if scope == "session" {
                 WorkSubject::Session { id }
             } else {
                 WorkSubject::Activity { id }
             };
             if let Some(value) = self.children.get_mut(&subject) {
-                *value = true;
+                *value = exists;
             }
         }
-        Ok(())
     }
     fn cache_observation_page(
         &mut self,

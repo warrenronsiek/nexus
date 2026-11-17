@@ -4,6 +4,12 @@ feature: persistence
 
 # Persistence
 
+Migration V25 adds a compact PostgreSQL project-key event index for exact counts.
+Its duplicate project keys share B-tree posting lists; a dominant project must
+not make dashboard counts scan the payload-bearing history table. Existing
+composite indexes continue to serve ordered history pages. SQLite already uses
+its covering project/rowid index, so its matching version marker is a no-op.
+
 Migration V24 indexes exact analytics session/invocation lookups and the
 call-to-action join used by Work tool-operation enrichment. A bounded session
 projection must not repeatedly scan unrelated call/action history while holding

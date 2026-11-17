@@ -558,3 +558,10 @@ The compact timeline's 512 KiB sub-budget accommodates category evidence within
 the existing overall dashboard response bound; source and display truncation
 remain separate. Reads never repair a missing callback using analytics receipt
 times or infer model reasoning from gaps between tool calls.
+
+Overview activity rows used only for timing statistics skip optional analytics
+operation enrichment; selected timelines and activity detail retain full operation
+evidence. Batched child discovery asks an indexed existence question per requested
+subject, stopping at its first membership edge rather than collecting every child
+before deduplicating parents. Neither optimization reduces the source population
+or deletes observations and relationships.

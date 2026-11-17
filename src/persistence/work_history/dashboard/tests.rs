@@ -6,6 +6,8 @@
 use super::*;
 use crate::persistence::{test_support::capture_queries, Store};
 
+#[cfg(feature = "postgres")]
+mod child_lookup;
 mod host_sessions;
 mod tool_operations;
 use serde_json::{json, Value};

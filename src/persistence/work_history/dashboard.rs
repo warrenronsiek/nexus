@@ -185,7 +185,11 @@ impl DashboardProjection {
         let subjects = subjects(page);
         reader.prefetch(&subjects)?;
         for (subject, row) in subjects.iter().zip(page) {
-            if let Some(summary) = reader.summary(subject)? {
+            let summary = match subject {
+                WorkSubject::Activity { .. } => reader.summary_for_statistics(subject)?,
+                WorkSubject::Session { .. } => reader.summary(subject)?,
+            };
+            if let Some(summary) = summary {
                 if !self.include(summary, &row.occurred_at)? {
                     return Ok(false);
                 }
