@@ -258,3 +258,12 @@ a trailing key. Exact whole-root member counts can avoid reading link payloads.
 V27 indexes Work subjects by project, scope, kind, and identity on both backends.
 Request-timing populations can seek their kind without scanning unrelated activity
 rows; existing membership and receipt indexes retain their separate lookup roles.
+
+Host overview reads apply the existing indexed container-only exclusion before
+loading root observation payloads. Excluded identities still count toward the
+bounded source window; explicit selection and all-origin reads retain full
+projection, and source history is never deleted.
+
+Whole-root member sampling uses ordered distinct identity seeks with a remaining
+capacity limit, retaining the covering membership index and avoiding exhaustive
+count aggregation for roots beyond the overview window.

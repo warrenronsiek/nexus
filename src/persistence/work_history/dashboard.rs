@@ -159,11 +159,21 @@ impl DashboardProjection {
         project: &str,
         roots: &[SubjectRow],
     ) -> Result<bool> {
+        let visible_roots: Vec<_> = roots
+            .iter()
+            .filter(|root| {
+                self.origin != WorkSessionOrigin::Host || self.work_bearing.contains(&root.id)
+            })
+            .cloned()
+            .collect();
+        let hidden = roots.len() - visible_roots.len();
+        self.view.hidden_session_count += hidden;
+        self.view.scanned_subjects += hidden;
         let mut reader = projection::Projection::new(connection, project);
         if let Some(id) = self.view.work_session_id.clone() {
             self.view.selected_session = reader.summary(&WorkSubject::Session { id })?;
         }
-        self.include_rows(&mut reader, roots)
+        self.include_rows(&mut reader, &visible_roots)
     }
     fn include_rows(
         &mut self,

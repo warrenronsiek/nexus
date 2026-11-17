@@ -31,7 +31,11 @@ the exact analytics session and call-action lookup indexes used by tool-operatio
 enrichment. Schema V25 adds a compact PostgreSQL index for exact project event
 counts. Schema V26 covers membership source-scope filters so whole-session sample
 counts avoid reading link payloads. Schema V27 adds the subject-kind lookup used
-by request timing so cold reads avoid scanning unrelated activity history. Work child discovery uses batched indexed existence checks, and overview
+by request timing so cold reads avoid scanning unrelated activity history. The host
+overview excludes already hidden container-only roots before source projection;
+explicit selection still returns their full detail and activities. Whole-root sampling
+reads only enough distinct memberships to fill the remaining overview capacity
+and detect overflow, rather than counting an entire oversized session. Work child discovery uses batched indexed existence checks, and overview
 statistics avoid fetching operation details that are returned only by selected
 timelines and activity detail. Upgrade through the normal migrations; retain the observation history. Explicit
 store acquisition returns unavailable after a bounded wait rather than occupying

@@ -13,27 +13,7 @@ fn whole_root_counts_do_not_fetch_membership_payloads() {
     let url = std::env::var("NEXUS_TEST_DATABASE_URL").unwrap();
     let mut store = Store::connect(&url).unwrap();
     let project = uuid::Uuid::new_v4().to_string();
-    for start in (0..20_000).step_by(250) {
-        let rows: Vec<_> = (start..start + 250)
-            .map(|i| {
-                let payload: String = (0..12).map(|_| uuid::Uuid::new_v4().to_string()).collect();
-                (
-                    work_links::project_id.eq(&project),
-                    work_links::event_id.eq(format!("event-{i}")),
-                    work_links::source_scope.eq("activity"),
-                    work_links::source_id.eq(format!("source-{i:05}")),
-                    work_links::relation.eq("member_of"),
-                    work_links::target_scope.eq("session"),
-                    work_links::target_id.eq("root"),
-                    work_links::target_json.eq(payload),
-                )
-            })
-            .collect();
-        diesel::insert_into(work_links::table)
-            .values(rows)
-            .execute(&mut store.connection)
-            .unwrap();
-    }
+    seed_membership_payload_history(&mut store, &project);
     // Rolled-back fixture projects leave physical index pages behind. Compare
     // compact migrated indexes rather than a previous test's empty index bloat.
     store
@@ -51,10 +31,10 @@ fn whole_root_counts_do_not_fetch_membership_payloads() {
         .lock()
         .unwrap()
         .iter()
-        .find(|q| q.contains("count( DISTINCT"))
+        .find(|q| q.contains("work_links") && !q.contains("JOIN"))
         .unwrap()
         .clone();
-    let plan = postgres_query_plan(&mut store.connection, &captured, QueryPlanMode::Estimated);
+    let plan = postgres_query_plan(&mut store.connection, &captured, QueryPlanMode::Analyzed);
     diesel::delete(work_links::table.filter(work_links::project_id.eq(&project)))
         .execute(&mut store.connection)
         .unwrap();
@@ -63,6 +43,43 @@ fn whole_root_counts_do_not_fetch_membership_payloads() {
         plan.contains("Index Only Scan"),
         "membership counts must avoid fetching payload rows:\n{plan}"
     );
+    let rows = regex::Regex::new(r"rows=(\d+) loops=(\d+)").unwrap();
+    let visited: usize = plan
+        .lines()
+        .filter(|line| line.contains(" on work_links"))
+        .map(|line| {
+            let captures = rows.captures(line).unwrap();
+            captures[1].parse::<usize>().unwrap() * captures[2].parse::<usize>().unwrap()
+        })
+        .sum();
+    assert!(
+        visited <= SOURCE_LIMIT + 1,
+        "whole-root sampling read {visited} members beyond the sample budget:\n{plan}"
+    );
+}
+
+fn seed_membership_payload_history(store: &mut Store, project: &str) {
+    for start in (0..20_000).step_by(250) {
+        let rows: Vec<_> = (start..start + 250)
+            .map(|i| {
+                let payload: String = (0..12).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+                (
+                    work_links::project_id.eq(project),
+                    work_links::event_id.eq(format!("event-{i}")),
+                    work_links::source_scope.eq("activity"),
+                    work_links::source_id.eq(format!("source-{i:05}")),
+                    work_links::relation.eq("member_of"),
+                    work_links::target_scope.eq("session"),
+                    work_links::target_id.eq("root"),
+                    work_links::target_json.eq(payload),
+                )
+            })
+            .collect();
+        diesel::insert_into(work_links::table)
+            .values(rows)
+            .execute(&mut store.connection)
+            .unwrap();
+    }
 }
 
 #[test]
@@ -134,6 +151,68 @@ fn seed_request_links(store: &mut Store, project: &str, roots: &[String]) {
                     work_links::relation.eq("member_of"),
                     work_links::target_scope.eq("session"),
                     work_links::target_id.eq(&roots[i % roots.len()]),
+                    work_links::target_json.eq("{}"),
+                )
+            })
+            .collect();
+        diesel::insert_into(work_links::table)
+            .values(links)
+            .execute(&mut store.connection)
+            .unwrap();
+    }
+}
+
+#[test]
+fn whole_root_sampling_counts_unique_members_and_remaining_capacity() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    seed_sample_budget_links(&mut store, &project);
+    let fits =
+        population::member_sample(&mut store.connection, &project, &["fits".into()]).unwrap();
+    assert!(
+        !fits.truncated,
+        "duplicate membership events must not consume unique-member capacity"
+    );
+    let empty = population::member_sample(
+        &mut store.connection,
+        &project,
+        &["fits".into(), "empty".into()],
+    )
+    .unwrap();
+    assert!(
+        !empty.truncated,
+        "an empty root still fits when capacity is exactly exhausted"
+    );
+    let overflow = population::member_sample(
+        &mut store.connection,
+        &project,
+        &["fits".into(), "overflow".into()],
+    )
+    .unwrap();
+    assert!(
+        overflow.truncated,
+        "one further unique member must disclose overflow"
+    );
+}
+
+fn seed_sample_budget_links(store: &mut Store, project: &str) {
+    let end = SOURCE_LIMIT * 2 + 1;
+    for start in (0..end).step_by(256) {
+        let links: Vec<_> = (start..(start + 256).min(end))
+            .map(|i| {
+                let (root, source) = if i == end - 1 {
+                    ("overflow", "extra".into())
+                } else {
+                    ("fits", format!("member-{:05}", i / 2))
+                };
+                (
+                    work_links::project_id.eq(project),
+                    work_links::event_id.eq(format!("budget-event-{i}")),
+                    work_links::source_scope.eq("activity"),
+                    work_links::source_id.eq(source),
+                    work_links::relation.eq("member_of"),
+                    work_links::target_scope.eq("session"),
+                    work_links::target_id.eq(root),
                     work_links::target_json.eq("{}"),
                 )
             })
