@@ -4,6 +4,10 @@ feature: work-history
 
 # Work history
 
+Tool-operation enrichment correlates exact project/session/invocation identities
+through indexed analytics lookups (schema V24). A small dashboard projection must
+not rescan unrelated calls and actions for every visible host session.
+
 Nexus records caller-owned work sessions and nested activity attempts through
 immutable observations. A logical work session spans prompts, host sessions,
 repositories, PRs, and delivery environments. The caller owns execution and

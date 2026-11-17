@@ -375,3 +375,51 @@ fn reconciliation_releases_store_between_bounded_path_batches() {
         "reconciliation must yield between small store batches: {batches:?}"
     );
 }
+
+#[test]
+#[cfg(feature = "sqlite")]
+fn explicit_store_contention_releases_the_worker_within_a_bounded_wait() {
+    let service = Arc::new(super::tests::service_with(Config::default()));
+    let held = service.store.lock().unwrap();
+    let reader = service.clone();
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let response = reader
+            .handle_remote("contention-project", ServiceRequest::Status)
+            .to_json();
+        sender.send(response).unwrap();
+    });
+    let result = receiver.recv_timeout(Duration::from_secs(6));
+    drop(held);
+    worker.join().unwrap();
+    let response =
+        result.expect("an explicit request must not occupy a worker indefinitely behind the store");
+    assert_eq!(
+        response["ok"], false,
+        "busy storage must be reported, not mistaken for a successful read"
+    );
+    assert_eq!(service.handle(ServiceRequest::Status).to_json()["ok"], true);
+}
+
+#[test]
+#[cfg(feature = "sqlite")]
+fn explicit_reads_survive_short_store_contention() {
+    let service = Arc::new(super::tests::service_with(Config::default()));
+    let held = service.store.lock().unwrap();
+    let reader = service.clone();
+    let (started, ready) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        reader.handle(ServiceRequest::Status).to_json()
+    });
+    ready.recv_timeout(Duration::from_secs(1)).unwrap();
+    // Browser primary and companion reads share this store; normal reads can
+    // legitimately take longer than the lifecycle hook's short acquisition budget.
+    std::thread::sleep(Duration::from_millis(750));
+    drop(held);
+    let response = worker.join().unwrap();
+    assert_eq!(
+        response["ok"], true,
+        "ordinary page reads must survive short store contention: {response}"
+    );
+}

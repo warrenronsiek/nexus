@@ -86,7 +86,7 @@ impl NexusService {
             };
             self.store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                 .add_memory(&scope, &command.content, &provenance)
         })();
         match result {
@@ -105,7 +105,7 @@ impl NexusService {
                 memory_read_scope(self, binding, query.scope, query.project_root.as_deref())?;
             self.store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                 .search_memories(&scope, &query.regex, query.bounded_limit())
         })();
         match result {
@@ -126,7 +126,7 @@ impl NexusService {
                 memory_read_scope(self, binding, query.scope, query.project_root.as_deref())?;
             self.store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                 .memory_context(&scope, self.memory_context_limits())
         })();
         match result {
@@ -174,7 +174,7 @@ impl NexusService {
                     let scope = memory_read_scope(self, &binding, scope, None)?;
                     self.store
                         .lock()
-                        .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                         .inspect_memory_context(&scope, self.memory_context_limits())
                 })();
                 match result {
@@ -191,7 +191,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.expand_memory_summary(&query.summary_id))
         {
             Ok(nodes) => ServiceResponse::MemoryNodes(MemoryNodesResponse { ok: true, nodes }),
@@ -203,7 +203,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.invalidate_memory_summary(&command.summary_id))
         {
             Ok(invalidated_summaries) => {
@@ -227,7 +227,7 @@ impl NexusService {
                 .id;
             self.store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                 .memory_health(Some(&project_id), chrono::Utc::now())
         })();
         match result {
@@ -390,7 +390,7 @@ impl MemoryConsolidator<'_> {
         self.service
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
             .repair_stale_memory_frontiers(8)?;
         Ok(())
     }
@@ -407,7 +407,7 @@ impl MemoryConsolidator<'_> {
         self.service
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
             .ready_memory_compactions(
                 &provider_names,
                 Utc::now(),
@@ -431,7 +431,7 @@ impl MemoryConsolidator<'_> {
             .service
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
         jobs.iter()
             .filter_map(|job| {
                 store
@@ -460,7 +460,7 @@ impl MemoryConsolidator<'_> {
             .service
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
         let recorded = jobs
             .iter()
             .map(|job| {

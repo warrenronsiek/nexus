@@ -45,6 +45,11 @@ lifecycle explicitly rather than assuming multiple replicas are supported.
 
 ## Canonical validation in Nexus
 
+Process-capture regressions should exercise cancellation racing with data
+availability using controlled readers, alongside real fake-provider processes.
+A passing isolated retry does not establish that empty output from a successful
+child was harmless; preserve already-buffered output within the existing caps.
+
 ```sh
 ./scripts/install-hooks.sh
 ./scripts/check.sh
