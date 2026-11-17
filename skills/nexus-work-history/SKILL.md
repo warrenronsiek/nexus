@@ -29,7 +29,8 @@ If the Work browser times out and blocks other reads on a large store, inspect
 the service version, database query plans, and readiness logs. Schema V24 adds
 the exact analytics session and call-action lookup indexes used by tool-operation
 enrichment. Schema V25 adds a compact PostgreSQL index for exact project event
-counts. Work child discovery uses batched indexed existence checks, and overview
+counts. Schema V26 covers membership source-scope filters so whole-session sample
+counts avoid reading link payloads. Work child discovery uses batched indexed existence checks, and overview
 statistics avoid fetching operation details that are returned only by selected
 timelines and activity detail. Upgrade through the normal migrations; retain the observation history. Explicit
 store acquisition returns unavailable after a bounded wait rather than occupying

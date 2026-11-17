@@ -565,3 +565,7 @@ evidence. Batched child discovery asks an indexed existence question per request
 subject, stopping at its first membership edge rather than collecting every child
 before deduplicating parents. Neither optimization reduces the source population
 or deletes observations and relationships.
+
+Schema V26 covers the source-scope filter in the existing membership target index,
+so exact whole-session sample counts do not fetch every membership payload.
+Lookup key order and whole-root selection semantics remain unchanged.
