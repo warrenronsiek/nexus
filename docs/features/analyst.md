@@ -4,6 +4,11 @@ feature: analyst
 
 # Optional analyst processes
 
+Output capture samples cancellation before a nonblocking read. A child that
+finishes while a read reports `WouldBlock` must still have its buffered output
+drained; cancellation cannot turn a successful fast provider into an empty
+response. The same byte caps and bounded descendant cleanup remain in force.
+
 ## What this feature does
 
 The analyst boundary asks an explicitly configured local Codex or Claude command to summarize one stored conflict, compare a newly reported papercut with bounded active candidates, or triage one durable SOS report against bounded recent aggregate issues. It augments deterministic classification and matching; it does not classify severity, edit files, or decide whether an agent may proceed.

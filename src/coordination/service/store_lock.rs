@@ -4,7 +4,7 @@
 // @spec docs/features/persistence.md
 use crate::persistence::Store;
 use std::ops::{Deref, DerefMut};
-use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
+use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
 use std::time::{Duration, Instant};
 
 pub(in crate::coordination) struct TrackedStoreMutex {
@@ -20,11 +20,10 @@ impl TrackedStoreMutex {
         }
     }
 
-    pub(in crate::coordination) fn lock(&self) -> LockResult<TrackedStoreGuard<'_>> {
-        match self.inner.lock() {
-            Ok(store) => Ok(self.track(store)),
-            Err(error) => Err(PoisonError::new(self.track(error.into_inner()))),
-        }
+    pub(in crate::coordination) fn lock(&self) -> TryLockResult<TrackedStoreGuard<'_>> {
+        // Waiting requests must release their blocking workers even when an active
+        // database operation outlives its caller or the readiness stall threshold.
+        self.try_lock_for(Duration::from_secs(5), Duration::from_millis(1))
     }
 
     pub(super) fn try_lock(&self) -> TryLockResult<TrackedStoreGuard<'_>> {

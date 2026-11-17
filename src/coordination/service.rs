@@ -300,7 +300,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.counts(self.loaded.config.coordination.claim_ttl_seconds))
         {
             Ok(counts) => ServiceResponse::Status(StatusResponse {
@@ -358,7 +358,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| {
                 store.list_events(query.project_id.as_deref(), query.bounded_limit())
             }) {
@@ -371,7 +371,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.resolve_conflict(&command.conflict_id, &command.resolution))
         {
             Ok(true) => ServiceResponse::Resolved(ResolvedResponse {
@@ -391,7 +391,7 @@ impl NexusService {
             let mut store = self
                 .store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
             let released = store.release_claims(&project.id, &command.session_id, &release)?;
             // Projection maintenance; the periodic closure pass retries a failure.
             let _ = store.end_stale_conflicts(Some(&project.id));
@@ -422,7 +422,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.list_projects_window())
         {
             Ok(window) => ServiceResponse::Projects(ProjectsResponse {
@@ -439,7 +439,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| {
                 store.dashboard(
                     query.project_id.as_deref(),
@@ -664,7 +664,7 @@ fn analyze_result(
         service
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
             .conflict_worktree(&conflict)?
     };
     let analysis = analyst::analyze(
@@ -680,7 +680,7 @@ fn conflict(service: &NexusService, conflict_id: &str) -> Result<ConflictRecord>
     service
         .store
         .lock()
-        .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
         .conflict_by_id(conflict_id)?
         .context("conflict not found")
 }
@@ -694,7 +694,7 @@ fn record_analysis(
     service
         .store
         .lock()
-        .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
         .record_analysis(
             &conflict.project_id,
             conflict_id,

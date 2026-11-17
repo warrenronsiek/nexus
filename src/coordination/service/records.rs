@@ -93,7 +93,7 @@ impl NexusService {
         match self
             .store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| {
                 query.load(
                     &mut store,

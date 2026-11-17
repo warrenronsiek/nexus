@@ -152,3 +152,6 @@ fn operation_rows(
         .load::<OperationRow>(connection)?;
     Ok(rows)
 }
+
+#[cfg(all(test, feature = "postgres"))]
+mod tests;

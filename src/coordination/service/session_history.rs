@@ -65,7 +65,7 @@ impl NexusService {
                 let mut store = self
                     .store
                     .lock()
-                    .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+                    .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
                 read(&mut store, &project_id)
             })
             .unwrap_or_else(ServiceResponse::error)

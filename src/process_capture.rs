@@ -53,11 +53,14 @@ fn capture_output(
     loop {
         let remaining = byte_limit.saturating_sub(bytes.len());
         let read_limit = remaining.saturating_add(1).min(buffer.len());
+        // Observe cancellation before the read: data may arrive between a
+        // WouldBlock result and the owner publishing the child's completion.
+        let cancelled = cancellation.load(Ordering::Acquire);
         let count = match reader.read(&mut buffer[..read_limit]) {
             Ok(count) => count,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if cancellation.load(Ordering::Acquire) {
+                if cancelled {
                     return Ok(CapturedOutput {
                         bytes,
                         exceeded: false,
@@ -127,6 +130,42 @@ mod tests {
         assert_eq!(output.bytes, b"abc");
         assert!(output.exceeded);
         assert_eq!(notifications.load(Ordering::Relaxed), 1);
+    }
+
+    struct CancellationRace {
+        cancellation: Arc<AtomicBool>,
+        pending: Cursor<&'static [u8]>,
+        first_read: bool,
+    }
+
+    impl Read for CancellationRace {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if self.first_read {
+                self.first_read = false;
+                // The read saw no bytes; before it returns, the child finishes
+                // and the owner publishes cancellation with output now buffered.
+                self.cancellation.store(true, Ordering::Release);
+                Err(std::io::ErrorKind::WouldBlock.into())
+            } else {
+                self.pending.read(buffer)
+            }
+        }
+    }
+
+    #[test]
+    fn cancellation_racing_with_would_block_preserves_buffered_output() {
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let reader = CancellationRace {
+            cancellation: cancellation.clone(),
+            pending: Cursor::new(b"analysis text".as_slice()),
+            first_read: true,
+        };
+        let output = spawn_bounded_capture(reader, 64, cancellation, || {})
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(output.bytes, b"analysis text");
+        assert!(!output.exceeded);
     }
 
     #[test]

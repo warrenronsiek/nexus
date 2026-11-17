@@ -4,6 +4,11 @@ feature: coordination
 
 # Coordination
 
+Explicit operations bound application-store acquisition to five seconds and report
+unavailability when the store stays busy. Waiting callers release their workers;
+they do not silently begin work after an arbitrarily long queue delay. Lifecycle
+capture retains its existing shorter fail-open acquisition budget.
+
 ## What this feature does
 
 Coordination turns an agent's lifecycle activity into useful, non-binding context for other agents. It recognizes which paths an agent intends to change, remembers those intentions as expiring claims, compares new work with existing work, and reports overlap without taking control away from either agent.

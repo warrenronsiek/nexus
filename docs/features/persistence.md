@@ -4,6 +4,12 @@ feature: persistence
 
 # Persistence
 
+Migration V24 indexes exact analytics session/invocation lookups and the
+call-to-action join used by Work tool-operation enrichment. A bounded session
+projection must not repeatedly scan unrelated call/action history while holding
+the service store. The PostgreSQL regression inspects the actual lookup plan
+against a populated history fixture.
+
 ## What this feature does
 
 Persistence gives Nexus a durable event history and fast, typed views of current coordination state. It stores sessions, claims, conflicts, advisories, normalized capability-use facts, explicit agent-memory streams, the papercut registry, and SOS reports and aggregates in SQLite for the local daemon or PostgreSQL for the shared service while exposing the same domain records to the rest of the application. A versioned logical snapshot moves that complete application state from an existing SQLite installation into a fresh PostgreSQL service.

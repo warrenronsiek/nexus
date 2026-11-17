@@ -4,6 +4,9 @@ feature: usage-analytics
 
 # Usage analytics
 
+Schema V24 indexes analytics session/invocation correlation and call-to-action
+joins so Work enrichment does not scan the complete analytics history per session.
+
 ## What this feature does
 
 Usage analytics records the tools, skills, and repository scripts that Nexus observes agent hosts using. It presents a rolling seven-day summary in the authenticated read-only web interface so a person can assess whether installed tools and skills are changing agent behavior.

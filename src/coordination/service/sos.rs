@@ -266,7 +266,7 @@ impl NexusService {
     fn sos_store(&self) -> Result<super::TrackedStoreGuard<'_>> {
         self.store
             .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
+            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
     }
 }
 

@@ -14,7 +14,7 @@ impl NexusService {
             let pass = self
                 .store
                 .lock()
-                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?
+                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                 .end_stale_conflicts(None)?;
             ended = ended.saturating_add(pass);
             if pass < crate::persistence::MAX_CONFLICT_CLOSURES {

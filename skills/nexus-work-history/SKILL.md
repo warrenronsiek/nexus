@@ -25,6 +25,13 @@ Use `nexus work schema` and the installed command's `--help` as the current API
 contract. Prefer existing host capture and named boundaries over adding manual
 recording to every tool call.
 
+If the Work browser times out and blocks other reads on a large store, inspect
+the service version, database query plans, and readiness logs. Schema V24 adds
+the exact analytics session and call-action lookup indexes used by tool-operation
+enrichment. Upgrade through the normal migrations; retain the observation history. Explicit
+store acquisition returns unavailable after a bounded wait rather than occupying
+a blocking worker indefinitely; that failure does not mean the read succeeded.
+
 For native request/turn/child callbacks, active identity handoff, asynchronous
 execution events, session names, and source capability verification, read
 [host adapters](references/host-adapters.md). A host callback permission response

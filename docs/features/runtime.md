@@ -4,6 +4,15 @@ feature: runtime
 
 # Runtime and host integration
 
+Bounded child-process capture drains buffered output when cancellation races
+with a nonblocking read. Child completion does not discard already-written bytes
+or relax stream limits and descendant cleanup.
+
+Application-store acquisition waits at most five seconds before returning unavailable,
+so a slow operation cannot retain all blocking workers through an unbounded queue
+of mutex waiters. Lifecycle acquisition keeps its separate 100 ms fail-open
+budget and retry semantics. Acquisition failure starts no feature operation.
+
 ## What this feature does
 
 Runtime connects agent hosts and people to the coordination core. It provides the command-line interface, a configurable local-or-remote companion client, a local Unix-socket daemon, an authenticated HTTP service, MCP stdio and Streamable HTTP servers, the authenticated read-only `nexus web` browser application, MCP resources, generated hook configuration for Codex and Claude, the agent-memory background scheduler, asynchronous papercut review and SOS triage dispatch, and the `nexus exec -- PROGRAM [ARG ...]` analytics fallback.
