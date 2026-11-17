@@ -98,3 +98,61 @@ fn seed_conflicts(store: &mut Store, project: &str) {
             .unwrap();
     }
 }
+
+#[test]
+fn dominant_project_event_count_does_not_scan_payload_history() {
+    use crate::persistence::test_support::{capture_queries, postgres_query_plan, QueryPlanMode};
+    use diesel::connection::SimpleConnection;
+    let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("disposable PostgreSQL URL required");
+    let mut store = Store::connect(&url).unwrap();
+    let project = format!("count-{}", uuid::Uuid::new_v4());
+    seed_event_count_history(&mut store, &project);
+    // Committed append-only history has visible heap pages, as on the live store.
+    store
+        .connection
+        .batch_execute("VACUUM (ANALYZE) events")
+        .unwrap();
+    let queries = capture_queries(&mut store.connection);
+    let dashboard = store.dashboard(Some(&project), 1, 1, 120).unwrap();
+    let query = queries
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|sql| sql.starts_with("SELECT COUNT(*) FROM \"events\" WHERE"))
+        .expect("capture the production event count")
+        .clone();
+    let plan = postgres_query_plan(&mut store.connection, &query, QueryPlanMode::Estimated);
+    diesel::delete(events::table.filter(events::project_id.eq(&project)))
+        .execute(&mut store.connection)
+        .unwrap();
+    assert_eq!(dashboard.counts.events, 20_000);
+    assert!(
+        !plan.contains("Seq Scan on events"),
+        "event counts must avoid payload history scans:\n{plan}"
+    );
+}
+
+fn seed_event_count_history(store: &mut Store, project: &str) {
+    let now = Utc::now();
+    let times: Vec<_> = (0..20_000)
+        .map(|i| (now + chrono::Duration::microseconds(i)).to_rfc3339())
+        .collect();
+    for page in times.chunks(500) {
+        let rows: Vec<_> = page
+            .iter()
+            .map(|time| {
+                (
+                    events::project_id.eq(project),
+                    events::session_id.eq("fixture"),
+                    events::kind.eq("fixture"),
+                    events::payload_json.eq("{}"),
+                    events::created_at.eq(time),
+                )
+            })
+            .collect();
+        diesel::insert_into(events::table)
+            .values(rows)
+            .execute(&mut store.connection)
+            .unwrap();
+    }
+}

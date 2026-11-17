@@ -6,15 +6,11 @@
 // @spec docs/features/usage-analytics.md
 // @boundary disposable-postgres-plan: EXPLAIN inspects the captured production query with test-owned literal bindings in NEXUS_TEST_DATABASE_URL only.
 use super::*;
-use crate::persistence::{test_support::capture_queries, Store};
+use crate::persistence::{
+    test_support::{capture_queries, postgres_query_plan, QueryPlanMode},
+    Store,
+};
 use diesel::connection::SimpleConnection;
-
-#[derive(QueryableByName)]
-struct Plan {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    #[diesel(column_name = "QUERY PLAN")]
-    line: String,
-}
 
 #[test]
 fn session_operation_lookup_does_not_scan_unrelated_history() {
@@ -32,23 +28,8 @@ fn session_operation_lookup_does_not_scan_unrelated_history() {
     let rows = operation_rows(&mut store.connection, &project, &ids[300]).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].invocation, ids[300]);
-    let sql = queries.lock().unwrap()[0]
-        .split(" -- binds:")
-        .next()
-        .unwrap()
-        .to_owned()
-        .replace("$4", "8193")
-        .replace("$3", &format!("'{}'", ids[300]))
-        .replace("$2", &format!("'{project}'"))
-        .replace("$1", &format!("'{project}'"));
-    let plan = diesel::sql_query(format!("EXPLAIN {sql}"))
-        .load::<Plan>(&mut store.connection)
-        .unwrap();
-    let plan = plan
-        .into_iter()
-        .map(|row| row.line)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let captured = queries.lock().unwrap()[0].clone();
+    let plan = postgres_query_plan(&mut store.connection, &captured, QueryPlanMode::Estimated);
     assert!(
         !plan.contains("Seq Scan on analytics_calls")
             && !plan.contains("Seq Scan on analytics_actions"),

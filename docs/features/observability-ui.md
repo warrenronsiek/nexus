@@ -4,6 +4,11 @@ feature: observability-ui
 
 # Read-only web observability
 
+Coordination's event counts remain exact. PostgreSQL schema V25 supplies a compact
+project-key count index so a project containing most history does not cause a
+payload-table scan. Its query-plan regression uses populated, visible history;
+the existing composite indexes remain available for ordered event pages.
+
 ## What this feature does
 
 Nexus serves an authenticated browser application for Coordination, SOS, Tools,

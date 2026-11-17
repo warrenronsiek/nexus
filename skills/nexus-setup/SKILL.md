@@ -212,3 +212,8 @@ A browser project-list timeout on a large history store may indicate an older
 service schema: V19 adds its constant-size project catalog. Upgrade the service
 through its migrations; do not create an ad-hoc deployed index or discard history
 to recover the picker.
+
+A large PostgreSQL project's coordination count can also choose a payload-table
+scan despite valid composite indexes. V25 adds a compact project-key count index.
+Inspect the query plan and upgrade through the service migrations, retaining
+history and exact counts.

@@ -213,3 +213,39 @@ fn operation_enrichment_preserves_a_moderate_session_in_the_primary_timeline_bud
     view.bound_output().unwrap();
     assert_eq!(view.view.intervals.len(), 481);
 }
+
+#[test]
+fn overview_statistics_do_not_load_per_tool_operation_details() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    let id = stable_work_id(&["fixture", "host", "search"]);
+    record(&mut store, &project, native_events(&id));
+    let queries = capture_queries(&mut store.connection);
+    let WorkResponse::Dashboard { dashboard: view } = dashboard(
+        &mut store.connection,
+        &project,
+        None,
+        WorkSessionOrigin::All,
+    )
+    .unwrap() else {
+        panic!("dashboard")
+    };
+    assert!(view.activities.is_empty());
+    assert_eq!(
+        view.activity_kinds
+            .iter()
+            .find(|kind| kind.kind == "tool")
+            .unwrap()
+            .duration
+            .count,
+        1
+    );
+    assert!(
+        !queries
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|sql| sql.contains("analytics_actions")),
+        "overview timing statistics must not fetch unreturned tool-operation metadata"
+    );
+}
