@@ -250,3 +250,7 @@ each feature retains its own cursor and receipt semantics. No page claims
 complete external capture. Inputs are capped at 64 KiB per observation and 768 KiB per
 batch of at most 64. A contribution projection has at most 256 mappings and 384 KiB;
 exceeding either limit rejects the complete transaction and leaves prior evidence intact.
+
+V26 replaces the Work membership target index with the same ordered lookup keys
+and coverage of `source_scope`. PostgreSQL uses an included column; SQLite uses
+a trailing key. Exact whole-root member counts can avoid reading link payloads.

@@ -583,3 +583,6 @@ fn execution_flow_projects_observed_returns_and_safe_tool_labels() {
         .iter()
         .any(|gap| gap == "ambiguous_tool_operation"));
 }
+
+#[cfg(feature = "postgres")]
+mod population_plan;
