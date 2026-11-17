@@ -216,3 +216,80 @@ fn session_rows_report_active_request_time_separately_from_host_lifetime() {
         Some("execution")
     );
 }
+
+#[test]
+fn host_overview_does_not_project_hidden_container_roots() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    seed_harness_roots(&mut store, &project);
+    let queries = capture_queries(&mut store.connection);
+    let view = host_dashboard(&mut store, &project);
+    assert_eq!(view.sessions.len(), 2);
+    assert_eq!(view.hidden_session_count, 1);
+    assert_eq!(view.session_duration.count, 2);
+    assert_eq!(kind(&view, "tool").duration.known_count, 2);
+    assert_eq!(kind(&view, "tool").duration.total_seconds, 14.0);
+    assert!(
+        !queries.lock().unwrap().iter().any(|sql| sql.contains("work_observations") && sql.contains("\"review\"")),
+        "the host overview must not load source observations for an already hidden container-only root"
+    );
+}
+
+#[test]
+fn explicitly_selected_hidden_root_keeps_its_detail_and_activities() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    seed_harness_roots(&mut store, &project);
+    let WorkResponse::Dashboard { dashboard: view } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("review"),
+        WorkSessionOrigin::Host,
+    )
+    .unwrap() else {
+        panic!("dashboard expected");
+    };
+    assert_eq!(view.selected_session.unwrap().subject.id(), "review");
+    assert_eq!(view.activities.len(), 3);
+    assert_eq!(view.hidden_session_count, 1);
+}
+
+#[test]
+fn ambiguous_container_only_host_roots_stay_inspectable() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    let first = host_root("ambiguous", "claude", "/repos/example");
+    let mut second = host_root("ambiguous", "codex", "/repos/example");
+    second.id = "ambiguous-second-opening".into();
+    record(&mut store, &project, vec![first, second]);
+    let host = host_dashboard(&mut store, &project);
+    assert!(host.sessions.is_empty());
+    assert_eq!(host.hidden_session_count, 1);
+    let WorkResponse::Dashboard { dashboard: all } = dashboard(
+        &mut store.connection,
+        &project,
+        None,
+        WorkSessionOrigin::All,
+    )
+    .unwrap() else {
+        panic!("dashboard expected");
+    };
+    assert_eq!(all.sessions.len(), 1);
+    let WorkResponse::Dashboard {
+        dashboard: selected,
+    } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("ambiguous"),
+        WorkSessionOrigin::Host,
+    )
+    .unwrap()
+    else {
+        panic!("dashboard expected");
+    };
+    let detail = selected.selected_session.unwrap();
+    assert!(!detail.context.labels.contains_key("nexus.capture.host"));
+    assert!(detail
+        .conflicts
+        .contains(&"conflicting_declarations".into()));
+}

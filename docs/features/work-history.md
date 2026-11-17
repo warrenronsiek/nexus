@@ -573,3 +573,15 @@ Lookup key order and whole-root selection semantics remain unchanged.
 Schema V27 indexes subject kinds so request-timing lookup does not repeatedly
 scan all activity rows for each visible-root chunk, including after a cold start.
 The query, membership verification, and aggregate limits remain unchanged.
+
+The host-only overview excludes indexed container-only roots before loading
+their source observations. Its hidden count covers these excluded host-index
+identities, including ambiguous declarations; they still count toward the bounded
+source identity scan. Explicit root selection retains full detail and activities,
+and the all-origin overview retains its ordinary projection behavior.
+
+Whole-root sampling seeks distinct member identities in root recency order and
+loads at most the remaining capacity plus one overflow identity per root. Exact
+capacity, duplicate membership events, whole-root inclusion, and the oversized
+newest-root fallback retain their existing meanings without counting every
+member of roots outside the selected window.

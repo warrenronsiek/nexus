@@ -11,9 +11,9 @@ use crate::persistence::{
     schema::{work_links, work_subjects},
 };
 use anyhow::Result;
-use diesel::dsl::{count, exists};
+use diesel::dsl::exists;
 use diesel::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Host-capture envelopes. A root whose members are only these recorded no work.
 pub(super) const CONTAINER_KINDS: [&str; 3] = ["host.session", "request", "host.turn"];
@@ -108,25 +108,20 @@ fn whole_roots(
 ) -> Result<(Vec<String>, bool)> {
     let mut chosen = Vec::new();
     let mut total = 0usize;
-    for chunk in roots.chunks(ROOT_CHUNK) {
-        let counts: HashMap<String, i64> = links(project)
-            .filter(work_links::target_id.eq_any(chunk))
-            .group_by(work_links::target_id)
-            .select((
-                work_links::target_id,
-                count(work_links::source_id).aggregate_distinct(),
-            ))
-            .load::<(String, i64)>(connection)?
-            .into_iter()
-            .collect();
-        for root in chunk {
-            let count = counts.get(root).copied().unwrap_or(0) as usize;
-            if total + count > SOURCE_LIMIT {
-                return Ok((chosen, true));
-            }
-            total += count;
-            chosen.push(root.clone());
+    for root in roots {
+        let remaining = SOURCE_LIMIT - total;
+        let members = links(project)
+            .filter(work_links::target_id.eq(root))
+            .select(work_links::source_id)
+            .distinct()
+            .order(work_links::source_id.asc())
+            .limit((remaining + 1) as i64)
+            .load::<String>(connection)?;
+        if members.len() > remaining {
+            return Ok((chosen, true));
         }
+        total += members.len();
+        chosen.push(root.clone());
     }
     Ok((chosen, false))
 }
