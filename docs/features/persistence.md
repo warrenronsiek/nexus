@@ -254,3 +254,7 @@ exceeding either limit rejects the complete transaction and leaves prior evidenc
 V26 replaces the Work membership target index with the same ordered lookup keys
 and coverage of `source_scope`. PostgreSQL uses an included column; SQLite uses
 a trailing key. Exact whole-root member counts can avoid reading link payloads.
+
+V27 indexes Work subjects by project, scope, kind, and identity on both backends.
+Request-timing populations can seek their kind without scanning unrelated activity
+rows; existing membership and receipt indexes retain their separate lookup roles.

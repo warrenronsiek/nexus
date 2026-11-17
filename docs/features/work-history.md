@@ -569,3 +569,7 @@ or deletes observations and relationships.
 Schema V26 covers the source-scope filter in the existing membership target index,
 so exact whole-session sample counts do not fetch every membership payload.
 Lookup key order and whole-root selection semantics remain unchanged.
+
+Schema V27 indexes subject kinds so request-timing lookup does not repeatedly
+scan all activity rows for each visible-root chunk, including after a cold start.
+The query, membership verification, and aggregate limits remain unchanged.
