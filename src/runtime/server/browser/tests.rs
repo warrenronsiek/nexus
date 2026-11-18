@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature runtime
 // @feature observability-ui
 // @spec docs/features/runtime.md
@@ -166,4 +168,30 @@ fn session_history_reads_are_closed_project_scoped_browser_kinds() {
     ] {
         assert!(prepare(rejected.clone()).is_err(), "{rejected}");
     }
+}
+
+#[test]
+fn audit_browser_reads_are_scoped_and_closed() {
+    let request = |query, project| {
+        serde_json::from_value::<read::ReadEnvelope>(
+            serde_json::json!({"project_id":project,"query":query}),
+        )
+        .and_then(|request| request.prepare().map_err(serde::de::Error::custom))
+    };
+    assert!(request(
+        serde_json::json!({"kind":"audit_list","filter":{"control_key":"review"}}),
+        Some("audit")
+    )
+    .is_ok());
+    assert!(request(
+        serde_json::json!({"kind":"audit_get","run_id":"run-1","cutoff":12}),
+        Some("audit")
+    )
+    .is_ok());
+    assert!(request(serde_json::json!({"kind":"audit_list"}), None).is_err());
+    assert!(request(
+        serde_json::json!({"kind":"audit_append","record":{}}),
+        Some("audit")
+    )
+    .is_err());
 }

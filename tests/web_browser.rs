@@ -448,7 +448,13 @@ async fn local_browser_papercuts_rank_by_encounters_and_detail_lists_reports() {
 #[tokio::test]
 async fn browser_assets_are_whitelisted_and_route_reloads_keep_the_same_security_headers() {
     let app = Browser::start(None).await;
-    for path in ["/", "/ui/work", "/ui/evals", "/ui/pull-requests"] {
+    for path in [
+        "/",
+        "/ui/work",
+        "/ui/evals",
+        "/ui/pull-requests",
+        "/ui/audits",
+    ] {
         let response = app
             .client
             .get(format!("{}{path}", app.origin))

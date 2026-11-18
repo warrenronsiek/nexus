@@ -1,0 +1,7 @@
+{
+  "ok": true, "response": "page", "project_id": "fixture-project", "cutoff": 12, "total": 2, "next_cursor": null,
+  "items": [
+    { "id": "review-findings", "ordinal": 6, "control": { "key": "review", "version": 1 }, "occurred_at": "2026-11-17T14:00:00Z", "subject": { "kind": "external", "source": "github", "id": "PR-14@head" }, "status": "completed", "result_code": "changes_requested", "result_label": "Changes requested", "result_order": 1, "findings": 1, "open_findings": 0, "finding_dispositions": { "remediated": 1 } },
+    { "id": "review-pass", "ordinal": 5, "control": { "key": "review", "version": 1 }, "occurred_at": "2026-11-16T14:00:00Z", "subject": { "kind": "external", "source": "github", "id": "PR-13@head" }, "status": "completed", "result_code": "pass", "result_label": "Pass", "result_order": 0, "findings": 0, "open_findings": 0, "finding_dispositions": {} }
+  ]
+}

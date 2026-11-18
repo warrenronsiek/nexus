@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature persistence
@@ -641,3 +643,7 @@ diesel::table! {
 }
 
 include!("schema/delivery.rs");
+
+#[path = "audit/schema.rs"]
+mod audit_schema;
+pub(crate) use audit_schema::audit_records;

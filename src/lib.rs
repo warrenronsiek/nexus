@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature runtime
@@ -10,6 +12,7 @@
 // @spec docs/features/sos.md
 pub mod agents;
 pub(crate) mod analytics;
+pub mod audit;
 pub mod code_concerns;
 pub mod code_map;
 pub mod config;

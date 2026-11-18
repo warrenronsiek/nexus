@@ -14,7 +14,7 @@
 // @spec docs/features/delivery-coordination.md
 // Bundled source assets form one installation manifest shared by both hosts.
 
-pub(super) const SKILL_NAMES: [&str; 20] = [
+pub(super) const SKILL_NAMES: [&str; 21] = [
     "code-architect",
     "code-complexity-analysis",
     "code-deletion",
@@ -35,8 +35,9 @@ pub(super) const SKILL_NAMES: [&str; 20] = [
     "nexus-eval-history",
     "nexus-work-history",
     "nexus-pr-management",
+    "nexus-audit",
 ];
-pub(super) const SKILL_FILES: [(&str, &str); 31] = [
+pub(super) const SKILL_FILES: [(&str, &str); 32] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -133,6 +134,10 @@ pub(super) const SKILL_FILES: [(&str, &str); 31] = [
     (
         "nexus-work-history/SKILL.md",
         include_str!("../skills/nexus-work-history/SKILL.md"),
+    ),
+    (
+        "nexus-audit/SKILL.md",
+        include_str!("../skills/nexus-audit/SKILL.md"),
     ),
     (
         "nexus-pr-management/SKILL.md",

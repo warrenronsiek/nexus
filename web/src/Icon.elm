@@ -15,6 +15,7 @@ type Icon
     = Activity
     | Branch
     | PullRequest
+    | Clipboard
     | Flask
     | Tools
     | Book
@@ -59,6 +60,12 @@ shapes icon =
 
         PullRequest ->
             [ Svg.circle [ A.cx "18", A.cy "18", A.r "3" ] [], Svg.circle [ A.cx "6", A.cy "6", A.r "3" ] [], Svg.path [ A.d "M13 6h3a2 2 0 0 1 2 2v7" ] [], Svg.line [ A.x1 "6", A.x2 "6", A.y1 "9", A.y2 "21" ] [] ]
+
+        Clipboard ->
+            [ Svg.rect [ A.width "8", A.height "4", A.x "8", A.y "2", A.rx "1", A.ry "1" ] []
+            , Svg.path [ A.d "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" ] []
+            , Svg.path [ A.d "M12 11h4M12 16h4M8 11h.01M8 16h.01" ] []
+            ]
 
         Flask ->
             [ Svg.path [ A.d "M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2" ] [], Svg.path [ A.d "M6.453 15h11.094" ] [], Svg.path [ A.d "M8.5 2h7" ] [] ]

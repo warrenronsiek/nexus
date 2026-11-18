@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature observability-ui
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
@@ -211,9 +213,9 @@ function assertReadOnly(): void {
 
 async function inspectNavigation(): Promise<HTMLButtonElement> {
   const links = [...document.querySelectorAll<HTMLAnchorElement>("nav[aria-label='Workspace'] a")];
-  expect(links).toHaveLength(10);
+  expect(links).toHaveLength(11);
   expect(links.every(link => link.querySelector("svg[aria-hidden='true'] path"))).toBe(true);
-  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Pull requests", "Evaluations", "Tool intelligence", "Skills", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
+  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Pull requests", "Audits", "Evaluations", "Tool intelligence", "Skills", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
   expect(links.find(link => link.getAttribute("aria-current") === "page")?.textContent).toBe("Coordination");
   const menu = document.querySelector<HTMLButtonElement>("button[aria-controls='workspace-navigation']")!;
   expect(menu).not.toBeNull();
@@ -305,7 +307,7 @@ it("discovers PR shepherds and reads rollout evidence without exposing delivery 
   vi.unstubAllGlobals();
 });
 
-it("runs the actual Elm login, ten destinations, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
+it("runs the actual Elm login, eleven destinations, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
   window.history.replaceState(null, "", "/ui/coordination");
   await loginProgram();
   const menu = await inspectNavigation();
@@ -384,4 +386,46 @@ it("keeps native remote reads honestly scoped to the configured project and late
     remoteViewer = null; configuredInterval = 30000;
     vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
   }
+});
+
+const auditFilter = { control_key: "review", version: 1, from: "2026-11-01T00:00:00Z", until: "2026-12-01T00:00:00Z" };
+
+async function inspectAuditHistoryNavigation(): Promise<void> {
+  const detailUrl = new URL(window.location.href);
+  expect(detailUrl.searchParams.get("run")).toBe("review-findings");
+  expect(detailUrl.searchParams.get("cutoff")).toBe("12");
+  window.history.back();
+  await content("2 recorded executions · Coverage unknown");
+  expect(requests.at(-1)?.body.query).toMatchObject({ kind: "audit_list", filter: auditFilter });
+  window.history.forward();
+  await content("Independent reviewer");
+  expect(requests.at(-1)?.body.query).toMatchObject({ kind: "audit_get", run_id: "review-findings", cutoff: 12 });
+}
+
+it("filters audit executions, drills from a result bar, and reads a verified disposition", async () => {
+  window.history.replaceState(null, "", "/ui/audits?project=fixture-project");
+  await loginProgram();
+  await content("2 recorded executions · Coverage unknown");
+  input("audit-control", "review");
+  input("audit-version", "1");
+  input("audit-from", "2026-11-01");
+  input("audit-until", "2026-12-01");
+  document.querySelector(".audit-filters")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({
+    kind: "audit_list",
+    filter: auditFilter,
+  }));
+  await chartClick("audit-results", "Changes requested");
+  await content("Executions in selected bar");
+  expect(document.querySelectorAll(".audit-run")).toHaveLength(1);
+  row("review-findings");
+  await content("Independent reviewer");
+  expect(document.body.textContent).toContain("Inspect the fix");
+  expect(document.body.textContent).toContain("Run both review passes");
+  expect(requests.at(-1)?.body.query).toMatchObject({ kind: "audit_get", run_id: "review-findings", cutoff: 12 });
+  expect(document.body.textContent).toContain("Original review recommendation");
+  await inspectAuditHistoryNavigation();
+  [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
+  await content("Welcome to Nexus");
+  vi.unstubAllGlobals();
 });

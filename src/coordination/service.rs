@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature evals
@@ -13,6 +15,7 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 mod analytics;
+mod audit;
 mod concerns;
 mod conflict_closure;
 mod delivery;

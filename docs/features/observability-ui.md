@@ -296,3 +296,7 @@ Secondary lists are trimmed before the primary timeline when necessary; all
 remaining truncation is disclosed.
 Duration labels prefer reported elapsed nanoseconds. UTC coordinates locate the
 observation; they do not independently qualify its elapsed duration.
+
+The [Audits](audit-registry.md) destination shows recorded control runs grouped
+by control, day, categorical result, and follow-up on the displayed page.
+Selecting a run drills into its pinned definition and append-only history.

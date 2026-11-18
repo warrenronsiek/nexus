@@ -61,7 +61,7 @@ pub fn git_hook(loaded: &LoadedConfig, root: &Path, phase: &str) -> Result<()> {
     enqueue(loaded, &context.hook, events)
 }
 
-fn revision_context(root: &Path) -> Option<WorkContext> {
+pub(crate) fn revision_context(root: &Path) -> Option<WorkContext> {
     let common = git_value(root, &["rev-parse", "--git-common-dir"])?;
     let common = root.join(common).canonicalize().ok()?;
     let repository = std::env::var("NEXUS_REPOSITORY_ID")

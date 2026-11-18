@@ -17,6 +17,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `configuration`: layered configuration, validation, and provenance hashing.
 - `architecture-tooling`: feature annotations, exploration, architectural lint, and repository validation.
 - `complexity-analysis`: feature-scoped structural metrics, repetition analysis, and regression gates.
+- `audit-registry`: immutable control versions, recorded runs, findings, follow-up, and evidence export.
 - `commit-review`: parallel cross-model architecture and deletion review for staged commits.
 - `installation`: one-command machine setup and repository onboarding.
 - `observability-ui`: authenticated read-only Elm/D3 browser coordination, analytics, memory, eval, and work visualization.

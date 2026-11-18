@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature code-concerns
@@ -378,7 +380,7 @@ fn bind_tool_context(
             arguments = serde_json::to_value(command).expect("typed concern command serializable");
         }
     }
-    if matches!(method, "evals" | "work" | "concerns" | "delivery") {
+    if matches!(method, "evals" | "work" | "concerns" | "delivery" | "audit") {
         arguments = json!({
             "context": {
                 "session_id":invocation_context.session_id,

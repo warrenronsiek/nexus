@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature persistence
@@ -13,13 +15,13 @@ use super::super::backend::DbConnection;
 use super::super::code_map::CodeMapSnapshotRow;
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
-    analytics_resources, analytics_revisions, capability_uses, claims, code_map_snapshots,
-    concern_observations, conflicts, database_imports, delivery_observations, delivery_watches,
-    eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records, events,
-    memory_activations, memory_compaction_attempts, memory_compaction_queue, memory_entries,
-    memory_frontier_snapshots, memory_spaces, memory_summaries, papercut_duplicate_reviews,
-    papercut_review_attempts, papercut_upvotes, papercuts, sessions, sos_issue_lifecycle,
-    sos_issues, sos_reports, sos_triage_attempts, work_observations,
+    analytics_resources, analytics_revisions, audit_records, capability_uses, claims,
+    code_map_snapshots, concern_observations, conflicts, database_imports, delivery_observations,
+    delivery_watches, eval_blob_chunks, eval_blobs, eval_dimensions, eval_links, eval_records,
+    events, memory_activations, memory_compaction_attempts, memory_compaction_queue,
+    memory_entries, memory_frontier_snapshots, memory_spaces, memory_summaries,
+    papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts, sessions,
+    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts, work_observations,
 };
 use super::super::Store;
 use super::rows::*;
@@ -76,7 +78,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 8;
+const FORMAT_VERSION: i32 = 9;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -202,6 +204,7 @@ batches! {
     34: CodeMapSnapshots(CodeMapSnapshotRow) => code_map_snapshots, (code_map_snapshots::project_id.asc(),code_map_snapshots::id.asc());
     35: DeliveryObservations(DeliveryObservationTransfer) => delivery_observations,(delivery_observations::project_id.asc(),delivery_observations::ordinal.asc());
     36: DeliveryWatches(DeliveryWatchTransfer) => delivery_watches,(delivery_watches::project_id.asc(),delivery_watches::id.asc());
+    37: AuditRecords(AuditTransfer) => audit_records,(audit_records::project_id.asc(),audit_records::ordinal.asc());
 }
 
 #[derive(Serialize, Deserialize)]
@@ -530,6 +533,7 @@ fn format_tables(version: i32) -> Result<usize> {
         5 => 33,
         6 => 34,
         7 => 35,
+        8 => 37,
         FORMAT_VERSION => TABLE_COUNT,
         _ => bail!("unsupported portable stream version"),
     })

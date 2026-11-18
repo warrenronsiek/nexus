@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature code-concerns
@@ -67,6 +69,8 @@ pub enum ServiceResponse {
     WorkError(super::WorkErrorEnvelope),
     Delivery(Box<super::DeliveryEnvelope>),
     DeliveryError(super::DeliveryErrorEnvelope),
+    Audit(Box<super::AuditEnvelope>),
+    AuditError(super::AuditErrorEnvelope),
     Concerns(Box<super::ConcernEnvelope>),
     ConcernError(super::ConcernErrorEnvelope),
     Analytics(crate::analytics::types::AnalyticsResponse),

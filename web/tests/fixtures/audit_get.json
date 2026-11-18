@@ -1,0 +1,15 @@
+{
+  "ok": true, "response": "detail", "project_id": "fixture-project", "cutoff": 12, "next_cursor": null,
+  "definition": {
+    "ordinal": 1, "recorded_at": "2026-11-01T00:00:00Z", "actor": { "agent": "codex", "session_id": "define" },
+    "input": { "id": "define-review", "occurred_at": "2026-11-01T00:00:00Z", "event": { "kind": "define", "control": { "key": "review", "version": 1 }, "definition": { "owner": "Engineering", "objective": "Review agent changes", "scope": "GitHub PRs", "trigger": "Before merging", "procedure": "Run both review passes", "effective_at": "2026-11-01T00:00:00Z", "reason": "First registered procedure" } } }
+  },
+  "records": [
+    { "ordinal": 6, "recorded_at": "2026-11-17T14:04:00Z", "actor": { "agent": "codex", "session_id": "review" },
+      "input": { "id": "review-findings", "occurred_at": "2026-11-17T14:00:00Z", "event": { "kind": "run", "control": { "key": "review", "version": 1 }, "run": { "subject": { "kind": "external", "source": "github", "id": "PR-14@head" }, "executor": "Cross-model review", "result": { "status": "completed", "output": { "kind": "code", "value": "changes_requested" }, "findings": [ { "id": "architecture-1", "description": "Stale option", "recommendation": "Original review recommendation" } ] } } } } },
+    { "ordinal": 10, "recorded_at": "2026-11-19T12:00:00Z", "actor": { "agent": "codex", "session_id": "disposition" },
+      "input": { "id": "fix-1", "occurred_at": "2026-11-19T11:53:00Z", "event": { "kind": "disposition", "run_id": "review-findings", "finding_id": "architecture-1", "disposition": "remediated", "reason": "Removed the option" } } },
+    { "ordinal": 12, "recorded_at": "2026-11-20T12:00:00Z", "actor": { "agent": "claude", "session_id": "verification" },
+      "input": { "id": "verification-1", "occurred_at": "2026-11-20T11:56:00Z", "event": { "kind": "verification", "run_id": "review-findings", "disposition_id": "fix-1", "verifier": "Independent reviewer", "procedure": "Inspect the fix", "outcome": "confirmed", "reason": "The option is gone" } } }
+  ]
+}
