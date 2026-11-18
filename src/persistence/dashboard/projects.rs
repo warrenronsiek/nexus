@@ -13,9 +13,9 @@ use crate::coordination::domain::{query_window_limit, RecordWindow};
 use crate::persistence::backend::DbConnection;
 use crate::persistence::models::parse_time;
 use crate::persistence::schema::{
-    analytics_calls, analytics_exposures, analytics_resources, capability_uses, code_map_snapshots,
-    concern_observations, delivery_observations, eval_records, events, memory_spaces, papercuts,
-    projects, sessions, sos_issues, sos_reports, work_observations,
+    analytics_calls, analytics_exposures, analytics_resources, audit_records, capability_uses,
+    code_map_snapshots, concern_observations, delivery_observations, eval_records, events,
+    memory_spaces, papercuts, projects, sessions, sos_issues, sos_reports, work_observations,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -82,29 +82,38 @@ impl Store {
         display_name: Option<&str>,
         now: DateTime<Utc>,
     ) -> Result<()> {
-        let now = now.to_rfc3339();
-        let insert = diesel::insert_into(projects::table)
-            .values((
-                projects::project_id.eq(project_id),
-                projects::display_name.eq(display_name),
-                projects::first_seen_at.eq(&now),
-                projects::last_seen_at.eq(&now),
-            ))
-            .on_conflict(projects::project_id)
-            .do_update();
-        match display_name {
-            Some(_) => insert
-                .set((
-                    projects::last_seen_at.eq(excluded(projects::last_seen_at)),
-                    projects::display_name.eq(excluded(projects::display_name)),
-                ))
-                .execute(&mut self.connection)?,
-            None => insert
-                .set(projects::last_seen_at.eq(excluded(projects::last_seen_at)))
-                .execute(&mut self.connection)?,
-        };
-        Ok(())
+        touch_project(&mut self.connection, project_id, display_name, now)
     }
+}
+
+pub(crate) fn touch_project(
+    connection: &mut DbConnection,
+    project_id: &str,
+    display_name: Option<&str>,
+    now: DateTime<Utc>,
+) -> Result<()> {
+    let now = now.to_rfc3339();
+    let insert = diesel::insert_into(projects::table)
+        .values((
+            projects::project_id.eq(project_id),
+            projects::display_name.eq(display_name),
+            projects::first_seen_at.eq(&now),
+            projects::last_seen_at.eq(&now),
+        ))
+        .on_conflict(projects::project_id)
+        .do_update();
+    match display_name {
+        Some(_) => insert
+            .set((
+                projects::last_seen_at.eq(excluded(projects::last_seen_at)),
+                projects::display_name.eq(excluded(projects::display_name)),
+            ))
+            .execute(connection)?,
+        None => insert
+            .set(projects::last_seen_at.eq(excluded(projects::last_seen_at)))
+            .execute(connection)?,
+    };
+    Ok(())
 }
 
 /// Restores the catalog from authoritative history after a portable import. Snapshots
@@ -179,6 +188,12 @@ fn coordination_activity(connection: &mut DbConnection) -> QueryResult<Vec<Activ
 /// Caller-owned records that exist without any host session.
 fn record_activity(connection: &mut DbConnection) -> QueryResult<Vec<ActivityRows>> {
     [
+        activity!(
+            connection,
+            audit_records,
+            audit_records::recorded_at,
+            audit_records::recorded_at
+        ),
         activity!(
             connection,
             delivery_observations,

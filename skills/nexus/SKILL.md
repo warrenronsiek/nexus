@@ -41,6 +41,7 @@ source checkout is required only for source-development commands.
 | `evals` | Retain eval versions, reasons for change, call context, flexible metrics, artifacts, and caller-run results. | [nexus-eval-history](../nexus-eval-history/SKILL.md) |
 | `architecture-tooling` | Find and maintain feature-shaped source ownership and specifications when changing Nexus. | [nexus-development](../nexus-development/SKILL.md) |
 | `complexity-analysis` | Use structural measurements and repetition evidence to review Nexus changes. | [nexus-development](../nexus-development/SKILL.md) |
+| `audit-registry` | Define controls, retain runs and follow-up, and export auditor evidence. | [nexus-audit](../nexus-audit/SKILL.md) |
 | `commit-review` | Combine deterministic validation with advisory architecture and deletion reviews. | [nexus-development](../nexus-development/SKILL.md) |
 | `persistence` | Extend durable feature state, typed Diesel access, migrations, and transfer semantics in Nexus. | [nexus-development](../nexus-development/SKILL.md) |
 

@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature code-concerns
 // @spec docs/features/code-concerns.md
 // @feature evals
@@ -20,6 +22,8 @@
 // @spec docs/features/sos.md
 // @entrypoint main
 // @boundary cli-and-json
+#[path = "main/audit/mod.rs"]
+mod audit_cli;
 #[path = "main/concerns.rs"]
 mod concerns_cli;
 #[path = "main/delivery.rs"]
@@ -30,6 +34,8 @@ mod evals_cli;
 mod history_client;
 #[path = "main/history_transfer.rs"]
 mod history_transfer;
+#[path = "main/operator.rs"]
+mod operator_cli;
 #[path = "main/sos.rs"]
 mod sos_cli;
 #[path = "main/update.rs"]
@@ -42,7 +48,6 @@ mod work_cli;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use nexus::agents::integration::{self, Host};
-use nexus::agents::reviewer;
 use nexus::coordination::api::{
     AnalyzeCommand, ClaimQuery, ConflictQuery, EventQuery, MemoryAddCommand, MemoryContextQuery,
     MemoryReadScopeArg, MemoryScopeArg, MemorySearchQuery, MemoryStatusQuery, MemorySummaryQuery,
@@ -178,13 +183,16 @@ enum Command {
     /// Coordinate PRs, contribution provenance, rollouts, and remediation handoffs.
     #[command(subcommand)]
     Delivery(delivery_cli::DeliveryCliCommand),
+    /// Record and export append-only evidence for agent-operated controls.
+    #[command(subcommand)]
+    Audit(audit_cli::AuditCliCommand),
     /// Record and navigate work sessions and their nested activity history.
     Work {
         #[command(subcommand)]
         command: work_cli::WorkCliCommand,
     },
     /// Run parallel cross-model architecture and deletion review on the staged diff.
-    ReviewCommit,
+    ReviewCommit(audit_cli::ReviewArgs),
     /// Inspect or validate the resolved configuration.
     Config {
         #[command(subcommand)]
@@ -362,15 +370,7 @@ async fn run_configured(invocation: CliInvocation) -> Result<()> {
             let code = args.run(&loaded, explicit_config.as_deref(), &root).await?;
             std::process::exit(code);
         }
-        Command::Memory { command } => run_memory_command(command, &root, &loaded).await,
-        Command::Papercuts { command } => run_papercuts_command(command, &root, &loaded).await,
-        Command::Sos { command } => sos_cli::run(command, &root, &loaded).await,
-        query @ (Command::Status
-        | Command::Events { .. }
-        | Command::Sessions { .. }
-        | Command::Claims { .. }
-        | Command::Conflicts { .. }) => run_query_command(query, &loaded).await,
-        command => run_admin_command(command, &root, &loaded, explicit_config.as_deref()).await,
+        command => operator_cli::run(command, &root, &loaded, explicit_config.as_deref()).await,
     }
 }
 
@@ -559,13 +559,6 @@ async fn run_admin_command(
                 ServiceRequest::Analyze(AnalyzeCommand { conflict_id }),
             )
             .await
-        }
-        Command::ReviewCommit => {
-            let report = reviewer::review_staged_commit_recorded(loaded, root);
-            let _ = nexus::runtime::work_capture::flush_before_exit(loaded, explicit_config).await;
-            let report = report?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
         }
         Command::Config { command } => {
             match command {

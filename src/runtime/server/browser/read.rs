@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature runtime
 // @feature observability-ui
 // @feature delivery-coordination
@@ -6,6 +8,7 @@
 // @spec docs/features/delivery-coordination.md
 // @boundary browser-read: closed feature-owned reads map to validated service operations, never arbitrary methods.
 use crate::analytics::types::AnalyticsCommand;
+use crate::audit::{AuditAction, RunFilter};
 use crate::code_concerns::{ConcernAction, ConcernQuery};
 use crate::coordination::api::*;
 use crate::coordination::domain::{ConflictScope, HookContext, RecordScope};
@@ -34,7 +37,42 @@ enum BrowserRead {
     Work(WorkRead),
     Concerns(ConcernRead),
     Delivery(DeliveryRead),
+    Audit(AuditRead),
 }
+#[derive(Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum AuditRead {
+    #[serde(rename = "audit_list")]
+    List {
+        #[serde(default)]
+        filter: RunFilter,
+    },
+    #[serde(rename = "audit_get")]
+    Get {
+        run_id: String,
+        after: Option<i64>,
+        cutoff: Option<i64>,
+    },
+}
+
+impl AuditRead {
+    fn into_action(self, project_id: Option<String>) -> AuditAction {
+        match self {
+            Self::List { filter } => AuditAction::List { filter, project_id },
+            Self::Get {
+                run_id,
+                after,
+                cutoff,
+            } => AuditAction::Get {
+                run_id,
+                after,
+                cutoff,
+                project_id,
+            },
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 enum DeliveryRead {
@@ -264,6 +302,7 @@ impl BrowserRead {
             Self::Work(read) => ServiceRequest::Work(bound(read.into_action(project))),
             Self::Concerns(read) => ServiceRequest::Concerns(bound(read.into_action(project))),
             Self::Delivery(read) => ServiceRequest::Delivery(bound(read.into_action(project))),
+            Self::Audit(read) => ServiceRequest::Audit(bound(read.into_action(project))),
         }
     }
 }

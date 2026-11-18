@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature persistence
@@ -11,6 +13,7 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 mod analytics;
+mod audit;
 mod backend;
 mod batch;
 mod code_concerns;

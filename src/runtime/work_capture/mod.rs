@@ -32,6 +32,7 @@ pub use activity::{ActivityCapture, CaptureContext, WorkExecutor};
 use anyhow::{Context, Result};
 pub use context_bridge::active_host_context;
 pub use git::git_hook;
+pub(crate) use git::revision_context as git_revision_context;
 pub(crate) use handoff::CaptureHandoff;
 pub use handoff::{CaptureReceipt, CaptureStatus};
 pub use host_context::{host_handoff, WorkHandoff};

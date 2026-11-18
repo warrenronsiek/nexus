@@ -60,3 +60,7 @@ flowchart TD
 `review.implementation_provider` and `review.provider` must differ. Each provider has its own configurable command, model, and reasoning effort. The default is a Claude reviewer for Codex-authored changes, with `xhigh` reasoning and a ten-minute timeout so architecture review has enough time for repository inspection. `review.skill_root` defaults to `$CODEX_HOME/skills` or `~/.codex/skills`.
 
 The pre-commit hook deliberately catches review-command failure after printing it. Cross-model review informs cleanup; it does not own the work product or agent permission.
+
+A deliberate invocation can record the execution with
+`--audit-control KEY@VERSION --audit-record PATH`. See the
+[audit registry](audit-registry.md) for the result contract and replay workflow.

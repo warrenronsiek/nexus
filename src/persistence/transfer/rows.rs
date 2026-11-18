@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature persistence
@@ -16,9 +18,9 @@
 // @spec docs/features/code-concerns.md
 use super::super::schema::{
     advisories, analytics_actions, analytics_calls, analytics_categories, analytics_exposures,
-    analytics_resources, analytics_revisions, capability_uses, claims, concern_observations,
-    conflicts, delivery_observations, delivery_watches, eval_blob_chunks, eval_blobs,
-    eval_dimensions, eval_links, eval_records, events, memory_activations,
+    analytics_resources, analytics_revisions, audit_records, capability_uses, claims,
+    concern_observations, conflicts, delivery_observations, delivery_watches, eval_blob_chunks,
+    eval_blobs, eval_dimensions, eval_links, eval_records, events, memory_activations,
     memory_compaction_attempts, memory_compaction_queue, memory_entries, memory_frontier_snapshots,
     memory_spaces, memory_summaries, papercut_duplicate_reviews, papercut_review_attempts,
     papercut_upvotes, papercuts, sessions, sos_issue_lifecycle, sos_issues, sos_reports,
@@ -469,4 +471,10 @@ portable_row!(DeliveryObservationTransfer,delivery_observations,{
 portable_row!(DeliveryWatchTransfer,delivery_watches,{
  project_id:String,id:String,pull_request_id:String,registration_json:String,actor_json:String,generation:String,
  enabled:i32,next_poll_at:String,last_attempt_at:Option<String>,last_success_at:Option<String>,last_error:Option<String>,last_digest:Option<String>,provider_updated_at:Option<String>,
+});
+
+portable_row!(AuditTransfer,audit_records,{
+ project_id:String,id:String,ordinal:i64,kind:String,control_key:String,control_version:i32,
+ run_id:Option<String>,finding_id:Option<String>,occurred_at:String,recorded_at:String,
+ actor_json:String,input_json:String,
 });

@@ -118,7 +118,15 @@ fn activity_facts_inventory_and_classification_history_round_trip() {
 
 #[test]
 fn historical_streams_exclude_later_tables_and_retain_their_source_versions() {
-    for (version, tables) in [(2, 21), (3, 27), (4, 32), (5, 33), (6, 34)] {
+    for (version, tables) in [
+        (2, 21),
+        (3, 27),
+        (4, 32),
+        (5, 33),
+        (6, 34),
+        (7, 35),
+        (8, 37),
+    ] {
         let snapshot = historical_empty_snapshot(version, tables);
         let mut target = Store::open_memory().unwrap();
         assert!(matches!(
@@ -135,7 +143,7 @@ fn historical_streams_exclude_later_tables_and_retain_their_source_versions() {
 
 // This historical catalog is deliberately independent of the current export
 // catalog: adding a new table cannot silently put it into an older fixture.
-const HISTORICAL_TABLES: [&str; 34] = [
+const HISTORICAL_TABLES: [&str; 37] = [
     "sessions",
     "claims",
     "conflicts",
@@ -170,6 +178,9 @@ const HISTORICAL_TABLES: [&str; 34] = [
     "eval_blob_chunks",
     "work_observations",
     "concern_observations",
+    "code_map_snapshots",
+    "delivery_observations",
+    "delivery_watches",
 ];
 
 fn historical_empty_snapshot(version: i32, table_count: usize) -> tempfile::NamedTempFile {

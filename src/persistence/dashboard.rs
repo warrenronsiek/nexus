@@ -18,7 +18,7 @@ use diesel::prelude::*;
 #[cfg(all(test, feature = "sqlite"))]
 mod project_tests;
 mod projects;
-pub(super) use projects::rebuild_catalog as rebuild_project_catalog;
+pub(super) use projects::{rebuild_catalog as rebuild_project_catalog, touch_project};
 
 #[cfg(all(test, feature = "postgres"))]
 mod tests;

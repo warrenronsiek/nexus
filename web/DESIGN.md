@@ -47,6 +47,7 @@ Intentional adaptations of the dealt sheet:
 | Coordination | Which sessions overlapped, and what did Nexus tell each agent? |
 | Work | Where does time go, and how did a selected prompt branch into work? |
 | Pull requests | Who shepherds delivery, and which original agents can explain the included changes? |
+| Audits | Which control executions were recorded and what followed each finding? |
 | Evaluations | How did a named agent measure over time, under which definition? |
 | Tools | What semantic activities occurred, which commands performed them, and when? |
 | Skills | Which named skills were used in the seven-day window, and what do they say? |

@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature code-concerns
@@ -26,6 +28,11 @@ pub(super) fn tool_definitions() -> Value {
     definitions.push(super::evals_schema::definition());
     definitions.push(super::work_schema::definition());
     definitions.push(super::delivery_schema::definition());
+    definitions.push(json!({
+        "name": "nexus_audit",
+        "description": "Explicitly define or retire a versioned control, append runs, findings and follow-up, and read the project audit journal. Reports contain recorded executions. Preserve the original append ID to retry safely.",
+        "inputSchema": schemars::schema_for!(crate::audit::AuditAction)
+    }));
     definitions.push(super::work_schema::health_definition());
     definitions.push(super::concerns_schema::definition());
     Value::Array(definitions)

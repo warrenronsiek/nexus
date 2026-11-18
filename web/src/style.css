@@ -393,3 +393,40 @@ summary .icon { vertical-align: -4px; margin: 0 6px 0 3px; }
 .code-map-evidence { padding: 0 18px 16px; overflow-wrap: anywhere; }
 .code-map-evidence ul { margin: 8px 0; padding: 0; list-style: none; }
 .code-map-evidence li + li { margin-top: 5px; }
+
+.audit-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; padding: 0 0 14px; }
+.audit-filters input { min-width: 0; }
+.audit-filters input[type="number"] { width: 76px; }
+.audit-filters input[type="date"] { color-scheme: dark; }
+.audit-cohort { padding: 12px 0 16px; font-weight: 600; }
+.audit-cohort small, .audit-row-main small, .audit-row-state small { display: block; font-weight: 400; margin-top: 4px; }
+.audit-cohort small { color: var(--muted); }
+.audit-run { justify-content: space-between; }
+.audit-row-main, .audit-row-state, .audit-facts dd, .audit-event code, .audit-nested { min-width: 0; overflow-wrap: anywhere; }
+.audit-row-state { text-align: right; flex: 0 1 28%; }
+.audit-detail-title { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+.audit-detail-title code { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.audit-event { padding: 14px 18px; }
+.audit-history { border-top: 1px solid var(--line); }
+.audit-history summary { cursor: pointer; margin-bottom: 12px; font-weight: 600; }
+.audit-history summary code { margin-left: 10px; }
+.audit-facts { margin: 4px 0; display: grid; grid-template-columns: minmax(125px, 18%) minmax(0, 1fr); gap: 4px 12px; }
+.audit-facts dt { color: var(--muted); }
+.audit-facts dd { margin: 0; white-space: pre-wrap; }
+.audit-nested { padding: 8px 0 8px 12px; margin-top: 10px; border-left: 1px solid var(--line); }
+.audit-nested h3 { margin-bottom: 6px; }
+
+@media (max-width: 600px) {
+  .audit-row-state { flex-basis: 36%; }
+  .audit-facts { grid-template-columns: minmax(0, 1fr); }
+  .audit-facts dd { margin-bottom: 5px; }
+}
+.audit-chart-panel > .chart { max-height: 248px; overflow: auto; }
+.audit-filters .scope-control { flex-direction: column; align-items: start; gap: 5px; flex: 0 1 auto; }
+.audit-filters .scope-control > span { display: inline; }
+.audit-filters input[name="audit-control"] { width: min(180px, 45vw); }
+
+@media (max-width: 460px) {
+  .audit-detail-title { flex-direction: column; }
+  .audit-cohort { padding-top: 4px; }
+}
