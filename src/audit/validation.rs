@@ -124,11 +124,7 @@ impl AuditRun {
     fn validate(&self) -> Result<()> {
         self.subject.validate()?;
         text(&self.executor, 512)?;
-        ensure!(
-            !matches!(&self.subject, AuditSubject::StagedDiff { sha256: None, .. })
-                || matches!(self.result.status, RunStatus::Failed | RunStatus::Skipped),
-            "a performed staged review requires the diff digest"
-        );
+        self.subject.validate_for_status(self.result.status)?;
         self.result.validate()
     }
 }
@@ -202,6 +198,15 @@ impl ControlDefinition {
 }
 
 impl AuditSubject {
+    pub(crate) fn validate_for_status(&self, status: RunStatus) -> Result<()> {
+        ensure!(
+            !matches!(self, Self::StagedDiff { sha256: None, .. })
+                || matches!(status, RunStatus::Failed | RunStatus::Skipped),
+            "a performed staged review requires the diff digest"
+        );
+        Ok(())
+    }
+
     fn validate(&self) -> Result<()> {
         match self {
             Self::External { source, id } => {

@@ -388,6 +388,20 @@ it("keeps native remote reads honestly scoped to the configured project and late
   }
 });
 
+const auditFilter = { control_key: "review", version: 1, from: "2026-11-01T00:00:00Z", until: "2026-12-01T00:00:00Z" };
+
+async function inspectAuditHistoryNavigation(): Promise<void> {
+  const detailUrl = new URL(window.location.href);
+  expect(detailUrl.searchParams.get("run")).toBe("review-findings");
+  expect(detailUrl.searchParams.get("cutoff")).toBe("12");
+  window.history.back();
+  await content("2 recorded executions · Coverage unknown");
+  expect(requests.at(-1)?.body.query).toMatchObject({ kind: "audit_list", filter: auditFilter });
+  window.history.forward();
+  await content("Independent reviewer");
+  expect(requests.at(-1)?.body.query).toMatchObject({ kind: "audit_get", run_id: "review-findings", cutoff: 12 });
+}
+
 it("filters audit executions, drills from a result bar, and reads a verified disposition", async () => {
   window.history.replaceState(null, "", "/ui/audits?project=fixture-project");
   await loginProgram();
@@ -399,7 +413,7 @@ it("filters audit executions, drills from a result bar, and reads a verified dis
   document.querySelector(".audit-filters")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({
     kind: "audit_list",
-    filter: { control_key: "review", version: 1, from: "2026-11-01T00:00:00Z", until: "2026-12-01T00:00:00Z" },
+    filter: auditFilter,
   }));
   await chartClick("audit-results", "Changes requested");
   await content("Executions in selected bar");
@@ -410,6 +424,7 @@ it("filters audit executions, drills from a result bar, and reads a verified dis
   expect(document.body.textContent).toContain("Run both review passes");
   expect(requests.at(-1)?.body.query).toMatchObject({ kind: "audit_get", run_id: "review-findings", cutoff: 12 });
   expect(document.body.textContent).toContain("Original review recommendation");
+  await inspectAuditHistoryNavigation();
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
   await content("Welcome to Nexus");
   vi.unstubAllGlobals();

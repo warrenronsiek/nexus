@@ -402,11 +402,9 @@ impl Journal<'_> {
                 .all(|old| result.findings.iter().any(|new| new.id == old.id)),
             invalid("a correction must retain existing finding IDs")
         );
-        ensure!(
-            !matches!(run.subject, AuditSubject::StagedDiff { sha256: None, .. })
-                || matches!(result.status, RunStatus::Failed | RunStatus::Skipped),
-            invalid("a performed staged review requires the diff digest")
-        );
+        run.subject
+            .validate_for_status(result.status)
+            .map_err(invalid)?;
         self.check_result(&control, result)?;
         Ok(control)
     }

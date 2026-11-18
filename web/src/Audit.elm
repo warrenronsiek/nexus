@@ -3,7 +3,7 @@
 -- @spec docs/features/audit-registry.md
 -- @spec docs/features/observability-ui.md
 -- @boundary audit-read: inspect the closed audit list and detail responses.
-module Audit exposing (Field(..), Filters, charts, empty, fields, listView, recordView, set, toolbar)
+module Audit exposing (Field(..), Filters, Scope, charts, fields, listView, parseScope, recordView, routeFields, selectBucket, set, toolbar)
 
 import Dict
 import Html exposing (Html, a, button, code, dd, details, div, dl, dt, form, h2, h3, input, label, p, section, small, span, summary, text)
@@ -18,10 +18,32 @@ type alias Filters =
     { control : String, version : String, from : String, until : String }
 
 
-empty : Filters
-empty =
-    Filters "" "" "" ""
+type alias Scope =
+    { filters : Filters, cutoff : Maybe Int }
 
+
+parseScope : Dict.Dict String String -> Scope
+parseScope params =
+    let
+        get key = Dict.get key params |> Maybe.withDefault ""
+    in
+    { filters = Filters (get "control") (get "version") (get "from") (get "until")
+    , cutoff = Dict.get "cutoff" params |> Maybe.andThen String.toInt
+    }
+
+
+routeFields : Scope -> List ( String, String )
+routeFields scope =
+    let
+        filters = scope.filters
+    in
+    [ ( "control", filters.control )
+    , ( "version", if String.trim filters.control == "" then "" else filters.version )
+    , ( "from", filters.from )
+    , ( "until", filters.until )
+    , ( "cutoff", scope.cutoff |> Maybe.map String.fromInt |> Maybe.withDefault "" )
+    ]
+        |> List.filter (\( _, value ) -> String.trim value /= "")
 
 type Field
     = Control
@@ -120,6 +142,14 @@ buckets row =
 selectionKey : String -> String -> String
 selectionKey chartId key =
     chartId ++ "|" ++ key
+
+
+selectBucket : String -> String -> Maybe String
+selectBucket chartId key =
+    if List.any (\( known, _ ) -> known == chartId) chartSpecs then
+        Just (selectionKey chartId key)
+    else
+        Nothing
 
 
 charts : List Row -> List ( String, List Bar )

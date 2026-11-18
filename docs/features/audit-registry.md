@@ -48,7 +48,8 @@ The authenticated **Audits** view provides UTC period, control, and version
 filters. Its total covers the selected recorded cohort and its charts summarize
 the displayed page. Chart selections identify the runs contributing to each
 bar. Run details show the pinned definition, result and findings, receipt
-metadata, and subsequent dispositions, corrections and verification. Coverage
+metadata, and subsequent dispositions, corrections and verification. A run URL
+preserves the selection, applied filters, and journal cutoff. Coverage
 stays unknown because the eligible population is supplied separately.
 
 `nexus audit export DIR` takes either a half-open RFC 3339 interval

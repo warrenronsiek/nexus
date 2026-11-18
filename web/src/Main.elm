@@ -68,7 +68,7 @@ type Detail
 
 
 type alias Route =
-    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String }
+    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope }
 
 
 type alias Model =
@@ -89,6 +89,7 @@ type alias Model =
     , supplemental : Dict String Document
     , deliveryOverlap : State.Remote Document
     , auditFilters : Audit.Filters
+    , auditScope : Audit.Scope
     , details : Dict String Detail
     , expanded : Dict String ()
     , query : Query
@@ -151,7 +152,7 @@ init _ url key =
     let
         wanted = route url
     in
-    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, auditFilters = Audit.empty, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", navigationOpen = False }
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -231,7 +232,7 @@ route url =
         screen = List.filter (\candidate -> String.endsWith ("/" ++ slug candidate) url.path) screens |> List.head |> Maybe.withDefault Coordination
         params = url.query |> Maybe.map parameters |> Maybe.withDefault Dict.empty
     in
-    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if screen == PullRequests then Dict.get "view" params |> Maybe.withDefault "" else "" }
+    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if screen == PullRequests then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params }
 
 
 parameters : String -> Dict String String
@@ -248,11 +249,21 @@ parameters raw =
 
 location : Screen -> Maybe String -> Maybe String -> String
 location screen project focus =
+    screenLocation screen project focus []
+
+
+auditLocation : Maybe String -> Maybe String -> Audit.Scope -> String
+auditLocation project runId scope =
+    screenLocation Audits project runId (Audit.routeFields scope)
+
+
+screenLocation : Screen -> Maybe String -> Maybe String -> List ( String, String ) -> String
+screenLocation screen project focus extra =
     let
-        pairs = [ ( Just "project", project ), ( focusParam screen, focus ) ] |> List.filterMap (\( key, item ) -> Maybe.map2 (\k v -> k ++ "=" ++ Url.percentEncode v) key item)
+        scope = List.filterMap (\( key, item ) -> Maybe.map2 Tuple.pair key item) [ ( Just "project", project ), ( focusParam screen, focus ) ]
+        pairs = List.map (\( key, item ) -> key ++ "=" ++ Url.percentEncode item) (scope ++ extra)
     in
     "/ui/" ++ slug screen ++ (if List.isEmpty pairs then "" else "?" ++ String.join "&" pairs)
-
 
 
 -- READS
@@ -277,7 +288,7 @@ primary screen focus =
         Coordination -> query "coordination"
         Work -> focused "work_dashboard" "work_session_id"
         PullRequests -> deliveryQuery focus
-        Audits -> focus |> Maybe.map (\id_ -> query "audit_get" |> with "run_id" id_) |> Maybe.withDefault (query "audit_list")
+        Audits -> query "audit_list"
         Evals -> focused "eval_dashboard" "group_id"
         Tools -> query "analytics_summary"
         Skills -> query "usage"
@@ -301,7 +312,23 @@ deliveryQuery focus =
 
 routeQuery : Route -> Query
 routeQuery wanted =
-    if wanted.screen == PullRequests && wanted.focus == Nothing then modeQuery PullRequests wanted.mode else primary wanted.screen wanted.focus
+    case ( wanted.screen, wanted.focus ) of
+        ( Audits, Just runId ) ->
+            Query "audit_get" [ ( "run_id", E.string runId ), ( "cutoff", wanted.audit.cutoff |> Maybe.map E.int |> Maybe.withDefault E.null ) ]
+
+        ( Audits, Nothing ) ->
+            Query "audit_list" [ ( "filter", E.object (Audit.fields wanted.audit.filters) ) ]
+
+        ( PullRequests, Nothing ) ->
+            modeQuery PullRequests wanted.mode
+
+        _ ->
+            primary wanted.screen wanted.focus
+
+
+currentRoute : Model -> Route
+currentRoute model =
+    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope }
 
 
 {-| Companion reads that complete a screen: its picker index, focused evidence, or health. -}
@@ -398,7 +425,8 @@ reset wanted model =
             , data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }
             , supplemental = if sameScreen then Dict.remove "timeline" model.supplemental else Dict.empty
             , deliveryOverlap = if sameScreen then model.deliveryOverlap else State.empty
-            , auditFilters = if sameScreen then model.auditFilters else Audit.empty
+            , auditFilters = wanted.audit.filters
+            , auditScope = wanted.audit
             , details = if sameScreen then model.details else Dict.empty
             , expanded = if sameScreen then model.expanded else Dict.empty
             , trail = []
@@ -432,7 +460,7 @@ update msg model =
                 project = if model.globalProjectReads then wanted.project else wanted.project |> orElse model.project
             in
             if model.authenticated /= Just True then
-                ( { model | screen = wanted.screen, project = project, focus = wanted.focus }, Cmd.none )
+                ( { model | screen = wanted.screen, project = project, focus = wanted.focus, auditScope = wanted.audit, auditFilters = wanted.audit.filters }, Cmd.none )
 
             else
                 reset { wanted | project = project } model
@@ -479,7 +507,10 @@ update msg model =
         Projects result ->
             case result |> Result.mapError httpError |> Result.andThen (Wire.decode "projects") of
                 Ok doc ->
-                    reset { screen = model.screen, project = model.project |> orElse (List.head doc.rows |> Maybe.map .id), focus = model.focus, mode = model.mode } { model | projectsError = Nothing, projects = doc.rows }
+                    let
+                        wanted = currentRoute model
+                    in
+                    reset { wanted | project = model.project |> orElse (List.head doc.rows |> Maybe.map .id) } { model | projectsError = Nothing, projects = doc.rows }
 
                 Err reason ->
                     ( { model | projectsError = Just reason, data = { value = Nothing, generation = model.data.generation + 1, error = Just ("The project list could not be loaded. " ++ reason), loading = False } }, Cmd.none )
@@ -502,7 +533,7 @@ update msg model =
                     load previous { model | trail = rest, selected = Nothing }
 
                 [] ->
-                    reset { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode } model
+                    reset (currentRoute model) model
 
         Refresh ->
             let
@@ -611,13 +642,14 @@ update msg model =
             ( { model | auditFilters = Audit.set field content model.auditFilters }, Cmd.none )
 
         ApplyAuditFilters ->
-            load (Query "audit_list" [ ( "filter", E.object (Audit.fields model.auditFilters) ) ]) { model | trail = [], selected = Nothing }
+            ( model, Nav.pushUrl model.key (auditLocation model.project Nothing { filters = model.auditFilters, cutoff = Nothing }) )
 
         OpenAuditRun runId ->
             let
-                cutoff = model.data.value |> Maybe.map (.root >> Wire.field "cutoff") |> Maybe.withDefault E.null
+                cutoff = model.data.value |> Maybe.andThen (.root >> D.decodeValue (D.field "cutoff" D.int) >> Result.toMaybe)
+                scope = model.auditScope
             in
-            update (Navigate (Query "audit_get" [ ( "run_id", E.string runId ), ( "cutoff", cutoff ) ])) model
+            ( model, Nav.pushUrl model.key (auditLocation model.project (Just runId) { scope | cutoff = cutoff }) )
 
         ClearAuditSelection ->
             ( { model | selected = Nothing }, focusAuditExecutions )
@@ -631,10 +663,15 @@ update msg model =
         ChartSelected event ->
             case D.decodeValue (D.map2 Tuple.pair (D.field "chart" D.string) (D.field "id" D.string)) event of
                 Ok ( chartId, bucket ) ->
-                    if model.screen == Audits && String.startsWith "audit-" chartId then
-                        ( { model | selected = Just (chartId ++ "|" ++ bucket) }, focusAuditExecutions )
-                    else
-                        handleChartSelection chartId bucket model
+                    case Audit.selectBucket chartId bucket of
+                        Just selected ->
+                            if model.screen == Audits then
+                                ( { model | selected = Just selected }, focusAuditExecutions )
+                            else
+                                ( model, Cmd.none )
+
+                        Nothing ->
+                            handleChartSelection chartId bucket model
 
                 _ ->
                     ( model, Cmd.none )
@@ -1122,8 +1159,10 @@ documentView model doc =
             PullRequests -> div [] [ Delivery.view model.project (location PullRequests model.project Nothing) doc.root (Dict.get "delivery_watches" model.supplemental |> Maybe.map .root), DeliveryOverlap.view model.project doc.root model.deliveryOverlap ]
             Audits ->
                 if model.query.kind == "audit_get" then
-                    Audit.recordView (location Audits model.project Nothing)
-                        (model.query.fields |> List.filter (\( key, _ ) -> key == "run_id") |> List.head |> Maybe.map (Tuple.second >> D.decodeValue D.string >> Result.withDefault "") |> Maybe.withDefault "") doc
+                    let
+                        scope = model.auditScope
+                    in
+                    Audit.recordView (auditLocation model.project Nothing { scope | cutoff = Nothing }) (Maybe.withDefault "" model.focus) doc
                 else
                     Audit.listView model.selected OpenAuditRun ClearAuditSelection chart doc
             Evals -> evalView model doc

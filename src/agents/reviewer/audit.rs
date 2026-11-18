@@ -248,7 +248,6 @@ struct ReviewFinding {
     line: Option<ReviewMeasure>,
     symbol: Option<String>,
     evidence: String,
-    #[serde(alias = "recommendation")]
     change: String,
     verification: String,
     estimated_removed_loc: Option<u64>,
