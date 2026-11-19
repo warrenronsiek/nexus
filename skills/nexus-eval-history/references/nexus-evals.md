@@ -33,7 +33,14 @@ and uses a prefix index. `%`, `_`, and `!` have no wildcard meaning. `--search`
 looks inside titles and encoded record bodies, so use it when text search is
 the intended operation rather than as a substitute for ID navigation.
 
-List pages are bounded. Follow the returned cursor with `--after` to continue; an ordinary first page is not a complete export. `why` follows a bounded evidence graph and discloses truncation. Read referenced records when the answer needs more context.
+List pages are ordered by record ID. Pass `next_cursor` to `--after` or MCP
+`after` with the same project and filters. The cursor keeps the first page's
+receipt-time cutoff, so later imports enter a fresh traversal even when their
+occurrence times are earlier. The CLI defaults to 24 records per page and MCP
+defaults to 32. Both cap at 64. `why` follows upstream links and selected
+incoming corrections, lifecycle reports, and verifications. It returns at most
+64 records and discloses truncation from the count or response size. Read
+referenced records when the answer needs more context.
 
 For MCP, these are `{"action":"list","kind":"case","search":"regression","limit":32}`, `{"action":"get","id":"case-tool-adoption-v1"}`, and `{"action":"why","id":"case-tool-adoption-v1","limit":32}`. Record creation uses `{"action":"record","records":[...]}`. Use the tool's current schema for fields beyond the examples here; unknown fields and unsupported kinds are errors.
 
@@ -41,23 +48,28 @@ For MCP, these are `{"action":"list","kind":"case","search":"regression","limit"
 
 ## See the overall result history
 
-The authenticated web Evals view starts with evaluation sets grouped
-by stable suite and target identities and exact observed repository/model
-compositions. Each set names its `agent`: the target's declared `agent`, else
-the ID of a single-component target, else the target identity, and its label
-reads `agent · suite · model`. This keeps a router and its agents visible together. Select a set
-and choose a metric. Each metric view shows its exact definition, unit, assessment scope, calculation, occurrence-time
-trend and latest exact value. Overview repository/model/search filters narrow the
-set list; the totals labeled “All captured history” retain the full captured
-population. Suite revisions remain linked from every result.
-A common suite identity is a browsing aid, not proof that its evolving population
-is comparable.
+In the authenticated **Evaluations** view, select a project, a **Time range**,
+and an entry in the **Agent** picker. The browser defaults to the last seven
+days and also offers 24 hours, 14 days, and 30 days. The server filters source
+runs, grades, and measurements by occurrence time before projection. It can
+retrieve older linked definitions and other dependencies for those records.
+The overview counts describe the bounded source projection in the chosen window.
 
-For a script or agent, `nexus_evals` accepts `{"action":"dashboard"}` and
-`{"action":"dashboard","group_id":"<returned-id>"}` with the usual project
-scope. Use returned IDs rather than reconstructing group hashes. This read is a
-bounded summary, with `scanned_records`, `source_limit`, `truncated` and notices;
-use paginated `list`, `get`, `why` or export when complete evidence is required.
+Picker entries group evaluation sets by stable suite and target identities and
+repository and model composition. The display name uses the target's declared
+`agent`, the ID of a single component when available, or the target identity.
+The view renders a panel per metric series with calculation details, units,
+and recent exact values. Use CLI or MCP `list` for record filters such as
+repository, model, or text. Compare the exact suite revisions behind results
+before treating a common suite identity as a common population.
+
+In `nexus_evals`, call `{"action":"dashboard"}` for the groups and pass a
+returned `group_id` to the same action for metric series. An optional RFC 3339
+`occurred_after` timestamp applies a lower bound to the source records. When
+omitted, the source read starts at the most recently received records within
+its existing size limits. Inspect `scanned_records`, `source_limit`,
+`truncated`, and notices. Use paginated `list`, `get`, `why`, or export to
+inspect record-level evidence.
 
 Series separate exact metric or grader revisions and assessment scopes. The
 numeric plot is a presentation aid for conservative finite scalar values. It
@@ -72,10 +84,10 @@ history and are counted separately from current frontiers. Conflicting branches
 remain evidence, without choosing a winner. The interface defines no preferred
 optimization direction and does not execute a metric calculation.
 
-Open the record browser or a metric's latest source record for detail,
-rationale/history, and typed links. These secondary views retain
-motivations, evidence and artifact coordinates without automatically retrieving
-blob contents.
+Use the `record_id` from a dashboard point with `get` or `why` to inspect the
+exact result, rationale, typed links, and artifact coordinates. These reads
+return references. Fetch blob contents separately when the evidence requires
+them.
 
 ## Explain changes before recording definitions
 
@@ -284,7 +296,7 @@ nexus eval abort-upload <sha256-digest>
 nexus eval download <sha256-digest> restored-output.json
 ```
 
-Upload returns verified blob metadata. Record an `artifact` with its `media_type`, `byte_size`, optional matching `digest`, and `backings:[{"kind":"stored_blob","digest":"<sha256-digest>"}]`, then link that artifact ID from the appropriate call or outcome. Uploading bytes alone does not establish how they were used. Upload supports at most 1 GiB per blob in 256 KiB chunks; larger evidence remains Git/LFS backed or is divided into caller-owned artifacts. The matching MCP actions are `blob_begin`, `blob_put` (base64-encoded chunk data), `blob_seal`, `blob_info`, and `blob_get`; use the current tool schema for their parameters.
+Upload returns verified blob metadata. Record an `artifact` with its `media_type`, `byte_size`, optional matching `digest`, and `backings:[{"kind":"stored_blob","digest":"<sha256-digest>"}]`, then link that artifact ID from the appropriate call or outcome. The link records how the bytes were used. Upload supports at most 1 GiB per blob in 256 KiB chunks. Keep larger evidence Git/LFS backed or divide it into caller-owned artifacts. Use MCP `blob_begin`, `blob_put` (base64-encoded chunk data), and `blob_seal` to upload. Use `blob_info` and `blob_get` to retrieve verified data.
 
 Resume an interrupted upload with the same bytes. If an unfinished upload contains incorrect chunks, `abort-upload` or MCP `blob_abort` discards only that pending upload, then the caller can start again. Verified blobs remain immutable. Upload generations prevent a verification started before an abort from publishing a replacement upload as verified.
 

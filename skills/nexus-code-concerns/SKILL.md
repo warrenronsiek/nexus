@@ -37,15 +37,22 @@ nexus concerns history "$CONCERN_ID" --after "$NEXT_CURSOR"
 `areas` is the dashboard read; the MCP action is `dashboard` with nested `query`.
 MCP `list` also takes `query`; `get` and `history` take `concern_id`, with
 history's `after` and `limit` at the top level. Follow returned cursors. Query
-filters include repository, area, lifecycle status, search, occurrence bounds,
-and sorts `recent`, `work_sessions`, or `returns`. Counts describe the selected
-population, not only loaded rows.
+filters include repository, area, `open` or `resolved` status, search, and sorts
+`recent`, `work_sessions`, or `returns`. Use `--occurred-after` and
+`--occurred-before` for UTC occurrence bounds. Nexus uses source failure time
+when supplied and observation time otherwise, and exposes unknown source-time
+counts separately. Counts include the full selected population. Ordinary lists
+default to 24 results and cap at 64. Detail starts with eight recent history
+entries and reports when more history is available.
 
 The authenticated web interface's Code concerns view starts with ranked area
 bars and recurrence trends. Select an area for its distinct concerns, then a
-concern for the encounter/remedy/return timeline and evidence metadata. These
-views are read-only. Overlapping areas are not additive defect totals, and
-reported problems are not a code-quality score.
+concern for the encounter/remedy/return timeline and evidence metadata. The
+area rankings and lists default to the last seven days. Use the range control
+for 24 hours, 14 days, or 30 days. An exact concern and its history can still
+be read outside the selected list window. These views are read-only. One
+encounter can contribute to several areas, so adding their counts can count it
+more than once.
 
 ## Group observations in the code map
 
@@ -64,8 +71,29 @@ Publish an external numeric snapshot with `nexus concerns publish-measure FILE`
 or the `nexus_concerns` action `publish_measure`. Supply an immutable ID,
 producer, measure key, title, unit, reducer (`sum`, `max`, or `mean`), revision,
 observation time and samples. Samples identify a subject, numeric value and
-optional dimensions and evidence reference. The producer owns the computation.
-Read the current schema with `nexus concerns schema`.
+optional string dimensions and evidence reference. Each subject can occur once
+per snapshot. Send the same ID and payload on retry. Read the current schema
+with `nexus concerns schema`.
+
+`nexus concerns map QUERY.json` takes the same query object as MCP action `map`
+under `query`. For a published measure, select its producer and key and optionally
+pin the snapshot used for the read.
+
+```json
+{
+  "measure": {"kind":"published", "producer":"ci", "measure":"branch_load"},
+  "group_by": "team",
+  "snapshot_id": "branches-4dc2e91"
+}
+```
+
+Omit `snapshot_id` to select the latest snapshot by observation time. To drill
+into a group, pass the returned group key as `bucket` with the same query.
+The treemap sizes nonnegative additive measures by value when there is a
+positive value. For signed, all-zero, and nonadditive measures, it sizes by
+sample count while displaying the exact reduced value. Check `partial` before
+treating the displayed groups and evidence as complete. Code Map has its own
+bounded data selection and published snapshot identity.
 
 ## Record an encounter with its real source
 
@@ -82,8 +110,8 @@ title and description:
 
 This is an example, not evidence that the problem occurred. Add `hypothesis`,
 `impact`, structured `encounter` locators/source evidence, or explicit
-`observation` metadata when known. MCP cannot see the host or logical work
-session, so pass `observation.context.work_session_id` (and `host_session_id`)
+`observation` metadata when known. MCP binds the reporter from its connection.
+Pass `observation.context.work_session_id` and `observation.context.host_session_id`
 when known; otherwise the concern counts as unknown work. The CLI fills omitted
 context from `NEXUS_*` variables, a `NEXUS_WORK_CONTEXT` handoff or the active host
 bridge; hosts without that handoff, such as Codex shells, need `--work-session`.
@@ -150,6 +178,26 @@ Keep the opaque reporter token from the initial receipt private. The
 `respond` command reads it from a token file; it is not included in export and
 must not be copied into notes, concerns, logs, or process arguments.
 
+## Route a concern to its originating agent
+
+After filing a concern against a feature or pinned Git location, offer an
+addressed handoff when the original implementer can help. Use the concern ID
+from the receipt.
+
+```sh
+nexus delivery remediate --concern "$CONCERN_ID" --title "$TITLE" --message "$MESSAGE"
+nexus delivery remediation-status "$REQUEST_ID"
+```
+
+The resolver tries a unique pinned location first and can fall back to a
+unique recorded feature. Partial concern history prevents automatic pinned
+location selection, and dirty locations are excluded. If there is no unique
+locator, pass a known origin selector, such as `--repository` with `--feature`
+or `--revision`. If several matching origins remain, review their evidence
+and use `--agent` with `--session` to select an eligible recipient. See the
+[delivery guide](../nexus-pr-management/SKILL.md) for origin qualification, host
+presence, and how the recipient acknowledges receipt.
+
 ## Integrate without changing the caller's job
 
 Place optional recording at meaningful failure boundaries in existing scripts
@@ -192,13 +240,3 @@ attempted remedies, and known evidence gaps.
 history format. They retain original source attribution and current importer
 separately. Concern-specific transfer retains Git/artifact references and does
 not copy blob bytes; use a complete database snapshot when those bytes must move.
-
-After filing a concern against a feature or pinned location, offer an
-addressed handoff when the report calls for the original implementer's help.
-Use the receipt's concern ID to carry the report and its origin evidence.
-
-When asking the original implementer to investigate an existing concern,
-`nexus delivery remediate --concern CONCERN_ID --title TITLE --message MESSAGE`
-can resolve its recorded feature or pinned location and create the addressed
-handoff. Review the reported origin qualification or specify a recipient if
-attribution is ambiguous.

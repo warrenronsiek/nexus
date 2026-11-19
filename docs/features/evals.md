@@ -191,9 +191,14 @@ exact representation and do not become zero. This is a display convenience,
 not a new metric storage type or optimization policy. Metric meaning and the
 caller's calculation description remain alongside the series.
 
-The source read starts with the most recently received run/grade/measurement
-records and caps at 4096 records or 8 MiB of payloads. Dependencies have a
-separate 4096-record/8 MiB bound. Missing context and bounded lifecycle frontiers
+The source read is capped at 4096 run, grade, and measurement records or 8 MiB
+of payloads. The browser defaults to the last seven days and also offers
+24 hours, 14 days, and 30 days. It sends an occurrence-time cutoff to the
+server. MCP dashboard callers can supply `occurred_after` for the same
+indexed path. When a cutoff is provided, the source read starts with the most
+recent occurrence inside that window. With no cutoff, the source read starts
+with the most recently received records. Dependencies can predate the window
+and have a separate 4096-record/8 MiB bound. Missing context and bounded lifecycle frontiers
 are disclosed. Responses cap groups at 512/192 KiB, series at 64/448 KiB, and
 points per series at 512/256 KiB, keeping recent points and pinning the selected group metadata through display
 bounds. Individual group metadata arrays also have count/byte bounds.
@@ -206,9 +211,10 @@ Lifecycle frontier reads check indexed predecessor references for each candidate
 report rather than scanning every predecessor in the project. Unrelated link
 history does not change the frontier population or its existing bounds.
 
-SQLite and PostgreSQL V15 add a project-scoped receipt-order index for dashboard
-source paging. Each continuation constrains the receipt-time range before the
-time/identity tie-break, preserving recent-first ordering and source bounds.
+SQLite and PostgreSQL use the project-scoped occurrence-time index for a
+windowed dashboard and the V15 receipt-order index for a dashboard without a
+cutoff. Each source continuation seeks by the applicable timestamp and record
+ID, preserving recent-first ordering and source bounds.
 
 Dimension reads prefetch up to 1025 ordered rows per 64 source records and
 retain at most 1 MiB of encoded complete groups. A cut or uncached group falls

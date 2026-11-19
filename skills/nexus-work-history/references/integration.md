@@ -259,28 +259,38 @@ receipt cutoff. Preserve truncation/conflict/gap notices.
 
 Exercise descendants, repeated tests, shared membership where relevant, and
 unavailable capture. Verify workload output/status and exactly one execution
-alongside delivery. The authenticated web Work view defaults to session
-wall-duration summaries, activity-kind duration charts, and daily history.
-Choose means/totals or an activity-kind trend, then select a parent session for a
-vertical waterfall of its retained descendants. Time runs downward on a shared
-UTC source-boundary axis; child tasks branch right at source admission/start,
-with separate lanes for overlapping work. Scroll vertically, zoom, or pan lanes;
-select a task to highlight it and inspect its metadata below the graph. Sessions
-reached through source browsing use the same visual. Queued tasks retain a
-separate queue-wait segment; queue sums can overlap and never count as worker
-occupancy. Inclusive intervals overlap and are not additive effort. Missing or
-conflicted elapsed measurements remain unknown and are excluded from means;
-sample counts explain that denominator. Daily buckets use UTC start, falling back
-to the subject's first source occurrence if no start was captured.
+alongside delivery. In the authenticated Work history view, set the project
+and the 24-hour, 7-day, 14-day, or 30-day range, then choose a harness session.
+Seven days is the default. The scope stays in the URL, and an exact link to an
+older session still retrieves its observed descendants. Before choosing a
+session, Where time goes summarizes average or total elapsed time by kind for
+sampled sessions.
 
-The dashboard uses a bounded server projection of recent retained subjects,
-not the first page of the record browser. Source-population, byte, chart-row,
-and selectable-session caps produce explicit partial-history notices. These
-limits and unsupported child internals prevent a completeness claim. Open source
-browsing for filters, expandable hierarchy, exact elapsed text, links, and immutable observations. The MCP read shape is
-`{"action":"dashboard"}` or
-`{"action":"dashboard","work_session_id":"router-change-42"}` on `nexus_work`;
-it never executes or retries the caller's work. Each `sessions` row is a work
-summary plus `request_count`, `timed_request_count`, and `active_seconds` (timed
-human requests; unknown unless every request is timed). Harness roots that only
-recorded host containers are omitted and counted in `hidden_session_count`.
+The session opens a vertical execution tree with individual call labels and
+separate lanes for parallel work. Scroll, zoom, or pan, then select a call to
+inspect its elapsed time, outcome, and available operation evidence. Filled
+ribbons show qualified execution, dotted ribbons show observed waiting, and
+hollow dashes mark unknown intervals. A missing execution finish appears as
+an open boundary. Asynchronous results return only when consumption is
+observed. Use source reads for exact elapsed values and immutable observations.
+Inclusive durations can overlap, and missing or conflicted elapsed measurements
+are excluded from means.
+
+The dashboard uses a bounded server projection. Read its truncation and gap
+notices before describing coverage. For the same scope in an MCP read, send a
+UTC cutoff to `nexus_work`, substituting the appropriate timestamp and session:
+
+```json
+{
+  "action": "dashboard",
+  "session_origin": "host",
+  "occurred_after": "2026-11-12T16:00:00Z",
+  "work_session_id": "router-change-42"
+}
+```
+
+Omit `work_session_id` for the overview. Each `sessions` row contains
+`request_count`, `timed_request_count`, and `active_seconds`. Active time
+is the sum of human request intervals when all are timed and conflict-free.
+Harness roots consisting only of host containers are omitted from the picker
+and counted in `hidden_session_count`.

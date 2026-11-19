@@ -76,21 +76,26 @@ nexus papercuts remove "$PAPERCUT_ID" --resolution 'Fixture paths now resolve fr
 nexus papercuts dump
 ```
 
-`remove` means resolved, with actor/time/reason retained; it does not delete the
-record. A later encounter reopens a resolved issue. The ordinary list returns
-bounded pages of open canonical issues, most encountered (`upvote_count`) first,
-then most recently active. MCP `list` accepts an `after` cursor using the last
-row's `upvote_count`, `updated_at` and `id`; follow it when further open issues
-matter. MCP `get` (`papercut_id`) returns one canonical issue, resolving a consolidated ID, with its
-newest 64 individual reports and encounters in chronological order (original
-and consolidated-duplicate reports carry their title and description; encounters
-carry their note). A truncated or open-only view cannot establish absence from history.
+`remove` records resolution with actor, time, and reason while preserving
+history. A later encounter reopens a resolved issue. List returns up to 32
+open canonical issues, ranked by encounters (`upvote_count`), then most recent
+activity. The CLI `list` shows the first page. To continue in MCP when
+`truncated` is true, pass an `after` object built from the last row's
+`upvote_count`, `updated_at`, and `id`. MCP `list` and `get` accept an optional
+`project_id`. Write actions use the caller's bound project.
+
+MCP `get` takes `papercut_id` and follows consolidated IDs to the canonical
+issue. Detail shows up to the newest 64 reports and encounters in chronological
+order, subject to a response-size limit and `truncated` indicator. Original and
+consolidated-duplicate reports carry their title and description. Encounters
+carry their note. Use `dump` to inspect history outside a bounded detail.
 
 `dump` is deliberately complete and untruncated: all lifecycle states,
 individual encounters, duplicate proposals/responses, and automated-review
 outcomes. `nexus papercuts dump --all-projects` broadens the scope. Filter or save
 this explicit export where needed rather than assuming the list is a dump. The
 `nexus://papercuts` resource provides the complete current-project registry.
+MCP `dump` uses `scope: "project"` by default and accepts `scope: "all"`.
 
 Prefer deterministic reporting at meaningful failure boundaries over a prompt
 asking agents to report every successful command. Optional telemetry around a

@@ -94,20 +94,25 @@ retry with cooldown. Inspect attempts and evidence instead of submitting another
 copy to force a retry. Remote server providers are disabled by default; route
 deployment/provider changes through [nexus-setup](../nexus-setup/SKILL.md).
 
-List and issue detail are bounded and expose truncation flags. List ranks open
-issues by supporting report count, then latest report. Detail includes the newest
-32 supporting sources oldest first (each report's text is `message`, with `type`,
-`trace` and `metadata`) and audit evidence; it cannot prove complete history.
-Dump preserves the complete source, aggregate, triage-attempt, and lifecycle
-registry. Use `nexus sos dump --all-projects` only when that broader scope is
-relevant. Do not treat an empty aggregate list as proof that no sources arrived.
+List returns up to 32 open issues ranked by supporting report count, then latest
+report time, and exposes `untriaged_report_count`. `get` takes an aggregate
+`issue_id`. Detail can include up to the newest 32 supporting sources, displayed
+oldest first, plus triage attempts and lifecycle events. Use the truncation flags
+to tell when the response-size limit has excluded older rows.
+
+To find a source by its report ID before it has an aggregate, inspect the
+explicit dump. The dump retains all sources, aggregate states, triage attempts,
+and lifecycle events. `nexus://sos` provides the complete current-project
+registry. To read all projects, use `nexus sos dump --all-projects` or MCP
+`{"action":"dump","scope":"all"}`.
 
 After verifying a fix, use `nexus sos resolve "$ISSUE_ID" --resolution "$REASON"`.
 Use `nexus sos deprecate "$ISSUE_ID" --reason "$REASON"` when the issue is
-obsolete. Both preserve all source history. A later report linked to a closed
-aggregate reopens it automatically. Triage links only to supplied project-local
-candidates; inspect source evidence before treating a generated summary as a
-verified root cause.
+obsolete. Their MCP actions are `resolve` (`issue_id`, `resolution`) and
+`deprecate` (`issue_id`, `reason`). Both preserve all source history. A later
+report linked to a closed aggregate reopens it automatically. Triage links only
+to supplied project-local candidates. Inspect source evidence before treating
+a generated summary as a verified root cause.
 
 Use [nexus-observability](../nexus-observability/SKILL.md) for the SOS list/detail
 authenticated read-only web view and [nexus](../nexus/SKILL.md) for feature selection.

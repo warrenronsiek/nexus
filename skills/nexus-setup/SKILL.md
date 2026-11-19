@@ -127,6 +127,13 @@ The source `scripts/update.sh` forwards options and status to the installed CLI;
 `NEXUS_BIN` can select a different installation. See the installation specification
 in a Nexus checkout for the complete adapter contract.
 
+Verify the revision after updating. The `skills` field from setup lists the bundle
+embedded in the executable it ran. An existing companion may still be using a
+retained executable. Reconnect it where the update report calls for it, inspect
+its tool schema, and run a read against the selected service in the intended
+project. For example, use `nexus audit list` for audit registry support. CLI help
+checks the client interface and a successful service read checks the full route.
+
 ## Select one state authority
 
 Local transport is the default: a stdio companion reaches or starts the

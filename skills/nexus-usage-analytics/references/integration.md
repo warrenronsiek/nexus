@@ -19,9 +19,10 @@ Explicit skill activation uses `nexus_skill_use` with `session_id`,
 `invocation_id`, `skill_name`, and `evidence`. Evidence values are `native_hook`,
 `explicit_invocation`, `instruction_read`, and `asset_execution`. Use the event
 actually observed rather than claiming a successful read is a native activation.
-`nexus_skill_use` carries identity only. Skill text is captured when the
-companion observes a successful `SKILL.md` read; an adapter that forwards such
-reads through the lifecycle hooks gets the same capture.
+`nexus_skill_use` carries identity and evidence. The local daemon or remote
+stdio companion derives manifest text from supported successful `SKILL.md`
+read events. A direct HTTP lifecycle client supplies tool-use facts. Use the
+stdio companion when checkout-local script or manifest detection is needed.
 Available context includes `project_root`, `agent`, `turn_id`, `model`, and
 `actor`. Stronger same-turn evidence can promote an existing skill observation;
 do not manufacture multiple activations for one read/activation sequence.
@@ -83,9 +84,11 @@ Shared-service deployment does not require enabling provider subprocesses there.
 maximum 64). Examples take `offset` and optional `category_id` or `resource_key`;
 implementation pages contain at most 32 records. `commands` requires a
 `category_id` and returns at most 20 named series plus `other`, each with 28
-six-hour bins. `skill` requires a `name` and returns the newest captured manifest
-text, hash, display path, and frontmatter description, or null fields. Use returned pagination/coverage metadata and retain
-the requested project scope on every page.
+six-hour bins. `skill` requires a `name` and returns the newest captured
+manifest text, SHA-256, display path, and capture timestamp in scope. The
+description comes from frontmatter or, when no document exists, inventory
+evidence. Use `next_offset` from paged responses and retain the requested
+project scope on every page.
 
 Taxonomy maintenance uses `rename_category` (`id`, `name`, `definition`) and
 `merge_category` (`source`, `target`). These change shared meaning, so use them

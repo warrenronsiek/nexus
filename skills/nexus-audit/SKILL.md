@@ -76,11 +76,31 @@ Leave unknown follow-up visible. A correction uses `correct_run` with the
 original run ID, latest run or correction ID as `previous`, a rationale, and
 the replacement result. Keep existing finding IDs.
 
+## Read recorded executions and attach files
+
+Use `nexus audit list --control KEY --version VERSION` to find matching runs.
+The optional RFC 3339 `--from` and `--until` bound occurrence time, with the
+start included and the end excluded. Use `nexus audit read request.json` or
+`nexus_audit` for a pinned control definition, journal, or additional pages. For
+paged reads reuse the returned receipt cutoff with the next `after` cursor.
+
+Use `nexus eval upload resolution.md` for an approved verification report or
+other file. It stores the bytes with a SHA-256 digest in the current project.
+Use the returned digest in the evidence list of the run, finding, or follow-up.
+
+```json
+{ "kind": "stored_blob", "digest": "<SHA256>", "description": "resolution.md" }
+```
+
+Use `nexus eval download <SHA256> resolution.md` to retrieve the verified bytes.
+An exported blob uses the digest as its filename. Keep a useful description
+with the evidence reference.
+
 ## Hand over the evidence
 
 ```sh
 nexus audit export review-evidence --from 2026-11-01T00:00:00Z --until 2026-12-01T00:00:00Z
-nexus audit export review-sample --run RUN_ID
+nexus audit export review-sample --run RUN_ID --include-blob <SHA256>
 nexus audit verify-export review-evidence
 ```
 
@@ -89,5 +109,8 @@ The default export includes journal records and references. Use
 `--include-blob SHA256` for approved verified contents or `--redact-evidence`
 to replace references with redaction markers. Redaction does not change
 narrative fields. Examine the requested disclosure before sharing. In the
-authenticated Audits view, filter by control, version or UTC dates, select a
-bar, and open the underlying execution and follow-up history.
+authenticated Audits view, use the rolling range or explicit UTC dates, add a
+control or version filter, and select a chart bar or run to inspect recorded
+executions and follow-up. When both date fields are blank, the range sets the
+lower bound. The presets are 24 hours, 7 days, 14 days, and 30 days, with seven
+days as the initial selection.

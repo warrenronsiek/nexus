@@ -16,9 +16,11 @@ motivation, durable knowledge, evidence, child identity, or a missing lifecycle
 boundary. Do not require a new manual ritual before every edit or tool call.
 
 Read the skill matching the task below. Load further skills only when the work
-crosses their boundaries. The installed CLI's `--help`, domain schemas where
-provided, and MCP tool input schemas define the available interface. A Nexus
-source checkout is required only for source-development commands.
+crosses their boundaries. Use `nexus --version`, the command's `--help`, and
+the connected companion's MCP schemas to check the running installation. If a
+documented operation is missing, check the client, companion, and service
+before using it. A Nexus source checkout is required only for source-development
+commands. See [setup and updates](../nexus-setup/SKILL.md) for version checks.
 
 ## Select a capability
 
@@ -37,7 +39,7 @@ source checkout is required only for source-development commands.
 | `usage-analytics` | Understand available versus used tools, skills, scripts, and semantic activity categories. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
 | `observability-ui` | Inspect current coordination and historical records through the authenticated read-only web interface. | [nexus-observability](../nexus-observability/SKILL.md) |
 | `work-history` | Preserve logical work, nested attempts, agents, timing, CI, and delivery evidence across sessions. | [nexus-work-history](../nexus-work-history/SKILL.md) |
-| `delivery-coordination` | Discover PR shepherds, trace changes to implementation agents, and retain rollout and remediation handoffs. | [nexus-pr-management](../nexus-pr-management/SKILL.md) |
+| `delivery-coordination` | Find PR shepherds and origin agents, check promotion readiness, and track rollouts and remediation receipts. | [nexus-pr-management](../nexus-pr-management/SKILL.md) |
 | `evals` | Retain eval versions, reasons for change, call context, flexible metrics, artifacts, and caller-run results. | [nexus-eval-history](../nexus-eval-history/SKILL.md) |
 | `architecture-tooling` | Find and maintain feature-shaped source ownership and specifications when changing Nexus. | [nexus-development](../nexus-development/SKILL.md) |
 | `complexity-analysis` | Use structural measurements and repetition evidence to review Nexus changes. | [nexus-development](../nexus-development/SKILL.md) |
@@ -55,7 +57,8 @@ For architecture and Rust implementation, use
 [Rust guidance](../code-architect/references/rust.md) for immutable
 transformations, explicit domain types, typed dispatch, and deep interfaces. Use
 [code-complexity-analysis](../code-complexity-analysis/SKILL.md) to compare the
-structural cost of a design with its alternatives; the score guides source review.
+structural cost of designs. Use [tdd](../tdd/SKILL.md) to verify behavior changes
+and [code-deletion](../code-deletion/SKILL.md) to review obsolete implementation paths.
 
 ## Connect capabilities without collapsing their meaning
 

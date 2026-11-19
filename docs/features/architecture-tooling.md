@@ -31,7 +31,7 @@ flowchart TD
     H -->|check| J[Apply committed metric and repetition policy]
     K[scripts/check.sh] --> G
     K --> J
-    K --> L[Run both Python tooling test modules]
+    K --> L[Run Python tooling tests]
     K --> M[Run Rust format, default suite, and PostgreSQL server Clippy]
     N[Tracked pre-commit hook] --> K
     N --> S[Parallel advisory cross-model review]
@@ -61,7 +61,7 @@ flowchart TD
 9. **Run file, symbol, class, or feature analysis** produces metrics and overlap evidence as review leads for a requested scope.
 10. **Apply committed metric and repetition policy** makes `--check` use the reviewed BCA gates in `bca.toml` and the repository repetition policy in `complexity.toml`.
 11. **`scripts/check.sh`** is the single local validation entry point and runs each required check from the repository root. On macOS it selects installed Command Line Tools so unrelated full-Xcode license state cannot break the Rust linker.
-12. **Run both Python tooling test modules** verifies the feature-map and complexity-wrapper behavior together.
+12. **Run Python tooling tests** verifies feature exploration, skill routing, complexity policy, and repository support scripts.
 13. **Run Docker healthcheck regression, Rust format, default suite, and PostgreSQL server Clippy** proves the pre-ready startup watchdog before keeping compiler-backed validation and the complete SQLite application suite in the same path, then compiles and lints the PostgreSQL-only `nexus-server` binary with warnings denied.
 14. **Tracked pre-commit hook** invokes the shared check after `scripts/install-hooks.sh` configures this checkout's `core.hooksPath`. It clears Git's repository-local environment variables for validation children so temporary test repositories resolve from their own working directories; the subsequent staged-diff review retains the hook's Git context.
 15. **Parallel advisory cross-model review** runs code-architect and code-deletion perspectives after deterministic checks and prints their findings without converting them into a commit decision.
@@ -82,7 +82,14 @@ The Rust test subprocess does not inherit live Nexus bearer or model-provider ke
 
 `Cargo.toml` declares Rust 1.88 as the minimum supported toolchain, and the container builder uses the same baseline. CI may use a newer stable compiler, but code and dependency choices must remain compatible with that declared minimum.
 
-`AGENTS.md` contains the feature catalog and shared validation command. `tests/test_feature_map.py` verifies both a valid fixture and failures for missing Python types and an unmarked dynamic boundary; `tests/test_complexity_analysis.py` verifies the wrapper's scope translation, output, and threshold behavior. CI provisions Python 3.12 with `actions/setup-python` instead of modifying the runner's system-managed Python environment, keeping analyzer installation portable across Linux and macOS runners.
+`AGENTS.md` contains the feature catalog and shared validation command.
+`tests/test_feature_map.py` verifies annotation lint with fixtures and checks
+the repository's bundled skill guide. The shared gate fails if a declared
+feature lacks a unique route in `skills/nexus/SKILL.md`, a route or guide link
+points to a missing skill, or a bundled skill cannot be reached from that guide.
+`tests/test_complexity_analysis.py` verifies scope translation, output, and
+threshold behavior. CI provisions Python 3.12 with `actions/setup-python` to
+keep analyzer installation portable across Linux and macOS runners.
 
 The annotation model is deliberately file-first. A file's feature set applies to every discovered block in it, which avoids repetitive comments while ensuring every block resolves to documented ownership. Mixed files may declare multiple features; persistent ambiguity is a signal that the file may need a better boundary.
 

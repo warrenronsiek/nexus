@@ -44,8 +44,11 @@ result, while valid findings from the other perspective are retained.
 
 ## Reading and export
 
-The authenticated **Audits** view provides UTC period, control, and version
-filters. Its total covers the selected recorded cohort and its charts summarize
+The authenticated **Audits** view provides a rolling range with 24-hour,
+7-day, 14-day, and 30-day presets, plus UTC period, control, and version
+filters. The rolling range supplies the occurrence-time lower bound when both
+explicit dates are blank and defaults to seven days. The total covers the
+selected recorded cohort and the charts summarize
 the displayed page. Chart selections identify the runs contributing to each
 bar. Run details show the pinned definition, result and findings, receipt
 metadata, and subsequent dispositions, corrections and verification. A run URL
@@ -60,7 +63,7 @@ interval. The JSONL contains immutable records. The CSV indexes contain scoped
 execution and finding summaries, follow-ups, and chart data. The manifest
 records selection and completeness counts, omitted or redacted references,
 and SHA-256 hashes. The CLI can include explicitly selected, verified,
-same-project Nexus blobs. It never dereferences external or Git links.
+same-project Nexus blobs as `evidence/<sha256>`. It never dereferences external or Git links.
 The offline verify command checks the package bytes against the manifest.
 
 The deployment uses Nexus's shared credentials. Actor, executor, and verifier

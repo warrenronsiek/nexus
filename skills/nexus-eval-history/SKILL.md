@@ -7,7 +7,7 @@ description: Retrieve and explain Nexus evaluation history, including why cases 
 
 Read [the Nexus record and evidence contract](references/nexus-evals.md) for available commands, record structure, evidence capture, and import/export behavior.
 
-For a human overview, open the authenticated web interface through `nexus web` or the Compose service and select Evals. Choose a suite/target/repository/model set, then a metric to see trends alongside its definition, units, calculation, and exact values. Source records, rationale/history, and typed links retain the evidence. Metric revisions and assessment scopes remain separate. Charts disclose partial history and do not establish which result is better.
+Open **Evaluations** in the authenticated web interface through `nexus web` or the Compose service. Choose a project and a time range (24 hours, 7, 14, or 30 days), then select an agent and configuration in the **Agent** picker. The default is seven days by occurrence time. Metric panels show separate definition revisions and assessment scopes, calculation and units, trends where values can be plotted, and recent exact values. Use CLI or MCP history reads to follow the source records and their rationale or to inspect older evidence.
 
 Start with the user's question: a behavior, repository, model, run, case, or decision. List with the narrowest useful filters, follow pagination, then inspect records and their rationale links. Use `why` to traverse motivating evidence; the attached rationale explains a change, while a later summary is an interpretation of it.
 

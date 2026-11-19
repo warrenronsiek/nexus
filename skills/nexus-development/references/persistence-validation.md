@@ -57,8 +57,9 @@ child was harmless; preserve already-buffered output within the existing caps.
 
 Hook installation configures this checkout's `core.hooksPath=.githooks`. The
 canonical check composes feature annotations, BCA/repetition policy, Python
-tooling tests, locked Pi validation, Docker healthcheck regression, Rust format,
-Clippy for both backends, and the default Rust suite. Use focused checks while
+tooling tests, locked Pi and browser validation, the generated browser bundle
+check, Docker healthcheck regression, Rust format, Clippy for both backends,
+and the default Rust suite. Use focused checks while
 developing, then complete this shared gate. Honor its test isolation and deadline
 policy rather than bypassing assertions or introducing live provider credentials
 into fixtures. Rust code must support the version declared in `Cargo.toml`.
@@ -101,6 +102,8 @@ settings, `review.timeout_seconds`, and optional `review.skill_root`. Inspect
 resolved configuration with `nexus config show` and validate it with
 `nexus config check`; use the setup skill to change configuration deliberately.
 The default skill lookup is `$CODEX_HOME/skills` or `~/.codex/skills`.
+Use the [audit registry guide](../../nexus-audit/SKILL.md) when the project has
+defined a control and wants an explicit, replayable record of both perspectives.
 
 To integrate with another repository's existing pre-commit workflow, retain its
 deterministic checks, then invoke the installed command from that repository. Keep

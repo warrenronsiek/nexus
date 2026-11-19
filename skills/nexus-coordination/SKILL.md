@@ -54,6 +54,7 @@ Run CLI commands from the relevant checkout with its normal Nexus configuration:
 
 ```sh
 nexus sessions
+nexus sessions --all --session "$SESSION_ID" --worktree "$RECORDED_PATH"
 nexus claims
 nexus conflicts
 nexus events --limit 32
@@ -62,11 +63,13 @@ nexus events --limit 32
 Active lists and dashboard counters describe recent coordination evidence: sessions
 age out after the claim TTL unless they retain a live lease, and open conflicts
 require current claims from both original sessions on the path. Stop, release, or
-expiry removes the live overlap at once and moves the stored conflict to `ended`
-(explicit resolutions stay `resolved`) without deleting its history; a later overlap
-between the same sessions on the same path reopens it. Use
+expiry removes the live overlap immediately. Bounded maintenance records the
+closure as `ended`, preserving history and any explicit `resolved` state. A later
+overlap between the same sessions on the same path can reopen it. Use
 `nexus sessions --all` and `nexus conflicts --all` for history. Dashboard counts
-also include `recent_conflicts` and `recent_advisories` for the last seven days.
+also include `recent_conflicts` and `recent_advisories`. Status uses a rolling
+seven days. The browser offers 24 hours, 7 days, 14 days, and 30 days for the
+recent counts and session picker, with 7 days selected by default.
 
 An advisory names the other session, for example
 `codex (session 3f2a9c1b) has an active claim on src/lib.rs`, using its host
@@ -79,15 +82,23 @@ conflict and advisory counts) and `session_timeline` with a `session_id`. The
 timeline lists conflicts detected and closed, plus every advisory Nexus delivered
 to the session (`received`) or to its counterpart about this session's claim
 (`sent`), oldest first and bounded to the newest 500 entries. The browser exposes
-them as `coordination_session_index` and `coordination_session_timeline`. An
-`advisory_ignored` event means successful continuation after an advisory; it does
-not verify host delivery or agent acknowledgement.
+them as `coordination_session_index` and `coordination_session_timeline`. The
+browser date range filters the picker, and an exact timeline read can still
+open an older session. An `advisory_ignored` event means a tool completed
+successfully after an advisory. Host delivery and acknowledgement remain
+unverified.
 
 The matching MCP tools are `nexus_sessions`, `nexus_claims`, `nexus_conflicts`,
 and `nexus_events`. Read schemas for their optional project and scope filters;
 CLI `--all` and MCP `scope: "all"` select historical states, but responses remain
 bounded and expose `truncated`. An empty bounded view establishes only what that
 view contains. Inspect actual files and Git state before making a merge decision.
+
+`nexus sessions` can match the full stored session ID, the exact recorded
+worktree string, or both together. The matching MCP fields are `session_id`
+and `worktree`, with `project_id` available to select a project. Use the full
+ID from the record. Some remote records have no worktree, so use their session
+ID and project scope.
 
 When the caller has chosen a response, record it using the returned conflict ID:
 
@@ -103,7 +114,8 @@ Do not clear another active agent's claims merely to remove a warning. The
 corresponding tools are `nexus_resolve` and `nexus_release`.
 
 For a difficult stored overlap, `nexus analyze "$CONFLICT_ID"` or
-`nexus_analyze` requests the configured read-only analyst. This is an explicit
+`nexus_analyze` with `{"conflict_id":"…"}` requests the configured read-only
+Codex or Claude analyst. This is an explicit
 provider invocation with normal configured cost and availability. It offers
 advice, leaves deterministic severity intact, and does not edit or authorize
 work. A failed analyst is an ordinary command error, not evidence of a code
@@ -173,8 +185,3 @@ database failure; this isolation does not make missing observations replayable.
 Aggregate write transactions still serialize in PostgreSQL to preserve shared
 memory and conflict history. Readiness observes both stores and checks the
 database independently.
-
-Use `nexus sessions --session SESSION_ID`, `--worktree RECORDED_PATH`, or both
-for a narrowly scoped lookup. Add `--all` when looking up a historical session.
-The browser session picker defaults to the last seven days and can be widened
-or narrowed with its time range control.

@@ -18,10 +18,11 @@ The caller owns its workflow and decisions about adopting or creating tools.
 ## Use the existing capture first
 
 `nexus setup` wires Codex and Claude lifecycle hooks. Pi observes tools and
-explicit `/skill:name` activation whenever its installed extension is loaded,
-independently of whether `/nexus` is open. The stdio companion performs bounded
-checkout-side script/skill detection and semantic enrichment in local or remote
-mode; the shared server never opens client paths or executes the classifier.
+explicit `/skill:name` activation whenever its installed extension is loaded.
+Script and skill detection run beside the checkout, through the local daemon
+or the stdio companion for a remote service. The stdio companion also handles
+semantic enrichment. The shared server receives bounded client observations
+and classification reports.
 Nexus's own provider processes (reviewers, memory consolidation, analysts,
 triage, classification) carry `NEXUS_INTERNAL_PROCESS=1`, so their tool use is
 never counted as observed usage.
@@ -40,11 +41,9 @@ fallback preserves stdio and exit behavior:
 nexus exec -- python3 ./scripts/check_data.py
 ```
 
-This observation appears in **Legacy**; it does not provide the entire semantic
-analytics or availability contract. For durable task timing and causal lineage,
-use [work history](../nexus-work-history/SKILL.md) and its documented wrapper
-options. Avoid wrapping the
-same command repeatedly just to increase observations.
+Read counts for the wrapped script, including its recorded outcomes, through
+the `nexus_usage` MCP tool. For durable task timing and causal lineage, use the
+wrapper options in [work history](../nexus-work-history/SKILL.md).
 
 ## Record availability separately from use
 
@@ -88,9 +87,10 @@ descriptions and persisted category/purpose labels generic and free of secrets.
 ## Inspect evidence and counting semantics
 
 Open the authenticated web interface through `nexus web` or the Compose service.
-Tools provides **Activities**, **Capabilities**,
-**Opportunities**, and **Legacy**; Skills has its own tab. All use rolling
-seven-day observations. For agents, discover and call `nexus_analytics`:
+Tools provides **Activities**, **Capabilities**, and **Opportunities**.
+These views and the skill invocation counts in **Skills** use rolling
+seven-day observations. Open a counted skill to read its latest captured
+manifest. For agent reads, call `nexus_analytics` with one of these actions.
 
 ```json
 {"action":"summary"}
@@ -105,13 +105,16 @@ seven-day observations. For agents, discover and call `nexus_analytics`:
 name (for example `rg` versus `grep` within code search), each with a complete,
 zero-filled grid of 28 six-hour bins over the rolling window; names beyond the
 top 20 fold into a final `other` series. `skill` returns the newest captured
-`SKILL.md` text for a skill, or null fields when no capture exists yet.
+`SKILL.md` text in the selected scope even if it was captured before the rolling
+count window. An unchanged manifest keeps its original capture time. Use this
+as guidance text and the associated usage records as activation evidence. If
+no text was captured, Nexus can still return an inventoried description.
 
-Pass `project_id` when explicitly inspecting a project; an omitted scope follows
-the configured transport's read binding. Page catalog and implementation examples
-instead of treating the first page as a complete registry. `nexus_usage` exposes
-legacy tool/script/skill counts and capture health. There is no separate
-`nexus analytics` CLI command; use MCP or the web interface.
+Set `project_id` on a scoped read when inspecting a particular project. Omitted
+scope follows the configured transport's read binding. Use `next_offset` to
+page catalog and implementation examples. `nexus_usage` exposes the seven-day
+tool, script, and skill counts and the service's received, recorded, and
+dropped capture counters.
 
 Report invocation counts separately from identified operations: one call may
 contain multiple operations/categories, and a parent with observed child calls
