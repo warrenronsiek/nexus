@@ -1,6 +1,6 @@
 ---
 name: nexus-pr-management
-description: Use when asked to shepherd a PR, promote a release, or coordinate delivery. Register responsibility when work starts, release it when finished, trace original contributors, and retain rollout and remediation evidence in Nexus.
+description: Use when asked to shepherd a PR, promote a release, or coordinate delivery. Register and release responsibility, trace original contributors, assess promotion dependencies, and route addressed remediation with a verified receipt.
 ---
 
 # Keep implementation context through delivery
@@ -187,56 +187,105 @@ links; delivery coordination should not copy or reparent every contributor's wor
 
 ## Route failures back to implementation
 
-Ask Nexus using the failing deployed revision and the narrowest available scope:
+Ask Nexus using the failing revision and the narrowest recorded scope.
 
 ```sh
 nexus delivery origin --repository acme/service --revision FULL_OBJECT_ID \
   --path src/cache.rs --line-start 20 --line-end 35
-nexus delivery origin --repository acme/service --feature cache
+nexus delivery origin --repository acme/service --revision 01ab23c4 \
+  --pull-request 42 --rollout ROLLOUT_ID --branch beta --feature timeline
 nexus delivery origin --repository acme/service --fingerprint FULL_64_HEX_FINGERPRINT
 ```
 
-The response returns original contributors, rationale, constraints, source and
-result mappings, known work/contact references, qualification, and evidence gaps.
-Exact, candidate, ambiguous, and unknown results are meaningful. A feature-only
-query provides leads; verify them against the failure before assigning blame.
-Repository-qualified hunk fingerprints can match retained content across changed
-commit identities. Use the recorded 64-hex content fingerprint; identical content
-attributed to multiple contributors remains ambiguous rather than selecting one
-author.
+A revision prefix requires a repository and at least four hexadecimal characters.
+It expands only to a unique recorded commit. Add more digits if ambiguous.
+Provider PR numbers use GitHub by default and require the repository. Use
+`--pull-request-id` for an internal delivery ID. With a revision prefix,
+provider PR number, branch, or `--fallback`, Nexus tries the revision or
+fingerprint, PR composition, rollout manifest, branch, then feature. Other
+combinations of legacy selectors keep their intersecting scope.
 
-For an evidenced failure, record `remediation_requested` with its recipient,
-contribution/PR/rollout/deployment links, failing revision, evidence, and the
-specific requested investigation. Link a Code concern when a defect is known;
-use [Code concerns](../nexus-code-concerns/SKILL.md) for its encounters/remedies.
-Include the original rationale and constraints in the handoff context instead of
-asking the next agent to infer intent from the final code blob.
+Read `matched_by`, qualification, rationale, and the activity groups before
+choosing a recipient. A pinned contribution head can establish commit-level
+candidates. Line-level attribution requires retained hunk evidence. A recorded
+64-hex hunk fingerprint can survive changed commit identities. Multiple matches
+remain visible with their own evidence.
 
-Check `nexus delivery inbox` for pending requests. The recipient appends
-`remediation_transitioned` with expected/current state, reason, and a fixing
-revision when known. A request, acknowledgment, in-progress attempt, and verified
-resolution are different observations. Preserve declined or unreachable states.
+For an evidenced failure, queue an addressed investigation from the same
+origin selectors or from the unique location or feature on a recorded Code concern. See the [Code concerns guide](../nexus-code-concerns/SKILL.md).
 
-## Contact and availability
+```sh
+nexus delivery remediate --repository acme/service --feature timeline \
+  --title 'Investigate the rollout' --message 'Check the timeline replay' --evidence-file links.txt
+nexus delivery remediate --concern CONCERN_ID \
+  --title 'Investigate the regression' --message 'Review the linked evidence'
+nexus delivery remediation-status REQUEST_ID
+```
 
-Use actual host/thread contact references and `agent_presence_observed` evidence.
-The registration is durable; reachability is an observation with its own time.
-No presence record means unknown. A host may be stopped while its contribution
-remains attributable and its remediation request remains pending.
+Provide one evidence reference per line in the evidence file or repeat
+`--evidence`. Use `--agent` and `--session` to select an intended recipient when
+the evidence is ambiguous. Specify the repository if the recipient has matches
+in several. Use an explicit `--id` and replay the same request for a delivery
+retry. The MCP equivalents are `remediate`, `remediation_status`, and
+`acknowledge` on `nexus_delivery`.
 
-Nexus retains routing references and an inbox. Sending a native host message or
-resuming an old chat requires that host's supported tools and caller authorization.
-Do not claim that recording a remediation delivered it, woke the original agent,
-or made the agent accept the task. When a host cannot be reached, return the
-context packet and record an explicit successor or unreachable outcome.
+The recipient's next supported prompt can surface a bounded preview.
+`nexus delivery inbox` lists pending requests. After viewing the request, the
+addressed agent can run `nexus delivery acknowledge REQUEST_ID` from the same
+bound host identity. Status reports request state, verified receipt, explicit
+presence evidence, and the recipient's last observed session activity separately.
+Idle sessions can leave requests queued. Native chat messaging and resuming
+old chats require the host's supported tools and caller authorization.
+
+Use `remediation_transitioned` with expected state, reason, and the fixing
+revision when known to retain progress, resolution, or declined and unreachable
+outcomes. For an investigation needing detailed revision and delivery links,
+submit a typed `remediation_requested` observation with those references and
+the requested work, keeping the original rationale and constraints available.
+
+## Check environment evidence before promotion
+
+Record the required key names for the exact candidate revision and the
+repository responsible for each key. The requirements JSON contains `id`,
+`revision` (with `repository`, `object_format`, and full `commit`), and `requires` entries
+with `repository` and `key`. The inventory JSON contains `id`, `repository`,
+`environment`, `keys`, `complete`, and a UTC `expires_at`. Keep configuration
+and secret values in their existing systems.
+
+```sh
+nexus delivery environment-record requirements requirements.json
+nexus delivery environment-record inventory beta-inventory.json
+nexus delivery environment-record advisory --environment beta \
+  --title 'Database contention' --description 'Compare timings after the backlog clears' \
+  --expires-at FUTURE_UTC_TIMESTAMP
+nexus delivery environment --environment beta --pull-request-id PR_RECORD_ID
+nexus delivery check-history --repository acme/service --check 'timeline replay'
+```
+
+Assess the registered head when the promotion PR opens or advances. To check
+a standalone candidate, supply `--repository` and a full `--revision` instead
+of `--pull-request-id`. An absent `requirements_id` means requirements are
+unknown. A fresh inventory establishes listed keys as present. Omission from a
+fresh, complete inventory establishes a missing key. Incomplete, expired, or
+absent evidence leaves unresolved keys unknown. Read the environment alone before
+benchmarking or replaying there to see active advisories.
+
+Set `promotion_environment` on a PR watch to include readiness in
+`nexus delivery watches` and its browser watch panel for the retained open
+PR head. The environment read returns per-key evidence. Check history uses
+the exact recorded check name and returns distinct PR IDs with failures on
+retained snapshot heads. It defaults to seven days. Set `--since` for a different
+UTC cutoff and check the `partial` flag before making coverage claims.
 
 ## Inspect and verify
 
 The authenticated **Pull requests** view shows registered PRs, their shepherds,
 rollouts, original contributions, exact revisions/checks, file/feature mappings,
-deployment attempts, and remediation history. All browser reads are read-only;
-use CLI/MCP for registration and handoff. Follow observation times, stale reads,
-unknown availability, candidate matches, and bounded history notices.
+deployment attempts, and remediation history. The list defaults to seven
+days and offers 24 hours, 7, 14, and 30 days. It uses record update time.
+A direct record link still opens its retained evidence. Use CLI/MCP for
+registration and handoff. Follow observation times, stale reads, unknown
+availability, candidate matches, and bounded history notices.
 PR and contribution details show mapped file paths beside sampled current claims
 and overlaps. Follow a session link to Coordination for its evidence. These live
 advisories do not establish implementation authorship; no match means no overlap
@@ -247,49 +296,3 @@ an aggregate promotion, a failed environment attempt, provenance lookup, and a
 remediation response. Check source identity and assignment history after one agent
 stops. Unavailable Nexus capture must not stop or repeat the caller's workload.
 Hand over concrete project, contribution, PR, rollout, deployment, and request IDs.
-
-## Use the short handoff and check environment evidence
-
-```sh
-nexus delivery origin --repository acme/service --revision 01ab23c4 --pull-request 42 --branch beta --feature timeline
-nexus delivery remediate --repository acme/service --feature timeline --title 'Investigate the rollout' --message 'Check the timeline replay' --evidence-file links.txt
-nexus delivery remediate --concern CONCERN_ID --title 'Investigate the regression' --message 'Review the linked evidence'
-nexus delivery remediation-status REQUEST_ID
-```
-
-The revision prefix must identify one recorded revision. The pull request
-number uses GitHub by default. Supply `--pull-request-id` for an internal
-delivery record ID. A revision prefix, provider PR number, or branch
-uses ordered fallback when other selectors are supplied. Pass `--fallback`
-to use the same ordering with legacy selectors. Check `matched_by`, `qualification`, and the grouped
-evidence before assigning a recipient. Use `--agent` with `--session` to
-select among candidates. Pass an explicit `--id` for replayable submissions.
-
-The recipient's next supported prompt hook can surface a queued handoff.
-Run `nexus delivery acknowledge REQUEST_ID` in the addressed host context
-after viewing it. MCP provides `remediate`, `remediation_status` and
-`acknowledge` for bound sessions. The status includes the recipient's last
-observed session activity and verification of receipt. A request can stay
-queued when its host is idle.
-
-At promotion PR open or head change, run the environment assessment against
-the registered PR head. Record only key names and supply an expiration for
-inventories and advisories. The PR workflow owns its promotion decision.
-
-```sh
-nexus delivery environment-record requirements requirements.json
-nexus delivery environment-record inventory beta-inventory.json
-nexus delivery environment --environment beta --pull-request-id PR_RECORD_ID
-nexus delivery check-history --repository acme/service --check 'timeline replay'
-```
-
-Check `requirements_id` before treating an empty dependency list as a
-declaration of zero dependencies. A fresh, complete target inventory can
-establish that a key is missing. Query `delivery environment` with the
-environment name before benchmarking or replaying there to see active
-operational advisories. Check history defaults to the last seven days and
-counts distinct PRs across repeated observations.
-
-Set `promotion_environment` on a watch registration to see readiness in
-`nexus delivery watches` for the retained open PR head. Use the environment
-read for per-key evidence.

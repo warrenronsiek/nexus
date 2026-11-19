@@ -235,28 +235,22 @@ these differ from the database-wide portable format-five stream. `schema` prints
 the `WorkAction` contract used by the `nexus_work` MCP tool. CLI `show` maps to
 MCP `get`; recording conveniences submit the corresponding typed observations.
 
-The authenticated web Work view defaults to a visual overview: qualified session
-counts, total/mean observed session durations, activity-kind inclusive-duration
-bars, and UTC-day means/totals across time. Selecting a parent session shows its
-own interval, qualified accounting, and a vertically scrollable waterfall of
-all retained descendants. Time runs down one proportional axis, and children
-branch to the right at their source start. Its labeled UTC origin is the earliest
-retained source boundary, including tasks queued before the session. Parallel siblings occupy separate
-lanes; completed spans terminate, and unknown finishes use dotted continuations.
-Queue admission and execution start are separate markers on the same task lane;
-dotted queue segments do not create another execution or worker.
-Zoom and pan preserve source boundaries. Missing parents stay visibly unresolved,
-including when a child outlives its parent. Root and task selection follows the recorded
-hierarchy, reveals its span in both axes, and highlights it on the graph. A panel
-immediately below shows kind/category, state/outcome, source and elapsed/queue
-timing, executor, parent, gaps, and conflicts without opening a separate record.
-Colors group recorded kind families as subagents, tests, scripts, reviews,
-tools/commands, or generic work/sessions. Custom kinds remain Other; titles do not
-drive classification. The legend and textual labels retain meaning independently of color.
-The same view is available from a session reached through ordinary paginated
-source browsing. The secondary record list preserves hierarchy, filters, details, links, and immutable
-observations for audit work. See [web observability](observability-ui.md) for the
-read-only inspection and authentication boundary.
+The authenticated Work history view starts with average or total elapsed time
+by activity kind for sampled harness sessions. Pick a session to open a
+scrollable execution tree of its retained descendants. Time runs down from
+the earliest retained source boundary, and individual activities branch
+right at observed admission or start. Parallel work has distinct lanes.
+Filled ribbons show qualified execution, dotted ribbons show observed waiting,
+and hollow dashes show unknown intervals. An open boundary marks an execution
+whose finish was unobserved.
+
+Use Fit, zoom, or pan to inspect the tree. Select an activity for its label,
+kind, recorded elapsed time, outcome, and operation evidence. Exact source
+times, executor, parentage, and capture gaps remain available in source
+reads. The legend distinguishes kind families independently of titles.
+Use the paginated CLI and MCP source reads for additional filters, hierarchy,
+links, and immutable observations. See [web observability](observability-ui.md)
+for the read-only inspection and authentication boundary.
 
 ## Visual duration reads
 
@@ -274,11 +268,13 @@ meanings. Nested and parallel activity intervals overlap; their sum is neither
 effort nor a reconstructed prompt-to-production duration. Shared activities are
 counted once per identity within the selected scope. Source dates use UTC start,
 or first source occurrence when no start is known. Repository/environment and
-other legacy list filters remain in the secondary audit view.
+other list filters remain available through CLI and MCP source reads.
 
-Project scans select the most recently received 4096 session roots and at most
-8 MiB of projected summary payloads. The all-origin overview also scans the most
-recently received 4096 activities independently, so it can count unlinked work.
+Project scans select up to 4096 recent roots and at most 8 MiB of projected
+summary payloads. The all-origin overview samples up to 4096 activities
+independently, so it can count unlinked work. With `occurred_after`, the
+candidate window filters and orders by source occurrence time. Otherwise
+the query orders by receipt time.
 
 A harness root has recorded work only when its membership index contains an
 activity whose kind is not a host container (`host.session`, `request`,
@@ -322,7 +318,7 @@ pages of 64 rows (including stale/corrected links), so unrelated newer work
 does not hide an older session's tasks. Existing 1024-observation/lineage projection
 limits still apply and remain visible as gaps. Display lists cap at 512 sessions
 (512 KiB) and 512 activity summaries (128 KiB). The separate compact waterfall
-retains up to 4096 interval nodes within 384 KiB. It prioritizes each operation's
+retains up to 4096 interval nodes within 512 KiB. It prioritizes each operation's
 most recent known queue/start/finish time, retaining its recorded ancestors before
 the operation so display bounds preserve available parent context. Missing times
 remain unknown and cycles remain source conflicts; retention does not infer
@@ -350,8 +346,7 @@ query, bounded to 129 scope/identity pairs for at most 64 requested subjects.
 Session membership and activity parent edges retain their distinct meanings.
 
 
-Selected-session accounting uses one shared projection for CLI/MCP and the
-authenticated web interface. `occupied_wall` is the clipped union of qualified queue intervals
+Selected-session accounting comes from the shared MCP and browser dashboard projection. `occupied_wall` is the clipped union of qualified queue intervals
 and intervals explicitly labeled `nexus.accounting.role=execution` or `wait`; containers and unknown roles
 cannot make work look fully attributed. `unobserved` is the remaining qualified
 session interval, with exact UTC gap boundaries. It is not inferred idle, model
@@ -446,13 +441,11 @@ the original entries for idempotent retry.
 
 The dashboard query accepts `session_origin: "host"` to select automatic harness
 roots by their recorded `nexus.capture.host` adapter metadata. Omitting the field
-keeps all caller-owned work sessions available. The web overview requests
-harness roots by default; its source browser retains standalone commands, shared
-logical work, and unlinked activities. Operation traffic cannot displace roots
-from their independent source window. Both windows and display caps remain
-explicit; older roots beyond the root window require paginated source browsing.
-Activity charts in the harness overview cover resolved membership in the scanned
-harness roots. Selecting a root retrieves its descendant inventory separately.
+keeps all caller-owned work sessions available. The browser requests harness
+roots by default. CLI and MCP source reads retain standalone commands, shared
+logical work, and unlinked activities. The overview samples roots independently
+from operations. A known session ID opens the session and its retained
+descendants even when its root falls outside the overview window.
 
 Outbox inventory visits the complete retained directory before reporting health
 or choosing delivery candidates. Delivery retains only the oldest sixteen pending
@@ -586,9 +579,10 @@ capacity, duplicate membership events, whole-root inclusion, and the oversized
 newest-root fallback retain their existing meanings without counting every
 member of roots outside the selected window.
 
-Browser Work history passes a source-time cutoff in `work_dashboard`. The
-`occurred_after` dashboard filter applies to candidate roots and any overview
-activity sample before projection. The ordered source-time indexes cover both
-all-origin and host-root reads. An explicit selected session and its observed
-descendants remain available for older deep links. CLI and MCP dashboard
-queries can supply the same cutoff explicitly.
+The browser offers rolling 24-hour, 7-day, 14-day, and 30-day Work ranges
+and defaults to seven days. `work_dashboard` applies the server-computed
+`occurred_after` cutoff to candidate roots and any overview activity
+sample before projection. The ordered source-time indexes cover all-origin
+and host-root reads. An explicitly selected session and its observed
+descendants remain available for older deep links. MCP callers can supply
+the same cutoff explicitly to `nexus_work`'s `dashboard` action.

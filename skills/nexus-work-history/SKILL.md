@@ -25,22 +25,6 @@ Use `nexus work schema` and the installed command's `--help` as the current API
 contract. Prefer existing host capture and named boundaries over adding manual
 recording to every tool call.
 
-If the Work browser times out and blocks other reads on a large store, inspect
-the service version, database query plans, and readiness logs. Schema V24 adds
-the exact analytics session and call-action lookup indexes used by tool-operation
-enrichment. Schema V25 adds a compact PostgreSQL index for exact project event
-counts. Schema V26 covers membership source-scope filters so whole-session sample
-counts avoid reading link payloads. Schema V27 adds the subject-kind lookup used
-by request timing so cold reads avoid scanning unrelated activity history. The host
-overview excludes already hidden container-only roots before source projection;
-explicit selection still returns their full detail and activities. Whole-root sampling
-reads only enough distinct memberships to fill the remaining overview capacity
-and detect overflow, rather than counting an entire oversized session. Work child discovery uses batched indexed existence checks, and overview
-statistics avoid fetching operation details that are returned only by selected
-timelines and activity detail. Upgrade through the normal migrations; retain the observation history. Explicit
-store acquisition returns unavailable after a bounded wait rather than occupying
-a blocking worker indefinitely; that failure does not mean the read succeeded.
-
 For native request/turn/child callbacks, active identity handoff, asynchronous
 execution events, session names, and source capability verification, read
 [host adapters](references/host-adapters.md). A host callback permission response
@@ -107,41 +91,50 @@ repository/full Git object ID/file path when Git retains the
 bytes; use explicit blob evidence when it does not. Report gaps rather than
 claiming complete visibility into unseen agent internals.
 
-## Verify and hand over
+## Verify capture
 
 Exercise a representative nested workflow and a real failed attempt. Check
 parentage, distinct retry IDs, source boundaries, outcomes, and links. Verify
-that unavailable Nexus capture does not change or repeat the workload. Validate
-queued-versus-acknowledged state separately.
+that unavailable Nexus capture does not change or repeat the workload. Confirm
+which observations were queued and which had a receipt.
 
-Inspect roots with `work list`, invocations with `work activities`, and immediate
-children with `work timeline`. Follow cursors; use `show` and `events` for source
-observations, conflicts, and gaps. Root filters apply to root attributes; use
-activity search for task-kind filters. The authenticated web Work view opens a
-qualified duration dashboard: session totals/means, activity-kind summaries, and
-UTC-day trends. Select a parent session for a vertically scrollable waterfall of
-its retained descendants. Time runs down; child tasks branch right at source
-admission/start and parallel spans keep separate lanes. Select a node to highlight
-its span and inspect kind/category, state/outcome, source and elapsed/queue timing,
-executor, parent, gaps, and conflicts directly below. Zoom and pan preserve source
-boundaries. Colors, labels, and the legend distinguish recorded kind families;
-custom kinds remain Other. Source browsing retains filters, hierarchy, links,
-original observations, and older sessions.
+## Read recent sessions and source records
 
-Dashboard samples are capped and explicitly partial when a history or display
-bound applies. A mean uses timed, conflict-free samples; an unknown interval is
-not zero. Inclusive sums are not total effort or prompt-to-production lead time.
-Qualified queue waits and explicitly labeled execution/wait intervals contribute
-to attributed wall time; label containers `nexus.accounting.role=container` and retain unknown roles
-when their meaning is unavailable. Unobserved time is not inferred idle or model
-reasoning. Worker occupancy is separate from execution totals and CPU time.
-Session titles should come from authoritative host metadata, never a guessed
-summary of prompt content. Without one, a harness root reads as host and worktree
-directory. Preserve logical shared-work titles independently.
+Inspect roots with `nexus work list`, invocations with `nexus work activities`,
+and immediate children with `nexus work timeline`. Follow cursors. Use
+`nexus work show` and `nexus work events` for observations, conflicts, and gaps.
+Root filters apply to root attributes. Apply task kind filters to activity reads.
 
-Hand over root and important activity IDs, instrumentation locations, covered
-sources, delivery recovery, and what remains unknown. Explain what the evidence
-establishes while leaving the caller in control of its workflow.
+In the authenticated Work history view, select the project and time range
+(24 hours, 7, 14, or 30 days), then choose a harness session. The picker
+defaults to seven days and the URL retains the chosen scope. An exact link
+still opens an older session and its observed descendants. Before selecting a
+session, Where time goes summarizes elapsed time by activity kind across the
+sampled roots.
+
+The `dashboard` action on `nexus_work` defaults to all roots. Use
+`session_origin: "host"` for the browser's harness scope, `occurred_after`
+with a UTC timestamp for a source-time cutoff, and `work_session_id` to
+retrieve one session's descendants. The host overview omits sessions that
+only recorded containers (`host.session`, `request`, `host.turn`);
+`hidden_session_count` reports the omitted roots. Source reads retain
+standalone commands and shared logical work. The host sample prioritizes
+whole recent sessions, with its size in `activity_session_count`. Each
+row's `active_seconds` is known when its human request intervals are
+timed and conflict-free. Host lifetime includes time between prompts.
+
+In the scrollable execution tree, time runs down and individual activities
+branch right at their observed boundaries. Use Fit, zoom, or pan to inspect
+dense sessions. Select a call for its label, kind, elapsed time, outcome,
+and correlated operation evidence. Read `show` or `events` for exact source
+times, executor, parentage, and capture gaps. Session names come from host
+metadata when available. Otherwise host and worktree identify the session.
+
+Read truncation notices before interpreting aggregates. Means use timed,
+conflict-free samples. Inclusive durations can overlap. Worker occupancy,
+qualified elapsed time, and CPU time measure different things. Use
+`nexus.accounting.role=container` for enclosing spans. Explicit execution and
+wait intervals with the exact executor can qualify parts of a container.
 
 Keep an unavailable model unknown; empty optional host model hints normalize to
 absence. A successful advisory hook is not a delivery receipt: inspect
@@ -168,28 +161,11 @@ records use transactional batch delivery; a local pending receipt can still
 represent an uncertain acknowledgment. Confirm the exact canonical observation
 before treating such a receipt as already delivered.
 
-The Work dashboard starts with harness-owned sessions, then opens their recorded
-operations and qualified durations. Source browsing keeps all caller-owned records
-accessible, including standalone invocations and shared logical work. The API's
-`dashboard` action defaults to all roots; `session_origin: "host"` selects roots
-with recorded harness adapter metadata. Harness roots whose recorded members are
-only host containers (`host.session`, `request`, `host.turn`) are hidden from the
-session list and its counts (`hidden_session_count` discloses them); nothing is
-deleted. Harness overview activity statistics cover whole visible sessions, newest
-first (`activity_session_count`), rather than the newest operations anywhere.
-Session duration is the host lifetime and includes idle time; each row's
-`active_seconds` sums its timed human requests and `active_duration` aggregates
-them. Untitled harness roots read as `claude · <worktree directory>` with the host
-session ID still in `context.host_session_id`. Local outbox health
-counts every retained pending boundary, including legacy oversized backlogs;
-flush uses bounded pages without discarding pending evidence.
-
 Use `nexus work flush --limit 256` for an oversized retained backlog. Each
-explicit recovery pass holds at most 1 MiB of payloads and attempts delivery for
-up to ten seconds. Repeat and inspect health; automatic hooks retain their short
-delivery budget. The host-root candidate index is backfilled by the normal
-ordered migration and rebuilt by imports, so caller-owned standalone commands
-cannot crowd harness sessions out of their source window.
+explicit recovery pass holds at most 1 MiB of payloads and attempts delivery
+for up to ten seconds. Repeat and inspect health. Automatic hooks retain their
+short delivery budget. Local health includes every retained pending boundary,
+including legacy oversized backlogs.
 
 A named legacy harness root may predate host metadata. Nexus recognizes its
 original companion producer and exact recorded host-root identity; importing
@@ -219,7 +195,12 @@ work outbox independently of optional analytics enrichment. The compact timeline
 shows at most three operations with a truncation gap; full activity detail keeps
 all correlated operations. Dense sessions get more vertical source-time space.
 
-The browser Work history picker defaults to seven days. Its URL retains the
-selected time range. An older session link still loads that session's
-observed descendants. MCP dashboard reads accept an explicit
-`occurred_after` UTC timestamp to request the same source-time filter.
+For a slow Work read, inspect the installed service version, query plan, and
+readiness logs. V30 indexes the candidate source-time window before projection.
+Earlier migrations V24–V27 index operation enrichment, event counts, membership
+and subject kinds. Explicit store acquisition has a bounded wait. Treat an
+unavailable response as a failed read and retain the observation history when
+upgrading.
+
+Hand over root and activity IDs, instrumentation locations, verified source
+coverage, delivery recovery, and remaining evidence gaps.

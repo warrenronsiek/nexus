@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,40 @@ def load_feature_map() -> ModuleType:
 
 
 class FeatureMapTests(unittest.TestCase):
+    def test_nexus_guide_routes_every_annotated_feature(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        guide = root / "skills" / "nexus" / "SKILL.md"
+        feature_map = load_feature_map()
+        features = {feature for source in feature_map.read_sources(root) for feature in source.features}
+        routes = re.findall(
+            r"^\| `([\w-]+)` \|.*\]\((\.\./[\w-]+/SKILL\.md)\) \|$",
+            guide.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        self.assertCountEqual([feature for feature, _ in routes], features)
+        for feature, link in routes:
+            with self.subTest(feature=feature):
+                self.assertTrue((guide.parent / link).is_file(), link)
+
+    def test_nexus_guide_can_reach_every_bundled_skill(self) -> None:
+        skills = Path(__file__).resolve().parents[1] / "skills"
+        targets = {path.resolve() for path in skills.glob("*/SKILL.md")}
+        visited: set[Path] = set()
+        pending = [skills / "nexus" / "SKILL.md"]
+        while pending:
+            path = pending.pop()
+            if path in visited:
+                continue
+            visited.add(path)
+            links = re.findall(
+                r"\]\((\.\./[\w-]+/SKILL\.md)\)", path.read_text(encoding="utf-8")
+            )
+            for link in links:
+                target = (path.parent / link).resolve()
+                self.assertIn(target, targets, f"{path}: {link}")
+                pending.append(target)
+        self.assertEqual(targets, visited)
+
     def test_explores_elm_application_and_browser_sources_without_generated_elm(self) -> None:
         feature_map = load_feature_map()
         with tempfile.TemporaryDirectory() as directory:

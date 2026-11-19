@@ -11,14 +11,15 @@ the existing composite indexes remain available for ordered event pages.
 
 ## What this feature does
 
-Nexus serves an authenticated browser application for Coordination, SOS, Tools,
-Skills, Memory, Papercuts, Evals, Work, Code concerns, and Pull requests. Visual summaries come
-first; selecting a session, metric, area, or record reveals its evidence. The
+Nexus serves an authenticated browser application for Coordination, Work history,
+Pull requests, Audits, Evaluations, Tool intelligence, Skills, Code concerns,
+Papercuts, SOS, and Agent memory. Selecting a session, metric, area, or record
+reveals its evidence. The
 application replaces the native and Pi terminal dashboards. Pi retains its
 headless tool/skill capture, capability inventory, and automatic memory context.
 
-The application is read-only across all ten surfaces. Memory supports browsing,
-search, summary expansion, and health inspection. Adding notes remains a CLI/MCP
+The application is read-only. Memory supports browsing,
+summary expansion and health inspection. Adding notes remains a CLI/MCP
 operation; summary invalidation and requested consolidation remain CLI administration. Login and
 logout change only browser authentication state. Viewing history never runs an
 evaluation, fetches an artifact's bytes, retries work, or advances delivery.
@@ -59,9 +60,8 @@ One Lucide SVG set supplies all navigation and control icons; visible text keeps
 navigation understandable, and decorative SVGs are hidden from assistive naming.
 
 Desktop navigation stays labeled. Below 1100px, a keyboard-accessible Menu control
-expands the navigation; selecting a destination closes it. Duration trend and
-activity summaries share a desktop row and stack where neither would be readable.
-Charts and the branching session waterfall use shared semantic CSS colors; labels,
+expands the navigation and closes after selecting a destination. Charts and the
+branching session waterfall use shared semantic CSS colors. Labels,
 source-time axes, and exact metadata retain meaning independently of color.
 Metric definitions, unknown values, bounded history and stale snapshots remain
 explicit. See `web/DESIGN.md` for tokens, exceptions, and verification guidance.
@@ -161,16 +161,14 @@ without changing agent API credentials or agent capture.
 
 ## Inspection surfaces
 
-Every screen starts from a project picker. Coordination and Work add a session
-picker and Evals an agent picker; the selection is carried in the URL (`project`,
-`session`, `set`), so links, reloads and the browser's Back button restore it.
-Lists expand in place: selecting a row loads and shows its evidence directly
-beneath it, and a second selection closes it. The browser does not render raw
-response JSON, bounded-window caveats, search forms or identifier dumps; errors and
-stale snapshots remain explicit, and "Show more" follows server cursors.
+Every screen starts from a project picker. Coordination and Work history add
+a session picker and Evaluations an agent picker. The URL carries the selections
+(`project`, `session`, `set`), so links, reloads, and Back restore them. Lists
+open their evidence inline or in a record view. Errors and stale snapshots
+remain explicit. "Show more" follows server cursors.
 
-**Coordination** shows live sessions, live claims, and conflicts and delivered
-messages over the last seven days. The session picker lists sessions by recent
+**Coordination** shows live sessions, live claims, and counts of conflicts and
+delivered messages in the selected range. The session picker lists sessions by recent
 coordination activity with their conflict and message counts. A picked session
 reads as a chronological conversation: overlaps detected with a named other
 session, the warnings Nexus delivered to this session, warnings it delivered to
@@ -185,19 +183,16 @@ latest skill text a client reported, or says that none was received. Charts
 distinguish invocations from operations and known zero use from unknown
 availability. Opportunity matches are leads, not proof of interchangeability.
 
-**Work** opens on where time goes: average or total elapsed time by activity
-kind. The session picker lists host sessions with recorded work; Nexus's own
-provider processes and host sessions holding only container spans are excluded.
-A picked session draws a vertically scrollable work tree rooted at the session.
-Presentation folds the agent and turn containers of each human prompt into their
-parent, numbers prompts only when a session has several, and groups consecutive
-repeated leaf calls under one parent into a counted node; source records are
-unchanged. Time runs down a proportional UTC axis, children branch right at
-source admission/start, parallel work has separate lanes, and spans end at known
-source finishes. Selecting a node shows its kind, recorded elapsed time and
-outcome. Zoom and horizontal pan support long or wide sessions; color, labels and
-a legend distinguish subagents, tests, scripts, reviews, tools/commands and
-prompts. Unknown intervals are not zero and inclusive durations are not additive.
+**Work history** starts with average or total elapsed time by activity kind
+across sampled sessions. The session picker lists harness roots with recorded
+work beyond their containers. Selecting a session opens a scrollable execution
+tree. Time runs down and individual calls branch right at observed boundaries.
+Parallel work has separate lanes, and an open marker shows an unobserved finish.
+Selecting a call shows its kind, recorded elapsed time, outcome, and correlated
+operation evidence. Zoom and horizontal pan support long or wide sessions.
+Colors, labels, and the legend distinguish subagents, tests, scripts, reviews,
+tools/commands, and prompts. See [Execution flow](#execution-flow) for ribbon
+and return evidence. Inclusive durations can overlap.
 
 **Evals** names each group by its recorded agent or system, then suite/target
 identity, repository and model composition. Picking an agent draws one chart per

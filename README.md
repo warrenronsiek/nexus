@@ -125,8 +125,9 @@ do not need a Nexus source checkout. See [the skill](skills/nexus-work-history/S
 `nexus setup` installs a [Nexus feature guide](skills/nexus/SKILL.md) and focused
 skills for every feature, for both Codex and Claude. Start with the guide when
 choosing capabilities for an existing workflow. It routes to setup/transport,
-coordination and conflict analysis, memory, papercuts, SOS, usage analytics,
-browser observability, work history, evals, and Nexus source development.
+coordination and conflict analysis, memory, papercuts, SOS, code concerns and
+Code Map, usage analytics, browser observability, work history, PR and rollout
+coordination, evals, audit evidence, and Nexus source development.
 Each skill explains the feature's intent, its integration boundaries, and how
 to use it alongside existing scripts, agents, and tools. Related implementation
 features share a guide rather than requiring every agent to read every skill.
