@@ -26,8 +26,9 @@ Work history, Pull requests, Evaluations, Code concern reports, and Audits. The
 default is seven days. The URL retains the selection and the server applies the
 time cutoff before projecting history. Coordination's live session and claim
 counts still describe the current state. Direct record links, including older
-Work sessions and their descendants, remain available. An explicit UTC start
-date replaces the audit list's rolling lower bound. Code map uses its selected measure and grouping.
+Work sessions and their descendants, remain available. The Audits list uses its
+rolling lower bound when both explicit UTC date fields are blank. Code map uses
+its selected measure and grouping.
 Tools and Skills use fixed rolling seven-day usage windows.
 
 ## Code map

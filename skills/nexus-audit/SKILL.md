@@ -111,5 +111,6 @@ to replace references with redaction markers. Redaction does not change
 narrative fields. Examine the requested disclosure before sharing. In the
 authenticated Audits view, use the rolling range or explicit UTC dates, add a
 control or version filter, and select a chart bar or run to inspect recorded
-executions and follow-up. The range presets are 24 hours, 7 days, 14 days, and
-30 days, with seven days as the initial selection.
+executions and follow-up. When both date fields are blank, the range sets the
+lower bound. The presets are 24 hours, 7 days, 14 days, and 30 days, with seven
+days as the initial selection.

@@ -46,8 +46,8 @@ result, while valid findings from the other perspective are retained.
 
 The authenticated **Audits** view provides a rolling range with 24-hour,
 7-day, 14-day, and 30-day presets, plus UTC period, control, and version
-filters. The rolling range supplies the occurrence-time lower bound when no
-explicit start date is set and defaults to seven days. The total covers the
+filters. The rolling range supplies the occurrence-time lower bound when both
+explicit dates are blank and defaults to seven days. The total covers the
 selected recorded cohort and the charts summarize
 the displayed page. Chart selections identify the runs contributing to each
 bar. Run details show the pinned definition, result and findings, receipt
