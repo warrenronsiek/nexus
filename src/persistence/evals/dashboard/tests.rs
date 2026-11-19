@@ -141,7 +141,7 @@ fn receipt_ordered_source_pages_stay_bounded_at_large_history() {
         insert_history(&mut store.connection, &project, &inputs);
     }
     let started = Instant::now();
-    let (records, truncated) = source_records(&mut store.connection, &project).unwrap();
+    let (records, truncated) = source_records(&mut store.connection, &project, None).unwrap();
     let elapsed = started.elapsed();
     assert_eq!(records.len(), SOURCE_LIMIT);
     assert_eq!(records.first().unwrap().id, "run");
