@@ -215,7 +215,11 @@ pub(super) fn apply(
         DeliveryEvent::RemediationTransitioned { .. } => {
             events::remediation_transitioned(connection, observation)
         }
-        _ => apply_context(connection, observation),
+        DeliveryEvent::ReleaseRequirementsRecorded { .. }
+        | DeliveryEvent::EnvironmentInventoryObserved { .. }
+        | DeliveryEvent::EnvironmentAdvisoryReported { .. }
+        | DeliveryEvent::WatchRegistered { .. }
+        | DeliveryEvent::WatchStopped { .. } => apply_context(connection, observation),
     }
 }
 

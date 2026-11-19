@@ -146,7 +146,12 @@ impl DeliveryEvent {
                 text(reason, 2048)?;
                 fixing_revision.as_ref().map(git).transpose().map(|_| ())
             }
-            _ => self.validate_context_event(),
+            Self::ReleaseRequirementsRecorded { .. }
+            | Self::EnvironmentInventoryObserved { .. }
+            | Self::EnvironmentAdvisoryReported { .. }
+            | Self::WatchRegistered { .. }
+            | Self::WatchStopped { .. }
+            | Self::DeploymentFinished { .. } => self.validate_context_event(),
         }
     }
 

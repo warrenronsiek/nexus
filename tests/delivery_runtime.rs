@@ -338,3 +338,38 @@ fn remediation_is_visible_to_the_addressed_host_and_receipt_is_verified_separate
     );
     assert_eq!(receipt["delivery"], "received", "{receipt}");
 }
+
+#[test]
+fn mcp_recipient_uses_the_same_inherited_host_handoff_as_the_cli() {
+    let mut harness = Harness::start();
+    let stored = harness.call("nexus_delivery", json!({"action":"record","observations":[{
+        "id":"inherited-origin","occurred_at":"2026-11-15T12:00:00Z","body":{
+            "event":"contribution_registered","contribution":{
+                "id":"inherited-implementation","repository":"example/repo","title":"Implementation",
+                "origin":{"agent":"codex","session_id":"inherited-thread"},
+                "features":["timeline"],"rationale":"Fix timeline coherence"
+            }
+        }
+    }]}));
+    assert_eq!(stored["ok"], true, "{stored}");
+    let queued = harness.call("nexus_delivery", json!({"action":"remediate","request":{
+        "id":"inherited-remediation","origin":{"repository":"example/repo","feature":"timeline"},
+        "title":"Investigate","message":"Confirm the timeline fix"
+    }}));
+    assert_eq!(queued["delivery"], "queued", "{queued}");
+    let handoff = serde_json::to_string(&nexus::runtime::work_capture::host_handoff(
+        "codex",
+        "inherited-thread",
+        None,
+        None,
+    ))
+    .unwrap();
+    let result = harness.companion_call_with_context(
+        "codex",
+        "nexus_delivery",
+        json!({"action":"acknowledge","id":"inherited-remediation"}),
+        &[("NEXUS_WORK_CONTEXT", &handoff)],
+    );
+    let body = &result["structuredContent"];
+    assert_eq!(body["delivery"], "received", "{result}");
+}

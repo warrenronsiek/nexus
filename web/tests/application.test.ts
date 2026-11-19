@@ -296,10 +296,13 @@ it("discovers PR shepherds and reads rollout evidence without exposing delivery 
   window.history.replaceState(null, "", "/ui/coordination");
   await loginProgram();
   await inspectPullRequestRegistry();
+  pick("Time range", "30d");
+  await vi.waitFor(() => expect(document.querySelector(".delivery-row")?.getAttribute("href")).toContain("range=30d"));
   await inspectPullRequestEvidence();
   await inspectCurrentDeliveryOverlaps();
   await inspectOverlapRefreshFailure();
   await inspectOriginalContribution();
+  expect(window.location.search).toContain("range=30d");
   await inspectDeliveryViews();
   assertDeliveryReadOnly();
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();

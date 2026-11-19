@@ -259,8 +259,9 @@ nexus delivery remediation-status REQUEST_ID
 
 The revision prefix must identify one recorded revision. The pull request
 number uses GitHub by default. Supply `--pull-request-id` for an internal
-delivery record ID and `--fallback` to request ordered fallback with
-legacy selectors. Check `matched_by`, `qualification`, and the grouped
+delivery record ID. A revision prefix, provider PR number, or branch
+uses ordered fallback when other selectors are supplied. Pass `--fallback`
+to use the same ordering with legacy selectors. Check `matched_by`, `qualification`, and the grouped
 evidence before assigning a recipient. Use `--agent` with `--session` to
 select among candidates. Pass an explicit `--id` for replayable submissions.
 

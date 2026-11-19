@@ -298,12 +298,23 @@ fn action(command: DeliveryCliCommand, context: &HookContext) -> Result<Delivery
         DeliveryCliCommand::Watch { file } => {
             read_json(&file).map(|watch| event(DeliveryEvent::WatchRegistered { watch }))
         }
-        other => read_or_environment_action(other),
+        list_read @ (DeliveryCliCommand::Origin(_)
+        | DeliveryCliCommand::Acknowledge { .. }
+        | DeliveryCliCommand::RemediationStatus { .. }
+        | DeliveryCliCommand::Inbox { .. }
+        | DeliveryCliCommand::Watches { .. }
+        | DeliveryCliCommand::WatchStop { .. }) => Ok(read_action(list_read)),
+        environment @ (DeliveryCliCommand::Environment(_)
+        | DeliveryCliCommand::CheckHistory { .. }
+        | DeliveryCliCommand::EnvironmentRecord { .. }) => environment_action(environment),
+        DeliveryCliCommand::Schema | DeliveryCliCommand::Contribute(_) => {
+            unreachable!("command handled before constructing its transport action")
+        }
     }
 }
 
-fn read_or_environment_action(command: DeliveryCliCommand) -> Result<DeliveryAction> {
-    Ok(match command {
+fn read_action(command: DeliveryCliCommand) -> DeliveryAction {
+    match command {
         DeliveryCliCommand::Origin(args) => DeliveryAction::ResolveOrigin {
             project_id: args.project_id,
             query: args.selectors.into_query(),
@@ -329,8 +340,8 @@ fn read_or_environment_action(command: DeliveryCliCommand) -> Result<DeliveryAct
         },
         DeliveryCliCommand::Watches { project_id } => DeliveryAction::Watches { project_id },
         DeliveryCliCommand::WatchStop { id } => event(DeliveryEvent::WatchStopped { watch_id: id }),
-        other => return environment_action(other),
-    })
+        _ => unreachable!("not a delivery read or status action"),
+    }
 }
 
 fn environment_action(command: DeliveryCliCommand) -> Result<DeliveryAction> {
@@ -379,11 +390,7 @@ fn environment_action(command: DeliveryCliCommand) -> Result<DeliveryAction> {
                 },
             },
         }),
-        DeliveryCliCommand::Schema => unreachable!("schema is handled without a service request"),
-        DeliveryCliCommand::Contribute(_) => {
-            unreachable!("contribution capture is handled before transport")
-        }
-        _ => unreachable!("core delivery command"),
+        _ => unreachable!("not a delivery environment action"),
     })
 }
 

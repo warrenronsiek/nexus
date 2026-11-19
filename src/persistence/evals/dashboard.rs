@@ -22,7 +22,7 @@ impl Store {
         self.eval_dashboard_window(project, group, None)
     }
 
-    pub(crate) fn eval_dashboard_window(
+    pub fn eval_dashboard_window(
         &mut self,
         project: &str,
         group: Option<&str>,

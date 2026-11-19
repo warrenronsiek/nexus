@@ -71,9 +71,7 @@ impl McpInvocationContext {
             anyhow::bail!("MCP agent identity cannot be empty");
         }
         Ok(Self {
-            session_id: std::env::var("NEXUS_HOST_SESSION_ID")
-                .ok()
-                .filter(|id| !id.is_empty() && id.len() <= 512 && !id.chars().any(char::is_control))
+            session_id: crate::runtime::work_capture::companion_host_session(agent)?
                 .unwrap_or_else(|| format!("mcp-{}", Uuid::new_v4())),
             project_root: Some(std::env::current_dir()?.to_string_lossy().into_owned()),
             agent: agent.to_owned(),

@@ -83,29 +83,47 @@ fn fallback_queries(
 }
 
 fn fallback_subjects(pinned: &OriginQuery, base: &OriginQuery) -> Vec<(OriginBasis, OriginQuery)> {
-    let selectors = [
-        (OriginBasis::PullRequest, &pinned.pull_request_id),
-        (OriginBasis::Rollout, &pinned.rollout_id),
-        (OriginBasis::Branch, &pinned.branch),
-        (OriginBasis::Feature, &pinned.feature),
-    ];
-    selectors
-        .into_iter()
-        .filter_map(|(basis, value)| {
-            value.as_ref().map(|value| {
-                let value = Some(value.clone());
-                let mut query = base.clone();
-                match basis {
-                    OriginBasis::PullRequest => query.pull_request_id = value,
-                    OriginBasis::Rollout => query.rollout_id = value,
-                    OriginBasis::Branch => query.branch = value,
-                    OriginBasis::Feature => query.feature = value,
-                    _ => unreachable!("composition or broad origin"),
-                }
-                (basis, query)
-            })
-        })
-        .collect()
+    [
+        pinned.pull_request_id.clone().map(|id| {
+            (
+                OriginBasis::PullRequest,
+                OriginQuery {
+                    pull_request_id: Some(id),
+                    ..base.clone()
+                },
+            )
+        }),
+        pinned.rollout_id.clone().map(|id| {
+            (
+                OriginBasis::Rollout,
+                OriginQuery {
+                    rollout_id: Some(id),
+                    ..base.clone()
+                },
+            )
+        }),
+        pinned.branch.clone().map(|branch| {
+            (
+                OriginBasis::Branch,
+                OriginQuery {
+                    branch: Some(branch),
+                    ..base.clone()
+                },
+            )
+        }),
+        pinned.feature.clone().map(|feature| {
+            (
+                OriginBasis::Feature,
+                OriginQuery {
+                    feature: Some(feature),
+                    ..base.clone()
+                },
+            )
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 pub(in crate::persistence::delivery) fn provider_pull_request(

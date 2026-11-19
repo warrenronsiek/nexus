@@ -35,6 +35,7 @@ pub use git::git_hook;
 pub(crate) use git::revision_context as git_revision_context;
 pub(crate) use handoff::CaptureHandoff;
 pub use handoff::{CaptureReceipt, CaptureStatus};
+pub(crate) use host_context::companion_host_session;
 pub use host_context::{host_handoff, WorkHandoff};
 pub use host_events::{
     export_host_environment, host_event, host_event_with_title, EnvironmentHandoff,

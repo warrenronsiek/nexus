@@ -251,3 +251,45 @@ fn target_agent_names_are_validated() {
         );
     }
 }
+
+#[test]
+fn eval_window_pages_past_tied_source_times_and_excludes_older_results() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("eval-window.db")).unwrap();
+    let recent = "2026-11-18T12:00:00Z".parse().unwrap();
+    let older = "2026-11-01T12:00:00Z".parse().unwrap();
+    let mut definitions = definitions();
+    for item in &mut definitions {
+        item.occurred_at = older;
+    }
+    store
+        .record_eval_bundle("p", &definitions, &actor())
+        .unwrap();
+    let mut measurements: Vec<_> = (0..300)
+        .map(|index| {
+            let mut item = measured(&format!("window-{index:03}"), "7", None);
+            item.occurred_at = recent;
+            item
+        })
+        .collect();
+    let mut outside = measured("outside-window", "9", None);
+    outside.occurred_at = older;
+    measurements.push(outside);
+    for chunk in measurements.chunks(64) {
+        store.record_eval_bundle("p", chunk, &actor()).unwrap();
+    }
+    let cutoff = "2026-11-12T00:00:00Z".parse().unwrap();
+    let window = store
+        .eval_dashboard_window("p", None, Some(cutoff))
+        .unwrap();
+    assert_eq!(
+        (
+            window.scanned_records,
+            window.result_count,
+            window.run_count
+        ),
+        (300, 300, 1)
+    );
+    assert_eq!(window.groups.len(), 1);
+    assert!(!window.truncated);
+}
