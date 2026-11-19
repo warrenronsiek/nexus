@@ -116,7 +116,7 @@ impl OriginRow {
             hunk_index: index as i32,
             contribution_id: mapping.contribution_id.clone(),
             repository: mapping.revision.repository.clone(),
-            revision: mapping.revision.commit.clone(),
+            revision: mapping.revision.commit.to_ascii_lowercase(),
             path: hunk.path.clone(),
             fingerprint: hunk.fingerprint.clone(),
             new_start: hunk.new_start.into(),

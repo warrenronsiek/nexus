@@ -18,7 +18,10 @@ fn sessions_cli_accepts_an_explicit_project_scope() {
         "--all",
     ])
     .unwrap();
-    let Command::Sessions { project_id, all } = cli.command else {
+    let Command::Sessions {
+        project_id, all, ..
+    } = cli.command
+    else {
         panic!("expected sessions command");
     };
     assert_eq!(project_id.as_deref(), Some("organization/other-repository"));

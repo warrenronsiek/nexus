@@ -99,6 +99,8 @@ pub struct PromptResponse {
     pub prompt_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_context: Option<MemoryContextStatus>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) remediation_notices: Vec<crate::delivery::RemediationNotice>,
 }
 
 #[derive(Debug, Serialize)]

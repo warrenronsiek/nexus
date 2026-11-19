@@ -786,6 +786,7 @@ fn dashboard_is_scoped_and_bounded_while_projects_remain_global() {
     let dashboard = service
         .handle(ServiceRequest::Dashboard(DashboardQuery {
             project_id: Some(first_project.clone()),
+            ..Default::default()
         }))
         .to_json();
     assert_eq!(dashboard["project_id"], first_project);
@@ -833,6 +834,7 @@ fn ordinary_coordination_reads_have_server_owned_hard_caps() {
         .handle(ServiceRequest::Sessions(SessionQuery {
             project_id: Some(project_id.to_owned()),
             scope: RecordScope::All,
+            ..Default::default()
         }))
         .to_json();
     assert_eq!(sessions["sessions"].as_array().unwrap().len(), 64);
@@ -859,6 +861,7 @@ fn ordinary_coordination_reads_have_server_owned_hard_caps() {
     let dashboard = service
         .handle(ServiceRequest::Dashboard(DashboardQuery {
             project_id: Some(project_id.to_owned()),
+            ..Default::default()
         }))
         .to_json();
     assert_eq!(dashboard["events"]["items"].as_array().unwrap().len(), 32);
@@ -927,6 +930,7 @@ fn lifecycle_advisories_and_visible_session_synopses_are_hard_bounded() {
         .handle(ServiceRequest::Sessions(SessionQuery {
             project_id: Some(project_id.to_owned()),
             scope: RecordScope::All,
+            ..Default::default()
         }))
         .to_json();
     let summary = sessions["sessions"]
@@ -1128,7 +1132,7 @@ fn lifecycle_advisory_cap_also_bounds_conflict_persistence_across_intents() {
     let dashboard = service
         .handle_remote(
             project_id,
-            ServiceRequest::Dashboard(DashboardQuery { project_id: None }),
+            ServiceRequest::Dashboard(DashboardQuery::default()),
         )
         .to_json();
     assert_eq!(dashboard["counts"]["open_conflicts"], 32, "{dashboard}");

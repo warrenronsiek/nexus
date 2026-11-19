@@ -57,6 +57,19 @@ fn fresh(body: DeliveryBody, observation: &DeliveryObservation) -> DeliveryRecor
             deployment.repository.clone(),
             state(&deployment.outcome),
         ),
+        DeliveryBody::ReleaseRequirements { requirements } => (
+            requirements.revision.commit.clone(),
+            requirements.revision.repository.clone(),
+            "recorded".into(),
+        ),
+        DeliveryBody::EnvironmentInventory { inventory } => (
+            inventory.environment.clone(),
+            inventory.repository.clone(),
+            "observed".into(),
+        ),
+        DeliveryBody::EnvironmentAdvisory { advisory } => {
+            (advisory.title.clone(), String::new(), "reported".into())
+        }
         DeliveryBody::Remediation {
             remediation,
             state: current,
@@ -202,10 +215,61 @@ pub(super) fn apply(
         DeliveryEvent::RemediationTransitioned { .. } => {
             events::remediation_transitioned(connection, observation)
         }
+        DeliveryEvent::ReleaseRequirementsRecorded { .. }
+        | DeliveryEvent::EnvironmentInventoryObserved { .. }
+        | DeliveryEvent::EnvironmentAdvisoryReported { .. }
+        | DeliveryEvent::WatchRegistered { .. }
+        | DeliveryEvent::WatchStopped { .. } => apply_context(connection, observation),
+    }
+}
+
+fn apply_context(connection: &mut DbConnection, observation: &DeliveryObservation) -> Result<()> {
+    match &observation.input.body {
+        DeliveryEvent::ReleaseRequirementsRecorded { requirements } => context_record(
+            connection,
+            observation,
+            DeliveryBody::ReleaseRequirements {
+                requirements: requirements.clone(),
+            },
+            "revision",
+            &requirements.revision.commit.to_ascii_lowercase(),
+        ),
+        DeliveryEvent::EnvironmentInventoryObserved { inventory } => context_record(
+            connection,
+            observation,
+            DeliveryBody::EnvironmentInventory {
+                inventory: inventory.clone(),
+            },
+            "environment",
+            &inventory.environment,
+        ),
+        DeliveryEvent::EnvironmentAdvisoryReported { advisory } => context_record(
+            connection,
+            observation,
+            DeliveryBody::EnvironmentAdvisory {
+                advisory: advisory.clone(),
+            },
+            "environment",
+            &advisory.environment,
+        ),
         DeliveryEvent::WatchRegistered { .. } | DeliveryEvent::WatchStopped { .. } => {
             crate::persistence::delivery_watch::apply_watch_event(connection, observation)
         }
+        _ => unreachable!("core delivery event"),
     }
+}
+
+fn context_record(
+    connection: &mut DbConnection,
+    observation: &DeliveryObservation,
+    body: DeliveryBody,
+    target_kind: &str,
+    value: &str,
+) -> Result<()> {
+    let project = &observation.project_id;
+    let record = fresh(body, observation);
+    new_record(connection, project, &record)?;
+    target(connection, project, &record.subject, target_kind, value)
 }
 
 fn valid_transition(from: RemediationState, to: RemediationState) -> bool {

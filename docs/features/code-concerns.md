@@ -172,3 +172,9 @@ metadata. Session names are optional current read-time enrichment on detail,
 never added to immutable observations or exports. No reports means no reported
 problems; these observations are not an objective defect rate, score or causal
 verdict.
+
+A Code concern can be referenced directly in a delivery remediation. Nexus
+looks for one pinned location or feature in the concern's retained evidence,
+then applies the delivery resolver's qualification and ambiguity rules.
+Explicit origin selectors can supply context when the concern has several
+locations or missing attribution.

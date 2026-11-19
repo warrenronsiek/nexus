@@ -235,13 +235,28 @@ impl Harness {
 
     /// Calls one tool through an MCP companion spawned like a Nexus-internal provider.
     pub fn internal_process_call(&self, name: &str, arguments: Value) -> Value {
+        self.companion_call_with_context("mcp", name, arguments, &[("NEXUS_INTERNAL_PROCESS", "1")])
+    }
+
+    pub fn companion_call_with_context(
+        &self,
+        agent: &str,
+        name: &str,
+        arguments: Value,
+        context: &[(&str, &str)],
+    ) -> Value {
         let mut child = Command::new(env!("CARGO_BIN_EXE_nexus"))
             .args([
                 "--config",
                 self._temp.path().join("config.toml").to_str().unwrap(),
                 "mcp",
+                "--agent",
+                agent,
             ])
-            .env("NEXUS_INTERNAL_PROCESS", "1")
+            .env_remove("NEXUS_HOST_SESSION_ID")
+            .env_remove("NEXUS_AGENT")
+            .env_remove("NEXUS_WORK_CONTEXT")
+            .envs(context.iter().copied())
             .current_dir(&self.root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

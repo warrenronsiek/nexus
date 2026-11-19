@@ -259,3 +259,9 @@ shared. Aggregate read-modify-write transactions serialize through a database-sc
 transaction lock before reading mutable state, preserving memory and conflict
 history ordering across the connections. Readiness checks both store locks for poison or prolonged holds and uses
 its independent database probe. SQLite retains its single-store behavior.
+
+`sessions` accepts the exact stored `session_id` and recorded worktree as optional
+filters. They apply before the result bound and can be combined with the
+project and active/all scope. The browser's Coordination picker separately
+uses a bounded observation and conflict window. Its counts are scoped to that
+window.

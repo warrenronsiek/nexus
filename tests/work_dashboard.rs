@@ -139,3 +139,37 @@ fn selected_session_bounds_pages_of_corrected_away_candidates() {
         "stale candidate pages need a separately disclosed bounded traversal"
     );
 }
+
+#[test]
+fn dashboard_window_filters_source_rows_and_keeps_explicit_old_session_detail() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("window.db")).unwrap();
+    let opened = |id: &str, at: &str| {
+        let mut observation = event(
+            id,
+            "session",
+            id,
+            json!({"event":"session_opened","title":id,"context":{}}),
+        );
+        observation["occurred_at"] = json!(at);
+        observation
+    };
+    command(
+        &mut store,
+        json!({"action":"record","observations":[
+            opened("outside-window", "2026-11-01T12:00:00Z"),
+            opened("inside-window", "2026-11-15T12:00:00Z"),
+            event("old-task","activity","old-task",json!({"event":"activity_declared","name":"Older session child","kind":"test","work_session_id":"outside-window","context":{}}))
+        ]}),
+    );
+    let view = command(
+        &mut store,
+        json!({"action":"dashboard","occurred_after":"2026-11-10T12:00:00Z","work_session_id":"outside-window"}),
+    );
+    let roots = view["sessions"].as_array().unwrap();
+    assert_eq!(roots.len(), 1, "{view}");
+    assert_eq!(roots[0]["subject"]["id"], "inside-window");
+    assert_eq!(view["scanned_subjects"], 1, "{view}");
+    assert_eq!(view["selected_session"]["subject"]["id"], "outside-window");
+    assert_eq!(view["activities"][0]["subject"]["id"], "old-task");
+}

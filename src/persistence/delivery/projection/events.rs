@@ -20,6 +20,15 @@ pub(super) fn contribution_registered(
         observation,
     );
     new_record(connection, project, &record)?;
+    if let Some(revision) = &c.head_revision {
+        target(
+            connection,
+            project,
+            &record.subject,
+            "revision",
+            &revision.commit.to_ascii_lowercase(),
+        )?;
+    }
     if let Some(branch) = &c.branch {
         target(connection, project, &record.subject, "branch", branch)?;
     }
@@ -65,6 +74,13 @@ pub(super) fn revision_mapped(
         }
         mappings.push(m.clone());
     }
+    target(
+        connection,
+        project,
+        &record.subject,
+        "revision",
+        &m.revision.commit.to_ascii_lowercase(),
+    )?;
     for (index, hunk) in m.hunks.iter().enumerate() {
         diesel::insert_into(delivery_origins::table)
             .values(OriginRow::from_hunk(project, m, index, hunk))
@@ -453,12 +469,7 @@ fn reserve_provider_identity(
     project: &str,
     pr: &PullRequest,
 ) -> Result<()> {
-    let identity = crate::identity::stable_id(&[
-        "delivery-provider-pr",
-        &pr.provider.to_ascii_lowercase(),
-        &pr.repository,
-        &pr.number.to_string(),
-    ]);
+    let identity = crate::delivery::provider_pr_identity(&pr.provider, &pr.repository, pr.number);
     let existing = delivery_targets::table
         .filter(delivery_targets::project_id.eq(project))
         .filter(delivery_targets::target_kind.eq("provider_pr"))

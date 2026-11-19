@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 pub(super) fn definition() -> Value {
     json!({
         "name":"nexus_delivery",
-        "description":"Register contributions and PR or rollout shepherds, discover current delivery responsibility, resolve a revision/path or feature to originating implementation agents, record promotions and deployment evidence, and exchange durable remediation requests. Origin results qualify evidence and ambiguity. Caller identity is bound by Nexus; recorded requests do not imply message delivery or an agent was resumed. Execution and deployment policy remain caller-owned.",
+        "description":"Register contributions and PR or rollout shepherds, discover current delivery responsibility, resolve a revision, PR, branch, or feature to implementation agents, and queue and acknowledge addressed remediation requests. Read remediation_status for receipt and recent recipient activity. Environment context assesses dependencies against the candidate revision and lists active advisories. Check history counts distinct PRs with retained failures. Execution and deployment policy remain caller-owned.",
         "inputSchema":schemars::schema_for!(crate::delivery::DeliveryAction)
     })
 }

@@ -42,6 +42,8 @@ pub struct DeliveryWatchRegistration {
     pub repository_id: String,
     pub source: GithubSource,
     pub interval_seconds: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion_environment: Option<String>,
 }
 
 impl DeliveryWatchRegistration {
@@ -58,6 +60,9 @@ impl DeliveryWatchRegistration {
             (30..=86400).contains(&self.interval_seconds),
             "watch interval must be between 30 and 86400 seconds"
         );
+        if let Some(environment) = &self.promotion_environment {
+            super::validation::text(environment, 256)?;
+        }
         self.source.validate()
     }
 }
@@ -76,6 +81,8 @@ pub struct DeliveryWatch {
     pub last_error: Option<String>,
     pub last_digest: Option<String>,
     pub provider_updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion_readiness: Option<super::PromotionReadiness>,
 }
 
 pub enum DeliveryWatchOutcome {

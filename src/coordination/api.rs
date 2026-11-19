@@ -582,6 +582,10 @@ pub struct SessionQuery {
     pub project_id: Option<String>,
     #[serde(default)]
     pub scope: RecordScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 impl SessionQuery {
@@ -635,6 +639,8 @@ pub struct SessionTimelineQuery {
 pub struct SessionIndexQuery {
     #[serde(default)]
     pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -677,6 +683,8 @@ pub struct AnalyzeCommand {
 pub struct DashboardQuery {
     #[serde(default)]
     pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -61,12 +61,14 @@ fn read_command(
         WorkAction::Dashboard {
             work_session_id,
             session_origin,
+            occurred_after,
             ..
-        } => dashboard::dashboard(
+        } => dashboard::dashboard_window(
             connection,
             project,
             work_session_id.as_deref(),
             *session_origin,
+            *occurred_after,
         ),
         WorkAction::Get { subject, .. } => Ok(WorkResponse::Detail {
             record: projection::Projection::new(connection, project)

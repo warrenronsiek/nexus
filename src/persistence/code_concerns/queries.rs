@@ -178,7 +178,11 @@ fn list(
     }
     Ok(response)
 }
-fn detail(connection: &mut DbConnection, project: &str, id: &str) -> Result<ConcernResponse> {
+pub(in crate::persistence) fn detail(
+    connection: &mut DbConnection,
+    project: &str,
+    id: &str,
+) -> Result<ConcernResponse> {
     let Some(row) = lookup(connection, project, id)? else {
         return Ok(ConcernResponse::Detail { concern: None });
     };

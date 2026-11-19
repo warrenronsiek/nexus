@@ -30,23 +30,12 @@ impl CaptureContext {
     pub fn from_environment(root: &Path) -> Self {
         let handoff = host_context::environment_handoff();
         let inherited = handoff.as_ref().ok().and_then(Option::as_ref);
+        let identity = host_context::process_host_identity(inherited);
         let hook = HookContext {
-            session_id: match std::env::var("NEXUS_HOST_SESSION_ID") {
-                Ok(value) => value,
-                Err(std::env::VarError::NotPresent) => inherited
-                    .map(|value| value.host_session_id.clone())
-                    .unwrap_or_else(|| format!("command-{}", process_instance_id())),
-                Err(std::env::VarError::NotUnicode(_)) => {
-                    format!("command-{}", process_instance_id())
-                }
-            },
-            agent: match std::env::var("NEXUS_AGENT") {
-                Ok(value) => value,
-                Err(std::env::VarError::NotPresent) => inherited
-                    .map(|value| value.agent.clone())
-                    .unwrap_or_else(|| "nexus-cli".into()),
-                Err(std::env::VarError::NotUnicode(_)) => "nexus-cli".into(),
-            },
+            session_id: identity
+                .session_id
+                .unwrap_or_else(|| format!("command-{}", process_instance_id())),
+            agent: identity.agent.unwrap_or_else(|| "nexus-cli".into()),
             project_root: Some(root.to_string_lossy().into_owned()),
             turn_id: std::env::var("NEXUS_TURN_ID")
                 .ok()

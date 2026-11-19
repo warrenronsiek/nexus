@@ -70,3 +70,5 @@ impl Store {
 }
 pub(super) use map::map_points;
 pub(super) use snapshot::rebuild_snapshot;
+
+pub(super) use queries::detail as concern_detail;

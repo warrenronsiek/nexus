@@ -265,7 +265,10 @@ fn session_index_ranks_activity_and_counts_each_sessions_history() {
     history.overlap_on("src/a.rs", "session-two", "session-one");
     history.overlap_on("src/b.rs", "session-two", "session-one");
 
-    let window = history.store.session_index(&history.project, 2).unwrap();
+    let window = history
+        .store
+        .session_index(&history.project, 2, None)
+        .unwrap();
     assert!(window.truncated);
     let ranked: Vec<_> = window
         .items
@@ -279,7 +282,10 @@ fn session_index_ranks_activity_and_counts_each_sessions_history() {
     assert_eq!(ranked, [("session-one", 2, 0), ("session-two", 2, 2)]);
     assert!(window.items[0].last_activity_at > window.items[0].session.last_seen_at);
 
-    let all = history.store.session_index(&history.project, 200).unwrap();
+    let all = history
+        .store
+        .session_index(&history.project, 200, None)
+        .unwrap();
     assert!(!all.truncated);
     assert_eq!(all.items.len(), 3);
     assert_eq!(all.items[2].session.session_id, "session-quiet");

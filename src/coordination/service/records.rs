@@ -59,8 +59,7 @@ impl BoundedRecordQuery {
             }
             Self::Sessions(query) => {
                 let window = store.list_sessions_window(
-                    query.project_id.as_deref(),
-                    query.scope(),
+                    &query,
                     activity_window_seconds,
                     crate::coordination::api::MAX_SESSION_RESULTS,
                 )?;

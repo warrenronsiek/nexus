@@ -50,3 +50,5 @@ diesel::table! {
  project_id -> Text,id -> Text,pull_request_id -> Text,registration_json -> Text,actor_json -> Text,generation -> Text,enabled -> Integer,next_poll_at -> Text,last_attempt_at -> Nullable<Text>,last_success_at -> Nullable<Text>,last_error -> Nullable<Text>,last_digest -> Nullable<Text>,provider_updated_at -> Nullable<Text>,
  }
 }
+
+diesel::allow_tables_to_appear_in_same_query!(delivery_records, delivery_observations);

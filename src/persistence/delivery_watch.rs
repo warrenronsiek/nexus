@@ -55,6 +55,7 @@ impl WatchRow {
             last_error: self.last_error,
             last_digest: self.last_digest,
             provider_updated_at: times.provider_updated_at,
+            promotion_readiness: None,
         })
     }
 }

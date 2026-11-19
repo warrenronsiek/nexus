@@ -410,7 +410,7 @@ impl Store {
         project_key: Option<&str>,
         maximum: usize,
     ) -> Result<Vec<EventRecord>> {
-        self.load_event_window(project_key, maximum)
+        self.load_event_window(project_key, maximum, None)
             .map(|(events, _)| events)
     }
 
@@ -418,14 +418,20 @@ impl Store {
         &mut self,
         project_key: Option<&str>,
         maximum: usize,
+        since: Option<chrono::DateTime<Utc>>,
     ) -> Result<(Vec<EventRecord>, bool)> {
         let maximum = maximum.min(crate::coordination::api::MAX_EVENT_RESULTS);
         let mut query = events::table.into_boxed();
         if let Some(project_key) = project_key {
             query = query.filter(events::project_id.eq(project_key));
         }
+        let query = match since {
+            Some(since) => query
+                .filter(events::created_at.ge(since.to_rfc3339()))
+                .order((events::created_at.desc(), events::id.desc())),
+            None => query.order(events::id.desc()),
+        };
         let mut rows = query
-            .order(events::id.desc())
             .limit(i64::try_from(maximum.saturating_add(1)).unwrap_or(i64::MAX))
             .select(EventRow::as_select())
             .load::<EventRow>(&mut self.connection)?;
@@ -471,29 +477,47 @@ impl Store {
     ) -> Result<Vec<SessionRecord>> {
         Ok(self
             .list_sessions_window(
-                None,
-                scope,
+                &crate::coordination::api::SessionQuery {
+                    scope,
+                    ..Default::default()
+                },
                 activity_window_seconds,
                 crate::coordination::api::MAX_SESSION_RESULTS,
             )?
             .items)
     }
 
-    bounded_projection_reader! {
-        pub(super) fn read_sessions_window(project_key, scope: RecordScope, activity_window_seconds: i64, limit: usize) -> SessionRecord {
-            table: sessions::table,
-            project_column: sessions::project_id,
-            scoped_when: scope == RecordScope::Active,
-            scoped_filter: super::liveness::recent_session(activity_window_seconds),
-            order: (
+    pub(super) fn read_sessions_window(
+        &mut self,
+        input: &crate::coordination::api::SessionQuery,
+        activity_window_seconds: i64,
+        limit: usize,
+    ) -> Result<crate::coordination::domain::RecordWindow<SessionRecord>> {
+        use crate::coordination::domain::{query_window_limit, RecordWindow};
+        let limit = limit.min(crate::coordination::api::MAX_SESSION_RESULTS);
+        let mut query = sessions::table.into_boxed();
+        if let Some(project) = &input.project_id {
+            query = query.filter(sessions::project_id.eq(project));
+        }
+        if let Some(session_id) = &input.session_id {
+            query = query.filter(sessions::session_id.eq(session_id));
+        }
+        if let Some(worktree) = &input.worktree {
+            query = query.filter(sessions::worktree.eq(worktree));
+        }
+        if input.scope() == RecordScope::Active {
+            query = query.filter(super::liveness::recent_session(activity_window_seconds));
+        }
+        let rows = query
+            .order((
                 sessions::last_seen_at.desc(),
                 sessions::project_id.asc(),
                 sessions::session_id.asc(),
-            ),
-            row: SessionRow,
-            decode: session_from_row,
-            maximum: limit.min(crate::coordination::api::MAX_SESSION_RESULTS),
-        }
+            ))
+            .limit(query_window_limit(limit))
+            .select(SessionRow::as_select())
+            .load::<SessionRow>(&mut self.connection)?;
+        RecordWindow::try_bounded(rows, limit, session_from_row)
     }
 
     pub fn list_claims(

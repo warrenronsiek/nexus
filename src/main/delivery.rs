@@ -34,6 +34,28 @@ pub(super) enum DeliveryCliCommand {
     /// Resolve changed code to originating agents with evidence and contact availability.
     #[command(alias = "resolve-origin")]
     Origin(OriginArgs),
+    /// Resolve the origin and queue a remediation for the recipient host.
+    Remediate(RemediationArgs),
+    /// Confirm receipt as the recorded recipient.
+    Acknowledge { id: String },
+    /// Show request state, verified receipt, and the latest observed reachability.
+    RemediationStatus { id: String },
+    /// Assess an environment and optionally check the pinned candidate or registered PR head.
+    Environment(EnvironmentArgs),
+    /// Find distinct retained PRs where an exact check name failed.
+    CheckHistory {
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        check: String,
+        #[arg(long)]
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    },
+    /// Record release requirements, a target inventory, or a time-limited advisory.
+    EnvironmentRecord {
+        #[command(subcommand)]
+        input: EnvironmentRecord,
+    },
     /// Read pending remediation requests for the caller or an explicit agent/session pair.
     Inbox {
         #[arg(long, requires = "session")]
@@ -110,8 +132,15 @@ pub(super) struct ListArgs {
 pub(super) struct OriginArgs {
     #[arg(long)]
     project_id: Option<String>,
+    #[command(flatten)]
+    selectors: OriginSelectors,
+}
+
+#[derive(Debug, Args)]
+pub(super) struct OriginSelectors {
     #[arg(long)]
     repository: Option<String>,
+    /// Full Git object ID or a unique prefix of recorded revisions.
     #[arg(long, requires = "repository")]
     revision: Option<String>,
     #[arg(long)]
@@ -124,12 +153,78 @@ pub(super) struct OriginArgs {
     feature: Option<String>,
     #[arg(long)]
     fingerprint: Option<String>,
-    #[arg(long)]
+    /// Provider PR number with --repository, or an existing Nexus PR record ID.
+    #[arg(long, conflicts_with = "pull_request_id")]
     pull_request: Option<String>,
+    #[arg(long)]
+    pull_request_id: Option<String>,
+    #[arg(long, requires = "pull_request")]
+    provider: Option<String>,
+    #[arg(long)]
+    branch: Option<String>,
     #[arg(long)]
     rollout: Option<String>,
     #[arg(long)]
     limit: Option<u32>,
+    /// Try the supplied selectors in evidence order.
+    #[arg(long)]
+    fallback: bool,
+}
+
+#[derive(Debug, Args)]
+pub(super) struct RemediationArgs {
+    #[command(flatten)]
+    selectors: OriginSelectors,
+    #[arg(long)]
+    id: Option<String>,
+    #[arg(long)]
+    concern: Option<String>,
+    #[arg(long, requires = "session")]
+    agent: Option<String>,
+    #[arg(long, requires = "agent")]
+    session: Option<String>,
+    #[arg(long)]
+    title: String,
+    #[arg(long)]
+    message: String,
+    #[arg(long = "evidence")]
+    evidence: Vec<String>,
+    /// File containing one evidence reference per line.
+    #[arg(long)]
+    evidence_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub(super) struct EnvironmentArgs {
+    #[arg(long)]
+    environment: String,
+    #[arg(long)]
+    repository: Option<String>,
+    #[arg(long, requires = "repository", conflicts_with = "pull_request_id")]
+    revision: Option<String>,
+    #[arg(long)]
+    pull_request_id: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub(super) enum EnvironmentRecord {
+    /// Record the cross-repository keys required by an exact candidate revision, as JSON.
+    Requirements { file: PathBuf },
+    /// Record key names present in a repository/environment, as JSON.
+    Inventory { file: PathBuf },
+    /// Record a time-limited operational advisory.
+    Advisory {
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        environment: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        description: String,
+        #[arg(long)]
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -183,23 +278,52 @@ pub(super) async fn run(
 }
 
 fn action(command: DeliveryCliCommand, context: &HookContext) -> Result<DeliveryAction> {
-    Ok(match command {
-        DeliveryCliCommand::Record { file } => DeliveryAction::Record {
-            observations: read_json::<ObservationBundle>(&file)?.observations,
-        },
-        DeliveryCliCommand::List(args) => args.into_action()?,
+    match command {
+        DeliveryCliCommand::Record { file } => {
+            read_json::<ObservationBundle>(&file).map(|bundle| DeliveryAction::Record {
+                observations: bundle.observations,
+            })
+        }
+        DeliveryCliCommand::List(args) => args.into_action(),
         DeliveryCliCommand::Get {
             kind,
             id,
             project_id,
-        } => DeliveryAction::Get {
+        } => enum_value(&kind).map(|kind| DeliveryAction::Get {
             project_id,
-            subject: DeliverySubject {
-                kind: enum_value(&kind)?,
-                id,
-            },
+            subject: DeliverySubject { kind, id },
+        }),
+        DeliveryCliCommand::Remediate(args) => args.into_action(),
+        DeliveryCliCommand::Shepherd(args) => args.into_action(context),
+        DeliveryCliCommand::Watch { file } => {
+            read_json(&file).map(|watch| event(DeliveryEvent::WatchRegistered { watch }))
+        }
+        list_read @ (DeliveryCliCommand::Origin(_)
+        | DeliveryCliCommand::Acknowledge { .. }
+        | DeliveryCliCommand::RemediationStatus { .. }
+        | DeliveryCliCommand::Inbox { .. }
+        | DeliveryCliCommand::Watches { .. }
+        | DeliveryCliCommand::WatchStop { .. }) => Ok(read_action(list_read)),
+        environment @ (DeliveryCliCommand::Environment(_)
+        | DeliveryCliCommand::CheckHistory { .. }
+        | DeliveryCliCommand::EnvironmentRecord { .. }) => environment_action(environment),
+        DeliveryCliCommand::Schema | DeliveryCliCommand::Contribute(_) => {
+            unreachable!("command handled before constructing its transport action")
+        }
+    }
+}
+
+fn read_action(command: DeliveryCliCommand) -> DeliveryAction {
+    match command {
+        DeliveryCliCommand::Origin(args) => DeliveryAction::ResolveOrigin {
+            project_id: args.project_id,
+            query: args.selectors.into_query(),
         },
-        DeliveryCliCommand::Origin(args) => args.into_action(),
+        DeliveryCliCommand::Acknowledge { id } => DeliveryAction::Acknowledge { id },
+        DeliveryCliCommand::RemediationStatus { id } => DeliveryAction::RemediationStatus {
+            project_id: None,
+            id,
+        },
         DeliveryCliCommand::Inbox {
             agent,
             session,
@@ -214,16 +338,59 @@ fn action(command: DeliveryCliCommand, context: &HookContext) -> Result<Delivery
             after,
             limit,
         },
-        DeliveryCliCommand::Shepherd(args) => args.into_action(context)?,
         DeliveryCliCommand::Watches { project_id } => DeliveryAction::Watches { project_id },
-        DeliveryCliCommand::Watch { file } => event(DeliveryEvent::WatchRegistered {
-            watch: read_json(&file)?,
-        }),
         DeliveryCliCommand::WatchStop { id } => event(DeliveryEvent::WatchStopped { watch_id: id }),
-        DeliveryCliCommand::Schema => unreachable!("schema is handled without a service request"),
-        DeliveryCliCommand::Contribute(_) => {
-            unreachable!("contribution capture is handled before transport")
-        }
+        _ => unreachable!("not a delivery read or status action"),
+    }
+}
+
+fn environment_action(command: DeliveryCliCommand) -> Result<DeliveryAction> {
+    Ok(match command {
+        DeliveryCliCommand::Environment(args) => DeliveryAction::EnvironmentContext {
+            project_id: None,
+            environment: args.environment,
+            candidate: args
+                .repository
+                .zip(args.revision)
+                .map(|(repo, commit)| git_revision(repo, commit)),
+            pull_request_id: args.pull_request_id,
+        },
+        DeliveryCliCommand::CheckHistory {
+            repository,
+            check,
+            since,
+        } => DeliveryAction::CheckHistory {
+            project_id: None,
+            repository,
+            check,
+            since: since.unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7)),
+        },
+        DeliveryCliCommand::EnvironmentRecord { input } => event(match input {
+            EnvironmentRecord::Requirements { file } => {
+                DeliveryEvent::ReleaseRequirementsRecorded {
+                    requirements: read_json(&file)?,
+                }
+            }
+            EnvironmentRecord::Inventory { file } => DeliveryEvent::EnvironmentInventoryObserved {
+                inventory: read_json(&file)?,
+            },
+            EnvironmentRecord::Advisory {
+                id,
+                environment,
+                title,
+                description,
+                expires_at,
+            } => DeliveryEvent::EnvironmentAdvisoryReported {
+                advisory: EnvironmentAdvisory {
+                    id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                    environment,
+                    title,
+                    description,
+                    expires_at,
+                },
+            },
+        }),
+        _ => unreachable!("not a delivery environment action"),
     })
 }
 
@@ -332,34 +499,93 @@ impl ListArgs {
                 feature: self.feature,
                 target: self.target,
                 branch: self.branch,
+                updated_since: None,
                 after: self.after,
                 limit: self.limit,
             },
         })
     }
 }
-impl OriginArgs {
-    fn into_action(self) -> DeliveryAction {
-        let revision = self.revision.map(|commit| GitRevision {
-            repository: self.repository.clone().expect("clap requires repository"),
-            object_format: if commit.len() == 64 { "sha256" } else { "sha1" }.into(),
-            commit,
-        });
-        DeliveryAction::ResolveOrigin {
-            project_id: self.project_id,
-            query: OriginQuery {
-                revision,
-                repository: self.repository,
-                path: self.path,
-                line_start: self.line_start,
-                line_end: self.line_end,
-                feature: self.feature,
-                fingerprint: self.fingerprint,
-                pull_request_id: self.pull_request,
-                rollout_id: self.rollout,
-                limit: self.limit,
-            },
+impl OriginSelectors {
+    fn into_query(self) -> OriginQuery {
+        let (revision, revision_prefix) = match self.revision {
+            Some(commit) if matches!(commit.len(), 40 | 64) => (
+                self.repository
+                    .clone()
+                    .map(|repository| git_revision(repository, commit)),
+                None,
+            ),
+            prefix => (None, prefix),
+        };
+        let pull_request_number = self
+            .pull_request
+            .as_deref()
+            .filter(|_| self.repository.is_some())
+            .and_then(|number| number.trim_start_matches('#').parse().ok());
+        let pull_request_id = self
+            .pull_request_id
+            .or(self.pull_request.filter(|_| pull_request_number.is_none()));
+        OriginQuery {
+            revision,
+            revision_prefix,
+            repository: self.repository,
+            path: self.path,
+            line_start: self.line_start,
+            line_end: self.line_end,
+            feature: self.feature,
+            fingerprint: self.fingerprint,
+            pull_request_id,
+            pull_request_number,
+            pull_request_provider: self.provider,
+            branch: self.branch,
+            fallback: self.fallback,
+            rollout_id: self.rollout,
+            limit: self.limit,
         }
+    }
+}
+
+fn git_revision(repository: String, commit: String) -> GitRevision {
+    GitRevision {
+        repository,
+        object_format: if commit.len() == 64 { "sha256" } else { "sha1" }.into(),
+        commit: commit.to_ascii_lowercase(),
+    }
+}
+
+impl RemediationArgs {
+    fn into_action(self) -> Result<DeliveryAction> {
+        let mut evidence = self.evidence;
+        if let Some(path) = self.evidence_file {
+            let mut file = String::new();
+            std::fs::File::open(path)
+                .context("open remediation evidence file")?
+                .take(128 * 1024 + 1)
+                .read_to_string(&mut file)?;
+            if file.len() > 128 * 1024 {
+                bail!("remediation evidence file exceeds 128 KiB");
+            }
+            evidence.extend(
+                file.lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_owned),
+            );
+        }
+        Ok(DeliveryAction::Remediate {
+            request: Box::new(RemediationDraft {
+                id: self.id,
+                origin: self.selectors.into_query(),
+                concern_id: self.concern,
+                recipient: self
+                    .agent
+                    .zip(self.session)
+                    .map(|(agent, session_id)| AgentIdentity { agent, session_id }),
+                title: self.title,
+                message: self.message,
+                evidence,
+            }),
+        })
     }
 }
 impl ShepherdArgs {

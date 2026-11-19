@@ -151,3 +151,49 @@ backends. Browser tests cover list/detail navigation, long IDs, unknown and empt
 states, cursor pagination, stale reads, and rejection of mutation actions. Check
 desktop, tablet, and phone layouts against an isolated fixture service. The
 canonical repository gate remains `./scripts/check.sh`.
+
+## Origin and recipient handoffs
+
+Browser and agent reads qualify origin evidence separately from recipient
+availability. Repository-qualified provider PR numbers resolve through the same
+identity used at registration. A short revision expands only when it identifies
+one retained commit in that repository. Full revision lookups also accept a
+contribution's pinned head and mappings without hunks. Line attribution still
+requires indexed hunk evidence.
+
+Use ordered lookup when the caller has several leads. Nexus tries the revision
+or fingerprint, PR composition, rollout manifest, branch, and feature. Each
+successful response identifies the matched selector. Ambiguous short revisions
+require more digits. Activity groups refer to retained evidence rows by index
+and qualify the group with the contributor and logical work identifiers.
+
+The `remediate` action resolves origin and creates a project-scoped inbox record
+in one transaction. A concern ID can supply its unique pinned location or
+feature. Ambiguity across recipients requires an explicit recipient. Callers
+that supply a request ID can safely retry the identical request. A host prompt
+hook includes a bounded, untrusted handoff preview for the exact addressed
+agent and session. The preview may be offered again until the recipient
+acknowledges. Receipt is confirmed through the bound recipient context. The
+sender can reread request state, observed presence and session last-seen time,
+and verified receipt independently.
+
+## Environment context and promotion readiness
+
+Record a candidate's required configuration key names with its exact revision
+and the repository responsible for each key. Record the target environment's
+inventory with an expiration and whether the inventory is complete. Values
+belong in the environment's existing secret and configuration systems. A
+missing key in fresh, complete evidence is reported missing. Incomplete,
+missing or expired inventory leaves the requirement unknown. A selected PR
+uses its latest observed head and returns that revision with the results.
+
+Advisories are expiring, environment-scoped observations for conditions such
+as a saturated database. Check history uses retained provider snapshots and
+deduplicates failures by registered PR for the exact check name and repository
+since the requested time. It reports partial coverage when the observation
+window exceeds its read budget.
+
+Set `promotion_environment` on a registered PR watch to include readiness
+for the retained open PR head in watch reads. The result identifies the
+candidate revision, requirements manifest, and the counts of missing and
+unknown dependencies. Provider freshness remains separate from that evidence.

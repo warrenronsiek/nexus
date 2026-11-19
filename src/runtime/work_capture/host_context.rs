@@ -50,6 +50,44 @@ pub(super) fn environment_handoff() -> Result<Option<WorkHandoff>> {
         .transpose()
 }
 
+pub(super) struct ProcessHostIdentity {
+    pub(super) agent: Option<String>,
+    pub(super) session_id: Option<String>,
+}
+
+pub(super) fn process_host_identity(inherited: Option<&WorkHandoff>) -> ProcessHostIdentity {
+    ProcessHostIdentity {
+        agent: identity_value("NEXUS_AGENT", inherited.map(|handoff| &handoff.agent)),
+        session_id: identity_value(
+            "NEXUS_HOST_SESSION_ID",
+            inherited.map(|handoff| &handoff.host_session_id),
+        ),
+    }
+}
+
+fn identity_value(variable: &str, inherited: Option<&String>) -> Option<String> {
+    match std::env::var(variable) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => inherited.cloned(),
+        Err(std::env::VarError::NotUnicode(_)) => None,
+    }
+}
+
+pub(crate) fn companion_host_session(agent: &str) -> Result<Option<String>> {
+    let handoff = environment_handoff().ok().flatten();
+    let identity = process_host_identity(handoff.as_ref());
+    if identity.agent.as_deref().is_some_and(|host| host != agent) {
+        return Ok(None);
+    }
+    if let Some(session) = &identity.session_id {
+        if session.trim().is_empty() || session.len() > 512 || session.chars().any(char::is_control)
+        {
+            bail!("invalid MCP host session identity");
+        }
+    }
+    Ok(identity.session_id)
+}
+
 impl WorkHandoff {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > 16 * 1024 {

@@ -22,6 +22,9 @@ pub(super) fn records<'a>(
     if let Some(repo) = &query.repository {
         selection = selection.filter(delivery_records::repository.eq(repo));
     }
+    if let Some(since) = query.updated_since {
+        selection = selection.filter(delivery_records::updated_at.ge(since.to_rfc3339()));
+    }
     if let Some(state) = &query.state {
         selection = selection.filter(delivery_records::state.eq(state));
     }
@@ -37,16 +40,38 @@ pub(super) fn records<'a>(
     if let Some(branch) = &query.branch {
         selection = by_branch(selection, project, branch);
     }
-    if let Some(after) = &query.after {
-        let (kind, id) = cursor(after)?;
-        selection = selection.filter(
-            delivery_records::kind.gt(kind).or(delivery_records::kind
-                .eq(kind)
-                .and(delivery_records::id.gt(id))),
-        );
+    match &query.after {
+        Some(after) => seek(selection, query, after),
+        None => Ok(selection),
     }
-    Ok(selection)
 }
+
+fn seek<'a>(
+    selection: Selection<'a>,
+    query: &'a DeliveryQuery,
+    after: &'a str,
+) -> Result<Selection<'a>> {
+    let (time, subject) = match query.updated_since {
+        Some(_) => {
+            let (time, subject) = cursor(after)?;
+            (Some(time), subject)
+        }
+        None => (None, after),
+    };
+    let (kind, id) = cursor(subject)?;
+    let after_subject = delivery_records::kind.gt(kind).or(delivery_records::kind
+        .eq(kind)
+        .and(delivery_records::id.gt(id)));
+    Ok(match time {
+        Some(time) => selection.filter(
+            delivery_records::updated_at
+                .lt(time)
+                .or(delivery_records::updated_at.eq(time).and(after_subject)),
+        ),
+        None => selection.filter(after_subject),
+    })
+}
+
 fn by_feature<'a>(selection: Selection<'a>, project: &'a str, feature: &'a str) -> Selection<'a> {
     let contributions = delivery_features::table
         .filter(delivery_features::project_id.eq(project))

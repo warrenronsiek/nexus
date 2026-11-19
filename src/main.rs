@@ -126,6 +126,10 @@ enum Command {
         project_id: Option<String>,
         #[arg(long)]
         all: bool,
+        #[arg(long = "session", alias = "session-id")]
+        session_id: Option<String>,
+        #[arg(long)]
+        worktree: Option<String>,
     },
     /// Show advisory path claims.
     Claims {
@@ -472,11 +476,18 @@ async fn run_query_command(command: Command, loaded: &LoadedConfig) -> Result<()
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
-        Command::Sessions { project_id, all } => {
+        Command::Sessions {
+            project_id,
+            all,
+            session_id,
+            worktree,
+        } => {
             request_and_print(
                 loaded,
                 ServiceRequest::Sessions(SessionQuery {
                     project_id,
+                    session_id,
+                    worktree,
                     scope: if all {
                         RecordScope::All
                     } else {

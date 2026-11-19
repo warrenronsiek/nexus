@@ -3,7 +3,7 @@
 use super::*;
 use anyhow::{bail, Result};
 
-fn text(value: &str, max: usize) -> Result<()> {
+pub(crate) fn text(value: &str, max: usize) -> Result<()> {
     if value.trim().is_empty() || value.len() > max || value.contains('\0') {
         bail!("invalid bounded delivery text");
     }
@@ -14,7 +14,7 @@ fn text_fields(fields: &[(&str, usize)]) -> Result<()> {
     fields.iter().try_for_each(|(value, max)| text(value, *max))
 }
 
-fn git(value: &crate::work_history::GitRevision) -> Result<()> {
+pub(crate) fn git(value: &crate::work_history::GitRevision) -> Result<()> {
     text(&value.repository, 512)?;
     let size = match value.object_format.as_str() {
         "sha1" => 40,
@@ -46,6 +46,15 @@ impl DeliveryObservationInput {
         text(&self.id, 512)?;
         if serde_json::to_vec(self)?.len() > 64 * 1024 {
             bail!("delivery observation exceeds 64 KiB");
+        }
+        match &self.body {
+            DeliveryEvent::EnvironmentInventoryObserved { inventory } => {
+                inventory.validate(self.occurred_at)?
+            }
+            DeliveryEvent::EnvironmentAdvisoryReported { advisory } => {
+                advisory.validate(self.occurred_at)?
+            }
+            _ => {}
         }
         self.body.validate()
     }
@@ -79,6 +88,15 @@ impl DeliveryEvent {
                 (DeliveryKind::Deployment, deployment_id)
             }
             Self::ShepherdAssigned { subject, .. } => return Some(subject.clone()),
+            Self::ReleaseRequirementsRecorded { requirements } => {
+                (DeliveryKind::ReleaseRequirements, &requirements.id)
+            }
+            Self::EnvironmentInventoryObserved { inventory } => {
+                (DeliveryKind::EnvironmentInventory, &inventory.id)
+            }
+            Self::EnvironmentAdvisoryReported { advisory } => {
+                (DeliveryKind::EnvironmentAdvisory, &advisory.id)
+            }
             Self::RemediationRequested { remediation } => {
                 (DeliveryKind::Remediation, &remediation.id)
             }
@@ -126,16 +144,26 @@ impl DeliveryEvent {
                 ..
             } => {
                 text(reason, 2048)?;
-                if let Some(revision) = fixing_revision {
-                    git(revision)?;
-                }
-                Ok(())
+                fixing_revision.as_ref().map(git).transpose().map(|_| ())
             }
+            Self::ReleaseRequirementsRecorded { .. }
+            | Self::EnvironmentInventoryObserved { .. }
+            | Self::EnvironmentAdvisoryReported { .. }
+            | Self::WatchRegistered { .. }
+            | Self::WatchStopped { .. }
+            | Self::DeploymentFinished { .. } => self.validate_context_event(),
+        }
+    }
+
+    fn validate_context_event(&self) -> Result<()> {
+        match self {
+            Self::ReleaseRequirementsRecorded { requirements } => requirements.validate(),
+            Self::EnvironmentInventoryObserved { .. }
+            | Self::EnvironmentAdvisoryReported { .. } => Ok(()),
             Self::WatchRegistered { watch } => watch.validate(),
-            Self::WatchStopped { watch_id: id }
-            | Self::DeploymentFinished {
-                deployment_id: id, ..
-            } => text(id, 512),
+            Self::WatchStopped { watch_id } => text(watch_id, 512),
+            Self::DeploymentFinished { .. } => Ok(()),
+            _ => unreachable!("core delivery event"),
         }
     }
 }
@@ -303,21 +331,61 @@ impl OriginQuery {
     pub fn validate(&self) -> Result<()> {
         self.validate_coordinates()?;
         self.validate_fingerprint()?;
+        self.validate_selectors()?;
         if self.line_start == Some(0)
             || self.line_end == Some(0)
             || matches!((self.line_start, self.line_end), (Some(a),Some(b)) if b < a)
         {
             bail!("invalid origin line range");
         }
-        if self.revision.is_none()
-            && self.repository.is_none()
-            && self.pull_request_id.is_none()
-            && self.rollout_id.is_none()
-        {
-            bail!("origin lookup requires revision, repository, pull request or rollout");
+        if self.repository.is_none() && !self.has_selector() {
+            bail!("origin lookup requires a repository or an origin selector");
         }
         Ok(())
     }
+    pub(crate) fn has_selector(&self) -> bool {
+        [
+            self.revision.is_some(),
+            self.revision_prefix.is_some(),
+            self.fingerprint.is_some(),
+            self.pull_request_id.is_some(),
+            self.pull_request_number.is_some(),
+            self.rollout_id.is_some(),
+            self.branch.is_some(),
+            self.feature.is_some(),
+        ]
+        .into_iter()
+        .any(|present| present)
+    }
+
+    fn validate_selectors(&self) -> Result<()> {
+        if let Some(prefix) = &self.revision_prefix {
+            if self.repository.is_none()
+                || self.revision.is_some()
+                || !(4..=64).contains(&prefix.len())
+                || !prefix.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                bail!("revision prefix requires a repository and 4 to 64 hexadecimal characters");
+            }
+        }
+        if self.pull_request_number.is_some_and(|number| number == 0)
+            || (self.pull_request_number.is_some()
+                && (self.repository.is_none() || self.pull_request_id.is_some()))
+            || (self.pull_request_provider.is_some() && self.pull_request_number.is_none())
+        {
+            bail!(
+                "provider PR number requires a repository and cannot be combined with a record ID"
+            );
+        }
+        for selector in [&self.branch, &self.pull_request_provider]
+            .into_iter()
+            .flatten()
+        {
+            text(selector, 512)?;
+        }
+        Ok(())
+    }
+
     fn validate_fingerprint(&self) -> Result<()> {
         if let Some(value) = &self.fingerprint {
             fingerprint(value)?;
@@ -338,6 +406,7 @@ impl OriginQuery {
             path(value)?;
         }
         if self.revision.is_none()
+            && self.revision_prefix.is_none()
             && self.fingerprint.is_none()
             && (self.path.is_some() || self.line_start.is_some() || self.line_end.is_some())
         {

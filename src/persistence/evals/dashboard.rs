@@ -10,6 +10,7 @@ mod series;
 use crate::evals::*;
 use crate::persistence::{backend::DbConnection, schema::eval_records, Store};
 use anyhow::{ensure, Result};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 const SOURCE_LIMIT: usize = 4096;
@@ -18,19 +19,29 @@ const SOURCE_BYTES: usize = 8 * 1024 * 1024;
 mod tests;
 impl Store {
     pub fn eval_dashboard(&mut self, project: &str, group: Option<&str>) -> Result<EvalDashboard> {
+        self.eval_dashboard_window(project, group, None)
+    }
+
+    pub fn eval_dashboard_window(
+        &mut self,
+        project: &str,
+        group: Option<&str>,
+        occurred_after: Option<DateTime<Utc>>,
+    ) -> Result<EvalDashboard> {
         ensure!(
             group.is_none_or(|id| id.len() <= 512),
             "eval dashboard identity exceeds limit"
         );
-        project_dashboard(&mut self.connection, project, group)
+        project_dashboard(&mut self.connection, project, group, occurred_after)
     }
 }
 fn project_dashboard(
     connection: &mut DbConnection,
     project: &str,
     selected: Option<&str>,
+    occurred_after: Option<DateTime<Utc>>,
 ) -> Result<EvalDashboard> {
-    let (records, truncated) = source_records(connection, project)?;
+    let (records, truncated) = source_records(connection, project, occurred_after)?;
     let scanned_records = records.len();
     let superseded: BTreeSet<_> = records
         .iter()
@@ -62,31 +73,14 @@ fn project_dashboard(
 fn source_records(
     connection: &mut DbConnection,
     project: &str,
+    occurred_after: Option<DateTime<Utc>>,
 ) -> Result<(Vec<EvalRecordInput>, bool)> {
     let mut records = vec![];
     let mut after: Option<(String, String)> = None;
     let mut bytes = 0;
+    let cutoff = occurred_after.map(|time| time.to_rfc3339());
     loop {
-        let mut query = eval_records::table
-            .filter(eval_records::project_id.eq(project))
-            .filter(eval_records::kind.eq_any(["run", "grade", "measurement"]))
-            .into_boxed::<crate::persistence::backend::DbBackend>();
-        if let Some((time, id)) = &after {
-            query = query.filter(eval_records::recorded_at.le(time)).filter(
-                eval_records::recorded_at
-                    .lt(time)
-                    .or(eval_records::id.gt(id)),
-            );
-        }
-        let rows = query
-            .order((eval_records::recorded_at.desc(), eval_records::id.asc()))
-            .limit(256)
-            .select((
-                eval_records::id,
-                eval_records::recorded_at,
-                eval_records::payload_json,
-            ))
-            .load::<(String, String, String)>(connection)?;
+        let rows = source_page(connection, project, cutoff.as_deref(), after.as_ref())?;
         if rows.is_empty() {
             return Ok((records, false));
         }
@@ -100,6 +94,60 @@ fn source_records(
         }
     }
 }
+type SourceRow = (String, String, String);
+
+fn source_page(
+    connection: &mut DbConnection,
+    project: &str,
+    cutoff: Option<&str>,
+    after: Option<&(String, String)>,
+) -> Result<Vec<SourceRow>> {
+    let mut query = eval_records::table
+        .filter(eval_records::project_id.eq(project))
+        .filter(eval_records::kind.eq_any(["run", "grade", "measurement"]))
+        .into_boxed::<crate::persistence::backend::DbBackend>();
+    let query = match cutoff {
+        Some(cutoff) => {
+            query = query.filter(eval_records::occurred_at.ge(cutoff));
+            if let Some((time, id)) = after {
+                query = query.filter(
+                    eval_records::occurred_at
+                        .lt(time)
+                        .or(eval_records::occurred_at
+                            .eq(time)
+                            .and(eval_records::id.lt(id))),
+                );
+            }
+            query
+                .order((eval_records::occurred_at.desc(), eval_records::id.desc()))
+                .select((
+                    eval_records::id,
+                    eval_records::occurred_at,
+                    eval_records::payload_json,
+                ))
+        }
+        None => {
+            if let Some((time, id)) = after {
+                query = query.filter(
+                    eval_records::recorded_at
+                        .lt(time)
+                        .or(eval_records::recorded_at
+                            .eq(time)
+                            .and(eval_records::id.gt(id))),
+                );
+            }
+            query
+                .order((eval_records::recorded_at.desc(), eval_records::id.asc()))
+                .select((
+                    eval_records::id,
+                    eval_records::recorded_at,
+                    eval_records::payload_json,
+                ))
+        }
+    };
+    Ok(query.limit(256).load(connection)?)
+}
+
 struct RecordCache<'a> {
     connection: &'a mut DbConnection,
     project: &'a str,

@@ -13,18 +13,18 @@ import Url
 import Wire
 
 
-view : Maybe String -> String -> Value -> Maybe Value -> Html msg
-view project home root watches =
+view : Maybe String -> String -> (String -> String -> String) -> Value -> Maybe Value -> Html msg
+view project home inspect root watches =
     div [ class "delivery" ]
         [ case Wire.str "response" root of
-            "detail" -> recordDetail project home root
-            _ -> recordList project root
+            "detail" -> recordDetail project home inspect root
+            _ -> recordList inspect root
         , watchView root watches
         ]
 
 
-recordList : Maybe String -> Value -> Html msg
-recordList project root =
+recordList : (String -> String -> String) -> Value -> Html msg
+recordList inspect root =
     let
         records = Wire.list "items" root
     in
@@ -32,12 +32,12 @@ recordList project root =
         [ if List.isEmpty records then
             p [ class "panel-empty" ] [ text "No delivery records in this scope. Agents register contributions and PR responsibility through nexus_delivery or nexus delivery." ]
           else
-            div [ class "delivery-list" ] (List.map (recordRow project) records)
+            div [ class "delivery-list" ] (List.map (recordRow inspect) records)
         ]
 
 
-recordRow : Maybe String -> Value -> Html msg
-recordRow project record =
+recordRow : (String -> String -> String) -> Value -> Html msg
+recordRow inspect record =
     let
         body = Wire.field "body" record
         pr = Wire.field "pull_request" body
@@ -48,8 +48,9 @@ recordRow project record =
         snapshot = Wire.field "snapshot" body
         commit = revision (Wire.field "head" snapshot)
         recordedHead = revision (Wire.field "head" pr)
+        subject = Wire.field "subject" record
     in
-    a [ class "delivery-row", href (recordUrl project (Wire.field "subject" record)) ]
+    a [ class "delivery-row", href (inspect (Wire.str "kind" subject) (Wire.str "id" subject)) ]
         [ div [ class "delivery-name" ] [ span [ class "delivery-kind" ] [ text (human (Wire.str "kind" body)) ], Html.strong [] [ text (Wire.str "title" record) ], small [] [ text (Wire.str "repository" record) ] ]
         , div [] [ small [] [ text (if Wire.str "kind" body == "remediation" then "Requested agent" else if Wire.str "kind" body == "contribution" then "Original agent" else "Shepherd") ], span [] [ text person ], small [] [ text ("Availability: " ++ human (Wire.str "reachability" (Wire.field "shepherd_presence" record))) ] ]
         , div [] [ small [] [ text "Recorded state" ], span [ class (stateClass (Wire.str "state" record)) ] [ text (human (Wire.str "state" record)) ], if Wire.str "kind" body == "pull_request" then small [] [ text (reference "head_ref" snapshot pr ++ " → " ++ reference "base_ref" snapshot pr) ] else text "", if commit /= "Unknown" || recordedHead /= "Unknown" then code [ class "delivery-hash" ] [ text (if commit == "Unknown" then recordedHead else commit) ] else text "" ]
@@ -57,8 +58,8 @@ recordRow project record =
         ]
 
 
-recordDetail : Maybe String -> String -> Value -> Html msg
-recordDetail project home root =
+recordDetail : Maybe String -> String -> (String -> String -> String) -> Value -> Html msg
+recordDetail project home inspect root =
     let
         record = Wire.field "record" root
         related = Wire.list "related" root
@@ -78,15 +79,15 @@ recordDetail project home root =
                 ]
             , if D.decodeValue (D.field "truncated" D.bool) root == Ok True then div [ class "notice" ] [ text "Related records or observation history are partial. Use the CLI event and export cursors for complete retained evidence." ] else text ""
             , div [ class "delivery-detail-grid" ]
-                [ div [] [ bodyView project record, relatedPanel project "Original contributions" "contribution" related, relatedPanel project "Deployment attempts" "deployment" related ]
-                , div [] [ if List.member kind [ "pull_request", "rollout" ] then responsibility record else text "", relatedPanel project "Rollout" "rollout" related, relatedPanel project "Remediation requests" "remediation" related, relatedPanel project "Pull requests" "pull_request" related ]
+                [ div [] [ bodyView project inspect record, relatedPanel inspect "Original contributions" "contribution" related, relatedPanel inspect "Deployment attempts" "deployment" related ]
+                , div [] [ if List.member kind [ "pull_request", "rollout" ] then responsibility record else text "", relatedPanel inspect "Rollout" "rollout" related, relatedPanel inspect "Remediation requests" "remediation" related, relatedPanel inspect "Pull requests" "pull_request" related ]
                 ]
             , history observations
             ]
 
 
-bodyView : Maybe String -> Value -> Html msg
-bodyView project record =
+bodyView : Maybe String -> (String -> String -> String) -> Value -> Html msg
+bodyView project inspect record =
     let
         body = Wire.field "body" record
     in
@@ -98,7 +99,7 @@ bodyView project record =
             panel "Rollout scope" "Promotion and deployment remain caller-owned."
                 [ facts [ ( "Environments", String.join " → " (Wire.strings "environments" rollout) ), ( "Source PRs", String.join ", " (Wire.strings "pull_request_ids" rollout) ), ( "Contributions", String.join ", " (Wire.strings "contribution_ids" rollout) ) ] ]
         "deployment" -> deploymentView (Wire.field "deployment" body)
-        "remediation" -> remediationView project body
+        "remediation" -> remediationView inspect body
         _ -> panel "Delivery evidence" "" [ p [ class "panel-empty" ] [ text "This record has no supported evidence view." ] ]
 
 
@@ -166,16 +167,16 @@ deploymentView deployment =
         ]
 
 
-remediationView : Maybe String -> Value -> Html msg
-remediationView project body =
+remediationView : (String -> String -> String) -> Value -> Html msg
+remediationView inspect body =
     let request = Wire.field "remediation" body in
     panel "Remediation request" "Recording a request does not prove host delivery or agent acceptance."
         [ div [ class "delivery-section prose" ] [ p [] [ text (Wire.str "request" request) ] ]
         , facts [ ( "Requested agent", agentName (Wire.field "recipient" request) ), ( "Failure revision", revision (Wire.field "failure_revision" request) ), ( "Current reason", known (Wire.str "reason" body) ), ( "Fixing revision", revision (Wire.field "fixing_revision" body) ) ]
         , div [ class "delivery-section prose" ] (List.map (\evidence -> p [] [ text evidence ]) (Wire.strings "evidence" request))
-        , linkedId project "contribution" "Original contribution" (Wire.str "contribution_id" request)
-        , linkedId project "pull_request" "Pull request" (Wire.str "pull_request_id" request)
-        , linkedId project "deployment" "Failed deployment" (Wire.str "deployment_id" request)
+        , linkedId inspect "contribution" "Original contribution" (Wire.str "contribution_id" request)
+        , linkedId inspect "pull_request" "Pull request" (Wire.str "pull_request_id" request)
+        , linkedId inspect "deployment" "Failed deployment" (Wire.str "deployment_id" request)
         ]
 
 
@@ -192,12 +193,12 @@ responsibility record =
         ]
 
 
-relatedPanel : Maybe String -> String -> String -> List Value -> Html msg
-relatedPanel project heading kind related =
+relatedPanel : (String -> String -> String) -> String -> String -> List Value -> Html msg
+relatedPanel inspect heading kind related =
     let
         records = List.filter (\record -> Wire.str "kind" (Wire.field "subject" record) == kind) related
         row record =
-            a [ href (recordUrl project (Wire.field "subject" record)) ]
+            a [ href (inspect kind (Wire.str "id" (Wire.field "subject" record))) ]
                 [ Html.strong [] [ text (Wire.str "title" record) ]
                 , small [] [ text (human (Wire.str "state" record)) ]
                 , if kind == "contribution" then
@@ -249,8 +250,22 @@ watchFacts watch =
     let
         registration = Wire.field "registration" watch
         enabled = D.decodeValue (D.field "enabled" D.bool) watch |> Result.toMaybe
+        readiness = Wire.field "promotion_readiness" watch
     in
-    facts [ ( "Watch", known (Wire.str "id" registration) ), ( "PR record", Wire.str "pull_request_id" registration ), ( "State", enabled |> Maybe.map (\active -> if active then "Enabled" else "Stopped") |> Maybe.withDefault "Unknown" ), ( "Interval", String.fromFloat (Wire.number "interval_seconds" registration) ++ " seconds" ), ( "Last attempt", known (Wire.str "last_attempt_at" watch) ), ( "Last successful observation", known (Wire.str "last_success_at" watch) ), ( "Next poll due", known (Wire.str "next_poll_at" watch) ), ( "Last failure", known (Wire.str "last_error" watch) ) ]
+    facts <| [ ( "Watch", known (Wire.str "id" registration) ), ( "PR record", Wire.str "pull_request_id" registration ), ( "State", enabled |> Maybe.map (\active -> if active then "Enabled" else "Stopped") |> Maybe.withDefault "Unknown" ), ( "Interval", String.fromFloat (Wire.number "interval_seconds" registration) ++ " seconds" ), ( "Last attempt", known (Wire.str "last_attempt_at" watch) ), ( "Last successful observation", known (Wire.str "last_success_at" watch) ), ( "Next poll due", known (Wire.str "next_poll_at" watch) ), ( "Last failure", known (Wire.str "last_error" watch) ) ]
+        ++ (if Wire.str "environment" readiness == "" then
+                []
+            else
+                [ ( "Promotion environment", Wire.str "environment" readiness )
+                , ( "Candidate", revision (Wire.field "candidate" readiness) )
+                , ( "Dependencies"
+                  , if Wire.str "requirements_id" readiness == "" then
+                        "Requirements unknown"
+                    else
+                        String.fromFloat (Wire.number "missing" readiness) ++ " missing · " ++ String.fromFloat (Wire.number "unknown" readiness) ++ " unknown"
+                  )
+                ]
+           )
 
 
 routeView : Value -> Html msg
@@ -258,19 +273,9 @@ routeView route =
     if Wire.str "host" route == "" then text "" else div [ class "delivery-section" ] [ h3 [] [ text "Contact route" ], p [] [ text (Wire.str "host" route ++ " · " ++ Wire.str "thread_id" route) ], external "Open original chat ↗" (Wire.str "url" route) ]
 
 
-linkedId : Maybe String -> String -> String -> String -> Html msg
-linkedId project kind caption identity =
-    if identity == "" then text "" else div [ class "delivery-section" ] [ a [ href (subjectUrl project kind identity) ] [ text (caption ++ " →") ] ]
-
-
-recordUrl : Maybe String -> Value -> String
-recordUrl project subject =
-    subjectUrl project (Wire.str "kind" subject) (Wire.str "id" subject)
-
-
-subjectUrl : Maybe String -> String -> String -> String
-subjectUrl project kind identity =
-    "/ui/pull-requests?record=" ++ Url.percentEncode (kind ++ ":" ++ identity) ++ projectQuery project
+linkedId : (String -> String -> String) -> String -> String -> String -> Html msg
+linkedId inspect kind caption identity =
+    if identity == "" then text "" else div [ class "delivery-section" ] [ a [ href (inspect kind identity) ] [ text (caption ++ " →") ] ]
 
 
 projectQuery : Maybe String -> String

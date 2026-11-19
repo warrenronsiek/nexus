@@ -35,7 +35,6 @@ mod store_lock;
 mod work;
 
 pub(crate) use papercuts::{PapercutDispatch, PapercutReviewJob};
-use prompt::synopsis;
 pub(crate) use sos::{SosDispatch, SosTriageJob};
 use store_lock::{LifecycleStoreBusy, TrackedStoreGuard, TrackedStoreMutex};
 
@@ -62,7 +61,6 @@ use super::workspace::ProjectBinding;
 use crate::agents::analyst::{self, AnalysisResult};
 use crate::agents::model;
 use crate::config::LoadedConfig;
-use crate::memory::MemoryReadScope;
 #[cfg(feature = "postgres")]
 use crate::persistence::DatabaseReadinessProbe;
 use crate::persistence::Store;
@@ -155,68 +153,6 @@ impl NexusService {
     #[cfg(test)]
     pub(crate) fn from_store(loaded: LoadedConfig, store: Store) -> Self {
         Self::from_parts(loaded, store)
-    }
-
-    fn user_prompt(&self, input: UserPromptInput, binding: &ProjectBinding) -> ServiceResponse {
-        let result = (|| -> Result<PromptResponse> {
-            let project = self.resolve_project(binding, input.context.project_root.as_deref())?;
-            let mut store = self.lifecycle_store().context("acquire lifecycle store")?;
-            store.touch_session(
-                &project.id,
-                &input.context.session_id,
-                &input.context.agent,
-                project.worktree.as_deref(),
-                &self.loaded.hash,
-            )?;
-            let hash = blake3::hash(input.prompt.as_bytes()).to_hex().to_string();
-            let synopsis = self.loaded.config.privacy.store_prompt_synopsis.then(|| {
-                crate::coordination::domain::truncate_utf8(
-                    synopsis(
-                        &input.prompt,
-                        self.loaded
-                            .config
-                            .privacy
-                            .prompt_synopsis_max_chars
-                            .min(crate::coordination::api::MAX_SESSION_SUMMARY_BYTES),
-                    ),
-                    crate::coordination::api::MAX_SESSION_SUMMARY_BYTES,
-                )
-            });
-            let full = self
-                .loaded
-                .config
-                .privacy
-                .store_full_prompts
-                .then_some(input.prompt.as_str());
-            store.record_prompt(
-                &project.id,
-                &input.context.session_id,
-                synopsis.as_deref(),
-                &hash,
-                full,
-            )?;
-            let memory_context = if self.loaded.config.memory.enabled {
-                store.activate_memory_context(
-                    &MemoryReadScope::layered(project.id.clone()),
-                    &input.context.agent,
-                    &input.context.session_id,
-                    self.memory_context_limits(),
-                )?
-            } else {
-                None
-            };
-            Ok(PromptResponse {
-                permitted: true,
-                recorded: true,
-                project_id: project.id,
-                prompt_hash: hash,
-                memory_context,
-            })
-        })();
-        match result {
-            Ok(response) => ServiceResponse::Prompt(response),
-            Err(error) => ServiceResponse::Hook(lifecycle_failure(error)),
-        }
     }
 
     fn pre_tool_use(
@@ -444,11 +380,12 @@ impl NexusService {
             .lock()
             .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| {
-                store.dashboard(
+                store.dashboard_window(
                     query.project_id.as_deref(),
                     self.loaded.config.ui.recent_event_limit,
                     self.loaded.config.ui.recent_record_limit,
                     self.loaded.config.coordination.claim_ttl_seconds,
+                    query.since,
                 )
             }) {
             Ok(records) => ServiceResponse::Dashboard(DashboardResponse {

@@ -300,3 +300,21 @@ observation; they do not independently qualify its elapsed duration.
 The [Audits](audit-registry.md) destination shows recorded control runs grouped
 by control, day, categorical result, and follow-up on the displayed page.
 Selecting a run drills into its pinned definition and append-only history.
+
+## Recent history windows
+
+Work history, Coordination, Pull requests, evaluations, Code concern reports,
+and the audit run list accept rolling 24-hour, 7-day, 14-day and 30-day
+ranges. Seven days is the browser default. The range is part of the URL and
+the server computes the cutoff. Persisted source time orders Work sessions,
+last observation or conflict-update time scopes the Coordination picker,
+event time scopes Coordination history, record update time scopes delivery
+lists, and source occurrence time scopes evaluations, concern encounters
+and audit runs. An audit's explicit date fields
+override its preset. Direct record reads and selected Work descendants
+retain their existing identity-based retrieval.
+
+The project and time predicates apply before the existing page and byte
+limits. SQLite and PostgreSQL have matching indexes for the browser's Work,
+Coordination, delivery, and concern windows. Evaluations and audit runs reuse their existing
+source-time indexes.

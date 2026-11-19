@@ -39,6 +39,8 @@ pub enum EvalAction {
     Dashboard {
         project_id: Option<String>,
         group_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        occurred_after: Option<chrono::DateTime<chrono::Utc>>,
     },
     Get {
         id: String,

@@ -192,3 +192,13 @@ attempted remedies, and known evidence gaps.
 history format. They retain original source attribution and current importer
 separately. Concern-specific transfer retains Git/artifact references and does
 not copy blob bytes; use a complete database snapshot when those bytes must move.
+
+After filing a concern against a feature or pinned location, offer an
+addressed handoff when the report calls for the original implementer's help.
+Use the receipt's concern ID to carry the report and its origin evidence.
+
+When asking the original implementer to investigate an existing concern,
+`nexus delivery remediate --concern CONCERN_ID --title TITLE --message MESSAGE`
+can resolve its recorded feature or pinned location and create the addressed
+handoff. Review the reported origin qualification or specify a recipient if
+attribution is ambiguous.
