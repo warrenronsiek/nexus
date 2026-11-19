@@ -246,3 +246,95 @@ fn portable_delivery_import_rejects_a_scalar_event_id_that_differs_from_its_body
         "scalar journal identity must match immutable source identity"
     );
 }
+
+#[test]
+fn sessions_accept_exact_session_and_worktree_filters() {
+    let harness = Harness::start();
+    let path = harness.root.to_str().unwrap();
+    let output = harness.feature_cli(
+        "sessions",
+        &["--all", "--session", "missing", "--worktree", path],
+    );
+    support::assert_success("filtered sessions", &output);
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["sessions"], json!([]), "{result}");
+}
+
+#[test]
+fn remediation_is_visible_to_the_addressed_host_and_receipt_is_verified_separately() {
+    let mut harness = Harness::start();
+    let stored = harness.call(
+        "nexus_delivery",
+        json!({"action":"record","observations":[{
+            "id":"origin","occurred_at":"2026-11-15T12:00:00Z","body":{
+                "event":"contribution_registered","contribution":{
+                    "id":"implementation","repository":"example/repo","title":"Implementation",
+                    "origin":{"agent":"claude","session_id":"impl-thread"},
+                    "features":["timeline"],"rationale":"Fix timeline ordering"
+                }
+            }
+        }]}),
+    );
+    assert_eq!(stored["ok"], true, "{stored}");
+    let queued = harness.call(
+        "nexus_delivery",
+        json!({"action":"remediate","request":{
+            "id":"runtime-remediation","origin":{"repository":"example/repo","feature":"timeline"},
+            "title":"Retest the rollout","message":"Please check the timeline replay"
+        }}),
+    );
+    assert_eq!(queued["delivery"], "queued", "{queued}");
+    let root = harness.root.to_string_lossy().to_string();
+    let wrong = harness.call(
+        "nexus_user_prompt",
+        json!({
+            "project_root":root,"session_id":"another-thread","agent":"claude","prompt":"Continue"
+        }),
+    );
+    assert!(
+        !wrong.to_string().contains("runtime-remediation"),
+        "{wrong}"
+    );
+    let addressed = harness.call(
+        "nexus_user_prompt",
+        json!({
+            "project_root":root,"session_id":"impl-thread","agent":"claude","prompt":"Continue"
+        }),
+    );
+    let hook = addressed["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(
+        hook.contains("Please check the timeline replay"),
+        "{addressed}"
+    );
+    let status = harness.call(
+        "nexus_delivery",
+        json!({"action":"remediation_status","id":"runtime-remediation"}),
+    );
+    assert_eq!(status["delivery"], "queued", "{status}");
+
+    let output = harness.feature_cli_with_context(
+        "delivery",
+        &["acknowledge", "runtime-remediation"],
+        &[
+            ("NEXUS_AGENT", "claude"),
+            ("NEXUS_HOST_SESSION_ID", "another-thread"),
+        ],
+    );
+    assert!(!output.status.success());
+    let output = harness.feature_cli_with_context(
+        "delivery",
+        &["acknowledge", "runtime-remediation"],
+        &[
+            ("NEXUS_AGENT", "claude"),
+            ("NEXUS_HOST_SESSION_ID", "impl-thread"),
+        ],
+    );
+    support::assert_success("acknowledge delivery", &output);
+    let receipt = harness.call(
+        "nexus_delivery",
+        json!({"action":"remediation_status","id":"runtime-remediation"}),
+    );
+    assert_eq!(receipt["delivery"], "received", "{receipt}");
+}

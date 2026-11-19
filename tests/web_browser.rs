@@ -597,3 +597,27 @@ async fn browser_read_requests_are_bounded_and_project_bound_reads_require_selec
         );
     }
 }
+
+#[tokio::test]
+async fn historical_browser_reads_accept_only_supported_time_ranges() {
+    let app = Browser::start(None).await;
+    let cookie = app.cookie().await;
+    for kind in [
+        "work_dashboard",
+        "coordination",
+        "coordination_session_index",
+        "concern_dashboard",
+        "delivery_list",
+        "eval_dashboard",
+        "audit_list",
+    ] {
+        for (range, status) in [
+            ("1d", StatusCode::OK),
+            ("30d", StatusCode::OK),
+            ("all", StatusCode::BAD_REQUEST),
+        ] {
+            let response = app.read(&cookie, json!({"kind":kind,"range":range})).await;
+            assert_eq!(response.status(), status, "{kind} {range}");
+        }
+    }
+}

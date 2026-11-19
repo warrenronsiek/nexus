@@ -218,3 +218,8 @@ New capture retains safe deterministic operation/category pairs in the durable
 work outbox independently of optional analytics enrichment. The compact timeline
 shows at most three operations with a truncation gap; full activity detail keeps
 all correlated operations. Dense sessions get more vertical source-time space.
+
+The browser Work history picker defaults to seven days. Its URL retains the
+selected time range. An older session link still loads that session's
+observed descendants. MCP dashboard reads accept an explicit
+`occurred_after` UTC timestamp to request the same source-time filter.

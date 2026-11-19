@@ -3,13 +3,16 @@
 use super::*;
 use flyway::ChangelogFile;
 
-const CURRENT_SCHEMA_VERSION: u64 = 28;
+const CURRENT_SCHEMA_VERSION: u64 = 30;
 
 #[path = "work_history_tests.rs"]
 mod work_history;
 
 #[path = "code_concerns_tests.rs"]
 mod code_concerns;
+
+#[path = "delivery_tests.rs"]
+mod delivery;
 
 #[path = "project_catalog_tests.rs"]
 mod project_catalog;

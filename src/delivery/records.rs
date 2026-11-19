@@ -1,5 +1,6 @@
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
+use super::{environment::*, origin::*, remediation::*};
 use crate::work_history::{GitRevision, WorkActor};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -13,6 +14,9 @@ pub enum DeliveryKind {
     Rollout,
     Deployment,
     Remediation,
+    ReleaseRequirements,
+    EnvironmentInventory,
+    EnvironmentAdvisory,
 }
 impl DeliveryKind {
     pub fn as_str(&self) -> &'static str {
@@ -22,6 +26,9 @@ impl DeliveryKind {
             Self::Rollout => "rollout",
             Self::Deployment => "deployment",
             Self::Remediation => "remediation",
+            Self::ReleaseRequirements => "release_requirements",
+            Self::EnvironmentInventory => "environment_inventory",
+            Self::EnvironmentAdvisory => "environment_advisory",
         }
     }
 }
@@ -244,6 +251,10 @@ pub struct Remediation {
     pub failure_revision: Option<GitRevision>,
     pub evidence: Vec<String>,
     pub request: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_evidence: Option<RemediationOrigin>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
@@ -287,6 +298,15 @@ pub enum DeliveryEvent {
     },
     AgentPresenceObserved {
         presence: AgentPresence,
+    },
+    ReleaseRequirementsRecorded {
+        requirements: ReleaseRequirements,
+    },
+    EnvironmentInventoryObserved {
+        inventory: EnvironmentInventory,
+    },
+    EnvironmentAdvisoryReported {
+        advisory: EnvironmentAdvisory,
     },
     RemediationRequested {
         remediation: Remediation,
@@ -346,6 +366,15 @@ pub enum DeliveryBody {
     Deployment {
         deployment: Deployment,
     },
+    ReleaseRequirements {
+        requirements: ReleaseRequirements,
+    },
+    EnvironmentInventory {
+        inventory: EnvironmentInventory,
+    },
+    EnvironmentAdvisory {
+        advisory: EnvironmentAdvisory,
+    },
     Remediation {
         remediation: Remediation,
         state: RemediationState,
@@ -378,39 +407,10 @@ pub struct DeliveryQuery {
     pub feature: Option<String>,
     pub target: Option<String>,
     pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_since: Option<DateTime<Utc>>,
     pub after: Option<String>,
     pub limit: Option<u32>,
-}
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-pub struct OriginQuery {
-    pub fingerprint: Option<String>,
-    pub revision: Option<GitRevision>,
-    pub repository: Option<String>,
-    pub path: Option<String>,
-    pub line_start: Option<u32>,
-    pub line_end: Option<u32>,
-    pub feature: Option<String>,
-    pub pull_request_id: Option<String>,
-    pub rollout_id: Option<String>,
-    pub limit: Option<u32>,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum OriginQualification {
-    Exact,
-    Candidates,
-    Ambiguous,
-    Unknown,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct OriginMatch {
-    pub contribution: Contribution,
-    pub mapping: Option<RevisionMapping>,
-    pub matched_hunks: Vec<ChangedHunk>,
-    pub qualification: OriginQualification,
-    pub presence: Option<AgentPresence>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -433,6 +433,28 @@ pub enum DeliveryAction {
     ResolveOrigin {
         project_id: Option<String>,
         query: OriginQuery,
+    },
+    EnvironmentContext {
+        project_id: Option<String>,
+        environment: String,
+        candidate: Option<GitRevision>,
+        pull_request_id: Option<String>,
+    },
+    CheckHistory {
+        project_id: Option<String>,
+        repository: String,
+        check: String,
+        since: DateTime<Utc>,
+    },
+    Remediate {
+        request: Box<RemediationDraft>,
+    },
+    Acknowledge {
+        id: String,
+    },
+    RemediationStatus {
+        project_id: Option<String>,
+        id: String,
     },
     Inbox {
         project_id: Option<String>,
@@ -458,10 +480,16 @@ pub enum DeliveryAction {
 impl DeliveryAction {
     pub fn read_project(&self) -> Option<&str> {
         match self {
-            Self::Record { .. } | Self::Import { .. } => None,
+            Self::Record { .. }
+            | Self::Import { .. }
+            | Self::Remediate { .. }
+            | Self::Acknowledge { .. } => None,
             Self::List { project_id, .. }
             | Self::Get { project_id, .. }
             | Self::ResolveOrigin { project_id, .. }
+            | Self::EnvironmentContext { project_id, .. }
+            | Self::CheckHistory { project_id, .. }
+            | Self::RemediationStatus { project_id, .. }
             | Self::Inbox { project_id, .. }
             | Self::Events { project_id, .. }
             | Self::Export { project_id, .. }
@@ -488,8 +516,30 @@ pub enum DeliveryResponse {
     },
     Origins {
         matches: Vec<OriginMatch>,
+        #[serde(default)]
+        groups: Vec<OriginGroup>,
+        matched_by: Option<OriginBasis>,
         qualification: OriginQualification,
         gaps: Vec<String>,
+    },
+    EnvironmentContext {
+        environment: String,
+        candidate: Option<GitRevision>,
+        requirements_id: Option<String>,
+        dependencies: Vec<DependencyAssessment>,
+        advisories: Vec<EnvironmentAdvisory>,
+        advisories_partial: bool,
+    },
+    CheckHistory {
+        pull_request_ids: Vec<String>,
+        partial: bool,
+    },
+    Remediation {
+        remediation: Box<Remediation>,
+        state: RemediationState,
+        delivery: RemediationDelivery,
+        presence: Option<AgentPresence>,
+        recipient_last_seen_at: Option<DateTime<Utc>>,
     },
     Events {
         observations: Vec<DeliveryObservation>,

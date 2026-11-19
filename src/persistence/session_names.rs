@@ -6,7 +6,10 @@
 // @spec docs/features/work-history.md
 // @boundary fixture-json: source title fixtures decode through the closed work schema.
 
-use crate::coordination::domain::{RecordScope, RecordWindow, SessionRecord};
+use crate::coordination::{
+    api::SessionQuery,
+    domain::{RecordWindow, SessionRecord},
+};
 use crate::persistence::Store;
 use crate::work_history::{host_agent_identity, WorkSubject};
 use anyhow::Result;
@@ -14,13 +17,11 @@ use anyhow::Result;
 impl Store {
     pub(crate) fn list_sessions_window(
         &mut self,
-        project_key: Option<&str>,
-        scope: RecordScope,
+        query: &SessionQuery,
         activity_window_seconds: i64,
         limit: usize,
     ) -> Result<RecordWindow<SessionRecord>> {
-        let mut records =
-            self.read_sessions_window(project_key, scope, activity_window_seconds, limit)?;
+        let mut records = self.read_sessions_window(query, activity_window_seconds, limit)?;
         for record in &mut records.items {
             record.display_name = self.host_session_display_name(record)?;
         }

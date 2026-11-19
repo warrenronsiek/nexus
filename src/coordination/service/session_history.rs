@@ -42,7 +42,7 @@ impl NexusService {
 
     fn session_index(&self, query: SessionIndexQuery, binding: &ProjectBinding) -> ServiceResponse {
         self.project_history(query.project_id, binding, |store, project_id| {
-            let window = store.session_index(project_id, MAX_SESSION_INDEX_RESULTS)?;
+            let window = store.session_index(project_id, MAX_SESSION_INDEX_RESULTS, query.since)?;
             Ok(ServiceResponse::SessionIndex(SessionIndexResponse {
                 ok: true,
                 sessions: window.items,

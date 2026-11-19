@@ -22,21 +22,24 @@ impl Store {
         &mut self,
         project_key: &str,
         limit: usize,
+        since: Option<DateTime<Utc>>,
     ) -> Result<RecordWindow<SessionActivity>> {
         let connection = &mut self.connection;
-        let candidates = index_candidates(connection, project_key, limit)?;
+        let since = since.map(|value| value.to_rfc3339());
+        let candidates = index_candidates(connection, project_key, limit, since.as_deref())?;
+        let truncated = candidates.len() > limit;
         let ids = candidates
             .iter()
             .map(|row| row.session_id.clone())
             .collect::<Vec<_>>();
-        let stats = SessionStats::load(connection, project_key, &ids)?;
+        let stats = SessionStats::load(connection, project_key, &ids, since.as_deref())?;
         let mut ranked = stats.rank(candidates, limit)?;
         for activity in &mut ranked {
             activity.session.display_name = display_name(connection, &activity.session)?;
         }
         Ok(RecordWindow {
             items: ranked,
-            truncated: has_more_sessions(connection, project_key, limit)?,
+            truncated,
         })
     }
 }
@@ -47,10 +50,16 @@ fn index_candidates(
     connection: &mut DbConnection,
     project_key: &str,
     limit: usize,
+    since: Option<&str>,
 ) -> Result<Vec<SessionRow>> {
     let window = query_window_limit(limit);
-    let mut candidates = sessions::table
+    let mut recent = sessions::table
         .filter(sessions::project_id.eq(project_key))
+        .into_boxed();
+    if let Some(since) = since {
+        recent = recent.filter(sessions::last_seen_at.ge(since));
+    }
+    let mut candidates = recent
         .order((sessions::last_seen_at.desc(), sessions::session_id.asc()))
         .limit(window)
         .select(SessionRow::as_select())
@@ -59,7 +68,7 @@ fn index_candidates(
         .iter()
         .map(|row| row.session_id.clone())
         .collect::<BTreeSet<_>>();
-    let quiet = recent_conflict_owners(connection, project_key, window)?
+    let quiet = recent_conflict_owners(connection, project_key, window, since)?
         .into_iter()
         .filter(|session| !seen.contains(session))
         .collect::<BTreeSet<_>>();
@@ -77,9 +86,15 @@ fn recent_conflict_owners(
     connection: &mut DbConnection,
     project_key: &str,
     window: i64,
+    since: Option<&str>,
 ) -> Result<BTreeSet<String>> {
-    let recent = conflicts::table
+    let mut candidates = conflicts::table
         .filter(conflicts::project_id.eq(project_key))
+        .into_boxed();
+    if let Some(since) = since {
+        candidates = candidates.filter(conflicts::updated_at.ge(since));
+    }
+    let recent = candidates
         .order((conflicts::updated_at.desc(), conflicts::id.asc()))
         .limit(window)
         .select(ConflictRow::as_select())
@@ -91,18 +106,6 @@ fn recent_conflict_owners(
         .collect())
 }
 
-fn has_more_sessions(
-    connection: &mut DbConnection,
-    project_key: &str,
-    limit: usize,
-) -> Result<bool> {
-    let total = sessions::table
-        .filter(sessions::project_id.eq(project_key))
-        .select(count_star())
-        .first::<i64>(connection)?;
-    Ok(usize::try_from(total).unwrap_or(usize::MAX) > limit)
-}
-
 #[derive(Default)]
 struct SessionStats {
     conflicts: HashMap<String, i64>,
@@ -111,12 +114,19 @@ struct SessionStats {
 }
 
 impl SessionStats {
-    fn load(connection: &mut DbConnection, project_key: &str, ids: &[String]) -> Result<Self> {
+    fn load(
+        connection: &mut DbConnection,
+        project_key: &str,
+        ids: &[String],
+        since: Option<&str>,
+    ) -> Result<Self> {
         let mut stats = Self {
-            advisories: delivered_advisory_counts(connection, project_key, ids)?,
+            advisories: delivered_advisory_counts(connection, project_key, ids, since)?,
             ..Self::default()
         };
-        for (session, conflicts, latest) in party_conflict_stats(connection, project_key, ids)? {
+        for (session, conflicts, latest) in
+            party_conflict_stats(connection, project_key, ids, since)?
+        {
             if let Some(latest) = latest {
                 stats
                     .latest_conflict
@@ -163,8 +173,9 @@ fn party_conflict_stats(
     connection: &mut DbConnection,
     project_key: &str,
     ids: &[String],
+    since: Option<&str>,
 ) -> Result<Vec<(String, i64, Option<String>)>> {
-    Ok(conflicts::table
+    let mut query = conflicts::table
         .inner_join(
             claims::table.on(claims::id
                 .eq(conflicts::left_claim_id)
@@ -179,19 +190,29 @@ fn party_conflict_stats(
             count(conflicts::id),
             max(conflicts::updated_at),
         ))
-        .load(connection)?)
+        .into_boxed();
+    if let Some(since) = since {
+        query = query.filter(conflicts::updated_at.ge(since));
+    }
+    Ok(query.load(connection)?)
 }
 
 fn delivered_advisory_counts(
     connection: &mut DbConnection,
     project_key: &str,
     ids: &[String],
+    since: Option<&str>,
 ) -> Result<HashMap<String, i64>> {
-    Ok(advisories::table
+    let mut query = advisories::table
         .filter(advisories::project_id.eq(project_key))
         .filter(advisories::session_id.eq_any(ids))
         .group_by(advisories::session_id)
         .select((advisories::session_id, count_star()))
+        .into_boxed();
+    if let Some(since) = since {
+        query = query.filter(advisories::created_at.ge(since));
+    }
+    Ok(query
         .load::<(String, i64)>(connection)?
         .into_iter()
         .collect())

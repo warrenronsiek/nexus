@@ -585,3 +585,10 @@ loads at most the remaining capacity plus one overflow identity per root. Exact
 capacity, duplicate membership events, whole-root inclusion, and the oversized
 newest-root fallback retain their existing meanings without counting every
 member of roots outside the selected window.
+
+Browser Work history passes a source-time cutoff in `work_dashboard`. The
+`occurred_after` dashboard filter applies to candidate roots and any overview
+activity sample before projection. The ordered source-time indexes cover both
+all-origin and host-root reads. An explicit selected session and its observed
+descendants remain available for older deep links. CLI and MCP dashboard
+queries can supply the same cutoff explicitly.

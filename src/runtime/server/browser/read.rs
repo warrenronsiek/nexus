@@ -13,10 +13,14 @@ use crate::code_concerns::{ConcernAction, ConcernQuery};
 use crate::coordination::api::*;
 use crate::coordination::domain::{ConflictScope, HookContext, RecordScope};
 use crate::delivery::{AgentIdentity, DeliveryAction, DeliveryQuery, DeliverySubject, OriginQuery};
-use crate::evals::EvalQuery;
 use crate::work_history::{WorkAction, WorkQuery, WorkSessionOrigin, WorkSubject};
 use anyhow::{ensure, Result};
 use serde::Deserialize;
+
+mod evals;
+mod history_range;
+use evals::EvalRead;
+use history_range::HistoryRange;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +50,8 @@ enum AuditRead {
     List {
         #[serde(default)]
         filter: RunFilter,
+        #[serde(default)]
+        range: HistoryRange,
     },
     #[serde(rename = "audit_get")]
     Get {
@@ -58,7 +64,12 @@ enum AuditRead {
 impl AuditRead {
     fn into_action(self, project_id: Option<String>) -> AuditAction {
         match self {
-            Self::List { filter } => AuditAction::List { filter, project_id },
+            Self::List { mut filter, range } => {
+                if filter.from.is_none() && filter.until.is_none() {
+                    filter.from = Some(range.cutoff());
+                }
+                AuditAction::List { filter, project_id }
+            }
             Self::Get {
                 run_id,
                 after,
@@ -80,6 +91,8 @@ enum DeliveryRead {
     List {
         #[serde(default)]
         filter: DeliveryQuery,
+        #[serde(default)]
+        range: HistoryRange,
     },
     #[serde(rename = "delivery_get")]
     Get { subject: DeliverySubject },
@@ -98,7 +111,10 @@ enum DeliveryRead {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CoordinationRead {
     Projects {},
-    Coordination {},
+    Coordination {
+        #[serde(default)]
+        range: HistoryRange,
+    },
     CoordinationSessions {
         #[serde(default)]
         scope: RecordScope,
@@ -117,7 +133,10 @@ enum CoordinationRead {
     CoordinationSessionTimeline {
         session_id: String,
     },
-    CoordinationSessionIndex {},
+    CoordinationSessionIndex {
+        #[serde(default)]
+        range: HistoryRange,
+    },
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -174,27 +193,14 @@ enum IssueRead {
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum EvalRead {
-    #[serde(rename = "eval_dashboard")]
-    Dashboard { group_id: Option<String> },
-    #[serde(rename = "eval_list")]
-    List {
-        #[serde(default)]
-        filter: EvalQuery,
-    },
-    #[serde(rename = "eval_get")]
-    Get { id: String },
-    #[serde(rename = "eval_why")]
-    Why { id: String },
-}
-#[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum WorkRead {
     #[serde(rename = "work_dashboard")]
     Dashboard {
         work_session_id: Option<String>,
         #[serde(default = "host_origin")]
         session_origin: WorkSessionOrigin,
+        #[serde(default)]
+        range: HistoryRange,
     },
     #[serde(rename = "work_list")]
     List {
@@ -236,11 +242,15 @@ enum ConcernRead {
     Dashboard {
         #[serde(default)]
         filter: ConcernQuery,
+        #[serde(default)]
+        range: HistoryRange,
     },
     #[serde(rename = "concern_list")]
     List {
         #[serde(default)]
         filter: ConcernQuery,
+        #[serde(default)]
+        range: HistoryRange,
     },
     #[serde(rename = "concern_get")]
     Get { concern_id: String },
@@ -309,10 +319,13 @@ impl BrowserRead {
 impl DeliveryRead {
     fn into_action(self, project_id: Option<String>) -> DeliveryAction {
         match self {
-            Self::List { filter } => DeliveryAction::List {
-                project_id,
-                query: filter,
-            },
+            Self::List { mut filter, range } => {
+                filter.updated_since = Some(range.cutoff());
+                DeliveryAction::List {
+                    project_id,
+                    query: filter,
+                }
+            }
             Self::Get { subject } => DeliveryAction::Get {
                 project_id,
                 subject,
@@ -337,16 +350,21 @@ impl CoordinationRead {
     fn permits_global(&self) -> bool {
         !matches!(
             self,
-            Self::CoordinationSessionTimeline { .. } | Self::CoordinationSessionIndex {}
+            Self::CoordinationSessionTimeline { .. } | Self::CoordinationSessionIndex { .. }
         )
     }
     fn into_request(self, project_id: Option<String>) -> ServiceRequest {
         match self {
             Self::Projects {} => ServiceRequest::Projects,
-            Self::Coordination {} => ServiceRequest::Dashboard(DashboardQuery { project_id }),
-            Self::CoordinationSessions { scope } => {
-                ServiceRequest::Sessions(SessionQuery { project_id, scope })
-            }
+            Self::Coordination { range } => ServiceRequest::Dashboard(DashboardQuery {
+                project_id,
+                since: Some(range.cutoff()),
+            }),
+            Self::CoordinationSessions { scope } => ServiceRequest::Sessions(SessionQuery {
+                project_id,
+                scope,
+                ..Default::default()
+            }),
             Self::CoordinationClaims { scope } => {
                 ServiceRequest::Claims(ClaimQuery { project_id, scope })
             }
@@ -363,8 +381,11 @@ impl CoordinationRead {
                     session_id,
                 })
             }
-            Self::CoordinationSessionIndex {} => {
-                ServiceRequest::SessionIndex(SessionIndexQuery { project_id })
+            Self::CoordinationSessionIndex { range } => {
+                ServiceRequest::SessionIndex(SessionIndexQuery {
+                    project_id,
+                    since: Some(range.cutoff()),
+                })
             }
         }
     }
@@ -448,42 +469,18 @@ impl IssueRead {
         }
     }
 }
-impl EvalRead {
-    fn into_action(self, project_id: Option<String>) -> EvalAction {
-        match self {
-            Self::Dashboard { group_id } => EvalAction::Dashboard {
-                project_id,
-                group_id,
-            },
-            Self::List { filter } => EvalAction::List {
-                project_id,
-                kind: filter.kind,
-                repository: filter.repository,
-                model: filter.model,
-                id_prefix: filter.id_prefix,
-                search: filter.search,
-                after: filter.after,
-                limit: filter.limit,
-            },
-            Self::Get { id } => EvalAction::Get { project_id, id },
-            Self::Why { id } => EvalAction::Why {
-                project_id,
-                id,
-                limit: Some(64),
-            },
-        }
-    }
-}
 impl WorkRead {
     fn into_action(self, project_id: Option<String>) -> WorkAction {
         match self {
             Self::Dashboard {
                 work_session_id,
                 session_origin,
+                range,
             } => WorkAction::Dashboard {
                 project_id,
                 work_session_id,
                 session_origin,
+                occurred_after: Some(range.cutoff()),
             },
             Self::List { filter } => WorkAction::List {
                 project_id,
@@ -530,14 +527,24 @@ impl ConcernRead {
                 project_id,
                 query: filter,
             },
-            Self::Dashboard { filter } => ConcernAction::Dashboard {
-                project_id,
-                query: filter,
-            },
-            Self::List { filter } => ConcernAction::List {
-                project_id,
-                query: filter,
-            },
+            Self::Dashboard { mut filter, range } => {
+                if filter.occurred_after.is_none() && filter.occurred_before.is_none() {
+                    filter.occurred_after = Some(range.cutoff());
+                }
+                ConcernAction::Dashboard {
+                    project_id,
+                    query: filter,
+                }
+            }
+            Self::List { mut filter, range } => {
+                if filter.occurred_after.is_none() && filter.occurred_before.is_none() {
+                    filter.occurred_after = Some(range.cutoff());
+                }
+                ConcernAction::List {
+                    project_id,
+                    query: filter,
+                }
+            }
             Self::Get { concern_id } => ConcernAction::Get {
                 project_id,
                 concern_id,

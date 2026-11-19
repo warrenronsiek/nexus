@@ -5,6 +5,7 @@
 // @entrypoint Store::delivery_command
 mod projection;
 mod queries;
+mod remediation;
 mod rows;
 use crate::{
     delivery::*,
@@ -16,6 +17,15 @@ use chrono::Utc;
 use diesel::prelude::*;
 use rows::ObservationRow;
 impl Store {
+    pub(crate) fn remediation_notices(
+        &mut self,
+        project: &str,
+        agent: &str,
+        session: &str,
+    ) -> Result<Vec<RemediationNotice>> {
+        remediation::pending_notices(&mut self.connection, project, agent, session)
+    }
+
     pub fn delivery_command(
         &mut self,
         project: &str,
@@ -29,6 +39,11 @@ impl Store {
             DeliveryAction::Record { observations } => {
                 self.transaction(|connection| record(connection, project, actor, observations, &[]))
             }
+            DeliveryAction::Remediate { request } => self.transaction(|connection| {
+                remediation::request(connection, project, actor, request)
+            }),
+            DeliveryAction::Acknowledge { id } => self
+                .transaction(|connection| remediation::acknowledge(connection, project, actor, id)),
             DeliveryAction::Import { observations } => {
                 let inputs = observations
                     .iter()

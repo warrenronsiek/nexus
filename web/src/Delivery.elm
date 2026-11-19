@@ -13,18 +13,18 @@ import Url
 import Wire
 
 
-view : Maybe String -> String -> Value -> Maybe Value -> Html msg
-view project home root watches =
+view : Maybe String -> String -> (String -> String -> String) -> Value -> Maybe Value -> Html msg
+view project home inspect root watches =
     div [ class "delivery" ]
         [ case Wire.str "response" root of
             "detail" -> recordDetail project home root
-            _ -> recordList project root
+            _ -> recordList inspect root
         , watchView root watches
         ]
 
 
-recordList : Maybe String -> Value -> Html msg
-recordList project root =
+recordList : (String -> String -> String) -> Value -> Html msg
+recordList inspect root =
     let
         records = Wire.list "items" root
     in
@@ -32,12 +32,12 @@ recordList project root =
         [ if List.isEmpty records then
             p [ class "panel-empty" ] [ text "No delivery records in this scope. Agents register contributions and PR responsibility through nexus_delivery or nexus delivery." ]
           else
-            div [ class "delivery-list" ] (List.map (recordRow project) records)
+            div [ class "delivery-list" ] (List.map (recordRow inspect) records)
         ]
 
 
-recordRow : Maybe String -> Value -> Html msg
-recordRow project record =
+recordRow : (String -> String -> String) -> Value -> Html msg
+recordRow inspect record =
     let
         body = Wire.field "body" record
         pr = Wire.field "pull_request" body
@@ -48,8 +48,9 @@ recordRow project record =
         snapshot = Wire.field "snapshot" body
         commit = revision (Wire.field "head" snapshot)
         recordedHead = revision (Wire.field "head" pr)
+        subject = Wire.field "subject" record
     in
-    a [ class "delivery-row", href (recordUrl project (Wire.field "subject" record)) ]
+    a [ class "delivery-row", href (inspect (Wire.str "kind" subject) (Wire.str "id" subject)) ]
         [ div [ class "delivery-name" ] [ span [ class "delivery-kind" ] [ text (human (Wire.str "kind" body)) ], Html.strong [] [ text (Wire.str "title" record) ], small [] [ text (Wire.str "repository" record) ] ]
         , div [] [ small [] [ text (if Wire.str "kind" body == "remediation" then "Requested agent" else if Wire.str "kind" body == "contribution" then "Original agent" else "Shepherd") ], span [] [ text person ], small [] [ text ("Availability: " ++ human (Wire.str "reachability" (Wire.field "shepherd_presence" record))) ] ]
         , div [] [ small [] [ text "Recorded state" ], span [ class (stateClass (Wire.str "state" record)) ] [ text (human (Wire.str "state" record)) ], if Wire.str "kind" body == "pull_request" then small [] [ text (reference "head_ref" snapshot pr ++ " → " ++ reference "base_ref" snapshot pr) ] else text "", if commit /= "Unknown" || recordedHead /= "Unknown" then code [ class "delivery-hash" ] [ text (if commit == "Unknown" then recordedHead else commit) ] else text "" ]
@@ -249,8 +250,22 @@ watchFacts watch =
     let
         registration = Wire.field "registration" watch
         enabled = D.decodeValue (D.field "enabled" D.bool) watch |> Result.toMaybe
+        readiness = Wire.field "promotion_readiness" watch
     in
-    facts [ ( "Watch", known (Wire.str "id" registration) ), ( "PR record", Wire.str "pull_request_id" registration ), ( "State", enabled |> Maybe.map (\active -> if active then "Enabled" else "Stopped") |> Maybe.withDefault "Unknown" ), ( "Interval", String.fromFloat (Wire.number "interval_seconds" registration) ++ " seconds" ), ( "Last attempt", known (Wire.str "last_attempt_at" watch) ), ( "Last successful observation", known (Wire.str "last_success_at" watch) ), ( "Next poll due", known (Wire.str "next_poll_at" watch) ), ( "Last failure", known (Wire.str "last_error" watch) ) ]
+    facts <| [ ( "Watch", known (Wire.str "id" registration) ), ( "PR record", Wire.str "pull_request_id" registration ), ( "State", enabled |> Maybe.map (\active -> if active then "Enabled" else "Stopped") |> Maybe.withDefault "Unknown" ), ( "Interval", String.fromFloat (Wire.number "interval_seconds" registration) ++ " seconds" ), ( "Last attempt", known (Wire.str "last_attempt_at" watch) ), ( "Last successful observation", known (Wire.str "last_success_at" watch) ), ( "Next poll due", known (Wire.str "next_poll_at" watch) ), ( "Last failure", known (Wire.str "last_error" watch) ) ]
+        ++ (if Wire.str "environment" readiness == "" then
+                []
+            else
+                [ ( "Promotion environment", Wire.str "environment" readiness )
+                , ( "Candidate", revision (Wire.field "candidate" readiness) )
+                , ( "Dependencies"
+                  , if Wire.str "requirements_id" readiness == "" then
+                        "Requirements unknown"
+                    else
+                        String.fromFloat (Wire.number "missing" readiness) ++ " missing · " ++ String.fromFloat (Wire.number "unknown" readiness) ++ " unknown"
+                  )
+                ]
+           )
 
 
 routeView : Value -> Html msg

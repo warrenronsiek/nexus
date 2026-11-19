@@ -66,6 +66,8 @@ pub enum WorkAction {
         work_session_id: Option<String>,
         #[serde(default)]
         session_origin: WorkSessionOrigin,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        occurred_after: Option<DateTime<Utc>>,
     },
     Get {
         project_id: Option<String>,

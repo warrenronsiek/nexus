@@ -118,8 +118,12 @@ fn apply_history_action(
         action @ EvalAction::List { .. } => store
             .list_eval_records(project, &list_query(action).expect("list variant"))
             .map(|page| EvalResponse::Listed { ok: true, page }),
-        EvalAction::Dashboard { group_id, .. } => store
-            .eval_dashboard(project, group_id.as_deref())
+        EvalAction::Dashboard {
+            group_id,
+            occurred_after,
+            ..
+        } => store
+            .eval_dashboard_window(project, group_id.as_deref(), occurred_after)
             .map(|dashboard| EvalResponse::Dashboard {
                 ok: true,
                 dashboard: Box::new(dashboard),

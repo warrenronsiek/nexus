@@ -247,3 +247,48 @@ an aggregate promotion, a failed environment attempt, provenance lookup, and a
 remediation response. Check source identity and assignment history after one agent
 stops. Unavailable Nexus capture must not stop or repeat the caller's workload.
 Hand over concrete project, contribution, PR, rollout, deployment, and request IDs.
+
+## Use the short handoff and check environment evidence
+
+```sh
+nexus delivery origin --repository acme/service --revision 01ab23c4 --pull-request 42 --branch beta --feature timeline
+nexus delivery remediate --repository acme/service --feature timeline --title 'Investigate the rollout' --message 'Check the timeline replay' --evidence-file links.txt
+nexus delivery remediate --concern CONCERN_ID --title 'Investigate the regression' --message 'Review the linked evidence'
+nexus delivery remediation-status REQUEST_ID
+```
+
+The revision prefix must identify one recorded revision. The pull request
+number uses GitHub by default. Supply `--pull-request-id` for an internal
+delivery record ID and `--fallback` to request ordered fallback with
+legacy selectors. Check `matched_by`, `qualification`, and the grouped
+evidence before assigning a recipient. Use `--agent` with `--session` to
+select among candidates. Pass an explicit `--id` for replayable submissions.
+
+The recipient's next supported prompt hook can surface a queued handoff.
+Run `nexus delivery acknowledge REQUEST_ID` in the addressed host context
+after viewing it. MCP provides `remediate`, `remediation_status` and
+`acknowledge` for bound sessions. The status includes the recipient's last
+observed session activity and verification of receipt. A request can stay
+queued when its host is idle.
+
+At promotion PR open or head change, run the environment assessment against
+the registered PR head. Record only key names and supply an expiration for
+inventories and advisories. The PR workflow owns its promotion decision.
+
+```sh
+nexus delivery environment-record requirements requirements.json
+nexus delivery environment-record inventory beta-inventory.json
+nexus delivery environment --environment beta --pull-request-id PR_RECORD_ID
+nexus delivery check-history --repository acme/service --check 'timeline replay'
+```
+
+Check `requirements_id` before treating an empty dependency list as a
+declaration of zero dependencies. A fresh, complete target inventory can
+establish that a key is missing. Query `delivery environment` with the
+environment name before benchmarking or replaying there to see active
+operational advisories. Check history defaults to the last seven days and
+counts distinct PRs across repeated observations.
+
+Set `promotion_environment` on a watch registration to see readiness in
+`nexus delivery watches` for the retained open PR head. Use the environment
+read for per-key evidence.

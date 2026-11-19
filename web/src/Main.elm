@@ -67,8 +67,15 @@ type Detail
     | Loaded Document
 
 
+type TimeRange
+    = Day
+    | Week
+    | Fortnight
+    | Month
+
+
 type alias Route =
-    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope }
+    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope, range : TimeRange }
 
 
 type alias Model =
@@ -98,6 +105,7 @@ type alias Model =
     , zoom : Float
     , mode : String
     , durationMode : String
+    , range : TimeRange
     , navigationOpen : Bool
     }
 
@@ -115,6 +123,7 @@ type Msg
     | Projects (Result Http.Error String)
     | ChangeProject String
     | ChangeFocus String
+    | ChangeRange String
     | Navigate Query
     | Back
     | Refresh
@@ -152,7 +161,7 @@ init _ url key =
     let
         wanted = route url
     in
-    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", navigationOpen = False }
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", range = wanted.range, navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -232,7 +241,41 @@ route url =
         screen = List.filter (\candidate -> String.endsWith ("/" ++ slug candidate) url.path) screens |> List.head |> Maybe.withDefault Coordination
         params = url.query |> Maybe.map parameters |> Maybe.withDefault Dict.empty
     in
-    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if screen == PullRequests then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params }
+    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if List.member screen [ PullRequests, Concerns ] then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params, range = Dict.get "range" params |> Maybe.withDefault "" |> parseRange }
+
+
+parseRange : String -> TimeRange
+parseRange raw =
+    case raw of
+        "1d" -> Day
+        "14d" -> Fortnight
+        "30d" -> Month
+        _ -> Week
+
+
+rangeOption : TimeRange -> ( String, String )
+rangeOption range =
+    case range of
+        Day -> ( "1d", "Last 24 hours" )
+        Week -> ( "7d", "Last 7 days" )
+        Fortnight -> ( "14d", "Last 14 days" )
+        Month -> ( "30d", "Last 30 days" )
+
+
+rangeScreen : Screen -> Bool
+rangeScreen screen =
+    List.member screen [ Work, Coordination, PullRequests, Evals, Concerns, Audits ]
+
+
+routeLocation : Route -> String
+routeLocation wanted =
+    let
+        extra =
+            (if rangeScreen wanted.screen && wanted.range /= Week then [ ( "range", Tuple.first (rangeOption wanted.range) ) ] else [])
+                ++ (if List.member wanted.screen [ PullRequests, Concerns ] && wanted.mode /= "" then [ ( "view", wanted.mode ) ] else [])
+                ++ (if wanted.screen == Audits then Audit.routeFields wanted.audit else [])
+    in
+    screenLocation wanted.screen wanted.project wanted.focus extra
 
 
 parameters : String -> Dict String String
@@ -250,11 +293,6 @@ parameters raw =
 location : Screen -> Maybe String -> Maybe String -> String
 location screen project focus =
     screenLocation screen project focus []
-
-
-auditLocation : Maybe String -> Maybe String -> Audit.Scope -> String
-auditLocation project runId scope =
-    screenLocation Audits project runId (Audit.routeFields scope)
 
 
 screenLocation : Screen -> Maybe String -> Maybe String -> List ( String, String ) -> String
@@ -322,13 +360,16 @@ routeQuery wanted =
         ( PullRequests, Nothing ) ->
             modeQuery PullRequests wanted.mode
 
+        ( Concerns, Nothing ) ->
+            modeQuery Concerns wanted.mode
+
         _ ->
             primary wanted.screen wanted.focus
 
 
 currentRoute : Model -> Route
 currentRoute model =
-    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope }
+    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope, range = model.range }
 
 
 {-| Companion reads that complete a screen: its picker index, focused evidence, or health. -}
@@ -408,7 +449,15 @@ load wanted model =
         ( { reading | data = State.accept pending.generation (Err "Choose a project to inspect its history.") pending }, Cmd.none )
 
     else
-        ( reading, Cmd.batch (read model.project wanted (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project q (Received pending.generation key False)) extras) )
+        ( reading, Cmd.batch (read model.project (boundedQuery model.range wanted) (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project (boundedQuery model.range q) (Received pending.generation key False)) extras) )
+
+
+boundedQuery : TimeRange -> Query -> Query
+boundedQuery range wanted =
+    if range /= Week && List.member wanted.kind [ "work_dashboard", "coordination", "coordination_session_index", "delivery_list", "eval_dashboard", "concern_dashboard", "concern_list", "audit_list" ] then
+        with "range" (Tuple.first (rangeOption range)) wanted
+    else
+        wanted
 
 
 {-| A new screen, project or focus starts from that screen's primary read with no stale selection. -}
@@ -422,6 +471,7 @@ reset wanted model =
             | screen = wanted.screen
             , project = wanted.project
             , focus = wanted.focus
+            , range = wanted.range
             , data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }
             , supplemental = if sameScreen then Dict.remove "timeline" model.supplemental else Dict.empty
             , deliveryOverlap = if sameScreen then model.deliveryOverlap else State.empty
@@ -432,7 +482,7 @@ reset wanted model =
             , trail = []
             , selected = Nothing
             , zoom = 1
-            , mode = if wanted.screen == PullRequests then wanted.mode else if sameScreen then model.mode else ""
+            , mode = if List.member wanted.screen [ PullRequests, Concerns ] then wanted.mode else if sameScreen then model.mode else ""
             , navigationOpen = False
         }
 
@@ -460,7 +510,7 @@ update msg model =
                 project = if model.globalProjectReads then wanted.project else wanted.project |> orElse model.project
             in
             if model.authenticated /= Just True then
-                ( { model | screen = wanted.screen, project = project, focus = wanted.focus, auditScope = wanted.audit, auditFilters = wanted.audit.filters }, Cmd.none )
+                ( { model | screen = wanted.screen, project = project, focus = wanted.focus, range = wanted.range, auditScope = wanted.audit, auditFilters = wanted.audit.filters }, Cmd.none )
 
             else
                 reset { wanted | project = project } model
@@ -519,10 +569,20 @@ update msg model =
             if project == "" && not model.globalProjectReads then
                 ( model, Cmd.none )
             else
-                ( model, Nav.pushUrl model.key (location model.screen (if project == "" then Nothing else Just project) Nothing) )
+                let wanted = currentRoute model in
+                ( model, Nav.pushUrl model.key (routeLocation { wanted | project = if project == "" then Nothing else Just project, focus = Nothing }) )
 
         ChangeFocus focus ->
-            ( model, Nav.pushUrl model.key (location model.screen model.project (if focus == "" then Nothing else Just focus)) )
+            let wanted = currentRoute model in
+            ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = if focus == "" then Nothing else Just focus }) )
+
+        ChangeRange raw ->
+            let
+                wanted = currentRoute model
+                currentAudit = wanted.audit.filters
+                cleared = { filters = { currentAudit | from = "", until = "" }, cutoff = Nothing }
+            in
+            ( model, Nav.pushUrl model.key (routeLocation { wanted | range = parseRange raw, focus = Nothing, audit = cleared }) )
 
         Navigate wanted ->
             load wanted { model | trail = model.query :: model.trail, selected = Nothing }
@@ -642,14 +702,16 @@ update msg model =
             ( { model | auditFilters = Audit.set field content model.auditFilters }, Cmd.none )
 
         ApplyAuditFilters ->
-            ( model, Nav.pushUrl model.key (auditLocation model.project Nothing { filters = model.auditFilters, cutoff = Nothing }) )
+            let wanted = currentRoute model in
+            ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = Nothing, audit = { filters = model.auditFilters, cutoff = Nothing } }) )
 
         OpenAuditRun runId ->
             let
                 cutoff = model.data.value |> Maybe.andThen (.root >> D.decodeValue (D.field "cutoff" D.int) >> Result.toMaybe)
                 scope = model.auditScope
+                wanted = currentRoute model
             in
-            ( model, Nav.pushUrl model.key (auditLocation model.project (Just runId) { scope | cutoff = cutoff }) )
+            ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = Just runId, audit = { scope | cutoff = cutoff } }) )
 
         ClearAuditSelection ->
             ( { model | selected = Nothing }, focusAuditExecutions )
@@ -683,9 +745,9 @@ update msg model =
             ( next, draw next )
 
         Mode mode ->
-            if model.screen == PullRequests then
-                let home = location PullRequests model.project Nothing in
-                ( model, Nav.pushUrl model.key (home ++ (if String.contains "?" home then "&" else "?") ++ "view=" ++ Url.percentEncode mode) )
+            if List.member model.screen [ PullRequests, Concerns ] then
+                let wanted = currentRoute model in
+                ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = Nothing, mode = mode }) )
             else
                 load (modeQuery model.screen mode) { model | mode = mode, trail = [], selected = Nothing }
 
@@ -1078,13 +1140,31 @@ toolbar model =
     div [ class "toolbar" ]
         [ div [ class "scope-controls" ]
             (label [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
-                :: focusPicker model
+                :: (timeRangePicker model ++ focusPicker model)
             )
         , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
         ]
 
 
-{-| The second picker chooses what a screen focuses on: a session, or an evaluated agent. -}
+timeRangePicker : Model -> List (Html Msg)
+timeRangePicker model =
+    if not (rangeScreen model.screen) || (model.screen == Concerns && model.mode == "map") then
+        []
+    else
+        let
+            custom = model.screen == Audits && (model.auditScope.filters.from /= "" || model.auditScope.filters.until /= "")
+            current = if custom then "custom" else Tuple.first (rangeOption model.range)
+            options = List.map (rangeOption >> (\( key, caption ) -> choice current key caption)) [ Day, Week, Fortnight, Month ]
+        in
+        [ label [ class "scope-control" ]
+            [ span [ class "muted" ] [ text "Time range" ]
+            , select [ onInput ChangeRange, attribute "aria-label" "Time range" ]
+                (if custom then choice current "custom" "Custom dates" :: options else options)
+            ]
+        ]
+
+
+{-| Focus choices show the current session or evaluated agent. -}
 focusPicker : Model -> List (Html Msg)
 focusPicker model =
     let
@@ -1156,13 +1236,19 @@ documentView model doc =
         , case model.screen of
             Coordination -> coordinationView model doc
             Work -> workView model doc
-            PullRequests -> div [] [ Delivery.view model.project (location PullRequests model.project Nothing) doc.root (Dict.get "delivery_watches" model.supplemental |> Maybe.map .root), DeliveryOverlap.view model.project doc.root model.deliveryOverlap ]
+            PullRequests ->
+                let
+                    wanted = currentRoute model
+                    inspect kind identity = routeLocation { wanted | focus = Just (kind ++ ":" ++ identity) }
+                in
+                div [] [ Delivery.view model.project (routeLocation { wanted | focus = Nothing }) inspect doc.root (Dict.get "delivery_watches" model.supplemental |> Maybe.map .root), DeliveryOverlap.view model.project doc.root model.deliveryOverlap ]
             Audits ->
                 if model.query.kind == "audit_get" then
                     let
                         scope = model.auditScope
+                        wanted = currentRoute model
                     in
-                    Audit.recordView (auditLocation model.project Nothing { scope | cutoff = Nothing }) (Maybe.withDefault "" model.focus) doc
+                    Audit.recordView (routeLocation { wanted | focus = Nothing, audit = { scope | cutoff = Nothing } }) (Maybe.withDefault "" model.focus) doc
                 else
                     Audit.listView model.selected OpenAuditRun ClearAuditSelection chart doc
             Evals -> evalView model doc
@@ -1351,8 +1437,8 @@ coordinationView model doc =
         [ div [ class "stats-grid" ]
             [ stat "Recent sessions" (countText "active_sessions" counts) "Seen within the activity window"
             , stat "Live claims" (countText "active_claims" counts) "Paths agents currently hold"
-            , stat "Conflicts · 7 days" (optionalCount "recent_conflicts" counts) "Overlaps detected between sessions"
-            , stat "Messages · 7 days" (optionalCount "recent_advisories" counts) "Warnings Nexus delivered to agents"
+            , stat ("Conflicts · " ++ String.dropLeft 5 (Tuple.second (rangeOption model.range))) (optionalCount "recent_conflicts" counts) "Overlaps detected between sessions"
+            , stat ("Messages · " ++ String.dropLeft 5 (Tuple.second (rangeOption model.range))) (optionalCount "recent_advisories" counts) "Warnings Nexus delivered to agents"
             ]
         , case ( model.focus, Dict.get "timeline" model.supplemental ) of
             ( Nothing, _ ) -> guidance "Choose a session" "Pick a session above to see the overlaps it ran into and the messages Nexus sent about them."

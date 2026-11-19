@@ -64,7 +64,7 @@ fn coordination_tool_definitions() -> Vec<Value> {
     // caller memory tools. Memory administration stays reserved for local user surfaces.
     json_array(json!([
         {"name":"nexus_status","description":"Return daemon and projection counts.","inputSchema":{"type":"object"}},
-        {"name":"nexus_sessions","description":"List agent sessions.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string","maxLength":256},"scope":{"type":"string","enum":["active","all"],"default":"active"}},"additionalProperties":false}},
+        {"name":"nexus_sessions","description":"List agent sessions, optionally filtered by exact session ID and recorded worktree.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string","maxLength":256},"session_id":{"type":"string","maxLength":512},"worktree":{"type":"string","maxLength":4096},"scope":{"type":"string","enum":["active","all"],"default":"active"}},"additionalProperties":false}},
         {"name":"nexus_claims","description":"List advisory path claims.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string","maxLength":256},"scope":{"type":"string","enum":["active","all"],"default":"active"}},"additionalProperties":false}},
         {"name":"nexus_conflicts","description":"List detected overlaps.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string","maxLength":256},"scope":{"type":"string","enum":["open","all"],"default":"open"}},"additionalProperties":false}},
         {"name":"nexus_resolve","description":"Record an optional resolution chosen by an agent or user.","inputSchema":{"type":"object","required":["conflict_id"],"properties":{"conflict_id":{"type":"string"},"resolution":{"type":"string"}},"additionalProperties":false}},

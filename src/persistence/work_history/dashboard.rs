@@ -6,6 +6,7 @@ use super::{projection, rows::SubjectRow};
 use crate::persistence::{backend::DbConnection, schema::work_subjects};
 use crate::work_history::*;
 use anyhow::{ensure, Result};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 pub(super) const SOURCE_LIMIT: usize = 4096;
@@ -20,17 +21,28 @@ mod tests;
 #[cfg(test)]
 mod transport_tests;
 
+#[cfg(test)]
 pub(super) fn dashboard(
     connection: &mut DbConnection,
     project: &str,
     session: Option<&str>,
     origin: WorkSessionOrigin,
 ) -> Result<WorkResponse> {
+    dashboard_window(connection, project, session, origin, None)
+}
+
+pub(super) fn dashboard_window(
+    connection: &mut DbConnection,
+    project: &str,
+    session: Option<&str>,
+    origin: WorkSessionOrigin,
+    occurred_after: Option<DateTime<Utc>>,
+) -> Result<WorkResponse> {
     ensure!(
         session.is_none_or(|id| id.len() <= 512),
         "work dashboard identity exceeds limit"
     );
-    let sources = source_rows(connection, project, origin, session)?;
+    let sources = source_rows(connection, project, origin, session, occurred_after)?;
     let mut projection = DashboardProjection::new(session, sources.truncated, origin);
     projection.work_bearing = sources.work_bearing;
     if projection.include_roots(connection, project, &sources.roots)? {
@@ -54,13 +66,21 @@ fn source_rows(
     project: &str,
     origin: WorkSessionOrigin,
     session: Option<&str>,
+    occurred_after: Option<DateTime<Utc>>,
 ) -> Result<DashboardSources> {
-    let (roots, roots_partial) = scope_rows(connection, project, "session", origin)?;
+    let (roots, roots_partial) =
+        scope_rows(connection, project, "session", origin, occurred_after)?;
     let ids: Vec<_> = roots.iter().map(|row| row.id.clone()).collect();
     let work_bearing = population::work_bearing_roots(connection, project, &ids)?;
     let (activities, activities_partial) = if session.is_none() && origin == WorkSessionOrigin::All
     {
-        scope_rows(connection, project, "activity", WorkSessionOrigin::All)?
+        scope_rows(
+            connection,
+            project,
+            "activity",
+            WorkSessionOrigin::All,
+            occurred_after,
+        )?
     } else {
         (Vec::new(), false)
     };
@@ -76,6 +96,7 @@ fn scope_rows(
     project: &str,
     scope: &str,
     origin: WorkSessionOrigin,
+    occurred_after: Option<DateTime<Utc>>,
 ) -> Result<(Vec<SubjectRow>, bool)> {
     let mut query = work_subjects::table
         .filter(work_subjects::project_id.eq(project))
@@ -84,8 +105,13 @@ fn scope_rows(
     if origin == WorkSessionOrigin::Host {
         query = query.filter(work_subjects::has_host_capture.eq(true));
     }
+    let query = match occurred_after {
+        Some(since) => query
+            .filter(work_subjects::occurred_at.ge(since.to_rfc3339()))
+            .order((work_subjects::occurred_at.desc(), work_subjects::id.asc())),
+        None => query.order((work_subjects::recorded_at.desc(), work_subjects::id.asc())),
+    };
     let mut rows = query
-        .order((work_subjects::recorded_at.desc(), work_subjects::id.asc()))
         .limit((SOURCE_LIMIT + 1) as i64)
         .select(SubjectRow::as_select())
         .load::<SubjectRow>(connection)?;

@@ -173,3 +173,8 @@ database failure; this isolation does not make missing observations replayable.
 Aggregate write transactions still serialize in PostgreSQL to preserve shared
 memory and conflict history. Readiness observes both stores and checks the
 database independently.
+
+Use `nexus sessions --session SESSION_ID`, `--worktree RECORDED_PATH`, or both
+for a narrowly scoped lookup. Add `--all` when looking up a historical session.
+The browser session picker defaults to the last seven days and can be widened
+or narrowed with its time range control.

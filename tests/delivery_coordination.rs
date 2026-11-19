@@ -525,3 +525,6 @@ fn delivery_windows_preserve_record_and_event_cursor_boundaries() {
     assert_eq!(continued["observations"][0]["input"]["id"], "two");
     assert!(continued["next_cursor"].is_null());
 }
+
+#[path = "delivery_coordination/ergonomics.rs"]
+mod ergonomics;

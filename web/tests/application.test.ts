@@ -12,7 +12,7 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; range?: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 const failedReadKinds = new Set<string>();
@@ -428,4 +428,15 @@ it("filters audit executions, drills from a result bar, and reads a verified dis
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
   await content("Welcome to Nexus");
   vi.unstubAllGlobals();
+});
+
+it("sends Work history time presets to the server and restores a linked range", async () => {
+  window.history.replaceState({}, "", "/ui/work?project=fixture-project&range=14d");
+  await loginProgram();
+  const waitForRange = (range: string) => vi.waitFor(() =>
+    expect(requests.some(({body}) => body.query?.kind === "work_dashboard" && body.query.range === range)).toBe(true));
+  await waitForRange("14d");
+  pick("Time range", "1d");
+  await vi.waitFor(() => expect(window.location.search).toContain("range=1d"));
+  await waitForRange("1d");
 });

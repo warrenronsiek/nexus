@@ -11,7 +11,7 @@ use crate::coordination::domain::{
     StatusCounts,
 };
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use diesel::dsl::count_star;
 use diesel::prelude::*;
 
@@ -82,19 +82,38 @@ impl Store {
         record_limit: usize,
         activity_window_seconds: i64,
     ) -> Result<DashboardRecords> {
+        self.dashboard_window(
+            project_key,
+            event_limit,
+            record_limit,
+            activity_window_seconds,
+            None,
+        )
+    }
+
+    pub(crate) fn dashboard_window(
+        &mut self,
+        project_key: Option<&str>,
+        event_limit: usize,
+        record_limit: usize,
+        activity_window_seconds: i64,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<DashboardRecords> {
         let event_limit = event_limit.min(crate::coordination::api::MAX_DASHBOARD_EVENT_RESULTS);
         let record_limit = record_limit.min(crate::coordination::api::MAX_DASHBOARD_RECORD_RESULTS);
-        let counts = self.dashboard_counts(project_key, activity_window_seconds)?;
-
-        let (event_items, events_truncated) = self.load_event_window(project_key, event_limit)?;
+        let counts = self.dashboard_counts_window(project_key, activity_window_seconds, since)?;
+        let (event_items, events_truncated) =
+            self.load_event_window(project_key, event_limit, since)?;
         let events = RecordWindow {
             items: event_items,
             truncated: events_truncated,
         };
 
         let sessions = self.list_sessions_window(
-            project_key,
-            crate::coordination::domain::RecordScope::Active,
+            &crate::coordination::api::SessionQuery {
+                project_id: project_key.map(str::to_owned),
+                ..Default::default()
+            },
             activity_window_seconds,
             record_limit,
         )?;
@@ -104,6 +123,21 @@ impl Store {
             record_limit,
         )?;
 
+        let conflicts = self.live_conflicts_window(project_key, record_limit)?;
+        Ok(DashboardRecords {
+            counts,
+            events,
+            sessions,
+            claims,
+            conflicts,
+        })
+    }
+
+    fn live_conflicts_window(
+        &mut self,
+        project_key: Option<&str>,
+        record_limit: usize,
+    ) -> Result<RecordWindow<crate::coordination::domain::ConflictRecord>> {
         // The dashboard prioritizes recently changed conflicts; history lists use creation order.
         let mut conflict_query = conflicts::table
             .filter(super::liveness::live_conflict())
@@ -116,21 +150,13 @@ impl Store {
             .limit(query_window_limit(record_limit))
             .select(ConflictRow::as_select())
             .load(&mut self.connection)?;
-        let conflicts = RecordWindow::bounded(
+        Ok(RecordWindow::bounded(
             conflict_rows
                 .into_iter()
                 .map(conflict_from_row)
                 .collect::<Result<Vec<_>>>()?,
             record_limit,
-        );
-
-        Ok(DashboardRecords {
-            counts,
-            events,
-            sessions,
-            claims,
-            conflicts,
-        })
+        ))
     }
 
     pub(super) fn dashboard_counts(
@@ -138,8 +164,17 @@ impl Store {
         project_key: Option<&str>,
         activity_window_seconds: i64,
     ) -> Result<StatusCounts> {
-        let recent = self.recent_history_counts(project_key)?;
-        self.live_counts(project_key, activity_window_seconds, recent)
+        self.dashboard_counts_window(project_key, activity_window_seconds, None)
+    }
+
+    fn dashboard_counts_window(
+        &mut self,
+        project_key: Option<&str>,
+        activity_window_seconds: i64,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<StatusCounts> {
+        let recent = self.recent_history_counts(project_key, since)?;
+        self.live_counts(project_key, activity_window_seconds, recent, since)
     }
 
     fn live_counts(
@@ -147,6 +182,7 @@ impl Store {
         project_key: Option<&str>,
         activity_window_seconds: i64,
         recent: RecentCoordinationCounts,
+        since: Option<DateTime<Utc>>,
     ) -> Result<StatusCounts> {
         let mut session_query = sessions::table
             .filter(super::liveness::recent_session(activity_window_seconds))
@@ -155,12 +191,10 @@ impl Store {
         let mut conflict_query = conflicts::table
             .filter(super::liveness::live_conflict())
             .into_boxed();
-        let mut event_query = events::table.into_boxed();
         if let Some(project_key) = project_key {
             session_query = session_query.filter(sessions::project_id.eq(project_key));
             claim_query = claim_query.filter(claims::project_id.eq(project_key));
             conflict_query = conflict_query.filter(conflicts::project_id.eq(project_key));
-            event_query = event_query.filter(events::project_id.eq(project_key));
         }
         Ok(StatusCounts {
             active_sessions: session_query
@@ -174,21 +208,38 @@ impl Store {
             open_conflicts: conflict_query
                 .select(count_star())
                 .first(&mut self.connection)?,
-            events: event_query
-                .select(count_star())
-                .first(&mut self.connection)?,
+            events: self.count_events(project_key, since)?,
             recent,
         })
+    }
+
+    fn count_events(
+        &mut self,
+        project_key: Option<&str>,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<i64> {
+        let mut query = events::table.into_boxed();
+        if let Some(project_key) = project_key {
+            query = query.filter(events::project_id.eq(project_key));
+        }
+        if let Some(since) = since {
+            query = query.filter(events::created_at.ge(since.to_rfc3339()));
+        }
+        Ok(query.select(count_star()).first(&mut self.connection)?)
     }
 
     /// Conflicts first detected and advisories delivered within the recent history window.
     fn recent_history_counts(
         &mut self,
         project_key: Option<&str>,
+        since: Option<DateTime<Utc>>,
     ) -> Result<RecentCoordinationCounts> {
-        let since = (Utc::now()
-            - Duration::days(crate::coordination::api::RECENT_COORDINATION_HISTORY_DAYS))
-        .to_rfc3339();
+        let since = since
+            .unwrap_or_else(|| {
+                Utc::now()
+                    - Duration::days(crate::coordination::api::RECENT_COORDINATION_HISTORY_DAYS)
+            })
+            .to_rfc3339();
         let mut conflict_query = conflicts::table
             .filter(conflicts::created_at.ge(&since))
             .into_boxed();

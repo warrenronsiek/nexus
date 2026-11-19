@@ -3,7 +3,9 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/delivery-coordination.md
 use super::*;
-use crate::persistence::schema::{delivery_features, delivery_origins};
+use crate::persistence::schema::{delivery_features, delivery_origins, delivery_targets};
+mod selectors;
+pub(in crate::persistence::delivery) use selectors::provider_pull_request;
 use std::collections::HashSet;
 #[derive(Default)]
 struct Candidates {
@@ -16,7 +18,7 @@ struct Resolution {
     gaps: Vec<String>,
     budget: WindowBudget,
 }
-pub(super) fn resolve(
+pub(in crate::persistence::delivery) fn resolve(
     connection: &mut DbConnection,
     project: &str,
     query: &OriginQuery,
@@ -24,6 +26,43 @@ pub(super) fn resolve(
     query
         .validate()
         .map_err(|e| DeliveryRejection::Invalid(e.to_string()))?;
+    let attempts = selectors::attempts(connection, project, query)?;
+    let resolved = attempts
+        .into_iter()
+        .find_map(
+            |(basis, attempt)| match resolve_attempt(connection, project, &attempt) {
+                Ok(result) if result.matches.is_empty() && result.gaps.is_empty() => None,
+                result => Some(result.map(|result| (basis, result))),
+            },
+        )
+        .transpose()?;
+    Ok(origin_response(resolved))
+}
+
+fn origin_response(resolved: Option<(OriginBasis, Resolution)>) -> DeliveryResponse {
+    match resolved {
+        Some((matched_by, result)) => DeliveryResponse::Origins {
+            groups: OriginGroup::from_matches(&result.matches),
+            qualification: qualification(&result),
+            matches: result.matches,
+            matched_by: Some(matched_by),
+            gaps: result.gaps,
+        },
+        None => DeliveryResponse::Origins {
+            matches: vec![],
+            groups: vec![],
+            matched_by: None,
+            qualification: OriginQualification::Unknown,
+            gaps: vec![],
+        },
+    }
+}
+
+fn resolve_attempt(
+    connection: &mut DbConnection,
+    project: &str,
+    query: &OriginQuery,
+) -> Result<Resolution> {
     let candidates = candidates(connection, project, query)?;
     let mut result = Resolution {
         gaps: candidates.gaps.clone(),
@@ -37,14 +76,9 @@ pub(super) fn resolve(
     }
     qualify_fingerprint(query, &mut result.matches);
     qualify_overlap(&mut result.matches);
-    let qualification = qualification(&result);
     result.gaps.sort();
     result.gaps.dedup();
-    Ok(DeliveryResponse::Origins {
-        matches: result.matches,
-        qualification,
-        gaps: result.gaps,
-    })
+    Ok(result)
 }
 impl Resolution {
     fn push(&mut self, item: OriginMatch) -> Result<()> {
@@ -91,12 +125,55 @@ fn revision_candidates(
         .map(|r| r.repository.as_str())
         .or(query.repository.as_deref())
         .expect("validated repository");
+    match (&query.revision, &query.path, &query.fingerprint) {
+        (Some(revision), None, None) => {
+            commit_candidates(connection, project, repository, &revision.commit)
+        }
+        _ => hunk_candidates(connection, project, repository, query),
+    }
+}
+
+fn commit_candidates(
+    connection: &mut DbConnection,
+    project: &str,
+    repository: &str,
+    revision: &str,
+) -> Result<Candidates> {
+    let mut ids = selectors::revision_targets(project, repository)
+        .filter(delivery_targets::target.eq(revision.to_ascii_lowercase()))
+        .select(delivery_targets::subject_id)
+        .order(delivery_targets::subject_id.asc())
+        .limit(1025)
+        .load::<String>(connection)?;
+    let gaps = index_limit(ids.len());
+    ids.truncate(1024);
+    Ok(Candidates {
+        ids,
+        gaps,
+        ..Default::default()
+    })
+}
+
+fn index_limit(count: usize) -> Vec<String> {
+    (count > 1024)
+        .then(|| "origin_index_limit".into())
+        .into_iter()
+        .collect()
+}
+
+fn hunk_candidates(
+    connection: &mut DbConnection,
+    project: &str,
+    repository: &str,
+    query: &OriginQuery,
+) -> Result<Candidates> {
     let mut selection = delivery_origins::table
         .filter(delivery_origins::project_id.eq(project))
         .filter(delivery_origins::repository.eq(repository))
         .into_boxed();
     if let Some(revision) = &query.revision {
-        selection = selection.filter(delivery_origins::revision.eq(&revision.commit));
+        selection =
+            selection.filter(delivery_origins::revision.eq(revision.commit.to_ascii_lowercase()));
     }
     if let Some(fingerprint) = &query.fingerprint {
         selection = selection.filter(delivery_origins::fingerprint.eq(fingerprint));
@@ -124,10 +201,10 @@ fn revision_candidates(
 }
 impl Candidates {
     fn from_index(rows: Vec<OriginRow>) -> Self {
-        let mut result = Self::default();
-        if rows.len() > 1024 {
-            result.gaps.push("origin_index_limit".into());
-        }
+        let mut result = Self {
+            gaps: index_limit(rows.len()),
+            ..Default::default()
+        };
         for row in rows.into_iter().take(1024) {
             result
                 .mapping_ids
@@ -149,6 +226,18 @@ fn repository_candidates(
         .into_boxed();
     if let Some(repo) = &query.repository {
         selection = selection.filter(delivery_records::repository.eq(repo));
+    }
+    if let Some(branch) = &query.branch {
+        selection = selection.filter(
+            delivery_records::id.eq_any(
+                delivery_targets::table
+                    .filter(delivery_targets::project_id.eq(project))
+                    .filter(delivery_targets::kind.eq("contribution"))
+                    .filter(delivery_targets::target_kind.eq("branch"))
+                    .filter(delivery_targets::target.eq(branch))
+                    .select(delivery_targets::subject_id),
+            ),
+        );
     }
     if let Some(feature) = &query.feature {
         selection = selection.filter(
@@ -198,25 +287,50 @@ fn contribution_matches(
     if !matches_contribution(query, &contribution) {
         return Ok(vec![]);
     }
-    let mappings = mappings
-        .into_iter()
-        .filter(|m| {
-            candidates
-                .mapping_ids
-                .contains(&(contribution.id.clone(), m.id.clone()))
-        })
-        .collect::<Vec<_>>();
-    let selected = if query.revision.is_some() || query.fingerprint.is_some() {
-        mappings.into_iter().map(Some).collect()
-    } else {
-        vec![None]
-    };
+    let selected = mappings_for_origin(query, &contribution, mappings, candidates);
     let availability = presence(connection, project, &contribution.origin)?;
     Ok(selected
         .into_iter()
         .map(|mapping| origin_match(query, &contribution, mapping, availability.clone()))
         .collect())
 }
+fn mappings_for_origin(
+    query: &OriginQuery,
+    contribution: &Contribution,
+    mappings: Vec<RevisionMapping>,
+    candidates: &Candidates,
+) -> Vec<Option<RevisionMapping>> {
+    match (&query.revision, &query.path, &query.fingerprint) {
+        (Some(revision), None, None) => {
+            let mappings = mappings
+                .into_iter()
+                .filter(|m| m.revision.commit.eq_ignore_ascii_case(&revision.commit))
+                .map(Some)
+                .collect::<Vec<_>>();
+            if mappings.is_empty()
+                && contribution
+                    .head_revision
+                    .as_ref()
+                    .is_some_and(|head| head.commit.eq_ignore_ascii_case(&revision.commit))
+            {
+                vec![None]
+            } else {
+                mappings
+            }
+        }
+        (Some(_), _, _) | (_, _, Some(_)) => mappings
+            .into_iter()
+            .filter(|m| {
+                candidates
+                    .mapping_ids
+                    .contains(&(contribution.id.clone(), m.id.clone()))
+            })
+            .map(Some)
+            .collect(),
+        _ => vec![None],
+    }
+}
+
 fn matches_contribution(query: &OriginQuery, c: &Contribution) -> bool {
     query.repository.as_ref().is_none_or(|r| r == &c.repository)
         && query
@@ -269,6 +383,10 @@ fn origin_match(
 }
 fn overlaps(a: &OriginMatch, b: &OriginMatch) -> bool {
     a.contribution.id != b.contribution.id
+        && a.mapping
+            .as_ref()
+            .zip(b.mapping.as_ref())
+            .is_some_and(|(a, b)| a.revision == b.revision)
         && a.matched_hunks.iter().any(|ha| {
             b.matched_hunks.iter().any(|hb| {
                 ha.path == hb.path
