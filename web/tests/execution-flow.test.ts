@@ -158,3 +158,67 @@ it("uses the reported duration and does not qualify an unrelated UTC subtraction
   expect(node(host, "clock-unknown").querySelector(".flow-meta")?.textContent).toContain("duration unqualified");
   expect(returned(host, "clock-unknown")).toBeNull();
 });
+
+function expectBreak(mark: Element, before: number, after: number, ticks: (string | null)[]): void {
+  const start = Number(mark.getAttribute("data-start"));
+  const end = Number(mark.getAttribute("data-end"));
+  expect(start).toBeGreaterThan(before);
+  expect(end).toBeLessThan(after);
+  expect(end - start).toBeGreaterThan(5000);
+  expect(ticks).toContain(`+${start / 1000}s`);
+  expect(ticks).toContain(`+${end / 1000}s`);
+  expect(mark.querySelectorAll("path")).toHaveLength(2);
+}
+
+it("shortens a response wait with paired cuts and true elapsed ticks around each omitted interval", () => {
+  const host = render([root, { ...call, end: 50000, returnedAt: 50000 },
+    { ...call, id: "parallel", start: 16000, end: 30000, returnedAt: null, callMode: "asynchronous" }]);
+  const breaks = [...host.querySelectorAll(".flow-axis-break")];
+  const ticks = [...host.querySelectorAll(".flow-time-axis .tick text")].map(tick => tick.textContent);
+  expect(breaks).toHaveLength(2);
+  expectBreak(breaks[0], 16000, 30000, ticks);
+  expectBreak(breaks[1], 30000, 50000, ticks);
+  expect(Number(host.querySelector("svg")!.getAttribute("height"))).toBeLessThan(1000);
+  expect(node(host, "parallel").querySelector(".flow-end")?.getAttribute("data-at")).toBe("30000");
+  expect(returned(host, "read")?.getAttribute("data-at")).toBe("50000");
+  expect(node(host, "main").querySelector(".flow-wait")?.getAttribute("data-end")).toBe("50000");
+});
+
+it("keeps short, unobserved and unqualified waits on the proportional axis", () => {
+  const cases = [
+    [{ ...root, end: 600000 }, call],
+    [{ ...root, role: "container" as const }, { ...call, end: 50000, callMode: "asynchronous" as const }],
+    [root, { ...call, end: 50000, executionQualified: false, gaps: ["clock_mismatch"] }],
+    [root, { ...call, end: null }]
+  ];
+  for (const spans of cases) {
+    const host = render(spans);
+    expect(host.querySelector(".flow-axis-break")).toBeNull();
+    expect(host.querySelector("svg")?.getAttribute("height")).toBe("1000");
+  }
+});
+
+const harness = { ...root, kind: "host.session", end: null, role: "container" as const, executionQualified: false };
+const request = { ...call, id: "prompt-1", kind: "request", role: "container" as const, returnedAt: null, callMode: "unknown" as const };
+const nextPrompt = { ...request, id: "prompt-2", start: 920000, end: null, executionQualified: false };
+
+it("shortens time between a completed host response and the next prompt while its turn is still open", () => {
+  const host = render([harness, request, nextPrompt]);
+  const breaks = host.querySelectorAll(".flow-axis-break");
+  expect(breaks).toHaveLength(1);
+  expect(breaks[0].textContent).toContain("Between user prompts");
+  const ticks = [...host.querySelectorAll(".flow-time-axis .tick text")].map(tick => tick.textContent);
+  expectBreak(breaks[0], 20000, 920000, ticks);
+});
+
+it("requires the previous response and the next prompt to be observed on the same host", () => {
+  const cases = [
+    [{ ...request, end: null, executionQualified: false }, nextPrompt],
+    [request, { ...nextPrompt, parent: "another-host" }],
+    [request, { ...nextPrompt, conflicts: ["conflicting_starts"] }],
+    [request, { ...request, id: "overlap", start: 15000, end: null, executionQualified: false }, nextPrompt]
+  ];
+  for (const prompts of cases) {
+    expect(render([harness, ...prompts]).querySelector(".flow-axis-break")).toBeNull();
+  }
+});

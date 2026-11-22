@@ -70,7 +70,7 @@ explicit. See `web/DESIGN.md` for tokens, exceptions, and verification guidance.
 
 Humans need to recognize patterns across sessions and results: parallel work,
 long-running subtasks, repeated remedies, changing metrics, and unused supplied
-capabilities. A browser provides proportional timelines, scrollable branching
+capabilities. A browser provides timelines with elapsed-time axes, scrollable branching
 waterfalls, and interactive charts while retaining the domain's existing evidence
 and uncertainty. Nexus remains a repository of observations; a richer view does
 not change ownership of agents, runners, objectives, or deployment policy.
@@ -275,7 +275,10 @@ and removal of known retired UI files while preserving unrelated extensions.
 
 Time flows down; collision-spaced branches retain individual calls and observed
 returns. Filled ribbons show server-qualified execution; dotted ribbons show
-waiting, and hollow dashes mean unobserved state. Background workers retain their
+waiting, and hollow dashes mean unobserved state. Paired jagged marks shorten
+long observed waits and the time from a recorded response to the next prompt
+on the same host. Ticks on both sides show true
+elapsed time, and nearby padding keeps events clear of the cut. Background workers retain their
 own state and join only at observed consumption. Elm owns state and controls;
 D3 owns geometry. See [work history](work-history.md#execution-flow-evidence)
 for capture and qualification contracts.

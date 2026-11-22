@@ -68,7 +68,9 @@ session, Where time goes shows average or total elapsed time by activity kind
 across sampled sessions. Pick a session to open its scrollable execution tree.
 Time runs down, individual calls keep their descriptive labels, and parallel
 work occupies distinct lanes. Filled ribbons show qualified execution, dotted
-ribbons show observed waiting, and hollow dashes mark unknown intervals. Return
+ribbons show observed waiting, and hollow dashes mark unknown intervals. Jagged
+axis breaks shorten long observed waits and time between user prompts. Read
+the true elapsed ticks on either side of each cut. Return
 paths require observed boundaries, including actual consumption for asynchronous
 results. An open marker shows an unobserved finish. Select a call for its recorded
 kind, elapsed time, outcome, and correlated operation evidence. Inclusive durations

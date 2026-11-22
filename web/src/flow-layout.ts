@@ -9,6 +9,8 @@ export function dispatchTime(span: Span): number | null {
 }
 export interface FlowNode { span: Span; x: number; labelY: number; parent: FlowNode | null; labelWidth: number }
 export interface Box { left: number; right: number; top: number; bottom: number }
+interface VerticalGap { start: number; end: number }
+interface LayoutTime { y: (at: number) => number; horizon: number; breaks: VerticalGap[] }
 const pitch = 72;
 function intersects(a: Box, b: Box): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
@@ -24,7 +26,14 @@ function boxes(node: FlowNode, y: (at: number) => number, horizon: number): Box[
     { left: label.left - 1, right: label.right + 7, top: label.top - 8, bottom: label.bottom + 4 },
   ];
 }
-function placeNode(span: Span, parent: FlowNode | null, occupied: ObstacleIndex, y: (at: number) => number, horizon: number): FlowNode {
+function clearBreaks(labelY: number, breaks: VerticalGap[]): number {
+  for (const { start, end } of breaks) {
+    if (labelY + 24 <= start) break;
+    if (labelY - 14 < end) labelY = end + 14;
+  }
+  return labelY;
+}
+function placeNode(span: Span, parent: FlowNode | null, occupied: ObstacleIndex, { y, horizon, breaks }: LayoutTime): FlowNode {
   const top = dispatchTime(span) ?? span.end;
   const labelY = top === null ? 88 : Math.max(86, y(top) - 12);
   const metadataWidth = ((span.operations ?? []).map(operation => operation.category_name).join(", ").length + 8) * 6.2;
@@ -33,14 +42,14 @@ function placeNode(span: Span, parent: FlowNode | null, occupied: ObstacleIndex,
   if (parent?.span.kind === "work.session") node.x = parent.x + 50;
   for (;;) {
     for (const offset of [0, 42, -42, 84]) {
-      node.labelY = Math.max(64, labelY + offset);
+      node.labelY = clearBreaks(Math.max(64, labelY + offset), breaks);
       if (!occupied.collides(boxes(node, y, horizon))) return node;
     }
     node.x += 60;
   }
 }
 /** Collision avoidance only changes horizontal position; source-time coordinates never move. */
-export function layoutFlow(spans: Span[], y: (at: number) => number, horizon: number): FlowNode[] {
+export function layoutFlow(spans: Span[], time: LayoutTime): FlowNode[] {
   const byId = new Map(spans.map(span => [span.id, span])), placed = new Map<string, FlowNode>();
   const nodes: FlowNode[] = [], occupied = new ObstacleIndex();
   const sorted = [...spans].sort((a, b) => sourceTime(a) - sourceTime(b) || a.id.localeCompare(b.id));
@@ -48,9 +57,9 @@ export function layoutFlow(spans: Span[], y: (at: number) => number, horizon: nu
     const chain = ancestorChain(span, byId, placed);
     for (const source of chain.reverse()) {
       const parent = source.parent ? placed.get(source.parent) ?? null : null;
-      const node = placeNode(source, parent, occupied, y, horizon);
+      const node = placeNode(source, parent, occupied, time);
       nodes.push(node); placed.set(source.id, node);
-      if (source.kind !== "work.session") occupied.add(boxes(node, y, horizon));
+      if (source.kind !== "work.session") occupied.add(boxes(node, time.y, time.horizon));
     }
   }
   return nodes;

@@ -13,9 +13,16 @@ export function returnTime(span: Span): number | null {
   return span.returnedAt != null && span.returnedAt >= span.end! ? span.returnedAt : null;
 }
 export function connected(node: FlowNode, at: number): boolean {
-  const parent = node.parent?.span;
+  return withinParent(node.parent?.span, at);
+}
+function withinParent(parent: Span | undefined, at: number): boolean {
   return !!parent && !parent.conflicts?.length && parent.start !== null && at >= parent.start &&
     (parent.end === null || at <= parent.end);
+}
+export function callerWait(span: Span, parent: Span | undefined): FlowSegment | null {
+  if (span.callMode !== "synchronous" || !qualified(span)) return null;
+  const start = dispatchTime(span)!, end = span.end!;
+  return withinParent(parent, start) && withinParent(parent, end) ? { start, end, state: "wait" } : null;
 }
 function observedState(node: FlowNode): FlowSegment["state"] {
   if (!qualified(node.span)) return "unknown";
@@ -26,10 +33,11 @@ function childSegments(node: FlowNode, children: FlowNode[]): FlowSegment[] {
   return children.filter(child => child.parent === node && qualified(child.span) &&
     connected(child, dispatchTime(child.span)!) && connected(child, child.span.end!))
     .flatMap(child => {
+      const wait = callerWait(child.span, node.span);
+      if (wait) return [wait];
       const sameWorker = !!node.span.executor && node.span.executor === child.span.executor;
-      const state = child.span.callMode === "synchronous" ? "wait" : sameWorker ? observedState(child) : "unknown";
-      const start = child.span.callMode === "synchronous" ? dispatchTime(child.span)! : child.span.start!;
-      return state === "unknown" ? [] : [{ start, end: child.span.end!, state }];
+      const state = sameWorker ? observedState(child) : "unknown";
+      return state === "unknown" ? [] : [{ start: child.span.start!, end: child.span.end!, state }];
     });
 }
 /** Only qualified observations paint a container; unknown gaps never become model activity. */
