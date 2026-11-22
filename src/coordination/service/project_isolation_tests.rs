@@ -35,8 +35,7 @@ fn remote_edit(project_root: &str) -> ServiceRequest {
 
 fn claims_for(service: &NexusService, project_id: &str) -> Vec<Claim> {
     service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .list_claims(Some(project_id), RecordScope::All)
         .unwrap()
@@ -90,8 +89,7 @@ fn stopping_a_shared_raw_session_id_is_scoped_to_its_remote_project() {
     service.handle_remote("project-a", stop);
 
     let sessions = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .list_sessions(RecordScope::All, 120)
         .unwrap();
@@ -184,7 +182,7 @@ fn stale_reconciliation_cannot_reactivate_a_stopped_session_or_its_claims() {
         )
         .unwrap();
 
-    let mut store = service.store.lock().unwrap();
+    let mut store = service.write_store().unwrap();
     let sessions = store.list_sessions(RecordScope::All, 120).unwrap();
     assert_eq!(
         session_status(&sessions, "project-a"),

@@ -148,8 +148,7 @@ fn assert_dual_failure_cooldown(config: Config) {
     let cooling = service.consolidate_memories().unwrap();
     assert_eq!(cooling.attempted, 0, "providers must honor their cooldown");
     let health = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .memory_health(None, Utc::now())
         .unwrap();
@@ -161,14 +160,13 @@ fn assert_expired_cooldown_recovers(config: Config, primary: &std::path::Path) {
     let recovered = service_with(config);
     add_pair(&recovered, "recovery");
     let job = recovered
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude", "codex"], Utc::now(), 8)
         .unwrap()
         .remove(0);
     {
-        let mut store = recovered.store.lock().unwrap();
+        let mut store = recovered.write_store().unwrap();
         for (provider, was_fallback) in [("claude", false), ("codex", true)] {
             store
                 .record_memory_compaction_attempt(
@@ -216,15 +214,13 @@ fn fallback_handles_jobs_while_the_primary_provider_is_cooling_down() {
     let service = service_with(provider_config(&primary, &fallback));
     add_pair(&service, "cooldown");
     let job = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude", "codex"], Utc::now(), 8)
         .unwrap()
         .remove(0);
     service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .record_memory_compaction_attempt(
             &job,
@@ -285,8 +281,7 @@ fn concurrent_consolidation_requests_share_one_service_gate() {
     let service = Arc::new(service_with(provider_config(&primary, &fallback)));
     add_pair(&service, "guarded");
     let job_id = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude", "codex"], Utc::now(), 8)
         .unwrap()[0]
@@ -323,8 +318,7 @@ fn successful_consolidation_publishes_snapshot_for_lifecycle_activation() {
     let service = service_with(provider_config(&primary, &fallback));
     add_pair(&service, "published snapshot");
     let job_id = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude", "codex"], Utc::now(), 8)
         .unwrap()[0]
@@ -353,7 +347,7 @@ fn zero_job_consolidation_repairs_a_snapshot_left_stale_after_summary_commit() {
     executable(&fallback, "#!/bin/sh\ncat >/dev/null\nexit 9\n");
     let service = service_with(provider_config(&primary, &fallback));
     add_pair(&service, "crash recovery");
-    let mut store = service.store.lock().unwrap();
+    let mut store = service.write_store().unwrap();
     let job = store
         .ready_memory_compactions(&["claude", "codex"], Utc::now(), 8)
         .unwrap()
@@ -378,8 +372,7 @@ fn activate_global_memory(
     session_id: &str,
 ) -> crate::memory::MemoryContextStatus {
     service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .activate_memory_context(
             &MemoryReadScope::Global,
@@ -432,8 +425,7 @@ fn assert_primary_failure_falls_back(
     let service = service_with(config);
     add_pair(&service, "provider category");
     let job_id = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude", "codex"], Utc::now(), 8)
         .unwrap()[0]
@@ -455,8 +447,7 @@ fn assert_primary_failure_falls_back(
 
 fn assert_provider_health(service: &NexusService, expected_outcome: MemoryCompactionOutcome) {
     let health = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .memory_health(None, Utc::now())
         .unwrap();
@@ -486,7 +477,7 @@ fn assert_provider_health(service: &NexusService, expected_outcome: MemoryCompac
 }
 
 fn consolidate_every_level(service: &NexusService) {
-    let mut store = service.store.lock().unwrap();
+    let mut store = service.write_store().unwrap();
     loop {
         let jobs = store
             .ready_memory_compactions(&["codex"], Utc::now(), 8)

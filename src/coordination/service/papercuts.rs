@@ -170,7 +170,7 @@ impl NexusService {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
         let result =
-            self.papercut_store()?
+            self.write_store()?
                 .report_papercut(&project.id, &title, &description, &actor)?;
         let review_requested = result.created && self.loaded.config.analyst.enabled;
         let review_job = review_requested.then(|| PapercutReviewJob {
@@ -199,7 +199,7 @@ impl NexusService {
     ) -> Result<PapercutResponse> {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
-        let (papercut, upvote) = self.papercut_store()?.upvote_papercut(
+        let (papercut, upvote) = self.write_store()?.upvote_papercut(
             &project.id,
             &papercut_id,
             note.as_deref(),
@@ -221,12 +221,9 @@ impl NexusService {
     ) -> Result<PapercutResponse> {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.papercut_actor(context);
-        let papercut = self.papercut_store()?.remove_papercut(
-            &project.id,
-            &papercut_id,
-            &resolution,
-            &actor,
-        )?;
+        let papercut =
+            self.write_store()?
+                .remove_papercut(&project.id, &papercut_id, &resolution, &actor)?;
         Ok(PapercutResponse::Removed { ok: true, papercut })
     }
 
@@ -239,7 +236,7 @@ impl NexusService {
         response: String,
     ) -> Result<PapercutResponse> {
         let actor = self.papercut_actor(context);
-        let review = self.papercut_store()?.respond_to_papercut_review(
+        let review = self.write_store()?.respond_to_papercut_review(
             &review_id,
             decision,
             &response,
@@ -349,12 +346,6 @@ impl NexusService {
             model_id: context.model,
             config_hash: self.loaded.hash.clone(),
         }
-    }
-
-    fn papercut_store(&self) -> Result<super::DatabaseLease<'_>> {
-        self.store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
     }
 }
 

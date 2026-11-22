@@ -84,9 +84,7 @@ impl NexusService {
                 model_id: command.context.model,
                 config_hash: self.loaded.hash.clone(),
             };
-            self.store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+            self.write_store()?
                 .add_memory(&scope, &command.content, &provenance)
         })();
         match result {
@@ -188,7 +186,6 @@ impl NexusService {
     pub(super) fn memory_expand(&self, query: MemorySummaryQuery) -> ServiceResponse {
         match self
             .read_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.expand_memory_summary(&query.summary_id))
         {
             Ok(nodes) => ServiceResponse::MemoryNodes(MemoryNodesResponse { ok: true, nodes }),
@@ -198,9 +195,7 @@ impl NexusService {
 
     pub(super) fn memory_invalidate(&self, command: MemorySummaryQuery) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .write_store()
             .and_then(|mut store| store.invalidate_memory_summary(&command.summary_id))
         {
             Ok(invalidated_summaries) => {
@@ -222,8 +217,7 @@ impl NexusService {
             let project_id = self
                 .resolve_project(binding, query.project_root.as_deref())?
                 .id;
-            self.read_store()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+            self.read_store()?
                 .memory_health(Some(&project_id), chrono::Utc::now())
         })();
         match result {
@@ -384,8 +378,7 @@ impl MemoryConsolidator<'_> {
 
     fn repair_stale_frontiers(&self) -> Result<()> {
         self.service
-            .maintenance_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+            .maintenance_store()?
             .repair_stale_memory_frontiers(8)?;
         Ok(())
     }
@@ -399,19 +392,16 @@ impl MemoryConsolidator<'_> {
             model::provider_name(primary),
             model::provider_name(fallback),
         ];
-        self.service
-            .maintenance_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-            .ready_memory_compactions(
-                &provider_names,
-                Utc::now(),
-                self.service
-                    .loaded
-                    .config
-                    .memory
-                    .consolidation_batch_size
-                    .min(8),
-            )
+        self.service.maintenance_store()?.ready_memory_compactions(
+            &provider_names,
+            Utc::now(),
+            self.service
+                .loaded
+                .config
+                .memory
+                .consolidation_batch_size
+                .min(8),
+        )
     }
 
     fn provider_ready_jobs(
@@ -421,11 +411,7 @@ impl MemoryConsolidator<'_> {
     ) -> Result<Vec<MemoryCompactionJob>> {
         let provider = model::provider_name(provider);
         let now = Utc::now();
-        let mut store = self
-            .service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
+        let mut store = self.service.maintenance_store()?;
         jobs.iter()
             .filter_map(|job| {
                 store
@@ -450,11 +436,7 @@ impl MemoryConsolidator<'_> {
         };
         let analyst = &self.service.loaded.config.analyst;
         let result = model::invoke_memory_consolidation(analyst, provider, jobs, None);
-        let mut store = self
-            .service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
+        let mut store = self.service.maintenance_store()?;
         let recorded = jobs
             .iter()
             .map(|job| {

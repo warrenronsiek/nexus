@@ -57,7 +57,6 @@ macro_rules! history_service_adapter {
                 let response = self
                     .store
                     .acquire(command.command.database_operation())
-                    .ok()
                     .context(concat!($label, " store unavailable"))?
                     .$method(&project_id, &actor, &command.command)?;
                 Ok($envelope { ok: true, response })

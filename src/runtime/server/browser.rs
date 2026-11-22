@@ -62,10 +62,7 @@ impl ReadDispatcher {
     async fn read(&self, request: ServiceRequest, project: Option<String>) -> Result<Vec<u8>> {
         match self {
             Self::Service { service, gate } => {
-                let operation = service
-                    .uses_database_pool()
-                    .then(|| request.database_operation())
-                    .flatten();
+                let operation = service.admission(&request);
                 let service = service.clone();
                 let response = gate
                     .run_classified(operation, move || {

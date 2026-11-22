@@ -36,8 +36,8 @@ mod sos;
 mod store_lock;
 mod work;
 
+use database::Database;
 pub(crate) use database::DatabaseOperation;
-use database::{Database, DatabaseLease};
 use database_operations::StorageOperation;
 pub(crate) use papercuts::{PapercutDispatch, PapercutReviewJob};
 pub(crate) use sos::{SosDispatch, SosTriageJob};
@@ -230,7 +230,6 @@ impl NexusService {
     fn status(&self) -> ServiceResponse {
         match self
             .read_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.counts(self.loaded.config.coordination.claim_ttl_seconds))
         {
             Ok(counts) => ServiceResponse::Status(StatusResponse {
@@ -259,12 +258,9 @@ impl NexusService {
 
     fn events(&self, mut query: EventQuery, binding: &ProjectBinding) -> ServiceResponse {
         query.project_id = binding.default_read_project(query.project_id);
-        match self
-            .read_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
-            .and_then(|mut store| {
-                store.list_events(query.project_id.as_deref(), query.bounded_limit())
-            }) {
+        match self.read_store().and_then(|mut store| {
+            store.list_events(query.project_id.as_deref(), query.bounded_limit())
+        }) {
             Ok(events) => ServiceResponse::Events(EventsResponse { ok: true, events }),
             Err(error) => ServiceResponse::error(error),
         }
@@ -272,9 +268,7 @@ impl NexusService {
 
     fn resolve(&self, command: ResolveCommand) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .write_store()
             .and_then(|mut store| store.resolve_conflict(&command.conflict_id, &command.resolution))
         {
             Ok(true) => ServiceResponse::Resolved(ResolvedResponse {
@@ -291,10 +285,7 @@ impl NexusService {
         let release = command.release();
         let result = (|| -> Result<usize> {
             let project = self.resolve_project(binding, None)?;
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
+            let mut store = self.write_store()?;
             let released = store.release_claims(&project.id, &command.session_id, &release)?;
             // Projection maintenance; the periodic closure pass retries a failure.
             let _ = store.end_stale_conflicts(Some(&project.id));
@@ -324,7 +315,6 @@ impl NexusService {
     fn projects(&self) -> ServiceResponse {
         match self
             .read_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
             .and_then(|mut store| store.list_projects_window())
         {
             Ok(window) => ServiceResponse::Projects(ProjectsResponse {
@@ -338,18 +328,15 @@ impl NexusService {
 
     fn dashboard(&self, mut query: DashboardQuery, binding: &ProjectBinding) -> ServiceResponse {
         query.project_id = binding.default_read_project(query.project_id);
-        match self
-            .read_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
-            .and_then(|mut store| {
-                store.dashboard_window(
-                    query.project_id.as_deref(),
-                    self.loaded.config.ui.recent_event_limit,
-                    self.loaded.config.ui.recent_record_limit,
-                    self.loaded.config.coordination.claim_ttl_seconds,
-                    query.since,
-                )
-            }) {
+        match self.read_store().and_then(|mut store| {
+            store.dashboard_window(
+                query.project_id.as_deref(),
+                self.loaded.config.ui.recent_event_limit,
+                self.loaded.config.ui.recent_record_limit,
+                self.loaded.config.coordination.claim_ttl_seconds,
+                query.since,
+            )
+        }) {
             Ok(records) => ServiceResponse::Dashboard(DashboardResponse {
                 ok: true,
                 project_id: query.project_id,
@@ -549,10 +536,7 @@ fn analyze_result(
     let trusted_worktree = if binding.is_remote() {
         None
     } else {
-        service
-            .read_store()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-            .conflict_worktree(&conflict)?
+        service.read_store()?.conflict_worktree(&conflict)?
     };
     let analysis = analyst::analyze(
         &service.loaded.config.analyst,
@@ -565,8 +549,7 @@ fn analyze_result(
 
 fn conflict(service: &NexusService, conflict_id: &str) -> Result<ConflictRecord> {
     service
-        .read_store()
-        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+        .read_store()?
         .conflict_by_id(conflict_id)?
         .context("conflict not found")
 }
@@ -577,16 +560,12 @@ fn record_analysis(
     conflict_id: &str,
     analysis: &AnalysisResult,
 ) -> Result<()> {
-    service
-        .store
-        .lock()
-        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-        .record_analysis(
-            &conflict.project_id,
-            conflict_id,
-            analysis,
-            &service.loaded.hash,
-        )
+    service.write_store()?.record_analysis(
+        &conflict.project_id,
+        conflict_id,
+        analysis,
+        &service.loaded.hash,
+    )
 }
 
 #[cfg(test)]

@@ -26,7 +26,7 @@ fn prompt() -> ServiceRequest {
 #[test]
 fn lifecycle_store_retries_after_contention_clears() {
     let service = super::tests::service_with(Config::default());
-    let mut held = Some(service.store.lock().unwrap());
+    let mut held = Some(service.write_store().unwrap());
     let mut retries = 0;
     let store = service.store.single_for_test();
     let acquired = store
@@ -49,7 +49,7 @@ fn lifecycle_store_retries_after_contention_clears() {
 #[test]
 fn lifecycle_store_stops_when_retry_budget_is_exhausted() {
     let service = super::tests::service_with(Config::default());
-    let _held = service.store.lock().unwrap();
+    let _held = service.write_store().unwrap();
     let mut retries = 0;
     let store = service.store.single_for_test();
     let error = store
@@ -66,7 +66,7 @@ fn lifecycle_store_stops_when_retry_budget_is_exhausted() {
 #[test]
 fn lifecycle_contention_remains_bounded_and_fail_open() {
     let service = Arc::new(super::tests::service_with(Config::default()));
-    let guard = service.store.lock().unwrap();
+    let guard = service.write_store().unwrap();
     let request_service = service.clone();
     let (sender, receiver) = mpsc::channel();
     let started = Instant::now();
@@ -93,7 +93,7 @@ fn lifecycle_contention_remains_bounded_and_fail_open() {
 #[test]
 fn readiness_treats_active_store_work_as_busy_without_blocking() {
     let service = super::tests::service_with(Config::default());
-    let guard = service.store.lock().unwrap();
+    let guard = service.write_store().unwrap();
     let started = Instant::now();
 
     let status = service.readiness_status().unwrap();
@@ -119,7 +119,7 @@ fn postgres_lifecycle_records_while_application_store_is_busy() {
         )
         .unwrap(),
     );
-    let guard = service.store.lock().unwrap();
+    let guard = service.write_store().unwrap();
     let request_service = service.clone();
     let (sender, receiver) = mpsc::channel();
     let request = std::thread::spawn(move || {
@@ -137,7 +137,7 @@ fn postgres_lifecycle_records_while_application_store_is_busy() {
     drop(guard);
     request.join().unwrap();
     assert_eq!(response["recorded"], true, "{response}");
-    let mut store = service.store.lock().unwrap();
+    let mut store = service.write_store().unwrap();
     let events = store
         .list_events(Some("lifecycle-isolation-project"), 32)
         .unwrap();
@@ -173,7 +173,44 @@ fn postgres_history_admission_reserves_interactive_and_lifecycle_capacity() {
 
 #[cfg(feature = "postgres")]
 #[test]
-fn postgres_readiness_observes_lifecycle_store_failures() {
+fn postgres_memory_maintenance_can_run_while_a_write_holds_its_lease() {
+    let fixture = tempfile::tempdir().unwrap();
+    let provider = fixture.path().join("unavailable-provider");
+    let mut config = Config::default();
+    config.analyst.codex.command = provider.to_string_lossy().into_owned();
+    config.analyst.claude.command = config.analyst.codex.command.clone();
+    let service = super::NexusService::connect(
+        LoadedConfig {
+            config,
+            sources: Vec::new(),
+            hash: "memory-maintenance-admission".into(),
+        },
+        &std::env::var("NEXUS_TEST_DATABASE_URL").unwrap(),
+    )
+    .unwrap();
+    let project = format!("memory-admission-{}", uuid::Uuid::new_v4());
+    for content in [
+        "Retries preserve receipt identity",
+        "Claims remain scoped to the project",
+    ] {
+        let note = ServiceRequest::decode(
+            "memory_add",
+            json!({
+                "scope":"project", "content":content, "session_id":"fixture", "agent":"test"
+            }),
+        )
+        .unwrap();
+        assert_eq!(service.handle_remote(&project, note).to_json()["ok"], true);
+    }
+    let guard = service.write_store().unwrap();
+    let report = service.consolidate_memories().unwrap();
+    assert!(report.attempted >= 1);
+    drop(guard);
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn postgres_readiness_detects_a_stalled_lifecycle_lease() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
     let service = Arc::new(
@@ -196,15 +233,6 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
     assert!(error.to_string().contains("stalled"), "{error:#}");
     drop(guard);
     assert_eq!(service.readiness_status().unwrap(), "ready");
-    let poisoning_service = service.clone();
-    assert!(std::thread::spawn(move || {
-        let _guard = poisoning_service.lifecycle_store().unwrap();
-        panic!("poison the lifecycle store for the readiness regression");
-    })
-    .join()
-    .is_err());
-    assert_eq!(service.readiness_status().unwrap(), "ready");
-    assert!(service.lifecycle_store().is_ok());
 }
 
 #[cfg(feature = "postgres")]
@@ -221,7 +249,7 @@ fn postgres_readiness_always_uses_the_dedicated_probe() {
         &database_url,
     )
     .unwrap();
-    let application_guard = service.store.lock().unwrap();
+    let application_guard = service.write_store().unwrap();
     let started = Instant::now();
 
     let status = service.readiness_status().unwrap();
@@ -255,7 +283,7 @@ fn postgres_readiness_rejects_an_application_store_held_past_the_stall_threshold
         &database_url,
     )
     .unwrap();
-    let guard = service.store.lock().unwrap();
+    let guard = service.write_store().unwrap();
     std::thread::sleep(Duration::from_millis(10));
 
     let error = service
@@ -290,14 +318,14 @@ fn postgres_pool_recovers_capacity_after_a_worker_panics() {
     );
     let poisoning_service = service.clone();
     assert!(std::thread::spawn(move || {
-        let _guard = poisoning_service.store.lock().unwrap();
+        let _guard = poisoning_service.write_store().unwrap();
         panic!("poison the application store for the readiness regression");
     })
     .join()
     .is_err());
 
     assert_eq!(service.readiness_status().unwrap(), "ready");
-    assert!(service.store.lock().is_ok());
+    assert!(service.write_store().is_ok());
 }
 
 #[test]
@@ -305,7 +333,7 @@ fn poisoned_store_is_not_safe_to_retry() {
     let service = Arc::new(super::tests::service_with(Config::default()));
     let poisoning = service.clone();
     assert!(std::thread::spawn(move || {
-        let _guard = poisoning.store.lock().unwrap();
+        let _guard = poisoning.write_store().unwrap();
         panic!("poison the store for the lifecycle regression");
     })
     .join()
@@ -320,7 +348,7 @@ fn poisoned_store_is_not_safe_to_retry() {
 #[test]
 fn script_contention_is_explicitly_safe_to_retry() {
     let service = super::tests::service_with(Config::default());
-    let _held = service.store.lock().unwrap();
+    let _held = service.write_store().unwrap();
     let request = ServiceRequest::decode(
         "script_use",
         json!({
@@ -362,7 +390,7 @@ fn reconciliation_releases_store_between_bounded_path_batches() {
             .unwrap(),
         40
     );
-    let mut store = service.store.lock().unwrap();
+    let mut store = service.write_store().unwrap();
     let events = store.list_events(Some("contention-project"), 32).unwrap();
     let batches: Vec<_> = events
         .iter()
@@ -385,7 +413,7 @@ fn reconciliation_releases_store_between_bounded_path_batches() {
 #[cfg(feature = "sqlite")]
 fn explicit_store_contention_releases_the_worker_within_a_bounded_wait() {
     let service = Arc::new(super::tests::service_with(Config::default()));
-    let held = service.store.lock().unwrap();
+    let held = service.write_store().unwrap();
     let reader = service.clone();
     let (sender, receiver) = mpsc::channel();
     let worker = std::thread::spawn(move || {
@@ -410,7 +438,7 @@ fn explicit_store_contention_releases_the_worker_within_a_bounded_wait() {
 #[cfg(feature = "sqlite")]
 fn explicit_reads_survive_short_store_contention() {
     let service = Arc::new(super::tests::service_with(Config::default()));
-    let held = service.store.lock().unwrap();
+    let held = service.write_store().unwrap();
     let reader = service.clone();
     let (started, ready) = mpsc::channel();
     let worker = std::thread::spawn(move || {

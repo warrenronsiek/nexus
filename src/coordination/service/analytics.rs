@@ -2,7 +2,7 @@
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 use super::NexusService;
-use super::{DatabaseLease, StorageOperation};
+use super::StorageOperation;
 use crate::analytics::{capture, identity, types::*};
 use crate::coordination::client_evidence::ClientDerivedUsage;
 use crate::coordination::{
@@ -53,7 +53,7 @@ impl NexusService {
                 complete,
             } => {
                 let project = self.resolve_project(binding, context.project_root.as_deref())?;
-                self.analytics_store()?
+                self.write_store()?
                     .record_inventory(&project.id, &context, &scope, &resources, complete)
                     .map(|()| AnalyticsResponse::Write { ok: true })
             }
@@ -62,11 +62,11 @@ impl NexusService {
                 name,
                 definition,
             } => self
-                .analytics_store()?
+                .write_store()?
                 .rename_activity_category(&id, &name, &definition)
                 .map(|()| AnalyticsResponse::Write { ok: true }),
             AnalyticsCommand::MergeCategory { source, target } => self
-                .analytics_store()?
+                .write_store()?
                 .merge_activity_categories(&source, &target)
                 .map(|()| AnalyticsResponse::Write { ok: true }),
             read => read_analytics(
@@ -76,11 +76,6 @@ impl NexusService {
             ),
         }
     }
-    fn analytics_store(&self) -> Result<DatabaseLease<'_>> {
-        self.store
-            .lock()
-            .map_err(|_| anyhow::anyhow!("analytics store unavailable"))
-    }
     fn classification_command(
         &self,
         binding: &ProjectBinding,
@@ -89,7 +84,7 @@ impl NexusService {
         report: ClassificationReport,
     ) -> Result<AnalyticsResponse> {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
-        let mut store = self.analytics_store()?;
+        let mut store = self.write_store()?;
         let job = store.resolve_classification_target(&project.id, &context, &target)?;
         match report {
             ClassificationReport::Reserve => {

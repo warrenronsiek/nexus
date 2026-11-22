@@ -11,7 +11,6 @@ use chrono::Utc;
 impl NexusService {
     pub(crate) fn claim_delivery_watches(&self) -> Result<Vec<DeliveryWatch>> {
         self.maintenance_store()
-            .ok()
             .context("delivery watch store unavailable")?
             .claim_delivery_watches(Utc::now())
     }
@@ -32,7 +31,6 @@ impl NexusService {
             },
         };
         self.maintenance_store()
-            .ok()
             .context("delivery watch store unavailable")?
             .apply_delivery_watch_poll(watch, outcome)
     }

@@ -1,7 +1,7 @@
 // @feature evals
 // @spec docs/features/evals.md
 // @entrypoint NexusService::eval_command
-use super::{DatabaseLease, NexusService, StorageOperation};
+use super::{NexusService, StorageOperation};
 use crate::coordination::{
     api::{list_query, EvalAction, EvalCommand, EvalResponse, ServiceResponse},
     workspace::ProjectBinding,
@@ -45,12 +45,6 @@ impl NexusService {
         }
     }
 
-    fn eval_store(&self) -> Result<DatabaseLease<'_>> {
-        self.store
-            .lock()
-            .map_err(|_| anyhow::anyhow!("eval store unavailable"))
-    }
-
     fn pending_eval_blob(&self, project: &str, digest: &str) -> Result<EvalBlob> {
         self.history_store()?
             .eval_blob(project, digest)?
@@ -72,7 +66,7 @@ impl NexusService {
         for index in 0..blob.chunk_count {
             hash.update(self.pending_eval_chunk(project, digest, index)?);
         }
-        self.eval_store()?
+        self.write_store()?
             .finish_eval_blob_verification(
                 project,
                 digest,

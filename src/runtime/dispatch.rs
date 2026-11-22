@@ -423,25 +423,25 @@ async fn dispatch_request(
     client_evidence: Option<ClientFilesystemEvidence>,
     execution_gate: Option<&BlockingExecutionGate>,
 ) -> (ServiceResponse, Option<ModelWorkJob>) {
-    let operation = service
-        .uses_database_pool()
-        .then(|| request.database_operation())
-        .flatten();
+    let admission = RequestAdmission {
+        gate: execution_gate,
+        operation: service.admission(&request),
+    };
     match request {
         ServiceRequest::Papercuts(command) => {
-            dispatch_model_work(binding, execution_gate, operation, move |binding| {
+            dispatch_model_work(binding, admission, move |binding| {
                 service.dispatch_papercuts(command, &binding)
             })
             .await
         }
         ServiceRequest::Sos(command) => {
-            dispatch_model_work(binding, execution_gate, operation, move |binding| {
+            dispatch_model_work(binding, admission, move |binding| {
                 service.dispatch_sos(command, &binding)
             })
             .await
         }
         request => (
-            dispatch_regular(service, request, binding, client_evidence, execution_gate).await,
+            dispatch_regular(service, request, binding, client_evidence, admission).await,
             None,
         ),
     }
@@ -449,14 +449,13 @@ async fn dispatch_request(
 
 async fn dispatch_model_work<T>(
     binding: ProjectBinding,
-    execution_gate: Option<&BlockingExecutionGate>,
-    operation: Option<DatabaseOperation>,
+    admission: RequestAdmission<'_>,
     work: impl FnOnce(ProjectBinding) -> T + Send + 'static,
 ) -> (ServiceResponse, Option<ModelWorkJob>)
 where
     T: CompletedModelDispatch + Send + 'static,
 {
-    match run_blocking(execution_gate, operation, move || work(binding)).await {
+    match admission.run(move || work(binding)).await {
         Ok(completed) => completed.into_parts(),
         Err(error) => (ServiceResponse::error(error), None),
     }
@@ -467,42 +466,43 @@ async fn dispatch_regular(
     request: ServiceRequest,
     binding: ProjectBinding,
     client_evidence: Option<ClientFilesystemEvidence>,
-    execution_gate: Option<&BlockingExecutionGate>,
+    admission: RequestAdmission<'_>,
 ) -> ServiceResponse {
-    let operation = service
-        .uses_database_pool()
-        .then(|| request.database_operation())
-        .flatten();
-    run_blocking(execution_gate, operation, move || match client_evidence {
-        Some(evidence) => service.handle_remote_observed(binding, request, evidence),
-        None => service.handle_in(binding, request),
-    })
-    .await
-    .unwrap_or_else(|error| {
-        if matches!(operation, Some(DatabaseOperation::Lifecycle)) {
-            let mut response = crate::coordination::domain::HookResponse::fail_open(&error);
-            response.retryable = matches!(error, BlockingExecutionError::AtCapacity);
-            ServiceResponse::Hook(response)
-        } else {
-            ServiceResponse::error(error)
-        }
-    })
+    admission
+        .run(move || match client_evidence {
+            Some(evidence) => service.handle_remote_observed(binding, request, evidence),
+            None => service.handle_in(binding, request),
+        })
+        .await
+        .unwrap_or_else(|error| {
+            if matches!(admission.operation, Some(DatabaseOperation::Lifecycle)) {
+                let mut response = crate::coordination::domain::HookResponse::fail_open(&error);
+                response.retryable = matches!(error, BlockingExecutionError::AtCapacity);
+                ServiceResponse::Hook(response)
+            } else {
+                ServiceResponse::error(error)
+            }
+        })
 }
 
-async fn run_blocking<F, T>(
-    execution_gate: Option<&BlockingExecutionGate>,
+#[derive(Clone, Copy)]
+struct RequestAdmission<'a> {
+    gate: Option<&'a BlockingExecutionGate>,
     operation: Option<DatabaseOperation>,
-    work: F,
-) -> Result<T, BlockingExecutionError>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    match execution_gate {
-        Some(execution_gate) => execution_gate.run_classified(operation, work).await,
-        None => tokio::task::spawn_blocking(work)
-            .await
-            .map_err(BlockingExecutionError::from),
+}
+
+impl RequestAdmission<'_> {
+    async fn run<F, T>(self, work: F) -> Result<T, BlockingExecutionError>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        match self.gate {
+            Some(gate) => gate.run_classified(self.operation, work).await,
+            None => tokio::task::spawn_blocking(work)
+                .await
+                .map_err(BlockingExecutionError::from),
+        }
     }
 }
 

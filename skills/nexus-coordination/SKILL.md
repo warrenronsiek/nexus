@@ -178,10 +178,7 @@ occupy the store for the whole page. A stopped session is not resurrected by a
 later batch. Page processing remains best effort; retain the regular reconciliation
 ticks rather than rerunning an agent workload to repair telemetry.
 
-A PostgreSQL server reserves its lifecycle connection separately from browser
-reads and explicit feature commands. Those requests do not consume the lifecycle
-store acquisition budget. Hooks still fail open on lifecycle contention or
-database failure; this isolation does not make missing observations replayable.
-Aggregate write transactions still serialize in PostgreSQL to preserve shared
-memory and conflict history. Readiness observes both stores and checks the
-database independently.
+A PostgreSQL server reserves pool capacity for lifecycle hooks. Hooks fail open
+on lifecycle contention or database failure. Retry only operations that explicitly
+report retryability. Aggregate writes serialize in PostgreSQL to preserve shared
+memory and conflict history. Readiness probes the database independently.

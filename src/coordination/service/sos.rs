@@ -137,7 +137,7 @@ impl NexusService {
         draft.model = context.model.clone().context("SOS reports require model")?;
         let actor = self.sos_actor(context);
         let report = self
-            .sos_store()?
+            .write_store()?
             .record_sos_report(&project.id, draft, &actor)?;
         let triage_job = SosTriageJob {
             project_id: project.id,
@@ -187,7 +187,7 @@ impl NexusService {
     ) -> Result<SosResponse> {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
         let actor = self.sos_actor(context);
-        let mut store = self.sos_store()?;
+        let mut store = self.write_store()?;
         let issue = closure.apply(&mut store, &project.id, &issue_id, &actor)?;
         drop(store);
         Ok(closure.response(issue))
@@ -263,12 +263,6 @@ impl NexusService {
             model_id: context.model,
             config_hash: self.loaded.hash.clone(),
         }
-    }
-
-    fn sos_store(&self) -> Result<super::DatabaseLease<'_>> {
-        self.store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
     }
 }
 

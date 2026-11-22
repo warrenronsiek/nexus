@@ -81,10 +81,6 @@ impl Database {
         Ok(Self::single(Store::connect(url)?))
     }
 
-    pub(in crate::coordination) fn lock(&self) -> Result<DatabaseLease<'_>> {
-        self.acquire(DatabaseOperation::Write)
-    }
-
     pub(super) fn acquire(&self, operation: DatabaseOperation) -> Result<DatabaseLease<'_>> {
         match self {
             Self::Single(store) => match store.try_lock_for(operation.wait()) {
@@ -128,8 +124,18 @@ impl super::NexusService {
         self.store.acquire(DatabaseOperation::History)
     }
 
-    pub(crate) fn uses_database_pool(&self) -> bool {
-        self.store.is_pooled()
+    pub(super) fn write_store(&self) -> Result<DatabaseLease<'_>> {
+        self.store.acquire(DatabaseOperation::Write)
+    }
+
+    pub(crate) fn admission(
+        &self,
+        request: &crate::coordination::api::ServiceRequest,
+    ) -> Option<DatabaseOperation> {
+        self.store
+            .is_pooled()
+            .then(|| request.database_operation())
+            .flatten()
     }
 
     pub(super) fn maintenance_store(&self) -> Result<DatabaseLease<'_>> {
