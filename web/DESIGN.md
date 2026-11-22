@@ -167,6 +167,10 @@ label leaders allow near-instant operations to retain readable names. The sessio
 envelope uses a quiet margin rather than another full label column. Filled task
 ink means qualified observed execution; hollow dots mean waiting/queued; grey
 hollow dashes mean unknown state/finish. Known completion has a terminal cap.
+Long observed waits and the intervals between recorded responses and later
+prompts on the same host may be shortened. Paired jagged
+marks interrupt the vertical axis and ribbons across each cut. Nearby ticks
+show true elapsed time, with vertical padding for recorded events.
 Missing model boundaries remain unobserved, including gaps between tool calls.
 D3 owns chart geometry and SVG; Elm owns controls, zoom/selection state, requests,
 and evidence. The chart has local scrolling and a Fit control, with no animation

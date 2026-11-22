@@ -7,6 +7,8 @@ import type { Chart, Choose, Span } from "./chart-model";
 import { actionable, attrs, element, type Svg, type Group } from "./chart-svg";
 import { dispatchTime, layoutFlow, labelBox, type Box, type FlowNode } from "./flow-layout";
 import { flowLink } from "./flow-links";
+import { flowTime } from "./flow-time";
+import { drawFlowGuides } from "./flow-axis";
 import { connected, returnTime, segments, type FlowSegment } from "./flow-state";
 
 function color(kind: string): string {
@@ -29,13 +31,8 @@ function qualification(node: FlowNode): string {
   if (node.span.parent && !node.parent) return " · parent unresolved";
   return node.span.callMode === "asynchronous" ? " · async" : "";
 }
-function geometry(chart: Chart) {
-  const times = (chart.spans ?? []).flatMap(node => [node.queued, node.start, node.end, node.returnedAt]).filter((value): value is number => value != null && Number.isFinite(value));
-  const origin = times.length ? Math.min(...times) : 0, horizon = times.length ? Math.max(...times) : 0;
-  const readableHeight = Math.max(1000, (chart.spans?.length ?? 0) * 40);
-  const height = Math.max(360, readableHeight * (chart.zoom ?? 1));
-  const y = d3.scaleLinear().domain([origin, Math.max(origin + 1, horizon)]).range([116, height - 48]);
-  return { origin, horizon, height, y, timed: times.length > 0 };
+function truncateLabel(label: string): string {
+  return label.length > 26 ? `${label.slice(0, 25)}…` : label;
 }
 /** D3 owns drawing and collision layout; Elm retains state and exact source evidence. */
 export function drawWaterfall(svg: Svg, chart: Chart, width: number, choose: Choose): void {
@@ -47,17 +44,21 @@ class ExecutionFlow {
   private fullWidth: number;
   private arrow: string;
   private labelBoxes: Box[];
+  private clip: string | null;
   constructor(private svg: Svg, private chart: Chart, width: number, private choose: Choose) {
-    this.projection = geometry(chart);
-    this.nodes = layoutFlow(chart.spans ?? [], this.projection.y, this.projection.horizon);
+    this.projection = flowTime(chart.spans ?? [], chart.zoom ?? 1);
+    const { y, horizon, cuts } = this.projection;
+    const breaks = cuts.map(({ start, end }) => ({ start: y(start), end: y(end) }));
+    this.nodes = layoutFlow(chart.spans ?? [], { y, horizon, breaks });
     this.fullWidth = Math.max(width, 900, ...this.nodes.map(node => node.x + node.labelWidth + 30));
     this.labelBoxes = this.nodes.filter(node => node.span.kind !== "work.session").map(labelBox);
     this.arrow = `${chart.id}-return-arrow`;
+    this.clip = this.projection.cuts.length ? `url(#${chart.id}-visible-time)` : null;
   }
   draw(): void {
     const { height } = this.projection;
     attrs(this.svg, { viewBox: `0 0 ${this.fullWidth} ${height}`, width: this.fullWidth, height });
-    this.guides();
+    drawFlowGuides(this.svg, this.projection, this.fullWidth, this.chart.id);
     const edges = this.svg.append("g").attr("class", "flow-edges");
     for (const node of this.nodes) {
       const at = dispatchTime(node.span);
@@ -66,13 +67,6 @@ class ExecutionFlow {
       if (back !== null && connected(node, back)) this.connector(edges, node, back, "return");
     }
     for (const node of this.nodes) this.drawNode(node);
-  }
-  private guides(): void {
-    const { origin, height, y, timed } = this.projection;
-    this.svg.append("defs").append("marker").attr("id", this.arrow).attr("viewBox", "0 0 10 10").attr("refX", 8).attr("refY", 5).attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto-start-reverse").append("path").attr("d", "M0,1 L9,5 L0,9").attr("fill", "var(--muted)");
-    element(this.svg, "text", { x: 20, y: 24, class: "chart-label" }, "Execution flow · time flows down");
-    element(this.svg, "text", { x: 20, y: 44, class: "chart-label flow-origin" }, timed ? `UTC origin ${new Date(origin).toISOString()}` : "Source boundaries unavailable");
-    this.svg.append("g").attr("class", "chart-axis grid").attr("transform", "translate(74,0)").call(d3.axisLeft(y).ticks(Math.max(4, height / 150)).tickFormat(time => `+${d3.format(".3~f")((Number(time) - origin) / 1000)}s`).tickSize(-(this.fullWidth - 90)));
   }
   private connector(group: Group, node: FlowNode, at: number, kind: "dispatch" | "return"): void {
     const parent = node.parent!.x + 6, child = node.x - 6, y = this.projection.y(at);
@@ -83,7 +77,7 @@ class ExecutionFlow {
     const { span, x } = node;
     const group = this.svg.append("g").attr("class", `waterfall-node${span.id === this.chart.selected ? " selected" : ""}`).attr("data-node-id", span.id).attr("data-x", x);
 
-    this.intervals(group, node);
+    this.intervals(group.append("g").attr("clip-path", this.clip), node);
     this.label(group, node);
     const purpose = (span.operations ?? []).map(operation => `${operation.category_name} (${operation.evidence})`).join("; ");
     const detail = `${span.label} · ${span.kind} · ${duration(span)}${qualification(node)} · ${span.role ?? "unknown"}${purpose ? ` · ${purpose}` : ""}`;
@@ -108,15 +102,16 @@ class ExecutionFlow {
     if (span.kind === "work.session") return;
     const peers = this.nodes.filter(other => other.span.label === span.label);
     const sourceLabel = peers.length > 1 ? `${span.label} · ${peers.indexOf(node) + 1}` : span.label;
-    const label = sourceLabel.length > 26 ? `${sourceLabel.slice(0, 25)}…` : sourceLabel;
+    const label = truncateLabel(sourceLabel);
     const anchor = span.start ?? span.queued ?? span.end;
     if (anchor !== null && Math.abs(labelY - this.projection.y(anchor)) > 18) {
       element(group, "path", { class: "flow-label-leader", d: `M${x + 7},${this.projection.y(anchor)}L${x + 16},${labelY - 4}`, stroke: "var(--muted)", fill: "none", "stroke-width": .8 });
     }
     element(group, "rect", { class: "flow-label-ground", x: x + 13, y: labelY - 14, width: node.labelWidth, height: 38, rx: 2, fill: "var(--ground)" });
     element(group, "text", { class: "chart-label flow-label", x: x + 20, y: labelY }, label);
-    const meta = `${duration(span)}${qualification(node)}${activityBucket(span) ? ` · ${activityBucket(span)}` : ""}`;
-    element(group, "text", { class: "chart-label flow-meta", x: x + 20, y: labelY + 17 }, meta.length > 26 ? `${meta.slice(0, 25)}…` : meta);
+    const bucket = activityBucket(span);
+    const meta = `${duration(span)}${qualification(node)}${bucket ? ` · ${bucket}` : ""}`;
+    element(group, "text", { class: "chart-label flow-meta", x: x + 20, y: labelY + 17 }, truncateLabel(meta));
     if (span.start === null && span.queued === null && span.end === null) element(group, "text", { class: "chart-label", x, y: labelY + 46 }, "Source boundaries unavailable");
   }
   private stripe(group: Group, node: FlowNode, segment: FlowSegment, extra = ""): void {

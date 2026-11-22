@@ -174,6 +174,9 @@ source browsing. Names alone never establish host ownership or missing parentage
 
 For execution-flow inspection, filled ribbons mean qualified observed execution,
 dotted hollow ribbons mean waiting/queued, and grey hollow dashes mean unknown.
+Jagged axis breaks shorten long observed waits and time between a recorded
+response and the next prompt on the same host. Ticks on both sides show true
+elapsed time.
 Native tool callbacks record synchronous invocation returns; a background worker
 retains its independent lifetime. Direct adapters can label an activity declaration
 `nexus.flow.mode=synchronous` or `asynchronous` and record a `Result consumed`

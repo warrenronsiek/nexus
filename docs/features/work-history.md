@@ -546,7 +546,12 @@ persisted Tools classifications take precedence on reads. Compact interval nodes
 include at most three operations and disclose `tool_operations_truncated`; full
 activity detail retains all correlated operations. Default chart height grows
 with the number of activities so a long sequence uses vertical scrolling rather
-than forcing labels into dozens of horizontal lanes. UTC time remains proportional.
+than forcing labels into dozens of horizontal lanes. UTC time stays proportional
+between axis breaks. Jagged cuts shorten long observed waits between source
+events, with a small amount of visible time on either side and ticks showing
+true elapsed time. A qualified response followed by a prompt on the same host
+also supports a break between prompts. Gaps within a pending request lack
+that evidence.
 The compact timeline's 512 KiB sub-budget accommodates category evidence within
 the existing overall dashboard response bound; source and display truncation
 remain separate. Reads never repair a missing callback using analytics receipt
