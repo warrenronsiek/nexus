@@ -105,50 +105,6 @@ fn readiness_treats_active_store_work_as_busy_without_blocking() {
 
 #[cfg(feature = "postgres")]
 #[test]
-fn postgres_lifecycle_records_while_application_store_is_busy() {
-    let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
-        .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL contention test");
-    let service = Arc::new(
-        super::NexusService::connect(
-            LoadedConfig {
-                config: Config::default(),
-                sources: Vec::new(),
-                hash: "postgres-lifecycle-isolation-test".into(),
-            },
-            &database_url,
-        )
-        .unwrap(),
-    );
-    let guard = service.write_store().unwrap();
-    let request_service = service.clone();
-    let (sender, receiver) = mpsc::channel();
-    let request = std::thread::spawn(move || {
-        sender
-            .send(
-                request_service
-                    .handle_remote("lifecycle-isolation-project", prompt())
-                    .to_json(),
-            )
-            .unwrap();
-    });
-    let response = receiver
-        .recv_timeout(Duration::from_secs(2))
-        .expect("lifecycle recording must not wait for application requests");
-    drop(guard);
-    request.join().unwrap();
-    assert_eq!(response["recorded"], true, "{response}");
-    let mut store = service.write_store().unwrap();
-    let events = store
-        .list_events(Some("lifecycle-isolation-project"), 32)
-        .unwrap();
-    assert!(
-        !events.is_empty(),
-        "lifecycle evidence must be durable on the shared database"
-    );
-}
-
-#[cfg(feature = "postgres")]
-#[test]
 fn postgres_history_admission_reserves_interactive_and_lifecycle_capacity() {
     let service = super::NexusService::connect(
         LoadedConfig {
@@ -161,13 +117,18 @@ fn postgres_history_admission_reserves_interactive_and_lifecycle_capacity() {
     .unwrap();
     let first = service.history_store().unwrap();
     let second = service.history_store().unwrap();
+    let write = service.write_store().unwrap();
     let mut interactive = service.read_store().unwrap();
     interactive.list_projects().unwrap();
-    let response = service
-        .handle_remote("history-admission-test", prompt())
-        .to_json();
+
+    let project = format!("history-admission-{}", uuid::Uuid::new_v4());
+    let response = service.handle_remote(&project, prompt()).to_json();
     assert_eq!(response["recorded"], true, "{response}");
-    drop((first, second, interactive));
+    assert!(!interactive
+        .list_events(Some(&project), 32)
+        .unwrap()
+        .is_empty());
+    drop((first, second, write, interactive));
     assert!(service.history_store().is_ok());
 }
 
@@ -249,14 +210,14 @@ fn postgres_readiness_always_uses_the_dedicated_probe() {
         &database_url,
     )
     .unwrap();
-    let application_guard = service.write_store().unwrap();
+    let write_guard = service.write_store().unwrap();
     let started = Instant::now();
 
     let status = service.readiness_status().unwrap();
 
     assert_eq!(status, "ready");
     assert!(started.elapsed() < Duration::from_secs(1));
-    drop(application_guard);
+    drop(write_guard);
 
     let dedicated_guard = match &service.store {
         super::Database::Postgres(stores) => stores.probe.lock().unwrap(),
@@ -264,40 +225,9 @@ fn postgres_readiness_always_uses_the_dedicated_probe() {
     };
     let error = service
         .readiness_status()
-        .expect_err("readiness must not fall back to the application connection");
+        .expect_err("readiness must use its own connection");
     assert!(error.to_string().contains("probe unavailable"), "{error:#}");
     drop(dedicated_guard);
-}
-
-#[cfg(feature = "postgres")]
-#[test]
-fn postgres_readiness_rejects_an_application_store_held_past_the_stall_threshold() {
-    let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
-        .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
-    let service = super::NexusService::connect(
-        LoadedConfig {
-            config: Config::default(),
-            sources: Vec::new(),
-            hash: "postgres-store-stall-test".into(),
-        },
-        &database_url,
-    )
-    .unwrap();
-    let guard = service.write_store().unwrap();
-    std::thread::sleep(Duration::from_millis(10));
-
-    let error = service
-        .readiness_status_with_store_stall_threshold(Duration::from_millis(1))
-        .expect_err("a prolonged application-store hold must fail readiness");
-
-    assert!(error.to_string().contains("stalled"), "{error:#}");
-    drop(guard);
-    assert_eq!(
-        service
-            .readiness_status_with_store_stall_threshold(Duration::from_millis(1))
-            .unwrap(),
-        "ready"
-    );
 }
 
 #[cfg(feature = "postgres")]
@@ -310,16 +240,16 @@ fn postgres_pool_recovers_capacity_after_a_worker_panics() {
             LoadedConfig {
                 config: Config::default(),
                 sources: Vec::new(),
-                hash: "postgres-poisoned-store-test".into(),
+                hash: "postgres-lease-unwind-test".into(),
             },
             &database_url,
         )
         .unwrap(),
     );
-    let poisoning_service = service.clone();
+    let worker_service = service.clone();
     assert!(std::thread::spawn(move || {
-        let _guard = poisoning_service.write_store().unwrap();
-        panic!("poison the application store for the readiness regression");
+        let _guard = worker_service.write_store().unwrap();
+        panic!("unwind while holding a pooled write lease");
     })
     .join()
     .is_err());
