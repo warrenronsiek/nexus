@@ -87,7 +87,7 @@ def inspect_login(probe: BrowserProbe) -> None:
 
 
 def inspect_reads(probe: BrowserProbe) -> None:
-    for kind in ["coordination", "usage", "analytics_summary", "analytics_catalog", "analytics_opportunities",
+    for kind in ["coordination", "coordination_summary", "ui_preferences", "usage", "skill_usage", "analytics_summary", "analytics_catalog", "analytics_opportunities",
                  "memory_status", "memory_context", "papercuts", "sos_list", "eval_dashboard", "work_dashboard", "concern_dashboard"]:
         status, body, _ = probe.read(kind)
         assert status == 200 and json.loads(body).get("ok") is True, f"scoped browser read failed: {kind}"

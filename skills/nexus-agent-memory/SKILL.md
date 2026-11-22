@@ -10,12 +10,16 @@ configuration, and stream provenance. Raw notes are authoritative and immutable;
 Nexus builds disposable hierarchical summaries for bounded context. This is
 deliberate knowledge capture, not automatic transcript retention.
 
-Use project scope for repository decisions, constraints, and lessons. Use global
-scope for knowledge intended to apply across projects. A durable note should say
-what a later agent needs to know and why it affects work; include a compact
-source or revision when useful. Separate verified facts from hypotheses and
-qualify facts likely to drift. Do not fill memory with routine task progress,
-entire logs, credentials, or copied prompts.
+Use project scope for repository knowledge and global scope for knowledge that
+applies across projects. Before writing, ask whether this note could change a
+future agent's decision after the current work closes. Retain decisions and their
+rationale, lasting constraints, verified failure mechanisms, and reusable
+lessons. Include a compact source when it helps a reader verify the claim.
+Separate verified facts from hypotheses and qualify facts likely to drift.
+
+Use delivery and work history for rollout status, one-time retest authorization,
+CI outcomes, and PR progress. A durable policy learned during a rollout belongs
+in memory with its rationale. Keep credentials and full logs out of notes.
 
 ## Use the existing store
 

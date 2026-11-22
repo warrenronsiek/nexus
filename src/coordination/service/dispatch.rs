@@ -82,6 +82,8 @@ impl NexusService {
             | ServiceRequest::Conflicts(_)
             | ServiceRequest::Projects
             | ServiceRequest::Dashboard(_)
+            | ServiceRequest::CoordinationSummary(_)
+            | ServiceRequest::UiPreferences
             | ServiceRequest::Usage(_)
             | ServiceRequest::MemoryStatus(_)
             | ServiceRequest::MemoryContext(_)
@@ -135,7 +137,6 @@ impl NexusService {
 
     fn handle_read(&self, request: ServiceRequest, project: &ProjectBinding) -> ServiceResponse {
         match request {
-            ServiceRequest::Status => self.status(),
             ServiceRequest::Events(query) => self.events(query, project),
             ServiceRequest::Sessions(query) => self.bounded_records(query, project),
             ServiceRequest::Claims(query) => self.bounded_records(query, project),
@@ -154,7 +155,7 @@ impl NexusService {
                 sources: self.loaded.sources.clone(),
                 hash: self.loaded.hash.clone(),
             })),
-            _ => unreachable!("non-read request routed as read"),
+            request => self.read_metadata(request, project),
         }
     }
 

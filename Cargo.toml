@@ -15,7 +15,7 @@ sqlite = [
     "diesel/returning_clauses_for_sqlite_3_35",
     "dep:libsqlite3-sys",
 ]
-postgres = ["diesel/postgres"]
+postgres = ["diesel/postgres", "diesel/r2d2"]
 
 [dependencies]
 anyhow = "1.0"

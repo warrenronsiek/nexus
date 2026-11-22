@@ -50,7 +50,9 @@ counts.
 `nexus concerns` and `nexus_concerns` expose this feature independently of the
 Papercuts and SOS commands. Their `report` and `upvote` conveniences build the
 same observations accepted by `record`. A minimal report needs a title and
-description; an unlocated report is valid. Every convenience call gets a fresh
+description. Producers should put known affected files and verified feature or
+subsystem memberships in `encounter.areas` for both reports and upvotes. An
+unlocated report is valid. Every convenience call gets a fresh
 observation identity and observation timestamp unless the caller supplies them.
 Retry a saved `record` payload, or retain its explicit event ID, when the operation
 is delivery of the same observation. Repeating an unsaved convenience call is a

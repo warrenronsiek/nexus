@@ -408,6 +408,14 @@ pub struct StatusCounts {
     pub recent: RecentCoordinationCounts,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CoordinationSummaryCounts {
+    pub active_sessions: i64,
+    pub active_claims: i64,
+    #[serde(flatten)]
+    pub recent: RecentCoordinationCounts,
+}
+
 /// Coordination history within the recent window, regardless of current liveness.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecentCoordinationCounts {

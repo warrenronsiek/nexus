@@ -94,6 +94,7 @@ type alias Model =
     , data : State.Remote Document
     , polling : State.Remote Float
     , supplemental : Dict String Document
+    , timeline : State.Remote Document
     , deliveryOverlap : State.Remote Document
     , auditFilters : Audit.Filters
     , auditScope : Audit.Scope
@@ -130,6 +131,7 @@ type Msg
     | Tick Time.Posix
     | Received Int String Bool (Result Http.Error String)
     | DetailReceived String String (Result Http.Error String)
+    | TimelineReceived Int (Result Http.Error String)
     | PollingReceived Int (Result Http.Error String)
     | Toggle String Query
     | SelectNode String
@@ -161,7 +163,7 @@ init _ url key =
     let
         wanted = route url
     in
-    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", range = wanted.range, navigationOpen = False }
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, timeline = State.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", range = wanted.range, navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -323,13 +325,13 @@ primary screen focus =
         focused kind key = focus |> Maybe.map (\id -> query kind |> with key id) |> Maybe.withDefault (query kind)
     in
     case screen of
-        Coordination -> query "coordination"
+        Coordination -> query "coordination_summary"
         Work -> focused "work_dashboard" "work_session_id"
         PullRequests -> deliveryQuery focus
         Audits -> query "audit_list"
         Evals -> focused "eval_dashboard" "group_id"
         Tools -> query "analytics_summary"
-        Skills -> query "usage"
+        Skills -> query "skill_usage"
         Concerns -> query "concern_dashboard"
         Papercuts -> query "papercuts"
         Sos -> query "sos_list"
@@ -377,10 +379,7 @@ companions : Model -> List ( String, Query )
 companions model =
     case model.screen of
         Coordination ->
-            ( "index", query "coordination_session_index" ) :: (model.focus |> Maybe.map (\id -> [ ( "timeline", query "coordination_session_timeline" |> with "session_id" id ) ]) |> Maybe.withDefault [])
-
-        Evals ->
-            if model.focus == Nothing then [] else [ ( "groups", query "eval_dashboard" ) ]
+            [ ( "index", query "coordination_session_index" ) ]
 
         Memory ->
             [ ( "health", query "memory_status" ) ]
@@ -449,15 +448,33 @@ load wanted model =
         ( { reading | data = State.accept pending.generation (Err "Choose a project to inspect its history.") pending }, Cmd.none )
 
     else
-        ( reading, Cmd.batch (read model.project (boundedQuery model.range wanted) (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project (boundedQuery model.range q) (Received pending.generation key False)) extras) )
+        let
+            ( withTimeline, timelineRequest ) = if model.screen == Coordination then loadTimeline reading else ( reading, Cmd.none )
+        in
+        ( withTimeline, Cmd.batch (timelineRequest :: read model.project (boundedQuery model.range wanted) (Received pending.generation wanted.kind True) :: List.map (\( key, q ) -> read model.project (boundedQuery model.range q) (Received pending.generation key False)) extras) )
 
 
 boundedQuery : TimeRange -> Query -> Query
 boundedQuery range wanted =
-    if range /= Week && List.member wanted.kind [ "work_dashboard", "coordination", "coordination_session_index", "delivery_list", "eval_dashboard", "concern_dashboard", "concern_list", "audit_list" ] then
+    if range /= Week && List.member wanted.kind [ "work_dashboard", "coordination", "coordination_summary", "coordination_session_index", "delivery_list", "eval_dashboard", "concern_dashboard", "concern_list", "audit_list" ] then
         with "range" (Tuple.first (rangeOption range)) wanted
     else
         wanted
+
+
+loadTimeline : Model -> ( Model, Cmd Msg )
+loadTimeline model =
+    let
+        pending = State.begin model.timeline
+    in
+    case ( model.project, model.focus ) of
+        ( Just _, Just session ) ->
+            ( { model | timeline = pending }
+            , read model.project (query "coordination_session_timeline" |> with "session_id" session) (TimelineReceived pending.generation)
+            )
+
+        _ ->
+            ( { model | timeline = { pending | value = Nothing, loading = False } }, Cmd.none )
 
 
 {-| A new screen, project or focus starts from that screen's primary read with no stale selection. -}
@@ -466,14 +483,22 @@ reset wanted model =
     let
         sameScreen = wanted.screen == model.screen && wanted.project == model.project
     in
-    load (routeQuery wanted)
-        { model
-            | screen = wanted.screen
+    if sameScreen && wanted.screen == Coordination && wanted.range == model.range && wanted.focus /= model.focus && model.data.value /= Nothing then
+        let
+            previous = model.timeline
+        in
+        loadTimeline { model | focus = wanted.focus, timeline = { previous | value = Nothing }, navigationOpen = False }
+
+    else
+        load (routeQuery wanted)
+            { model
+              | screen = wanted.screen
             , project = wanted.project
             , focus = wanted.focus
             , range = wanted.range
             , data = { value = Nothing, generation = model.data.generation, loading = False, error = Nothing }
-            , supplemental = if sameScreen then Dict.remove "timeline" model.supplemental else Dict.empty
+            , supplemental = if sameScreen && wanted.range == model.range then model.supplemental else Dict.empty
+            , timeline = { value = Nothing, generation = model.timeline.generation + 1, loading = False, error = Nothing }
             , deliveryOverlap = if sameScreen then model.deliveryOverlap else State.empty
             , auditFilters = wanted.audit.filters
             , auditScope = wanted.audit
@@ -603,7 +628,7 @@ update msg model =
             ( refreshed, Cmd.batch [ reading, configuration ] )
 
         Tick _ ->
-            if model.authenticated == Just True && not model.data.loading && not model.deliveryOverlap.loading && model.selected == Nothing then
+            if model.authenticated == Just True && not model.data.loading && not model.deliveryOverlap.loading && not model.timeline.loading && model.selected == Nothing then
                 load model.query model
 
             else
@@ -642,6 +667,20 @@ update msg model =
                     in
                     ( next, draw next )
 
+        TimelineReceived generation result ->
+            if generation /= model.timeline.generation then
+                ( model, Cmd.none )
+
+            else
+                case result of
+                    Err (Http.BadStatus 401) ->
+                        let expired = signedOut model in
+                        ( { expired | loginError = Just "Your session expired. Sign in to continue." }, Cmd.none )
+
+                    _ ->
+                        let decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode "coordination_session_timeline") in
+                        ( { model | timeline = State.accept generation decoded model.timeline }, Cmd.none )
+
         PollingReceived generation result ->
             if model.authenticated /= Just True || generation /= model.polling.generation then
                 ( model, Cmd.none )
@@ -652,7 +691,7 @@ update msg model =
                         ( { expired | loginError = Just "Your session expired. Sign in to continue." }, Cmd.none )
 
                     _ ->
-                        let decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode "coordination") |> Result.andThen (.root >> Wire.refreshInterval) in
+                        let decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode "ui_preferences") |> Result.andThen (.root >> Wire.refreshInterval) in
                         ( { model | polling = State.accept generation decoded model.polling }, Cmd.none )
 
         Toggle key wanted ->
@@ -766,8 +805,6 @@ companionKind : String -> String
 companionKind key =
     case key of
         "index" -> "coordination_session_index"
-        "timeline" -> "coordination_session_timeline"
-        "groups" -> "eval_dashboard"
         "health" -> "memory_status"
         "delivery_coordination" -> "coordination"
         _ -> key
@@ -796,12 +833,12 @@ authenticate session model =
 bootstrapPolling : Model -> ( Model, Cmd Msg )
 bootstrapPolling model =
     let pending = State.begin model.polling in
-    ( { model | polling = pending }, read (if model.globalProjectReads then Nothing else model.defaultProjectId) (query "coordination") (PollingReceived pending.generation) )
+    ( { model | polling = pending }, read Nothing (query "ui_preferences") (PollingReceived pending.generation) )
 
 
 signedOut : Model -> Model
 signedOut model =
-    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, deliveryOverlap = State.empty, details = Dict.empty, expanded = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
+    { model | authenticated = Just False, password = "", data = State.empty, supplemental = Dict.empty, timeline = { value = Nothing, generation = model.timeline.generation + 1, loading = False, error = Nothing }, deliveryOverlap = State.empty, details = Dict.empty, expanded = Dict.empty, selected = Nothing, polling = { value = Nothing, generation = model.polling.generation + 1, loading = False, error = Nothing } }
 
 
 httpError : Http.Error -> String
@@ -1180,7 +1217,7 @@ focusPicker model =
     case model.screen of
         Coordination -> picker "Session" "Choose a session…" (Dict.get "index" model.supplemental |> Maybe.map .rows |> Maybe.withDefault [])
         Work -> picker "Session" "Choose a session…" documentRows
-        Evals -> picker "Agent" "Choose an agent…" (if model.focus == Nothing then documentRows else Dict.get "groups" model.supplemental |> Maybe.map .rows |> Maybe.withDefault documentRows)
+        Evals -> picker "Agent" "Choose an agent…" documentRows
         _ -> []
 
 
@@ -1440,10 +1477,12 @@ coordinationView model doc =
             , stat ("Conflicts · " ++ String.dropLeft 5 (Tuple.second (rangeOption model.range))) (optionalCount "recent_conflicts" counts) "Overlaps detected between sessions"
             , stat ("Messages · " ++ String.dropLeft 5 (Tuple.second (rangeOption model.range))) (optionalCount "recent_advisories" counts) "Warnings Nexus delivered to agents"
             ]
-        , case ( model.focus, Dict.get "timeline" model.supplemental ) of
-            ( Nothing, _ ) -> guidance "Choose a session" "Pick a session above to see the overlaps it ran into and the messages Nexus sent about them."
-            ( Just _, Nothing ) -> guidance "Loading the session" "Retrieving its conflicts and messages…"
-            ( Just _, Just timeline ) -> conversation timeline
+        , case ( model.focus, model.timeline.value, model.timeline.error ) of
+            ( Nothing, _, _ ) -> guidance "Choose a session" "Pick a session above to see the overlaps it ran into and the messages Nexus sent about them."
+            ( Just _, Nothing, Nothing ) -> guidance "Loading the session" "Retrieving its conflicts and messages…"
+            ( Just _, Nothing, Just reason ) -> div [ class "notice error" ] [ text reason ]
+            ( Just _, Just timeline, error ) ->
+                div [] [ error |> Maybe.map (\reason -> div [ class "notice error" ] [ text ("Showing the last successful timeline. " ++ reason) ]) |> Maybe.withDefault (text ""), conversation timeline ]
         ]
 
 
@@ -1533,7 +1572,7 @@ sessionView model doc =
 evalView : Model -> Document -> Html Msg
 evalView model doc =
     div []
-        [ div [ class "stats-grid" ] [ stat "Recorded runs" (countText "run_count" doc.root) "Caller-owned execution", stat "Results" (countText "result_count" doc.root) "Current observations; corrections retained", stat "Agents" (String.fromInt (List.length (Dict.get "groups" model.supplemental |> Maybe.map .rows |> Maybe.withDefault doc.rows))) "Evaluated agents and configurations", stat "Source records" (countText "scanned_records" doc.root) "Bounded historical projection" ]
+        [ div [ class "stats-grid" ] [ stat "Recorded runs" (countText "run_count" doc.root) "Caller-owned execution", stat "Results" (countText "result_count" doc.root) "Current observations; corrections retained", stat "Agents" (String.fromInt (List.length doc.rows)) "Evaluated agents and configurations", stat "Source records" (countText "scanned_records" doc.root) "Bounded historical projection" ]
         , if model.focus == Nothing then
             guidance "Choose an agent" "Pick an agent above to see each of its metrics over time."
           else if List.isEmpty doc.metrics then

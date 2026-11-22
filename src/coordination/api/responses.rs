@@ -54,6 +54,8 @@ pub enum ServiceResponse {
     Analysis(AnalysisResponse),
     Projects(ProjectsResponse),
     Dashboard(DashboardResponse),
+    CoordinationSummary(CoordinationSummaryResponse),
+    UiPreferences(UiPreferencesResponse),
     Usage(UsageResponse),
     MemoryWrite(MemoryWriteResponse),
     MemoryEntries(MemoryEntriesResponse),
@@ -186,6 +188,18 @@ pub struct DashboardResponse {
     pub refresh_interval_ms: u64,
     #[serde(flatten)]
     pub records: DashboardRecords,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CoordinationSummaryResponse {
+    pub ok: bool,
+    pub counts: crate::coordination::domain::CoordinationSummaryCounts,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UiPreferencesResponse {
+    pub ok: bool,
+    pub refresh_interval_ms: u64,
 }
 
 #[derive(Debug, Serialize)]

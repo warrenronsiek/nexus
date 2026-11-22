@@ -12,14 +12,16 @@
 use crate::coordination::api::{MemoryConsolidationReport, ServiceRequest, ServiceResponse};
 use crate::coordination::client_evidence::ClientFilesystemEvidence;
 use crate::coordination::{
-    NexusService, PapercutDispatch, ProjectBinding, SosDispatch, SosTriageJob,
+    DatabaseOperation, NexusService, PapercutDispatch, ProjectBinding, SosDispatch, SosTriageJob,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-use thiserror::Error;
-use tokio::sync::Semaphore;
+
+mod gate;
+use gate::BlockingExecutionError;
+pub(super) use gate::BlockingExecutionGate;
 
 const MAX_QUEUED_MODEL_WORK: usize = 32;
 const SOS_RECOVERY_INTERVAL: Duration = Duration::from_secs(60);
@@ -86,46 +88,6 @@ impl PeriodicMaintenance {
 impl Drop for PeriodicMaintenance {
     fn drop(&mut self) {
         self.0.abort();
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct BlockingExecutionGate {
-    slots: Arc<Semaphore>,
-    queue_timeout: Duration,
-}
-
-#[derive(Debug, Error)]
-pub(super) enum BlockingExecutionError {
-    #[error("Nexus blocking execution capacity is temporarily exhausted")]
-    AtCapacity,
-    #[error("Nexus blocking worker failed: {0}")]
-    Worker(#[from] tokio::task::JoinError),
-}
-
-impl BlockingExecutionGate {
-    pub(super) fn new(capacity: usize, queue_timeout: Duration) -> Self {
-        Self {
-            slots: Arc::new(Semaphore::new(capacity)),
-            queue_timeout,
-        }
-    }
-
-    pub(super) async fn run<F, T>(&self, work: F) -> Result<T, BlockingExecutionError>
-    where
-        F: FnOnce() -> T + Send + 'static,
-        T: Send + 'static,
-    {
-        let permit = tokio::time::timeout(self.queue_timeout, self.slots.clone().acquire_owned())
-            .await
-            .map_err(|_| BlockingExecutionError::AtCapacity)?
-            .map_err(|_| BlockingExecutionError::AtCapacity)?;
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            work()
-        })
-        .await
-        .map_err(BlockingExecutionError::from)
     }
 }
 
@@ -461,21 +423,25 @@ async fn dispatch_request(
     client_evidence: Option<ClientFilesystemEvidence>,
     execution_gate: Option<&BlockingExecutionGate>,
 ) -> (ServiceResponse, Option<ModelWorkJob>) {
+    let admission = RequestAdmission {
+        gate: execution_gate,
+        operation: service.admission(&request),
+    };
     match request {
         ServiceRequest::Papercuts(command) => {
-            dispatch_model_work(binding, execution_gate, move |binding| {
+            dispatch_model_work(binding, admission, move |binding| {
                 service.dispatch_papercuts(command, &binding)
             })
             .await
         }
         ServiceRequest::Sos(command) => {
-            dispatch_model_work(binding, execution_gate, move |binding| {
+            dispatch_model_work(binding, admission, move |binding| {
                 service.dispatch_sos(command, &binding)
             })
             .await
         }
         request => (
-            dispatch_regular(service, request, binding, client_evidence, execution_gate).await,
+            dispatch_regular(service, request, binding, client_evidence, admission).await,
             None,
         ),
     }
@@ -483,13 +449,13 @@ async fn dispatch_request(
 
 async fn dispatch_model_work<T>(
     binding: ProjectBinding,
-    execution_gate: Option<&BlockingExecutionGate>,
+    admission: RequestAdmission<'_>,
     work: impl FnOnce(ProjectBinding) -> T + Send + 'static,
 ) -> (ServiceResponse, Option<ModelWorkJob>)
 where
     T: CompletedModelDispatch + Send + 'static,
 {
-    match run_blocking(execution_gate, move || work(binding)).await {
+    match admission.run(move || work(binding)).await {
         Ok(completed) => completed.into_parts(),
         Err(error) => (ServiceResponse::error(error), None),
     }
@@ -500,29 +466,43 @@ async fn dispatch_regular(
     request: ServiceRequest,
     binding: ProjectBinding,
     client_evidence: Option<ClientFilesystemEvidence>,
-    execution_gate: Option<&BlockingExecutionGate>,
+    admission: RequestAdmission<'_>,
 ) -> ServiceResponse {
-    run_blocking(execution_gate, move || match client_evidence {
-        Some(evidence) => service.handle_remote_observed(binding, request, evidence),
-        None => service.handle_in(binding, request),
-    })
-    .await
-    .unwrap_or_else(ServiceResponse::error)
+    admission
+        .run(move || match client_evidence {
+            Some(evidence) => service.handle_remote_observed(binding, request, evidence),
+            None => service.handle_in(binding, request),
+        })
+        .await
+        .unwrap_or_else(|error| {
+            if matches!(admission.operation, Some(DatabaseOperation::Lifecycle)) {
+                let mut response = crate::coordination::domain::HookResponse::fail_open(&error);
+                response.retryable = matches!(error, BlockingExecutionError::AtCapacity);
+                ServiceResponse::Hook(response)
+            } else {
+                ServiceResponse::error(error)
+            }
+        })
 }
 
-async fn run_blocking<F, T>(
-    execution_gate: Option<&BlockingExecutionGate>,
-    work: F,
-) -> Result<T, BlockingExecutionError>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    match execution_gate {
-        Some(execution_gate) => execution_gate.run(work).await,
-        None => tokio::task::spawn_blocking(work)
-            .await
-            .map_err(BlockingExecutionError::from),
+#[derive(Clone, Copy)]
+struct RequestAdmission<'a> {
+    gate: Option<&'a BlockingExecutionGate>,
+    operation: Option<DatabaseOperation>,
+}
+
+impl RequestAdmission<'_> {
+    async fn run<F, T>(self, work: F) -> Result<T, BlockingExecutionError>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        match self.gate {
+            Some(gate) => gate.run_classified(self.operation, work).await,
+            None => tokio::task::spawn_blocking(work)
+                .await
+                .map_err(BlockingExecutionError::from),
+        }
     }
 }
 

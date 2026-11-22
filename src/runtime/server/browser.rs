@@ -62,9 +62,10 @@ impl ReadDispatcher {
     async fn read(&self, request: ServiceRequest, project: Option<String>) -> Result<Vec<u8>> {
         match self {
             Self::Service { service, gate } => {
+                let operation = service.admission(&request);
                 let service = service.clone();
                 let response = gate
-                    .run(move || {
+                    .run_classified(operation, move || {
                         service.handle_in(
                             ProjectBinding::Inspect {
                                 project_id: project,

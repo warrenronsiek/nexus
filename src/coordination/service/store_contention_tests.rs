@@ -26,10 +26,10 @@ fn prompt() -> ServiceRequest {
 #[test]
 fn lifecycle_store_retries_after_contention_clears() {
     let service = super::tests::service_with(Config::default());
-    let mut held = Some(service.store.lock().unwrap());
+    let mut held = Some(service.write_store().unwrap());
     let mut retries = 0;
-    let acquired = service
-        .store
+    let store = service.store.single_for_test();
+    let acquired = store
         .try_lock_with_retry(|| {
             retries += 1;
             assert_eq!(retries, 1, "the released store must be acquired on retry");
@@ -49,10 +49,10 @@ fn lifecycle_store_retries_after_contention_clears() {
 #[test]
 fn lifecycle_store_stops_when_retry_budget_is_exhausted() {
     let service = super::tests::service_with(Config::default());
-    let _held = service.store.lock().unwrap();
+    let _held = service.write_store().unwrap();
     let mut retries = 0;
-    let error = service
-        .store
+    let store = service.store.single_for_test();
+    let error = store
         .try_lock_with_retry(|| {
             retries += 1;
             false
@@ -66,7 +66,7 @@ fn lifecycle_store_stops_when_retry_budget_is_exhausted() {
 #[test]
 fn lifecycle_contention_remains_bounded_and_fail_open() {
     let service = Arc::new(super::tests::service_with(Config::default()));
-    let guard = service.store.lock().unwrap();
+    let guard = service.write_store().unwrap();
     let request_service = service.clone();
     let (sender, receiver) = mpsc::channel();
     let started = Instant::now();
@@ -93,7 +93,7 @@ fn lifecycle_contention_remains_bounded_and_fail_open() {
 #[test]
 fn readiness_treats_active_store_work_as_busy_without_blocking() {
     let service = super::tests::service_with(Config::default());
-    let guard = service.store.lock().unwrap();
+    let guard = service.write_store().unwrap();
     let started = Instant::now();
 
     let status = service.readiness_status().unwrap();
@@ -105,51 +105,73 @@ fn readiness_treats_active_store_work_as_busy_without_blocking() {
 
 #[cfg(feature = "postgres")]
 #[test]
-fn postgres_lifecycle_records_while_application_store_is_busy() {
-    let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
-        .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL contention test");
-    let service = Arc::new(
-        super::NexusService::connect(
-            LoadedConfig {
-                config: Config::default(),
-                sources: Vec::new(),
-                hash: "postgres-lifecycle-isolation-test".into(),
-            },
-            &database_url,
-        )
-        .unwrap(),
-    );
-    let guard = service.store.lock().unwrap();
-    let request_service = service.clone();
-    let (sender, receiver) = mpsc::channel();
-    let request = std::thread::spawn(move || {
-        sender
-            .send(
-                request_service
-                    .handle_remote("lifecycle-isolation-project", prompt())
-                    .to_json(),
-            )
-            .unwrap();
-    });
-    let response = receiver
-        .recv_timeout(Duration::from_secs(2))
-        .expect("lifecycle recording must not wait for application requests");
-    drop(guard);
-    request.join().unwrap();
+fn postgres_history_admission_reserves_interactive_and_lifecycle_capacity() {
+    let service = super::NexusService::connect(
+        LoadedConfig {
+            config: Config::default(),
+            sources: Vec::new(),
+            hash: "postgres-history-admission".into(),
+        },
+        &std::env::var("NEXUS_TEST_DATABASE_URL").unwrap(),
+    )
+    .unwrap();
+    let first = service.history_store().unwrap();
+    let second = service.history_store().unwrap();
+    let write = service.write_store().unwrap();
+    let mut interactive = service.read_store().unwrap();
+    interactive.list_projects().unwrap();
+
+    let project = format!("history-admission-{}", uuid::Uuid::new_v4());
+    let response = service.handle_remote(&project, prompt()).to_json();
     assert_eq!(response["recorded"], true, "{response}");
-    let mut store = service.store.lock().unwrap();
-    let events = store
-        .list_events(Some("lifecycle-isolation-project"), 32)
-        .unwrap();
-    assert!(
-        !events.is_empty(),
-        "lifecycle evidence must be durable on the shared database"
-    );
+    assert!(!interactive
+        .list_events(Some(&project), 32)
+        .unwrap()
+        .is_empty());
+    drop((first, second, write, interactive));
+    assert!(service.history_store().is_ok());
 }
 
 #[cfg(feature = "postgres")]
 #[test]
-fn postgres_readiness_observes_lifecycle_store_failures() {
+fn postgres_memory_maintenance_can_run_while_a_write_holds_its_lease() {
+    let fixture = tempfile::tempdir().unwrap();
+    let provider = fixture.path().join("unavailable-provider");
+    let mut config = Config::default();
+    config.analyst.codex.command = provider.to_string_lossy().into_owned();
+    config.analyst.claude.command = config.analyst.codex.command.clone();
+    let service = super::NexusService::connect(
+        LoadedConfig {
+            config,
+            sources: Vec::new(),
+            hash: "memory-maintenance-admission".into(),
+        },
+        &std::env::var("NEXUS_TEST_DATABASE_URL").unwrap(),
+    )
+    .unwrap();
+    let project = format!("memory-admission-{}", uuid::Uuid::new_v4());
+    for content in [
+        "Retries preserve receipt identity",
+        "Claims remain scoped to the project",
+    ] {
+        let note = ServiceRequest::decode(
+            "memory_add",
+            json!({
+                "scope":"project", "content":content, "session_id":"fixture", "agent":"test"
+            }),
+        )
+        .unwrap();
+        assert_eq!(service.handle_remote(&project, note).to_json()["ok"], true);
+    }
+    let guard = service.write_store().unwrap();
+    let report = service.consolidate_memories().unwrap();
+    assert!(report.attempted >= 1);
+    drop(guard);
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn postgres_readiness_detects_a_stalled_lifecycle_lease() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
     let service = Arc::new(
@@ -163,11 +185,7 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
         )
         .unwrap(),
     );
-    let guard = service
-        .connections
-        .lifecycle(&service.store)
-        .lock()
-        .unwrap();
+    let guard = service.lifecycle_store().unwrap();
     assert_eq!(service.readiness_status().unwrap(), "ready");
     std::thread::sleep(Duration::from_millis(10));
     let error = service
@@ -176,24 +194,6 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
     assert!(error.to_string().contains("stalled"), "{error:#}");
     drop(guard);
     assert_eq!(service.readiness_status().unwrap(), "ready");
-    let poisoning_service = service.clone();
-    assert!(std::thread::spawn(move || {
-        let _guard = poisoning_service
-            .connections
-            .lifecycle(&poisoning_service.store)
-            .lock()
-            .unwrap();
-        panic!("poison the lifecycle store for the readiness regression");
-    })
-    .join()
-    .is_err());
-    let error = service
-        .readiness_status()
-        .expect_err("a poisoned lifecycle store must fail readiness");
-    assert!(
-        error.to_string().contains("store lock poisoned"),
-        "{error:#}"
-    );
 }
 
 #[cfg(feature = "postgres")]
@@ -210,60 +210,29 @@ fn postgres_readiness_always_uses_the_dedicated_probe() {
         &database_url,
     )
     .unwrap();
-    let application_guard = service.store.lock().unwrap();
+    let write_guard = service.write_store().unwrap();
     let started = Instant::now();
 
     let status = service.readiness_status().unwrap();
 
     assert_eq!(status, "ready");
     assert!(started.elapsed() < Duration::from_secs(1));
-    drop(application_guard);
+    drop(write_guard);
 
-    let dedicated_guard = match &service.connections {
-        super::StoreTopology::Isolated(stores) => stores.probe.lock().unwrap(),
-        super::StoreTopology::Shared => panic!("PostgreSQL must have a dedicated probe"),
+    let dedicated_guard = match &service.store {
+        super::Database::Postgres(stores) => stores.probe.lock().unwrap(),
+        super::Database::Single(_) => panic!("PostgreSQL must have a dedicated probe"),
     };
     let error = service
         .readiness_status()
-        .expect_err("readiness must not fall back to the application connection");
+        .expect_err("readiness must use its own connection");
     assert!(error.to_string().contains("probe unavailable"), "{error:#}");
     drop(dedicated_guard);
 }
 
 #[cfg(feature = "postgres")]
 #[test]
-fn postgres_readiness_rejects_an_application_store_held_past_the_stall_threshold() {
-    let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
-        .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
-    let service = super::NexusService::connect(
-        LoadedConfig {
-            config: Config::default(),
-            sources: Vec::new(),
-            hash: "postgres-store-stall-test".into(),
-        },
-        &database_url,
-    )
-    .unwrap();
-    let guard = service.store.lock().unwrap();
-    std::thread::sleep(Duration::from_millis(10));
-
-    let error = service
-        .readiness_status_with_store_stall_threshold(Duration::from_millis(1))
-        .expect_err("a prolonged application-store hold must fail readiness");
-
-    assert!(error.to_string().contains("stalled"), "{error:#}");
-    drop(guard);
-    assert_eq!(
-        service
-            .readiness_status_with_store_stall_threshold(Duration::from_millis(1))
-            .unwrap(),
-        "ready"
-    );
-}
-
-#[cfg(feature = "postgres")]
-#[test]
-fn postgres_readiness_rejects_a_poisoned_application_store() {
+fn postgres_pool_recovers_capacity_after_a_worker_panics() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
     let service = Arc::new(
@@ -271,28 +240,22 @@ fn postgres_readiness_rejects_a_poisoned_application_store() {
             LoadedConfig {
                 config: Config::default(),
                 sources: Vec::new(),
-                hash: "postgres-poisoned-store-test".into(),
+                hash: "postgres-lease-unwind-test".into(),
             },
             &database_url,
         )
         .unwrap(),
     );
-    let poisoning_service = service.clone();
+    let worker_service = service.clone();
     assert!(std::thread::spawn(move || {
-        let _guard = poisoning_service.store.lock().unwrap();
-        panic!("poison the application store for the readiness regression");
+        let _guard = worker_service.write_store().unwrap();
+        panic!("unwind while holding a pooled write lease");
     })
     .join()
     .is_err());
 
-    let error = service
-        .readiness_status()
-        .expect_err("a poisoned application store must fail readiness");
-
-    assert!(
-        error.to_string().contains("store lock poisoned"),
-        "{error:#}"
-    );
+    assert_eq!(service.readiness_status().unwrap(), "ready");
+    assert!(service.write_store().is_ok());
 }
 
 #[test]
@@ -300,7 +263,7 @@ fn poisoned_store_is_not_safe_to_retry() {
     let service = Arc::new(super::tests::service_with(Config::default()));
     let poisoning = service.clone();
     assert!(std::thread::spawn(move || {
-        let _guard = poisoning.store.lock().unwrap();
+        let _guard = poisoning.write_store().unwrap();
         panic!("poison the store for the lifecycle regression");
     })
     .join()
@@ -315,7 +278,7 @@ fn poisoned_store_is_not_safe_to_retry() {
 #[test]
 fn script_contention_is_explicitly_safe_to_retry() {
     let service = super::tests::service_with(Config::default());
-    let _held = service.store.lock().unwrap();
+    let _held = service.write_store().unwrap();
     let request = ServiceRequest::decode(
         "script_use",
         json!({
@@ -357,7 +320,7 @@ fn reconciliation_releases_store_between_bounded_path_batches() {
             .unwrap(),
         40
     );
-    let mut store = service.store.lock().unwrap();
+    let mut store = service.write_store().unwrap();
     let events = store.list_events(Some("contention-project"), 32).unwrap();
     let batches: Vec<_> = events
         .iter()
@@ -380,7 +343,7 @@ fn reconciliation_releases_store_between_bounded_path_batches() {
 #[cfg(feature = "sqlite")]
 fn explicit_store_contention_releases_the_worker_within_a_bounded_wait() {
     let service = Arc::new(super::tests::service_with(Config::default()));
-    let held = service.store.lock().unwrap();
+    let held = service.write_store().unwrap();
     let reader = service.clone();
     let (sender, receiver) = mpsc::channel();
     let worker = std::thread::spawn(move || {
@@ -405,7 +368,7 @@ fn explicit_store_contention_releases_the_worker_within_a_bounded_wait() {
 #[cfg(feature = "sqlite")]
 fn explicit_reads_survive_short_store_contention() {
     let service = Arc::new(super::tests::service_with(Config::default()));
-    let held = service.store.lock().unwrap();
+    let held = service.write_store().unwrap();
     let reader = service.clone();
     let (started, ready) = mpsc::channel();
     let worker = std::thread::spawn(move || {

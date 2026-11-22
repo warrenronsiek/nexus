@@ -13,7 +13,11 @@ does not become the owner of that process or select its goals.
 Prefer the installed host hooks for ordinary coordination and usage capture.
 Add explicit records where they carry information that cannot be observed:
 motivation, durable knowledge, evidence, child identity, or a missing lifecycle
-boundary. Do not require a new manual ritual before every edit or tool call.
+boundary. Use memory for knowledge that could change a future agent's decision
+after the current work closes. Record current PR, CI, or rollout progress in its
+existing work history or delivery workflow. Use affected areas when reporting
+a code concern so the Code Map can group the evidence. Keep these records part
+of the existing workflow.
 
 Read the skill matching the task below. Load further skills only when the work
 crosses their boundaries. Use `nexus --version`, the command's `--help`, and

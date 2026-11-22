@@ -250,15 +250,12 @@ page and attribution stay intact. A stop between batches prevents later batches
 from recreating claims. A failed batch rolls back its claims and events; earlier
 committed batches remain durable and later observations can retry the remainder.
 
-PostgreSQL services reserve a separate connection for lifecycle hooks and their
-bounded reconciliation batches. Browser reads, explicit feature commands, and
-background model work use the application connection, so their store mutex cannot
-consume the lifecycle acquisition budget. Both connections access the same
-transactional database; project identity, claim visibility, and history remain
-shared. Aggregate read-modify-write transactions serialize through a database-scoped
-transaction lock before reading mutable state, preserving memory and conflict
-history ordering across the connections. Readiness checks both store locks for poison or prolonged holds and uses
-its independent database probe. SQLite retains its single-store behavior.
+The PostgreSQL pool reserves a lease for lifecycle hooks and their bounded
+reconciliation batches. Interactive reads, expensive history, explicit writes,
+and maintenance draw from their own capacity. Aggregate transactions serialize
+through a database-scoped transaction lock to preserve memory and conflict
+history ordering. Readiness checks prolonged holds and probes the database
+independently. SQLite uses a single store.
 
 `sessions` accepts the exact stored `session_id` and recorded worktree as optional
 filters. They apply before the result bound and can be combined with the

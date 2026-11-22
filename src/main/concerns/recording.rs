@@ -34,7 +34,7 @@ pub(crate) struct ObservationArgs {
 }
 #[derive(Debug, Default, Args)]
 struct EncounterArgs {
-    /// A ConcernEncounter JSON object. Additional flags append/override its details.
+    /// A ConcernEncounter JSON object. Include known affected files and feature/subsystem areas. Additional flags append or override details.
     #[arg(long)]
     encounter_json: Option<String>,
     /// Repeat for structured ConcernAreaAttribution JSON objects.

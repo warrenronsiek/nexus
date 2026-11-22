@@ -89,16 +89,12 @@ impl NexusService {
     {
         let mut query = query.into();
         query.bind_project(binding);
-        match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
-            .and_then(|mut store| {
-                query.load(
-                    &mut store,
-                    self.loaded.config.coordination.claim_ttl_seconds,
-                )
-            }) {
+        match self.read_store().and_then(|mut store| {
+            query.load(
+                &mut store,
+                self.loaded.config.coordination.claim_ttl_seconds,
+            )
+        }) {
             Ok(response) => response,
             Err(error) => ServiceResponse::error(error),
         }

@@ -184,19 +184,49 @@ impl Store {
         recent: RecentCoordinationCounts,
         since: Option<DateTime<Utc>>,
     ) -> Result<StatusCounts> {
-        let mut session_query = sessions::table
-            .filter(super::liveness::recent_session(activity_window_seconds))
-            .into_boxed();
-        let mut claim_query = claims::table.into_boxed();
+        let counts = self.active_counts(project_key, activity_window_seconds, recent)?;
         let mut conflict_query = conflicts::table
             .filter(super::liveness::live_conflict())
             .into_boxed();
         if let Some(project_key) = project_key {
-            session_query = session_query.filter(sessions::project_id.eq(project_key));
-            claim_query = claim_query.filter(claims::project_id.eq(project_key));
             conflict_query = conflict_query.filter(conflicts::project_id.eq(project_key));
         }
         Ok(StatusCounts {
+            active_sessions: counts.active_sessions,
+            active_claims: counts.active_claims,
+            open_conflicts: conflict_query
+                .select(count_star())
+                .first(&mut self.connection)?,
+            events: self.count_events(project_key, since)?,
+            recent: counts.recent,
+        })
+    }
+
+    pub(crate) fn coordination_summary(
+        &mut self,
+        project_key: Option<&str>,
+        activity_window_seconds: i64,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<crate::coordination::domain::CoordinationSummaryCounts> {
+        let recent = self.recent_history_counts(project_key, since)?;
+        self.active_counts(project_key, activity_window_seconds, recent)
+    }
+
+    fn active_counts(
+        &mut self,
+        project_key: Option<&str>,
+        activity_window_seconds: i64,
+        recent: RecentCoordinationCounts,
+    ) -> Result<crate::coordination::domain::CoordinationSummaryCounts> {
+        let mut session_query = sessions::table
+            .filter(super::liveness::recent_session(activity_window_seconds))
+            .into_boxed();
+        let mut claim_query = claims::table.into_boxed();
+        if let Some(project_key) = project_key {
+            session_query = session_query.filter(sessions::project_id.eq(project_key));
+            claim_query = claim_query.filter(claims::project_id.eq(project_key));
+        }
+        Ok(crate::coordination::domain::CoordinationSummaryCounts {
             active_sessions: session_query
                 .select(count_star())
                 .first(&mut self.connection)?,
@@ -205,10 +235,6 @@ impl Store {
                 .filter(claims::expires_at.gt(Utc::now().to_rfc3339()))
                 .select(count_star())
                 .first(&mut self.connection)?,
-            open_conflicts: conflict_query
-                .select(count_star())
-                .first(&mut self.connection)?,
-            events: self.count_events(project_key, since)?,
             recent,
         })
     }

@@ -18,6 +18,8 @@ mod analytics;
 mod audit;
 mod concerns;
 mod conflict_closure;
+mod database;
+mod database_operations;
 mod delivery;
 mod delivery_watch;
 mod dispatch;
@@ -34,16 +36,18 @@ mod sos;
 mod store_lock;
 mod work;
 
+use database::Database;
+pub(crate) use database::DatabaseOperation;
+use database_operations::StorageOperation;
 pub(crate) use papercuts::{PapercutDispatch, PapercutReviewJob};
 pub(crate) use sos::{SosDispatch, SosTriageJob};
-use store_lock::{LifecycleStoreBusy, TrackedStoreGuard, TrackedStoreMutex};
+use store_lock::LifecycleStoreBusy;
 
-#[cfg(test)]
-use super::api::ServiceRequest;
 use super::api::{
-    AnalysisResponse, AnalyzeCommand, DashboardQuery, DashboardResponse, EventQuery,
-    EventsResponse, ProjectsResponse, PromptResponse, ReleaseCommand, ReleasedResponse,
-    ResolveCommand, ResolvedResponse, ServiceResponse, StatusResponse,
+    AnalysisResponse, AnalyzeCommand, CoordinationSummaryResponse, DashboardQuery,
+    DashboardResponse, EventQuery, EventsResponse, ProjectsResponse, PromptResponse,
+    ReleaseCommand, ReleasedResponse, ResolveCommand, ResolvedResponse, ServiceRequest,
+    ServiceResponse, StatusResponse, UiPreferencesResponse,
 };
 use super::classifier::{
     advisory, bounded_reported_intents, extract_path_intents, strongest_overlaps,
@@ -61,98 +65,51 @@ use super::workspace::ProjectBinding;
 use crate::agents::analyst::{self, AnalysisResult};
 use crate::agents::model;
 use crate::config::LoadedConfig;
-#[cfg(feature = "postgres")]
-use crate::persistence::DatabaseReadinessProbe;
 use crate::persistence::Store;
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
-#[cfg(feature = "postgres")]
-use std::sync::Mutex;
-use std::sync::TryLockError;
 use std::time::Duration;
 
-const LIFECYCLE_STORE_WAIT: Duration = Duration::from_millis(100);
-const RECONCILIATION_BATCH_PATHS: usize = 32;
 const LIFECYCLE_STORE_RETRY: Duration = Duration::from_millis(1);
+const RECONCILIATION_BATCH_PATHS: usize = 32;
 const POSTGRES_STORE_STALL_THRESHOLD: Duration = Duration::from_secs(30);
 
 pub struct NexusService {
     pub(super) loaded: LoadedConfig,
-    pub(super) store: TrackedStoreMutex,
+    store: Database,
     pub(super) usage: UsageCapture,
     pub(super) memory_consolidation_in_flight: AtomicBool,
     project_catalog: project_catalog::ProjectCatalog,
-    connections: StoreTopology,
-}
-
-enum StoreTopology {
-    Shared,
-    #[cfg(feature = "postgres")]
-    Isolated(Box<IsolatedStores>),
-}
-
-#[cfg(feature = "postgres")]
-struct IsolatedStores {
-    lifecycle: TrackedStoreMutex,
-    probe: Mutex<DatabaseReadinessProbe>,
-}
-
-impl StoreTopology {
-    fn lifecycle<'a>(&'a self, primary: &'a TrackedStoreMutex) -> &'a TrackedStoreMutex {
-        match self {
-            Self::Shared => primary,
-            #[cfg(feature = "postgres")]
-            Self::Isolated(stores) => &stores.lifecycle,
-        }
-    }
 }
 
 impl NexusService {
     pub fn new(loaded: LoadedConfig) -> Result<Self> {
         let store = Store::open(&loaded.config.storage.database_path)?;
-        Ok(Self::from_parts(loaded, store))
+        Ok(Self::with_database(loaded, Database::single(store)))
     }
 
     pub fn connect(loaded: LoadedConfig, database_url: &str) -> Result<Self> {
-        let store = Store::connect(database_url)?;
-        #[cfg(feature = "postgres")]
-        let connections = StoreTopology::Isolated(Box::new(IsolatedStores {
-            lifecycle: TrackedStoreMutex::new(Store::connect(database_url)?),
-            probe: Mutex::new(DatabaseReadinessProbe::connect(database_url)?),
-        }));
-        #[cfg(feature = "sqlite")]
-        let connections = StoreTopology::Shared;
-        Ok(Self::from_parts_with_connections(
+        Ok(Self::with_database(
             loaded,
-            store,
-            connections,
+            Database::connect(database_url)?,
         ))
     }
 
-    fn from_parts(loaded: LoadedConfig, store: Store) -> Self {
-        Self::from_parts_with_connections(loaded, store, StoreTopology::Shared)
-    }
-
-    fn from_parts_with_connections(
-        loaded: LoadedConfig,
-        store: Store,
-        connections: StoreTopology,
-    ) -> Self {
+    fn with_database(loaded: LoadedConfig, store: Database) -> Self {
         let usage = UsageCapture::new(loaded.hash.clone());
         Self {
             loaded,
-            store: TrackedStoreMutex::new(store),
+            store,
             usage,
             memory_consolidation_in_flight: AtomicBool::new(false),
             project_catalog: Default::default(),
-            connections,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn from_store(loaded: LoadedConfig, store: Store) -> Self {
-        Self::from_parts(loaded, store)
+        Self::with_database(loaded, Database::single(store))
     }
 
     fn pre_tool_use(
@@ -235,11 +192,44 @@ impl NexusService {
         ServiceResponse::Hook(result.unwrap_or_else(lifecycle_failure))
     }
 
+    pub(super) fn read_metadata(
+        &self,
+        request: ServiceRequest,
+        project: &ProjectBinding,
+    ) -> ServiceResponse {
+        match request {
+            ServiceRequest::Status => self.status(),
+            ServiceRequest::CoordinationSummary(query) => {
+                let project = project.default_read_project(query.project_id);
+                match self.read_store().and_then(|mut store| {
+                    store.coordination_summary(
+                        project.as_deref(),
+                        self.loaded.config.coordination.claim_ttl_seconds,
+                        query.since,
+                    )
+                }) {
+                    Ok(counts) => {
+                        ServiceResponse::CoordinationSummary(CoordinationSummaryResponse {
+                            ok: true,
+                            counts,
+                        })
+                    }
+                    Err(error) => ServiceResponse::error(error),
+                }
+            }
+            ServiceRequest::UiPreferences => {
+                ServiceResponse::UiPreferences(UiPreferencesResponse {
+                    ok: true,
+                    refresh_interval_ms: self.loaded.config.ui.refresh_interval_ms,
+                })
+            }
+            _ => unreachable!("non-read request routed as read"),
+        }
+    }
+
     fn status(&self) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .read_store()
             .and_then(|mut store| store.counts(self.loaded.config.coordination.claim_ttl_seconds))
         {
             Ok(counts) => ServiceResponse::Status(StatusResponse {
@@ -260,47 +250,17 @@ impl NexusService {
         &self,
         store_stall_threshold: Duration,
     ) -> Result<&'static str> {
-        #[cfg(not(feature = "postgres"))]
-        let _ = store_stall_threshold;
-        match &self.connections {
-            #[cfg(feature = "postgres")]
-            StoreTopology::Isolated(stores) => {
-                let IsolatedStores { lifecycle, probe } = stores.as_ref();
-                for store in [&self.store, lifecycle] {
-                    anyhow::ensure!(!store.is_poisoned(), "store lock poisoned");
-                    if store.held_for_at_least(store_stall_threshold) {
-                        anyhow::bail!(
-                            "store stalled beyond the {}ms readiness threshold",
-                            store_stall_threshold.as_millis()
-                        );
-                    }
-                }
-                let mut probe = probe
-                    .try_lock()
-                    .map_err(|error| anyhow::anyhow!("readiness probe unavailable: {error}"))?;
-                probe.check()?;
-                Ok("ready")
-            }
-            StoreTopology::Shared => match self.store.try_lock() {
-                Ok(mut store) => {
-                    store.counts(self.loaded.config.coordination.claim_ttl_seconds)?;
-                    Ok("ready")
-                }
-                Err(TryLockError::WouldBlock) => Ok("busy"),
-                Err(TryLockError::Poisoned(_)) => anyhow::bail!("store lock poisoned"),
-            },
-        }
+        self.store.readiness(
+            self.loaded.config.coordination.claim_ttl_seconds,
+            store_stall_threshold,
+        )
     }
 
     fn events(&self, mut query: EventQuery, binding: &ProjectBinding) -> ServiceResponse {
         query.project_id = binding.default_read_project(query.project_id);
-        match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
-            .and_then(|mut store| {
-                store.list_events(query.project_id.as_deref(), query.bounded_limit())
-            }) {
+        match self.read_store().and_then(|mut store| {
+            store.list_events(query.project_id.as_deref(), query.bounded_limit())
+        }) {
             Ok(events) => ServiceResponse::Events(EventsResponse { ok: true, events }),
             Err(error) => ServiceResponse::error(error),
         }
@@ -308,9 +268,7 @@ impl NexusService {
 
     fn resolve(&self, command: ResolveCommand) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .write_store()
             .and_then(|mut store| store.resolve_conflict(&command.conflict_id, &command.resolution))
         {
             Ok(true) => ServiceResponse::Resolved(ResolvedResponse {
@@ -327,10 +285,7 @@ impl NexusService {
         let release = command.release();
         let result = (|| -> Result<usize> {
             let project = self.resolve_project(binding, None)?;
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
+            let mut store = self.write_store()?;
             let released = store.release_claims(&project.id, &command.session_id, &release)?;
             // Projection maintenance; the periodic closure pass retries a failure.
             let _ = store.end_stale_conflicts(Some(&project.id));
@@ -359,9 +314,7 @@ impl NexusService {
 
     fn projects(&self) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .read_store()
             .and_then(|mut store| store.list_projects_window())
         {
             Ok(window) => ServiceResponse::Projects(ProjectsResponse {
@@ -375,19 +328,15 @@ impl NexusService {
 
     fn dashboard(&self, mut query: DashboardQuery, binding: &ProjectBinding) -> ServiceResponse {
         query.project_id = binding.default_read_project(query.project_id);
-        match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
-            .and_then(|mut store| {
-                store.dashboard_window(
-                    query.project_id.as_deref(),
-                    self.loaded.config.ui.recent_event_limit,
-                    self.loaded.config.ui.recent_record_limit,
-                    self.loaded.config.coordination.claim_ttl_seconds,
-                    query.since,
-                )
-            }) {
+        match self.read_store().and_then(|mut store| {
+            store.dashboard_window(
+                query.project_id.as_deref(),
+                self.loaded.config.ui.recent_event_limit,
+                self.loaded.config.ui.recent_record_limit,
+                self.loaded.config.coordination.claim_ttl_seconds,
+                query.since,
+            )
+        }) {
             Ok(records) => ServiceResponse::Dashboard(DashboardResponse {
                 ok: true,
                 project_id: query.project_id,
@@ -396,20 +345,6 @@ impl NexusService {
                 records,
             }),
             Err(error) => ServiceResponse::error(error),
-        }
-    }
-
-    pub(super) fn lifecycle_store(&self) -> Result<TrackedStoreGuard<'_>> {
-        match self
-            .connections
-            .lifecycle(&self.store)
-            .try_lock_for(LIFECYCLE_STORE_WAIT, LIFECYCLE_STORE_RETRY)
-        {
-            Ok(store) => Ok(store),
-            Err(TryLockError::Poisoned(error)) => {
-                Err(anyhow::anyhow!("lifecycle store unavailable: {error}"))
-            }
-            Err(TryLockError::WouldBlock) => Err(LifecycleStoreBusy.into()),
         }
     }
 
@@ -601,11 +536,7 @@ fn analyze_result(
     let trusted_worktree = if binding.is_remote() {
         None
     } else {
-        service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-            .conflict_worktree(&conflict)?
+        service.read_store()?.conflict_worktree(&conflict)?
     };
     let analysis = analyst::analyze(
         &service.loaded.config.analyst,
@@ -618,9 +549,7 @@ fn analyze_result(
 
 fn conflict(service: &NexusService, conflict_id: &str) -> Result<ConflictRecord> {
     service
-        .store
-        .lock()
-        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+        .read_store()?
         .conflict_by_id(conflict_id)?
         .context("conflict not found")
 }
@@ -631,16 +560,12 @@ fn record_analysis(
     conflict_id: &str,
     analysis: &AnalysisResult,
 ) -> Result<()> {
-    service
-        .store
-        .lock()
-        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-        .record_analysis(
-            &conflict.project_id,
-            conflict_id,
-            analysis,
-            &service.loaded.hash,
-        )
+    service.write_store()?.record_analysis(
+        &conflict.project_id,
+        conflict_id,
+        analysis,
+        &service.loaded.hash,
+    )
 }
 
 #[cfg(test)]

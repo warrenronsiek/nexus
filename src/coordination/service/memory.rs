@@ -84,9 +84,7 @@ impl NexusService {
                 model_id: command.context.model,
                 config_hash: self.loaded.hash.clone(),
             };
-            self.store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+            self.write_store()?
                 .add_memory(&scope, &command.content, &provenance)
         })();
         match result {
@@ -100,20 +98,16 @@ impl NexusService {
         query: MemorySearchQuery,
         binding: &ProjectBinding,
     ) -> ServiceResponse {
-        let result = (|| -> Result<_> {
-            let scope =
-                memory_read_scope(self, binding, query.scope, query.project_root.as_deref())?;
-            self.store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-                .search_memories(&scope, &query.regex, query.bounded_limit())
-        })();
-        match result {
-            Ok(memories) => {
-                ServiceResponse::MemoryEntries(MemoryEntriesResponse { ok: true, memories })
-            }
-            Err(error) => ServiceResponse::error(error),
-        }
+        self.read_memory(
+            binding,
+            query.scope,
+            query.project_root.as_deref(),
+            |store, scope| store.search_memories(scope, &query.regex, query.bounded_limit()),
+        )
+        .map(|memories| {
+            ServiceResponse::MemoryEntries(MemoryEntriesResponse { ok: true, memories })
+        })
+        .unwrap_or_else(ServiceResponse::error)
     }
 
     pub(super) fn memory_context(
@@ -121,20 +115,26 @@ impl NexusService {
         query: MemoryContextQuery,
         binding: &ProjectBinding,
     ) -> ServiceResponse {
-        let result = (|| -> Result<_> {
-            let scope =
-                memory_read_scope(self, binding, query.scope, query.project_root.as_deref())?;
-            self.store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-                .memory_context(&scope, self.memory_context_limits())
-        })();
-        match result {
-            Ok(context) => {
-                ServiceResponse::MemoryContext(MemoryContextResponse { ok: true, context })
-            }
-            Err(error) => ServiceResponse::error(error),
-        }
+        self.read_memory(
+            binding,
+            query.scope,
+            query.project_root.as_deref(),
+            |store, scope| store.memory_context(scope, self.memory_context_limits()),
+        )
+        .map(|context| ServiceResponse::MemoryContext(MemoryContextResponse { ok: true, context }))
+        .unwrap_or_else(ServiceResponse::error)
+    }
+
+    fn read_memory<T>(
+        &self,
+        binding: &ProjectBinding,
+        scope: MemoryReadScopeArg,
+        root: Option<&str>,
+        read: impl FnOnce(&mut Store, &MemoryReadScope) -> Result<T>,
+    ) -> Result<T> {
+        let scope = memory_read_scope(self, binding, scope, root)?;
+        let mut store = self.read_store()?;
+        read(&mut store, &scope)
     }
 
     pub(super) fn inspect_memory(&self, query: MemoryInspection) -> ServiceResponse {
@@ -169,18 +169,14 @@ impl NexusService {
                 )
             }
             MemoryInspection::Context { project_id, scope } => {
-                let result = (|| -> Result<_> {
-                    let binding = inspection_binding(project_id, scope)?;
-                    let scope = memory_read_scope(self, &binding, scope, None)?;
-                    self.store
-                        .lock()
-                        .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-                        .inspect_memory_context(&scope, self.memory_context_limits())
-                })();
-                match result {
-                    Ok(context) => {
-                        ServiceResponse::MemoryContext(MemoryContextResponse { ok: true, context })
-                    }
+                match inspection_binding(project_id, scope) {
+                    Ok(binding) => self.memory_context(
+                        MemoryContextQuery {
+                            scope,
+                            project_root: None,
+                        },
+                        &binding,
+                    ),
                     Err(error) => ServiceResponse::error(error),
                 }
             }
@@ -189,9 +185,7 @@ impl NexusService {
 
     pub(super) fn memory_expand(&self, query: MemorySummaryQuery) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .read_store()
             .and_then(|mut store| store.expand_memory_summary(&query.summary_id))
         {
             Ok(nodes) => ServiceResponse::MemoryNodes(MemoryNodesResponse { ok: true, nodes }),
@@ -201,9 +195,7 @@ impl NexusService {
 
     pub(super) fn memory_invalidate(&self, command: MemorySummaryQuery) -> ServiceResponse {
         match self
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))
+            .write_store()
             .and_then(|mut store| store.invalidate_memory_summary(&command.summary_id))
         {
             Ok(invalidated_summaries) => {
@@ -225,9 +217,7 @@ impl NexusService {
             let project_id = self
                 .resolve_project(binding, query.project_root.as_deref())?
                 .id;
-            self.store
-                .lock()
-                .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+            self.read_store()?
                 .memory_health(Some(&project_id), chrono::Utc::now())
         })();
         match result {
@@ -388,9 +378,7 @@ impl MemoryConsolidator<'_> {
 
     fn repair_stale_frontiers(&self) -> Result<()> {
         self.service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
+            .maintenance_store()?
             .repair_stale_memory_frontiers(8)?;
         Ok(())
     }
@@ -404,20 +392,16 @@ impl MemoryConsolidator<'_> {
             model::provider_name(primary),
             model::provider_name(fallback),
         ];
-        self.service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
-            .ready_memory_compactions(
-                &provider_names,
-                Utc::now(),
-                self.service
-                    .loaded
-                    .config
-                    .memory
-                    .consolidation_batch_size
-                    .min(8),
-            )
+        self.service.maintenance_store()?.ready_memory_compactions(
+            &provider_names,
+            Utc::now(),
+            self.service
+                .loaded
+                .config
+                .memory
+                .consolidation_batch_size
+                .min(8),
+        )
     }
 
     fn provider_ready_jobs(
@@ -427,11 +411,7 @@ impl MemoryConsolidator<'_> {
     ) -> Result<Vec<MemoryCompactionJob>> {
         let provider = model::provider_name(provider);
         let now = Utc::now();
-        let mut store = self
-            .service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
+        let mut store = self.service.maintenance_store()?;
         jobs.iter()
             .filter_map(|job| {
                 store
@@ -456,11 +436,7 @@ impl MemoryConsolidator<'_> {
         };
         let analyst = &self.service.loaded.config.analyst;
         let result = model::invoke_memory_consolidation(analyst, provider, jobs, None);
-        let mut store = self
-            .service
-            .store
-            .lock()
-            .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
+        let mut store = self.service.maintenance_store()?;
         let recorded = jobs
             .iter()
             .map(|job| {

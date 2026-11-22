@@ -9,6 +9,7 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 use super::*;
+use crate::coordination::domain::RecordScope;
 use serde_json::json;
 
 #[test]

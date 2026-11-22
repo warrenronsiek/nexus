@@ -137,7 +137,7 @@ fn second_session_gets_overlap_advisory() {
 fn local_reconciliation_observes_each_project_worktree_once_and_attributes_each_session() {
     let service = service();
     {
-        let mut store = service.store.lock().unwrap();
+        let mut store = service.write_store().unwrap();
         for (project, session, worktree) in [
             ("project-a", "session-a", Some("/shared")),
             ("project-a", "session-b", Some("/shared")),
@@ -168,8 +168,7 @@ fn local_reconciliation_observes_each_project_worktree_once_and_attributes_each_
     assert_eq!(observed_worktrees, ["/other", "/shared", "/shared"]);
     assert_eq!(observed, 4);
     let claims = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .list_claims(None, RecordScope::All)
         .unwrap();
@@ -227,8 +226,7 @@ fn remote_clones_share_project_identity_without_persisting_client_worktrees() {
     assert_eq!(response["advisories"][0]["kind"], "hunk_overlap");
 
     let sessions = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .list_sessions(RecordScope::All, 120)
         .unwrap();
@@ -257,8 +255,7 @@ fn remote_analysis_never_uses_the_client_conflict_path_as_provider_cwd() {
     let path = client_directory.join("shared.rs");
     let conflict_id = remote_conflict(&service, "shared-project", &path.to_string_lossy());
     let stored_path = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .conflict_by_id(&conflict_id)
         .unwrap()
@@ -480,7 +477,7 @@ fn memory_expand_and_invalidate_operate_only_on_derived_summaries() {
         );
     }
     let summary_id = {
-        let mut store = service.store.lock().unwrap();
+        let mut store = service.write_store().unwrap();
         let job = store
             .ready_memory_compactions(&["codex"], chrono::Utc::now(), 8)
             .unwrap()
@@ -614,8 +611,7 @@ fn memory_consolidation_uses_analyst_provider_while_conflict_analysis_is_disable
         );
     }
     let job_id = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude"], chrono::Utc::now(), 8)
         .unwrap()[0]
@@ -668,8 +664,7 @@ fn memory_consolidation_falls_back_after_primary_failure() {
         );
     }
     let job_id = service
-        .store
-        .lock()
+        .write_store()
         .unwrap()
         .ready_memory_compactions(&["claude", "codex"], chrono::Utc::now(), 8)
         .unwrap()[0]
@@ -950,7 +945,7 @@ fn lifecycle_claim_selection_does_not_let_one_session_hide_another() {
     let project_id = "fair-advisory-project";
     let path = "shared.rs";
     {
-        let mut store = service.store.lock().unwrap();
+        let mut store = service.write_store().unwrap();
         for session_id in ["noisy", "quiet"] {
             store
                 .touch_session(project_id, session_id, "test", None, "test-config")
@@ -1022,7 +1017,7 @@ fn lifecycle_claim_selection_keeps_an_older_stronger_overlap_for_each_session() 
     let project_id = "strongest-advisory-project";
     let path = "shared.rs";
     {
-        let mut store = service.store.lock().unwrap();
+        let mut store = service.write_store().unwrap();
         store
             .touch_session(project_id, "noisy", "test", None, "test-config")
             .unwrap();
@@ -1088,7 +1083,7 @@ fn lifecycle_advisory_cap_also_bounds_conflict_persistence_across_intents() {
     let project_id = "bounded-advisory-work-project";
     let paths = ["first.rs", "second.rs"];
     {
-        let mut store = service.store.lock().unwrap();
+        let mut store = service.write_store().unwrap();
         for index in 0..32 {
             let session_id = format!("existing-{index:03}");
             store

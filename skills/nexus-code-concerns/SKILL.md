@@ -97,20 +97,52 @@ bounded data selection and published snapshot identity.
 
 ## Record an encounter with its real source
 
-For an ordinary agent observation, the dedicated MCP shortcut needs only a
-title and description:
+Record the affected code in `encounter.areas` on reports and upvotes. Use the
+repository identity, repository-relative file path, and feature or subsystem
+keys verified in the repository. Every area has a kind, key, and display name.
+Use memberships when the same file belongs to known features or subsystems.
 
 ```json
 {
   "action": "report",
-  "title": "Two completion callbacks finalize the same dispatch",
-  "description": "Both callbacks observe an unowned dispatch before either claims it; the second callback emits another terminal result."
+  "title": "Two callbacks finalize the same dispatch",
+  "description": "Both callbacks observed the same unclaimed dispatch and emitted a terminal result.",
+  "encounter": {
+    "areas": [{
+      "relation": "affected",
+      "area": {"repository":"example/service","kind":"file","key":"src/dispatch.rs","display_name":"src/dispatch.rs"},
+      "memberships": [
+        {"repository":"example/service","kind":"feature","key":"dispatch","display_name":"Dispatch"},
+        {"repository":"example/service","kind":"subsystem","key":"worker","display_name":"Worker"}
+      ]
+    }]
+  }
 }
 ```
 
-This is an example, not evidence that the problem occurred. Add `hypothesis`,
-`impact`, structured `encounter` locators/source evidence, or explicit
-`observation` metadata when known. MCP binds the reporter from its connection.
+For an actual repeat of that problem, use the recorded concern ID and the areas
+known for the new encounter:
+
+```json
+{
+  "action": "upvote",
+  "concern_id": "existing-concern-id",
+  "encounter": {
+    "areas": [{
+      "relation": "affected",
+      "area": {"repository":"example/service","kind":"feature","key":"dispatch","display_name":"Dispatch"}
+    }]
+  }
+}
+```
+
+The CLI accepts the same encounter object with `--encounter-json` on
+`nexus concerns report TITLE --description DESCRIPTION` or `nexus concerns upvote CONCERN_ID`.
+Add an optional pinned `location`, `hypothesis`, `impact`, source evidence or
+`observation` metadata when supported by what you observed. If the location is
+unknown, supply the known feature or subsystem. A genuinely unlocated report is
+valid.
+MCP binds the reporter from its connection.
 Pass `observation.context.work_session_id` and `observation.context.host_session_id`
 when known; otherwise the concern counts as unknown work. The CLI fills omitted
 context from `NEXUS_*` variables, a `NEXUS_WORK_CONTEXT` handoff or the active host
