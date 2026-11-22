@@ -63,8 +63,7 @@ impl NexusService {
             .context("select a project for session coordination history")
             .and_then(|project_id| {
                 let mut store = self
-                    .store
-                    .lock()
+                    .read_store()
                     .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?;
                 read(&mut store, &project_id)
             })

@@ -28,8 +28,8 @@ fn lifecycle_store_retries_after_contention_clears() {
     let service = super::tests::service_with(Config::default());
     let mut held = Some(service.store.lock().unwrap());
     let mut retries = 0;
-    let acquired = service
-        .store
+    let store = service.store.single_for_test();
+    let acquired = store
         .try_lock_with_retry(|| {
             retries += 1;
             assert_eq!(retries, 1, "the released store must be acquired on retry");
@@ -51,8 +51,8 @@ fn lifecycle_store_stops_when_retry_budget_is_exhausted() {
     let service = super::tests::service_with(Config::default());
     let _held = service.store.lock().unwrap();
     let mut retries = 0;
-    let error = service
-        .store
+    let store = service.store.single_for_test();
+    let error = store
         .try_lock_with_retry(|| {
             retries += 1;
             false
@@ -149,6 +149,30 @@ fn postgres_lifecycle_records_while_application_store_is_busy() {
 
 #[cfg(feature = "postgres")]
 #[test]
+fn postgres_history_admission_reserves_interactive_and_lifecycle_capacity() {
+    let service = super::NexusService::connect(
+        LoadedConfig {
+            config: Config::default(),
+            sources: Vec::new(),
+            hash: "postgres-history-admission".into(),
+        },
+        &std::env::var("NEXUS_TEST_DATABASE_URL").unwrap(),
+    )
+    .unwrap();
+    let first = service.history_store().unwrap();
+    let second = service.history_store().unwrap();
+    let mut interactive = service.read_store().unwrap();
+    interactive.list_projects().unwrap();
+    let response = service
+        .handle_remote("history-admission-test", prompt())
+        .to_json();
+    assert_eq!(response["recorded"], true, "{response}");
+    drop((first, second, interactive));
+    assert!(service.history_store().is_ok());
+}
+
+#[cfg(feature = "postgres")]
+#[test]
 fn postgres_readiness_observes_lifecycle_store_failures() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
@@ -163,11 +187,7 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
         )
         .unwrap(),
     );
-    let guard = service
-        .connections
-        .lifecycle(&service.store)
-        .lock()
-        .unwrap();
+    let guard = service.lifecycle_store().unwrap();
     assert_eq!(service.readiness_status().unwrap(), "ready");
     std::thread::sleep(Duration::from_millis(10));
     let error = service
@@ -178,22 +198,13 @@ fn postgres_readiness_observes_lifecycle_store_failures() {
     assert_eq!(service.readiness_status().unwrap(), "ready");
     let poisoning_service = service.clone();
     assert!(std::thread::spawn(move || {
-        let _guard = poisoning_service
-            .connections
-            .lifecycle(&poisoning_service.store)
-            .lock()
-            .unwrap();
+        let _guard = poisoning_service.lifecycle_store().unwrap();
         panic!("poison the lifecycle store for the readiness regression");
     })
     .join()
     .is_err());
-    let error = service
-        .readiness_status()
-        .expect_err("a poisoned lifecycle store must fail readiness");
-    assert!(
-        error.to_string().contains("store lock poisoned"),
-        "{error:#}"
-    );
+    assert_eq!(service.readiness_status().unwrap(), "ready");
+    assert!(service.lifecycle_store().is_ok());
 }
 
 #[cfg(feature = "postgres")]
@@ -219,9 +230,9 @@ fn postgres_readiness_always_uses_the_dedicated_probe() {
     assert!(started.elapsed() < Duration::from_secs(1));
     drop(application_guard);
 
-    let dedicated_guard = match &service.connections {
-        super::StoreTopology::Isolated(stores) => stores.probe.lock().unwrap(),
-        super::StoreTopology::Shared => panic!("PostgreSQL must have a dedicated probe"),
+    let dedicated_guard = match &service.store {
+        super::Database::Postgres(stores) => stores.probe.lock().unwrap(),
+        super::Database::Single(_) => panic!("PostgreSQL must have a dedicated probe"),
     };
     let error = service
         .readiness_status()
@@ -263,7 +274,7 @@ fn postgres_readiness_rejects_an_application_store_held_past_the_stall_threshold
 
 #[cfg(feature = "postgres")]
 #[test]
-fn postgres_readiness_rejects_a_poisoned_application_store() {
+fn postgres_pool_recovers_capacity_after_a_worker_panics() {
     let database_url = std::env::var("NEXUS_TEST_DATABASE_URL")
         .expect("NEXUS_TEST_DATABASE_URL is required for the PostgreSQL readiness test");
     let service = Arc::new(
@@ -285,14 +296,8 @@ fn postgres_readiness_rejects_a_poisoned_application_store() {
     .join()
     .is_err());
 
-    let error = service
-        .readiness_status()
-        .expect_err("a poisoned application store must fail readiness");
-
-    assert!(
-        error.to_string().contains("store lock poisoned"),
-        "{error:#}"
-    );
+    assert_eq!(service.readiness_status().unwrap(), "ready");
+    assert!(service.store.lock().is_ok());
 }
 
 #[test]

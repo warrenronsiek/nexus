@@ -140,6 +140,25 @@ impl Store {
         })
     }
 
+    #[cfg(feature = "postgres")]
+    pub(crate) fn migrate_postgres(url: &str) -> Result<()> {
+        super::migrations::migrate_database_url(url).map(|_| ())
+    }
+
+    #[cfg(feature = "postgres")]
+    pub(crate) fn from_postgres(connection: DbConnection) -> Self {
+        Self {
+            connection,
+            #[cfg(test)]
+            _temporary_database: None,
+        }
+    }
+
+    #[cfg(feature = "postgres")]
+    pub(crate) fn postgres_connection(&mut self) -> &mut DbConnection {
+        &mut self.connection
+    }
+
     pub fn connect(database_url: &str) -> Result<Self> {
         super::migrations::migrate_database_url(database_url)?;
         let connection = super::migrations::establish_connection(database_url)

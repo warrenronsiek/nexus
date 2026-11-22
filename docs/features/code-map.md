@@ -50,8 +50,10 @@ flowchart TD
    count and retain the exact group value in the label. Unmeasured subjects
    have no sample, while recorded zeros remain inspectable.
 6. **Reads** expose the measure catalog, available dimensions, groups, sample
-   counts, and source provenance. The current grouping stays selected when the
-   next measure supplies that dimension. Code concerns → Code map renders the selected
+   counts, and source provenance. The built-in map defaults to Subject when more than half of the selected
+   points lack file attribution. Explicit grouping choices still display
+   their full counts, including Unattributed. The current grouping stays
+   selected when the next measure supplies that dimension. Code concerns → Code map renders the selected
    data through the authenticated read adapter. The browser cannot publish.
 7. **Drill-down** selects a group and regroups its points by file where the
    concern has one, or by subject. The browser keeps a published drill-down

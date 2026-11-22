@@ -88,6 +88,9 @@ fn concern_reports_keep_custom_dimensions_and_count_shared_concerns_once() {
             .collect::<Vec<_>>(),
         ["search", "storage"]
     );
+    let default_view = store.code_map("alpha", &MapQuery::default()).unwrap();
+    assert_eq!(default_view.group_by, "subject");
+    assert_eq!(default_view.groups[0].samples, 2);
     query.measure = MapMeasure::OpenConcerns;
     let open = store.code_map("alpha", &query).unwrap();
     assert_eq!(open.groups.len(), 1);
@@ -118,6 +121,9 @@ fn concern_area_fixture() -> (tempfile::TempDir, Store) {
 #[test]
 fn concern_map_preserves_area_identity_placement_and_measure_provenance() {
     let (_temporary, mut store) = concern_area_fixture();
+    let default_view = store.code_map("alpha", &MapQuery::default()).unwrap();
+    assert_eq!(default_view.group_by, "file");
+
     let query = MapQuery {
         group_by: Some("file".into()),
         ..MapQuery::default()

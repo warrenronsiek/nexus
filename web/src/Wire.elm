@@ -252,6 +252,9 @@ shape kind root =
             D.decodeValue (D.at [ "sessions", "items" ] (D.list coordinationSession)) root
                 |> Result.map (\items -> { base | rows = items })
 
+        "coordination_summary" ->
+            D.decodeValue (D.field "counts" D.value) root |> Result.map (\_ -> base)
+
         "coordination_sessions" ->
             rows "sessions" coordinationSession
 
@@ -313,6 +316,9 @@ shape kind root =
 
         "analytics_examples" ->
             rows "examples" (D.map2 (\name body -> Row name name (str "description" body) "example" body) (D.field "name" D.string) D.value)
+
+        "skill_usage" ->
+            rows "skills" (withSubtitle (\v -> String.fromFloat (number "count" v) ++ " invocations · " ++ String.fromFloat (number "sessions" v) ++ " sessions") (row "name" "name" "skill"))
 
         "usage" ->
             D.decodeValue

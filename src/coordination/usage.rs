@@ -335,17 +335,14 @@ impl NexusService {
         query.project_id = binding.default_read_project(query.project_id);
         let window_ended_at = chrono::Utc::now();
         let window_started_at = window_ended_at - chrono::Duration::days(7);
-        let summary = self
-            .store
-            .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))
-            .and_then(|mut store| {
-                store.usage_summary(
-                    query.project_id.as_deref(),
-                    window_started_at,
-                    window_ended_at,
-                )
-            });
+        let summary = self.read_store().and_then(|mut store| {
+            store.usage_summary_for(
+                query.project_id.as_deref(),
+                window_started_at,
+                window_ended_at,
+                query.capability,
+            )
+        });
         match summary {
             Ok(summary) => ServiceResponse::Usage(UsageResponse {
                 ok: true,

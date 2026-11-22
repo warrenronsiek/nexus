@@ -115,6 +115,11 @@ enum CoordinationRead {
         #[serde(default)]
         range: HistoryRange,
     },
+    CoordinationSummary {
+        #[serde(default)]
+        range: HistoryRange,
+    },
+    UiPreferences {},
     CoordinationSessions {
         #[serde(default)]
         scope: RecordScope,
@@ -142,6 +147,7 @@ enum CoordinationRead {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum AnalyticsRead {
     Usage {},
+    SkillUsage {},
     AnalyticsSummary {},
     AnalyticsCatalog {
         #[serde(default)]
@@ -356,6 +362,13 @@ impl CoordinationRead {
     fn into_request(self, project_id: Option<String>) -> ServiceRequest {
         match self {
             Self::Projects {} => ServiceRequest::Projects,
+            Self::UiPreferences {} => ServiceRequest::UiPreferences,
+            Self::CoordinationSummary { range } => {
+                ServiceRequest::CoordinationSummary(DashboardQuery {
+                    project_id,
+                    since: Some(range.cutoff()),
+                })
+            }
             Self::Coordination { range } => ServiceRequest::Dashboard(DashboardQuery {
                 project_id,
                 since: Some(range.cutoff()),
@@ -392,8 +405,12 @@ impl CoordinationRead {
 }
 impl AnalyticsRead {
     fn into_request(self, project_id: Option<String>) -> ServiceRequest {
-        if matches!(self, Self::Usage {}) {
-            return ServiceRequest::Usage(UsageQuery { project_id });
+        if matches!(self, Self::Usage {} | Self::SkillUsage {}) {
+            return ServiceRequest::Usage(UsageQuery {
+                project_id,
+                capability: matches!(self, Self::SkillUsage {})
+                    .then_some(crate::persistence::CapabilityKind::Skill),
+            });
         }
         let command = match self {
             Self::AnalyticsSummary {} => AnalyticsCommand::Summary { project_id },
@@ -419,7 +436,7 @@ impl AnalyticsRead {
                 category_id,
             },
             Self::SkillGet { name } => AnalyticsCommand::Skill { project_id, name },
-            Self::Usage {} => unreachable!("legacy usage is selected above"),
+            Self::Usage {} | Self::SkillUsage {} => unreachable!("legacy usage is selected above"),
         };
         ServiceRequest::Analytics(command)
     }

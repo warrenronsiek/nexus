@@ -53,9 +53,10 @@ macro_rules! history_service_adapter {
                     model_id: command.context.model,
                     config_hash: self.loaded.hash.clone(),
                 };
+                use crate::coordination::service::StorageOperation;
                 let response = self
                     .store
-                    .lock()
+                    .acquire(command.command.database_operation())
                     .ok()
                     .context(concat!($label, " store unavailable"))?
                     .$method(&project_id, &actor, &command.command)?;

@@ -49,7 +49,7 @@ registry_dump_adapter!(
     scope = PapercutDumpScope,
     registry = PapercutRegistry,
     response = PapercutResponse::Dumped,
-    store = papercut_store,
+    store = history_store,
     load = papercut_registry
 );
 
@@ -123,7 +123,7 @@ impl NexusService {
     ) -> Result<PapercutResponse> {
         let project_id = self.papercut_read_project(context, project_id, binding)?;
         let window = self
-            .papercut_store()?
+            .read_store()?
             .open_papercuts_window(&project_id, after.as_ref())?;
         Ok(PapercutResponse::Listed {
             ok: true,
@@ -141,7 +141,7 @@ impl NexusService {
     ) -> Result<PapercutResponse> {
         let project_id = self.papercut_read_project(context, project_id, binding)?;
         let detail = self
-            .papercut_store()?
+            .read_store()?
             .papercut_detail(&project_id, &papercut_id)?;
         Ok(PapercutResponse::Detail { ok: true, detail })
     }
@@ -256,7 +256,7 @@ impl NexusService {
 
     fn invoke_papercut_reviewer(&self, job: &PapercutReviewJob) -> Result<CompletedPapercutReview> {
         let (papercut, candidates) = {
-            let mut store = self.papercut_store()?;
+            let mut store = self.maintenance_store()?;
             (
                 store.papercut_by_id(&job.project_id, &job.papercut_id)?,
                 store.papercut_review_candidates(&job.project_id, &job.papercut_id)?,
@@ -284,7 +284,7 @@ impl NexusService {
         let provider = provider_name(result.provider);
         match result.decision {
             PapercutReviewerDecision::Distinct { rationale } => self
-                .papercut_store()?
+                .maintenance_store()?
                 .record_papercut_review_event(PapercutReviewAttemptRecord {
                     project_id: &project_id,
                     papercut_id: &papercut_id,
@@ -305,8 +305,8 @@ impl NexusService {
                     model_id: result.model.clone(),
                     config_hash: self.loaded.hash.clone(),
                 };
-                self.papercut_store()?
-                    .propose_papercut_duplicate(PapercutDuplicateProposal {
+                self.maintenance_store()?.propose_papercut_duplicate(
+                    PapercutDuplicateProposal {
                         project_id: &project_id,
                         papercut_id: &papercut_id,
                         canonical_id: &canonical_id,
@@ -315,7 +315,8 @@ impl NexusService {
                         reviewer: &reviewer,
                         provider: Some(provider),
                         model_id: result.model.as_deref(),
-                    })?;
+                    },
+                )?;
                 Ok(())
             }
         }
@@ -329,7 +330,7 @@ impl NexusService {
         let provider = self.loaded.config.analyst.provider;
         let model = self.loaded.config.analyst.model(provider).model.clone();
         let detail = sanitized_review_failure(error);
-        self.papercut_store()?
+        self.maintenance_store()?
             .record_papercut_review_event(PapercutReviewAttemptRecord {
                 project_id: &job.project_id,
                 papercut_id: &job.papercut_id,
@@ -350,7 +351,7 @@ impl NexusService {
         }
     }
 
-    fn papercut_store(&self) -> Result<super::TrackedStoreGuard<'_>> {
+    fn papercut_store(&self) -> Result<super::DatabaseLease<'_>> {
         self.store
             .lock()
             .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))

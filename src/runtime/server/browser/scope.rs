@@ -42,6 +42,7 @@ fn independent_of_project_binding(request: &ServiceRequest) -> bool {
     matches!(
         request,
         ServiceRequest::Projects
+            | ServiceRequest::UiPreferences
             | ServiceRequest::Analytics(AnalyticsCommand::Categories)
             | ServiceRequest::MemoryExpand(_)
             | ServiceRequest::MemoryInspect(

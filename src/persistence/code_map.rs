@@ -101,18 +101,18 @@ impl Store {
             }
             _ => super::code_concerns::map_points(connection, project, &query.measure, &mut view)?,
         };
-        select_dimension(&mut view, query.group_by.as_deref());
+        select_dimension(&mut view, query.group_by.as_deref(), &points);
         project_points(&mut view, &points, query.bucket.as_deref())?;
         Ok(view)
     }
 }
 
-fn select_dimension(view: &mut MapView, preferred: Option<&str>) {
+fn select_dimension(view: &mut MapView, preferred: Option<&str>, points: &[MapPoint]) {
     view.dimensions.sort();
     view.dimensions.dedup();
     let dimension = preferred
         .filter(|key| view.dimensions.iter().any(|dimension| dimension == key))
-        .unwrap_or_else(|| default_dimension(&view.dimensions, view.source.is_none()));
+        .unwrap_or_else(|| default_dimension(view, points));
     view.group_by = dimension.into();
     if view.dimensions.len() > 64 {
         view.partial = true;
@@ -123,16 +123,23 @@ fn select_dimension(view: &mut MapView, preferred: Option<&str>) {
     }
 }
 
-fn default_dimension(dimensions: &[String], builtin: bool) -> &str {
-    if builtin && dimensions.iter().any(|dimension| dimension == "file") {
-        "file"
-    } else {
-        dimensions
+fn default_dimension<'a>(view: &'a MapView, points: &[MapPoint]) -> &'a str {
+    if view.source.is_none() {
+        let attributed = points
             .iter()
-            .find(|dimension| *dimension != "subject")
-            .map(String::as_str)
-            .unwrap_or("subject")
+            .filter(|point| point.dimensions.contains_key("file"))
+            .count();
+        return if attributed * 2 < points.len() {
+            "subject"
+        } else {
+            "file"
+        };
     }
+    view.dimensions
+        .iter()
+        .find(|dimension| *dimension != "subject")
+        .map(String::as_str)
+        .unwrap_or("subject")
 }
 
 fn catalog(connection: &mut DbConnection, project: &str) -> Result<MapView> {

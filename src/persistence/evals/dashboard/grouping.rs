@@ -14,18 +14,20 @@ struct GroupProjection {
 pub(super) struct DashboardProjection<'a> {
     selected: Option<&'a str>,
     groups: BTreeMap<String, GroupProjection>,
-    runs: BTreeSet<String>,
+    runs: BTreeMap<String, EvalRecordInput>,
     result_count: usize,
     unresolved: usize,
+    run_context: BTreeMap<String, Option<GroupContext>>,
 }
 impl<'a> DashboardProjection<'a> {
     pub(super) fn new(selected: Option<&'a str>) -> Self {
         Self {
             selected,
             groups: BTreeMap::new(),
-            runs: BTreeSet::new(),
+            runs: BTreeMap::new(),
             result_count: 0,
             unresolved: 0,
+            run_context: BTreeMap::new(),
         }
     }
     pub(super) fn observe(
@@ -34,11 +36,14 @@ impl<'a> DashboardProjection<'a> {
         record: &EvalRecordInput,
         superseded: &BTreeSet<String>,
     ) -> Result<()> {
-        let Some((run, summary)) = resolve_group(cache, record)? else {
+        let Some(run) = resolve_run(cache, record)? else {
             self.unresolved += 1;
             return Ok(());
         };
-        self.runs.insert(run.id.clone());
+        let Some(summary) = self.resolve_summary(cache, record, &run)? else {
+            self.unresolved += 1;
+            return Ok(());
+        };
         let group = self
             .groups
             .entry(summary.id.clone())
@@ -47,7 +52,7 @@ impl<'a> DashboardProjection<'a> {
                 runs: BTreeSet::new(),
                 series: BTreeMap::new(),
             });
-        group.observe_run(cache, &run)?;
+        group.observe_run(&run);
         if record.body.assessment_subject().is_some() {
             if !superseded.contains(&record.id) {
                 group.summary.result_count += 1;
@@ -64,8 +69,61 @@ impl<'a> DashboardProjection<'a> {
                 )?;
             }
         }
+        self.runs.entry(run.id.clone()).or_insert(run);
         Ok(())
     }
+
+    fn resolve_summary(
+        &mut self,
+        cache: &mut RecordCache<'_>,
+        record: &EvalRecordInput,
+        run: &EvalRecordInput,
+    ) -> Result<Option<EvalDashboardGroup>> {
+        let EvalBody::Run(body) = &run.body else {
+            unreachable!("resolved run has a run body");
+        };
+        let context = match self.run_context.entry(run.id.clone()) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(group_context(cache, body)?)
+            }
+        };
+        context
+            .as_ref()
+            .map(|context| group_summary(cache, record, run, body, context))
+            .transpose()
+    }
+
+    pub(super) fn project_run_states(&mut self, cache: &mut RecordCache<'_>) -> Result<()> {
+        let runs: Vec<_> = self.runs.values().collect();
+        let mut states = BTreeMap::new();
+        for page in runs.chunks(64) {
+            let ids: Vec<_> = page.iter().map(|run| run.id.as_str()).collect();
+            let batch =
+                super::super::lifecycle::dashboard_states(cache.connection, cache.project, &ids)?;
+            for run in page {
+                let state = dashboard_run_state(
+                    cache,
+                    run,
+                    batch
+                        .as_ref()
+                        .and_then(|rows| rows.get(&run.id).map(Vec::as_slice)),
+                )?;
+                states.insert(run.id.as_str(), state);
+            }
+        }
+        for group in self.groups.values_mut() {
+            for run in &group.runs {
+                *group
+                    .summary
+                    .statuses
+                    .entry(states[run.as_str()].clone())
+                    .or_default() += 1;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn finish(self, scanned: usize, truncated: bool) -> Result<EvalDashboard> {
         let mut view = EvalDashboard {
             groups: vec![],
@@ -103,27 +161,43 @@ impl<'a> DashboardProjection<'a> {
     }
 }
 impl GroupProjection {
-    fn observe_run(&mut self, cache: &mut RecordCache<'_>, run: &EvalRecordInput) -> Result<()> {
+    fn observe_run(&mut self, run: &EvalRecordInput) {
         let EvalBody::Run(body) = &run.body else {
-            return Ok(());
+            return;
         };
         insert_unique(&mut self.summary.suite_revision_ids, &body.suite_id);
         insert_unique(&mut self.summary.target_revision_ids, &body.target_id);
         if self.runs.insert(run.id.clone()) {
             self.summary.run_count += 1;
-            let state = run_state(cache, run)?;
-            *self.summary.statuses.entry(state).or_default() += 1;
         }
-        Ok(())
     }
 }
+
 fn insert_unique(values: &mut Vec<String>, id: &str) {
     if !values.iter().any(|value| value == id) {
         values.push(id.into());
         values.sort();
     }
 }
-fn run_state(cache: &mut RecordCache<'_>, run: &EvalRecordInput) -> Result<String> {
+fn dashboard_run_state(
+    cache: &mut RecordCache<'_>,
+    run: &EvalRecordInput,
+    frontiers: Option<&[ReportedState]>,
+) -> Result<String> {
+    if let Some(frontiers) = frontiers {
+        let EvalBody::Run(body) = &run.body else {
+            unreachable!("state requires a run");
+        };
+        return match frontiers {
+            [] => state_name(body.state),
+            [state] => state_name(*state),
+            states if states.len() > 64 => {
+                cache.truncated = true;
+                Ok("unknown".into())
+            }
+            _ => Ok("conflicted".into()),
+        };
+    }
     let lifecycle = super::super::lifecycle::projection(cache.connection, cache.project, run)?;
     let Some(lifecycle) = lifecycle else {
         return Ok("unknown".into());
@@ -139,31 +213,22 @@ fn run_state(cache: &mut RecordCache<'_>, run: &EvalRecordInput) -> Result<Strin
         .frontiers
         .first()
         .map_or(lifecycle.initial_state, |event| event.state);
+    state_name(state)
+}
+
+fn state_name(state: ReportedState) -> Result<String> {
     Ok(serde_json::to_value(state)?
         .as_str()
         .unwrap_or("unknown")
         .into())
 }
-fn resolve_group(
-    cache: &mut RecordCache<'_>,
-    record: &EvalRecordInput,
-) -> Result<Option<(EvalRecordInput, EvalDashboardGroup)>> {
-    let Some(run) = resolve_run(cache, record)? else {
-        return Ok(None);
-    };
-    Ok(group_summary(cache, record, &run)?.map(|summary| (run, summary)))
-}
 fn group_summary(
     cache: &mut RecordCache<'_>,
     record: &EvalRecordInput,
     run: &EvalRecordInput,
-) -> Result<Option<EvalDashboardGroup>> {
-    let EvalBody::Run(body) = &run.body else {
-        return Ok(None);
-    };
-    let Some(context) = group_context(cache, body)? else {
-        return Ok(None);
-    };
+    body: &Run,
+    context: &GroupContext,
+) -> Result<EvalDashboardGroup> {
     let dimensions = cache.dimensions(&record.id)?;
     let repository: Vec<_> = dimensions
         .iter()
@@ -182,24 +247,24 @@ fn group_summary(
         &repository,
         &models,
     ))?;
-    let label = group_label(&context, &models);
-    Ok(Some(EvalDashboardGroup {
+    let label = group_label(context, &models);
+    Ok(EvalDashboardGroup {
         id: blake3::hash(&key).to_hex().to_string(),
         label,
-        agent: context.agent,
+        agent: context.agent.clone(),
         agent_declared: context.agent_declared,
-        suite_identity: context.suite_identity,
+        suite_identity: context.suite_identity.clone(),
         suite_revision_ids: vec![body.suite_id.clone()],
-        target_identity: context.target_identity,
+        target_identity: context.target_identity.clone(),
         target_revision_ids: vec![body.target_id.clone()],
         repository,
         models,
-        components: context.components,
+        components: context.components.clone(),
         run_count: 0,
         result_count: 0,
         latest_at: run.occurred_at,
         statuses: BTreeMap::new(),
-    }))
+    })
 }
 struct GroupContext {
     agent: String,

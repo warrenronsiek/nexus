@@ -1,8 +1,8 @@
 // @entrypoint NexusService::analytics_command
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
-use super::store_lock::TrackedStoreGuard;
 use super::NexusService;
+use super::{DatabaseLease, StorageOperation};
 use crate::analytics::{capture, identity, types::*};
 use crate::coordination::client_evidence::ClientDerivedUsage;
 use crate::coordination::{
@@ -69,10 +69,14 @@ impl NexusService {
                 .analytics_store()?
                 .merge_activity_categories(&source, &target)
                 .map(|()| AnalyticsResponse::Write { ok: true }),
-            read => read_analytics(&mut *self.analytics_store()?, binding, read),
+            read => read_analytics(
+                &mut *self.store.acquire(read.database_operation())?,
+                binding,
+                read,
+            ),
         }
     }
-    fn analytics_store(&self) -> Result<TrackedStoreGuard<'_>> {
+    fn analytics_store(&self) -> Result<DatabaseLease<'_>> {
         self.store
             .lock()
             .map_err(|_| anyhow::anyhow!("analytics store unavailable"))

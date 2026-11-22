@@ -116,3 +116,20 @@ fn prompt_context_explains_explicit_cross_checkout_git_without_hiding_memory() {
     assert!(text.contains("git -C"));
     assert!(text.contains("<untrusted_nexus_memory>"));
 }
+
+#[test]
+fn startup_context_omits_summaries_without_durable_knowledge() {
+    let mut result = json!({"memory_context": {
+        "nodes": [
+            {"kind":"summary", "id":"transient", "content":"No durable knowledge in this range."},
+            {"kind":"summary", "id":"durable", "content":"Retries preserve receipt identity."}
+        ],
+        "omitted": []
+    }});
+    add_hook_context("user_prompt", &mut result);
+    let context = result["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(context.contains("Retries preserve receipt identity."));
+    assert!(!context.contains("id=transient"));
+}

@@ -46,7 +46,7 @@ registry_dump_adapter!(
     scope = SosDumpScope,
     registry = SosRegistry,
     response = SosResponse::Dumped,
-    store = sos_store,
+    store = history_store,
     load = sos_registry
 );
 
@@ -156,7 +156,7 @@ impl NexusService {
 
     fn list_sos(&self, context: HookContext, binding: &ProjectBinding) -> Result<SosResponse> {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
-        let window = self.sos_store()?.open_sos_issues_window(&project.id)?;
+        let window = self.read_store()?.open_sos_issues_window(&project.id)?;
         Ok(SosResponse::Listed {
             ok: true,
             issues: window.issues,
@@ -172,7 +172,9 @@ impl NexusService {
         binding: &ProjectBinding,
     ) -> Result<SosResponse> {
         let project = self.resolve_project(binding, context.project_root.as_deref())?;
-        let detail = self.sos_store()?.sos_issue_detail(&project.id, &issue_id)?;
+        let detail = self
+            .read_store()?
+            .sos_issue_detail(&project.id, &issue_id)?;
         Ok(SosResponse::Detailed { ok: true, detail })
     }
 
@@ -193,7 +195,7 @@ impl NexusService {
 
     pub(crate) fn triage_sos(&self, job: &SosTriageJob) -> Result<()> {
         let (report, candidates) = {
-            let mut store = self.sos_store()?;
+            let mut store = self.maintenance_store()?;
             (
                 store.sos_report(&job.project_id, &job.report_id)?,
                 store.sos_triage_candidates(&job.project_id)?,
@@ -212,7 +214,7 @@ impl NexusService {
     }
 
     fn persist_sos_triage(&self, job: &SosTriageJob, result: SosTriageResult) -> Result<()> {
-        self.sos_store()?.apply_sos_triage(SosTriageApply {
+        self.maintenance_store()?.apply_sos_triage(SosTriageApply {
             project_id: &job.project_id,
             report_id: &job.report_id,
             decision: &result.decision,
@@ -230,7 +232,7 @@ impl NexusService {
     ) -> Result<()> {
         let provider = self.loaded.config.analyst.provider;
         let model = self.loaded.config.analyst.model(provider).model.clone();
-        self.sos_store()?
+        self.maintenance_store()?
             .record_sos_triage_failure(SosTriageFailure {
                 project_id: &job.project_id,
                 report_id: &job.report_id,
@@ -243,7 +245,7 @@ impl NexusService {
 
     pub(crate) fn ready_sos_triage_jobs(&self) -> Result<Vec<SosTriageJob>> {
         Ok(self
-            .sos_store()?
+            .maintenance_store()?
             .ready_sos_reports()?
             .into_iter()
             .map(|(project_id, report_id)| SosTriageJob {
@@ -263,7 +265,7 @@ impl NexusService {
         }
     }
 
-    fn sos_store(&self) -> Result<super::TrackedStoreGuard<'_>> {
+    fn sos_store(&self) -> Result<super::DatabaseLease<'_>> {
         self.store
             .lock()
             .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))

@@ -12,8 +12,7 @@ impl NexusService {
         let mut ended = 0_usize;
         for _ in 0..MAX_CONFLICT_CLOSURE_PASSES {
             let pass = self
-                .store
-                .lock()
+                .maintenance_store()
                 .map_err(|error| anyhow::anyhow!("store unavailable: {error}"))?
                 .end_stale_conflicts(None)?;
             ended = ended.saturating_add(pass);

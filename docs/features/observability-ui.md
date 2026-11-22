@@ -257,7 +257,7 @@ and the closed mapping from browser queries to existing service reads. Scope or
 filter changes invalidate obsolete responses, polling does not overlap an active
 read, and failures retain the last successful snapshot with an explicit stale
 notice. The browser obtains `ui.refresh_interval_ms` from an authenticated
-coordination read and retains it across pages, including direct links; Refresh
+preferences read and retains it across pages, including direct links; Refresh
 retries a failed configuration read. Counts remain unavailable until a successful response. Pagination uses
 server cursors rather than reconstructing IDs or treating a bounded page as an
 export. Login expiry returns to authentication without widening privileges.
@@ -313,3 +313,9 @@ The project and time predicates apply before the existing page and byte
 limits. SQLite and PostgreSQL have matching indexes for the browser's Work,
 Coordination, delivery, and concern windows. Evaluations and audit runs reuse their existing
 source-time indexes.
+
+The Coordination screen initially reads the visible counts and session picker.
+Selecting a session fetches its timeline and retains those two views. Timeline
+loading and errors stay in the timeline panel. Skills reads only skill
+observations for its overview and retrieves skill text on expansion. The
+evaluation picker groups arrive with the result series.

@@ -216,6 +216,7 @@ impl<'a> CapabilityWrite<'a> {
 
 struct UsageWindow<'a> {
     project_id: Option<&'a str>,
+    capability: Option<CapabilityKind>,
     started_at: DateTime<Utc>,
     ended_at: DateTime<Utc>,
     start: String,
@@ -233,6 +234,7 @@ impl<'a> UsageWindow<'a> {
         }
         Ok(Self {
             project_id,
+            capability: None,
             start: started_at.to_rfc3339(),
             end: ended_at.to_rfc3339(),
             started_at,
@@ -284,7 +286,20 @@ impl Store {
         window_started_at: DateTime<Utc>,
         window_ended_at: DateTime<Utc>,
     ) -> Result<UsageSummary> {
-        let window = UsageWindow::new(project_id, window_started_at, window_ended_at)?;
+        self.usage_summary_for(project_id, window_started_at, window_ended_at, None)
+    }
+
+    pub(crate) fn usage_summary_for(
+        &mut self,
+        project_id: Option<&str>,
+        window_started_at: DateTime<Utc>,
+        window_ended_at: DateTime<Utc>,
+        capability: Option<CapabilityKind>,
+    ) -> Result<UsageSummary> {
+        let window = UsageWindow {
+            capability,
+            ..UsageWindow::new(project_id, window_started_at, window_ended_at)?
+        };
         let dimension_keys = RecordWindow::bounded(
             top_dimension_keys(&mut self.connection, &window)?,
             crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
@@ -294,25 +309,34 @@ impl Store {
             .iter()
             .map(|(kind, name, _)| (kind.clone(), name.clone()))
             .collect::<BTreeSet<_>>();
-        let mut usage = UsageAccumulator::default();
-        if selected.is_empty() {
-            return Ok(usage.into_summary(window, false));
-        }
-        let dimension_rows = RecordWindow::bounded(
-            dimension_counts(&mut self.connection, &window, &selected)?,
-            MAX_USAGE_DETAIL_ROWS,
-        );
-        let session_rows = session_counts(&mut self.connection, &window, &selected)?;
-        usage.add_dimensions(
-            dimension_rows
-                .items
-                .into_iter()
-                .filter(|row| selected.contains(&(row.0.clone(), row.1.clone())))
-                .collect(),
-        )?;
-        usage.add_sessions(session_rows)?;
-        Ok(usage.into_summary(window, dimension_keys.truncated || dimension_rows.truncated))
+        let (usage, truncated) = usage_details(&mut self.connection, &window, &selected)?;
+        Ok(usage.into_summary(window, dimension_keys.truncated || truncated))
     }
+}
+
+fn usage_details(
+    connection: &mut DbConnection,
+    window: &UsageWindow<'_>,
+    selected: &BTreeSet<(String, String)>,
+) -> Result<(UsageAccumulator, bool)> {
+    let mut usage = UsageAccumulator::default();
+    if selected.is_empty() {
+        return Ok((usage, false));
+    }
+    let dimension_rows = RecordWindow::bounded(
+        dimension_counts(connection, window, selected)?,
+        MAX_USAGE_DETAIL_ROWS,
+    );
+    let session_rows = session_counts(connection, window, selected)?;
+    usage.add_dimensions(
+        dimension_rows
+            .items
+            .into_iter()
+            .filter(|row| selected.contains(&(row.0.clone(), row.1.clone())))
+            .collect(),
+    )?;
+    usage.add_sessions(session_rows)?;
+    Ok((usage, dimension_rows.truncated))
 }
 
 fn insert_capability(
@@ -531,35 +555,27 @@ fn top_dimension_keys(
     connection: &mut DbConnection,
     window: &UsageWindow<'_>,
 ) -> QueryResult<Vec<DimensionKeyRow>> {
-    let base = capability_uses::table
+    let mut query = capability_uses::table
         .filter(capability_uses::first_observed_at.ge(&window.start))
-        .filter(capability_uses::first_observed_at.lt(&window.end));
+        .filter(capability_uses::first_observed_at.lt(&window.end))
+        .group_by((capability_uses::kind, capability_uses::name))
+        .select((capability_uses::kind, capability_uses::name, count_star()))
+        .order((
+            count_star().desc(),
+            capability_uses::name.asc(),
+            capability_uses::kind.asc(),
+        ))
+        .limit(query_window_limit(
+            crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
+        ))
+        .into_boxed();
     if let Some(project_id) = window.project_id {
-        base.filter(capability_uses::project_id.eq(project_id))
-            .group_by((capability_uses::kind, capability_uses::name))
-            .select((capability_uses::kind, capability_uses::name, count_star()))
-            .order((
-                count_star().desc(),
-                capability_uses::name.asc(),
-                capability_uses::kind.asc(),
-            ))
-            .limit(query_window_limit(
-                crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
-            ))
-            .load(connection)
-    } else {
-        base.group_by((capability_uses::kind, capability_uses::name))
-            .select((capability_uses::kind, capability_uses::name, count_star()))
-            .order((
-                count_star().desc(),
-                capability_uses::name.asc(),
-                capability_uses::kind.asc(),
-            ))
-            .limit(query_window_limit(
-                crate::coordination::api::MAX_USAGE_DIMENSION_RESULTS,
-            ))
-            .load(connection)
+        query = query.filter(capability_uses::project_id.eq(project_id));
     }
+    if let Some(kind) = window.capability {
+        query = query.filter(capability_uses::kind.eq(kind.to_string()));
+    }
+    query.load(connection)
 }
 
 fn dimension_counts(

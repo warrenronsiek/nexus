@@ -68,6 +68,7 @@ fn project_dashboard(
             projection.observe(&mut cache, record, &superseded)?;
         }
     }
+    projection.project_run_states(&mut cache)?;
     projection.finish(scanned_records, truncated || cache.truncated)
 }
 fn source_records(

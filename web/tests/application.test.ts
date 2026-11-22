@@ -32,6 +32,9 @@ const deliveryDetails: Readonly<Record<string, string>> = { contribution: "deliv
 const deliveryLists: Readonly<Record<string, string>> = { rollout: "delivery_rollouts", remediation: "delivery_remediations" };
 const fixtureReaders: Readonly<Record<string, (query: ReadQuery) => string>> = {
   coordination: coordinationFixture,
+  coordination_summary: () => fixture("coordination"),
+  skill_usage: () => fixture("usage"),
+  ui_preferences: () => JSON.stringify({ok: true, refresh_interval_ms: configuredInterval}),
   code_map: query => codeMapFixture(query.filter),
   delivery_get: query => fixture(deliveryDetails[query.subject?.kind ?? ""] ?? query.kind),
   delivery_list: query => fixture(deliveryLists[query.filter?.kind ?? ""] ?? query.kind),
@@ -124,11 +127,13 @@ async function inspectCoordination(): Promise<void> {
   expect(document.body.textContent).not.toContain("Partial history");
   expect(document.body.textContent).not.toContain("Project discovery is bounded");
   await content("Messages · 7 days");
+  const beforeSelection = requests.length;
   pick("Session", "host-id");
   await content("Overlap detected with Cache cleanup");
   await content("Nexus → Cache cleanup");
   await content("Overlap with Cache cleanup ended");
   expect(window.location.search).toContain("session=host-id");
+  expect(requests.slice(beforeSelection).map(request => request.body.query?.kind)).toEqual(["coordination_session_timeline"]);
   expect(requests.some(request => request.body.query?.kind === "coordination_session_timeline" && request.body.query.session_id === "host-id")).toBe(true);
 }
 async function inspectWork(): Promise<void> {
@@ -364,7 +369,7 @@ it("honors configured refresh cadence after direct Work login and retains it acr
 async function switchRemoteProject(): Promise<void> {
   const scope = document.querySelector<HTMLSelectElement>("select[aria-label='Project scope']")!;
   expect([...scope.options].some(option => option.value === "")).toBe(false);
-  expect(requests.filter(request => ["coordination", "work_dashboard"].includes(request.body.query?.kind ?? "")).every(request => request.body.project_id === "remote-project-a")).toBe(true);
+  expect(requests.filter(request => ["coordination_summary", "work_dashboard"].includes(request.body.query?.kind ?? "")).every(request => request.body.project_id === "remote-project-a")).toBe(true);
   scope.value = "fixture-project"; scope.dispatchEvent(new Event("input", { bubbles: true }));
   await vi.waitFor(() => expect(requests.at(-1)?.body.project_id).toBe("fixture-project"));
   await content("Elapsed time by kind of work");

@@ -233,3 +233,8 @@ Lifecycle lookup selects lifecycle record kinds and keeps each predecessor check
 inside a scalar correlated predicate. PostgreSQL cannot flatten that check into
 a scan of all project links when a new project's statistics underestimate its
 history. The existing target index supplies the project/record probe.
+
+The dashboard batches lifecycle frontier lookups for runs in its selected
+population and reuses run grouping context across results. An oversized batch
+falls back to the bounded single-run lookup. The browser uses the picker groups
+from the same response as the selected result series.
