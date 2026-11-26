@@ -18,6 +18,8 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @boundary dynamic-json
 mod analytics;
 mod audit;
@@ -46,6 +48,7 @@ use super::domain::{
     HookContext, ScriptUseInput, SessionStopInput, SkillUseInput, ToolCompletion, ToolHookInput,
     UserPromptInput,
 };
+use crate::agent_traces::TraceQuery;
 use anyhow::{bail, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -71,6 +74,23 @@ pub(crate) const MAX_AGENT_BYTES: usize = 256;
 /// Stored capability names, including manifest-derived skills, are bounded to 512 bytes.
 pub(crate) const MAX_SKILL_NAME_BYTES: usize = 512;
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TraceReadRequest {
+    pub query: TraceQuery,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+}
+
+impl From<TraceQuery> for TraceReadRequest {
+    fn from(query: TraceQuery) -> Self {
+        Self {
+            query,
+            project_root: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ServiceRequest {
     UserPrompt(UserPromptInput),
@@ -88,6 +108,7 @@ pub enum ServiceRequest {
     Conflicts(ConflictQuery),
     SessionTimeline(SessionTimelineQuery),
     SessionIndex(SessionIndexQuery),
+    Traces(TraceReadRequest),
     Resolve(ResolveCommand),
     Release(ReleaseCommand),
     Analyze(AnalyzeCommand),
@@ -287,8 +308,16 @@ fn decode_read(method: &str, params: Value) -> Result<ServiceRequest> {
             Ok(ServiceRequest::MemorySearch(query))
         }
         "memory_expand" => decode(params).map(ServiceRequest::MemoryExpand),
+        "traces" => decode_trace_read(params),
         _ => unreachable!("method family was classified before decoding"),
     }
+}
+
+fn decode_trace_read(params: Value) -> Result<ServiceRequest> {
+    let read: TraceReadRequest = decode(params)?;
+    validate_optional_field("project_root", read.project_root.as_deref(), 4_096)?;
+    read.query.validate()?;
+    Ok(ServiceRequest::Traces(read))
 }
 
 fn decode_command(method: &str, params: Value) -> Result<ServiceRequest> {
@@ -390,6 +419,7 @@ fn request_family(request: &ServiceRequest) -> RequestFamily {
         | ServiceRequest::Conflicts(_)
         | ServiceRequest::SessionTimeline(_)
         | ServiceRequest::SessionIndex(_)
+        | ServiceRequest::Traces(_)
         | ServiceRequest::MemoryStatus(_)
         | ServiceRequest::MemoryContext(_)
         | ServiceRequest::MemoryInspect(_)
@@ -438,6 +468,7 @@ fn read_wire_parts(request: &ServiceRequest) -> Result<(&'static str, Value)> {
         ServiceRequest::Conflicts(query) => encode("conflicts", query),
         ServiceRequest::SessionTimeline(query) => encode("session_timeline", query),
         ServiceRequest::SessionIndex(query) => encode("session_index", query),
+        ServiceRequest::Traces(read) => encode("traces", read),
         ServiceRequest::MemoryStatus(query) => encode("memory_status", query),
         ServiceRequest::MemoryContext(query) => encode("memory_context", query),
         ServiceRequest::MemoryInspect(query) => encode("memory_inspect", query),
@@ -496,6 +527,7 @@ const READ_METHODS: &[&str] = &[
     "conflicts",
     "session_timeline",
     "session_index",
+    "traces",
     "memory_status",
     "memory_context",
     "memory_inspect",

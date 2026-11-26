@@ -30,6 +30,12 @@ fn sos_report_retains_normalized_source_fields_before_triage() {
         version: "1.4.2".into(),
         model: "gpt-test".into(),
         trace: "connect timed out\nretry exhausted".into(),
+        trace_ref: Some(nexus::agent_traces::TraceReference {
+            application_id: "release-agent".into(),
+            environment: "ci".into(),
+            trace_id: "future-upload".into(),
+            event_id: Some("unexpected-response".into()),
+        }),
         metadata: metadata.clone(),
     };
 
@@ -43,6 +49,7 @@ fn sos_report_retains_normalized_source_fields_before_triage() {
     assert_eq!(report.model, "gpt-test");
     assert_eq!(report.trace, "connect timed out\nretry exhausted");
     assert_eq!(report.metadata, metadata);
+    assert_eq!(report.trace_ref.unwrap().trace_id, "future-upload");
     assert_eq!(report.reporter, actor);
     assert_eq!(report.issue_id, None);
 }

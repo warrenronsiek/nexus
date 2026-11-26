@@ -51,6 +51,7 @@ Intentional adaptations of the dealt sheet:
 | Evaluations | How did a named agent measure over time, under which definition? |
 | Tools | What semantic activities occurred, which commands performed them, and when? |
 | Skills | Which named skills were used in the seven-day window, and what do they say? |
+| Application traces | Which application interactions, tool calls, and skill invocations explain an outcome? |
 | Code concerns | Which code areas have repeated encounters and remedies? |
 | Papercuts | Which development friction is encountered most? |
 | SOS | Which unusual in-application situations recur most? |

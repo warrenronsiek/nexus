@@ -88,12 +88,16 @@ Ordinary projection queries apply deterministic database windows before material
 continuous holds of 30 seconds or more. Ordinary contention remains healthy
 through the independent probe. The production healthcheck also bounds the pre-ready phase: twelve consecutive failed probes send `SIGKILL` to PID 1, allowing Compose to recover even before the server installs its handled `SIGTERM` path. Migration and application SQLite connections use the same bounded two-second busy timeout, so a short commit from the daemon does not make an independent reader fail immediately. Migration files are immutable, monotonically versioned `V<version>_<description>.sql` scripts. Existing scripts are never rewritten or deleted after release; schema changes add a later file to both backend directories. Migration zero bootstraps Flyway's own typed history table. The driver applies each changelog and inserts its deployed-history row in the same transaction, so a failed script leaves neither partial schema nor an `in_progress` row that can block a later restart; the runner stops on the first failure. SQLite migration tests cover fresh installation, failure-and-retry atomicity, and historical upgrades; feature-gated PostgreSQL tests run the corresponding schema before exercising coordination, memory, papercuts, and all readiness paths.
 
-The remote deployment has one authoritative `nexus-server` process per PostgreSQL database. One eight-connection Diesel pool serves the operational database. Admission
+The remote deployment has one authoritative `nexus-server` process per PostgreSQL database. One thirteen-connection Diesel pool serves the operational database. Admission
 reserves three leases for interactive reads, two for expensive history reads and
 exports, and one each for deliberate writes, lifecycle hooks, and maintenance.
-The readiness probe has its own connection. Migrations run before the pool opens
+Four additional leases serve application trace ingress and one serves invocation
+projection and payload expiry. The readiness probe has its own connection. Migrations run before the pool opens
 and broken connections are replaced. SQLite uses its single connection and
-existing retry behavior. Read-modify-write aggregate transactions acquire one database-scoped PostgreSQL advisory transaction lock through the shared typed transaction helper, before reading mutable state; commit or rollback releases it. This preserves the single-writer ordering of memory ordinals/revisions and conflict projection/history across pooled connections while ordinary reads run independently. Atomic analytics upserts do not require that aggregate lock. Memory consolidation plus papercut review scheduling are in process; running several replicas over one database is therefore outside the supported lifecycle model. PostgreSQL exists to share one Nexus instance across compute environments, not yet to provide horizontally scaled service replicas.
+existing retry behavior. Read-modify-write aggregate transactions acquire one database-scoped PostgreSQL advisory transaction lock through the shared typed transaction helper, before reading mutable state; commit or rollback releases it. This preserves the single-writer ordering of memory ordinals/revisions and conflict projection/history across pooled connections while ordinary reads run independently. Atomic analytics upserts and the trace journal do not acquire that aggregate lock.
+Trace ingestion commits events and their pending batch together. The projector
+uses a separate transaction lock to serialize invocation updates while
+independent batches can continue writing. Memory consolidation plus papercut review scheduling are in process; running several replicas over one database is therefore outside the supported lifecycle model. PostgreSQL exists to share one Nexus instance across compute environments, not yet to provide horizontally scaled service replicas.
 
 ### SQLite to PostgreSQL transfer
 
@@ -101,7 +105,11 @@ existing retry behavior. Read-modify-write aggregate transactions acquire one da
 
 The SQLite-only `nexus-sqlite-export` helper first uses SQLite's online-backup API with a read-only source connection. Compose runs that backup in a network-isolated one-shot container and stores it in a private named volume, so the main unprivileged container never needs permission to read an owner-only host database. Pending migrations run against a second private backup, never against the original database or its staged copy. Before any application rows are exported, that backup's complete migration history must match this binary's embedded SQLite versions, names, checksums, and deployed statuses. Older supported databases become current on the private backup; a missing, divergent, unknown, or newer migration is rejected so a future table cannot be silently omitted by an older exporter.
 
-The CLI transfer uses a version-nine newline-delimited JSON record stream. It includes immutable [code map](code-map.md) snapshots, the [delivery coordination](delivery-coordination.md) journal and watch health, plus the [audit registry](audit-registry.md) journal. It continues to read versions two through eight. A header fixes the format,
+The CLI transfer uses a version-ten newline-delimited JSON record stream and
+continues to read versions two through nine. Version ten adds [application trace](agent-traces.md)
+receipts, immutable events, and retained payloads. Import rebuilds invocation
+facts from source events. Payload expiry applies to the active database.
+Earlier snapshots can still contain payloads retained at export time. A header fixes the format,
 typed table batches follow in foreign-key dependency order, and a mandatory footer confirms the
 application row count. Each ordinary batch holds at most sixteen rows; PostgreSQL export uses its
 row-by-row cursor rather than loading a table. Papercut canonical targets precede their consolidated

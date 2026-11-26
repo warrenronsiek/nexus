@@ -27,10 +27,17 @@ aggregate automatically while retaining original evidence.
 
 Use the installed `nexus_sos` MCP tool, with its current advertised schema.
 For `action: "report"`, provide `message`, `type`, `environment`, `version`,
-`model`, `trace`, and optional JSON-object `metadata`. Capture what actually
+`model`, `trace`, optional JSON-object `metadata`, and optional `trace_ref`. Capture what actually
 happened, the expected result, reproducible conditions, and what remains unknown.
 Use the exact relevant revision/version and model where available; explicitly
 label unavailable data rather than guessing. `trace` may be empty if none exists.
+
+Set `trace_ref` when this report came from a captured application agent trace.
+Use `application_id`, `environment`, and `trace_id`, with an optional `event_id`
+for the triggering event. The reference is project-scoped and may identify an
+upload still in progress. The SOS report survives independently of that upload.
+For CLI reports, pass the same object using `--trace-ref-json`. The browser
+links from the individual report to the event or conversation.
 
 A CLI script can report from its checkout as follows, with variables populated
 by its owning workflow and sanitized before submission:

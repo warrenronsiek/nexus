@@ -301,6 +301,21 @@ shape kind root =
         "papercuts" ->
             described "papercuts" (\v -> String.fromFloat (number "upvote_count" v) ++ " encounters · " ++ str "updated_at" v)
 
+        "trace_list" ->
+            rows "traces" (row "trace_id" "trace_id" "application_trace")
+
+        "trace_usage" ->
+            rows "usage" (row "name" "name" "application_usage")
+
+        "trace_calls" ->
+            rows "calls" (row "invocation_id" "name" "application_call")
+
+        "trace_get" ->
+            rows "events" (row "event_id" "kind" "application_event")
+
+        "trace_status" ->
+            required "scopes" (D.list D.value) root |> Result.map (\_ -> base)
+
         "sos_list" ->
             described "issues" (\v -> String.fromFloat (number "importance_count" v) ++ " reports · " ++ str "last_reported_at" v)
 

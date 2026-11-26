@@ -1,3 +1,5 @@
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @feature usage-analytics
 // @spec docs/features/usage-analytics.md
 // @feature persistence
@@ -13,10 +15,12 @@
 // @boundary external-postgres-and-json
 #![cfg(feature = "postgres")]
 
+use nexus::agent_traces::{TraceBatch, TraceFilter, TraceQuery};
 use nexus::coordination::api::ServiceRequest;
+use nexus::persistence::Store;
 use nexus::{Config, LoadedConfig, NexusService};
 use serde_json::{json, Value};
-use std::sync::Mutex;
+use std::sync::{Barrier, Mutex};
 use uuid::Uuid;
 
 static POSTGRES_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -456,4 +460,73 @@ fn postgres_retains_the_latest_read_skill_text() {
     assert_eq!(detail["content"], text, "{detail}");
     assert_eq!(detail["description"], "Portable text.");
     assert_eq!(detail["source_path"], format!("skills/{skill}/SKILL.md"));
+}
+
+#[test]
+fn postgres_trace_acceptance_deduplicates_parallel_uploads_and_recovers_pending_work() {
+    let _guard = POSTGRES_TEST_LOCK.lock().unwrap();
+    let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("PostgreSQL test database required");
+    let project = format!("postgres-traces-{}", Uuid::new_v4());
+    let writes = trace_uploads().map(|batch| (Store::connect(&url).unwrap(), batch));
+    let accepted = append_concurrently(writes, &project);
+    assert_eq!(accepted, 2);
+    let mut store = Store::connect(&url).unwrap();
+    assert!(store.trace_project_pending(8).unwrap() >= 1);
+    let response = store
+        .trace_read(
+            &project,
+            TraceQuery::Calls {
+                filter: TraceFilter::default(),
+            },
+        )
+        .unwrap();
+    let calls = response["calls"].as_array().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0]["started_event_id"], "start");
+    assert_eq!(calls[0]["finished_event_id"], "result");
+    assert_eq!(calls[0]["outcome"], "timed_out");
+}
+
+fn trace_uploads() -> [TraceBatch; 2] {
+    let tool_result = json!({
+        "event_id": "result", "trace_id": "run", "agent_id": "assistant",
+        "kind": "tool_finished", "occurred_at": "2026-11-26T15:00:01Z",
+        "invocation_id": "call", "name": "lookup", "outcome": "timed_out"
+    });
+    let tool_start = json!({
+        "event_id": "start", "trace_id": "run", "agent_id": "assistant",
+        "kind": "tool_started", "occurred_at": "2026-11-26T15:00:00Z",
+        "invocation_id": "call", "name": "lookup"
+    });
+    let batch = |id: &str, events: Vec<Value>| -> TraceBatch {
+        serde_json::from_value(json!({
+            "schema_version": 1, "batch_id": id, "application_id": "desk",
+            "environment": "production", "events": events
+        }))
+        .unwrap()
+    };
+    [
+        batch("one", vec![tool_result.clone()]),
+        batch("two", vec![tool_result, tool_start]),
+    ]
+}
+
+fn append_concurrently(writes: [(Store, TraceBatch); 2], project: &str) -> usize {
+    let barrier = Barrier::new(writes.len());
+    std::thread::scope(|scope| {
+        let receipts: Vec<_> = writes
+            .into_iter()
+            .map(|(mut store, batch)| {
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    store.trace_append(project, batch).unwrap().accepted_events
+                })
+            })
+            .collect();
+        receipts
+            .into_iter()
+            .map(|receipt| receipt.join().unwrap())
+            .sum::<usize>()
+    })
 }

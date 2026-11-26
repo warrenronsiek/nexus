@@ -1,3 +1,5 @@
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @feature delivery-coordination
 // @spec docs/features/delivery-coordination.md
 // @feature runtime
@@ -12,6 +14,7 @@ mod browser;
 mod listener;
 mod mcp_http;
 mod secret;
+mod trace_ingress;
 
 pub use browser::{
     configure_credentials, default_credentials_path, read_password_file, serve_browser_listener,
@@ -58,6 +61,7 @@ struct SosHttpReport {
     model: String,
     trace: String,
     metadata: Map<String, Value>,
+    trace_ref: Option<crate::agent_traces::TraceReference>,
 }
 
 pub fn disable_in_process_model_providers() {
@@ -187,7 +191,20 @@ pub async fn serve_listener(
         ),
         readiness_slot: Arc::new(Semaphore::new(1)),
     });
-    let router = Router::new()
+    let router = remote_router(state.clone());
+    let (router, _trace_projector) = trace_ingress::integrate(router, &state)?;
+    let router = router.merge(browser::service_router(
+        browser,
+        state.service.clone(),
+        state.blocking_execution.clone(),
+    ));
+    listener::serve(listener, router)
+        .await
+        .context("serve Nexus HTTP endpoint")
+}
+
+fn remote_router(state: Arc<ServerState>) -> Router {
+    Router::new()
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/api/v1/request", post(api_request))
@@ -202,15 +219,7 @@ pub async fn serve_listener(
         .layer(middleware::from_fn_with_state(
             state.clone(),
             protect_remote_request,
-        ));
-    let router = router.merge(browser::service_router(
-        browser,
-        state.service.clone(),
-        state.blocking_execution.clone(),
-    ));
-    listener::serve(listener, router)
-        .await
-        .context("serve Nexus HTTP endpoint")
+        ))
 }
 
 async fn protect_remote_request(
@@ -364,7 +373,7 @@ async fn api_sos(
             return (StatusCode::BAD_REQUEST, "invalid X-Nexus-Agent header").into_response()
         }
     };
-    let params = json!({
+    let mut params = json!({
         "action":"report",
         "session_id":format!("sos-http-{}", uuid::Uuid::new_v4()),
         "agent":agent,
@@ -376,6 +385,9 @@ async fn api_sos(
         "trace":report.trace,
         "metadata":report.metadata
     });
+    if let Some(trace_ref) = report.trace_ref {
+        params["trace_ref"] = json!(trace_ref);
+    }
     let request = match ServiceRequest::decode("sos", params) {
         Ok(request) => request,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid SOS report").into_response(),

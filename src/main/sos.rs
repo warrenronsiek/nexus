@@ -5,6 +5,7 @@
 // @boundary cli-and-json
 use anyhow::{Context, Result};
 use clap::Subcommand;
+use nexus::agent_traces::TraceReference;
 use nexus::coordination::api::{ServiceRequest, SosCommand, SosDumpScope};
 use nexus::coordination::domain::HookContext;
 use nexus::sos::SosMetadata;
@@ -39,6 +40,9 @@ pub(super) enum SosCliCommand {
         /// Arbitrary JSON object attached to the source report.
         #[arg(long, default_value = "{}")]
         metadata_json: String,
+        /// Optional application trace reference as a JSON object.
+        #[arg(long)]
+        trace_ref_json: Option<String>,
     },
     /// Mark an aggregate issue solved while retaining all source history.
     Resolve {
@@ -84,11 +88,17 @@ pub(super) async fn run(command: SosCliCommand, root: &Path, loaded: &LoadedConf
             model,
             trace,
             metadata_json,
+            trace_ref_json,
         } => {
             let metadata = serde_json::from_str::<serde_json::Value>(&metadata_json)
                 .context("--metadata-json must be valid JSON")?;
             let metadata = SosMetadata::try_from(metadata)
                 .context("--metadata-json must be a JSON object within SOS bounds")?;
+            let trace_ref = trace_ref_json
+                .as_deref()
+                .map(serde_json::from_str::<TraceReference>)
+                .transpose()
+                .context("--trace-ref-json must be a trace reference")?;
             let mut context = context();
             context.model = Some(model);
             SosCommand::Report {
@@ -98,6 +108,7 @@ pub(super) async fn run(command: SosCliCommand, root: &Path, loaded: &LoadedConf
                 environment,
                 version,
                 trace,
+                trace_ref,
                 metadata,
             }
         }

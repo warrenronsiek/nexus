@@ -120,6 +120,14 @@ agents and environments, and how to wire caller-owned scripts/hooks. Setup also
 bundles the canonical shell and GitHub helpers with the skill, so integrations
 do not need a Nexus source checkout. See [the skill](skills/nexus-work-history/SKILL.md).
 
+
+### Inspect application agent traces
+
+Upload application-agent events in batches, link SOS reports to the original
+trace, and query prompts, tool calls, skills, and outcomes via `nexus traces` or
+the read-only `nexus_traces` MCP tool. The [application traces guide](docs/features/agent-traces.md)
+covers producer credentials, the event contract, and the Koog adapter.
+
 ## Agent feature guides
 
 `nexus setup` installs a [Nexus feature guide](skills/nexus/SKILL.md) and focused

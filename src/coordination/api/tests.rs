@@ -39,6 +39,26 @@ fn sos_report_rejects_blank_model_and_oversized_metadata_during_decode() {
 }
 
 #[test]
+fn sos_report_round_trips_a_typed_trace_reference() {
+    let full = json!({
+        "action":"report", "session_id":"session-a", "agent":"email-agent",
+        "model":"test-model", "message":"Attachment type unsupported",
+        "type":"unknown_input", "environment":"production", "version":"1.0.0",
+        "trace":"", "metadata":{"trace_ref":"an existing application metadata key"},
+        "trace_ref":{"application_id":"dispatch", "environment":"production",
+            "trace_id":"conversation-1", "event_id":"tool-2"}
+    });
+    let request = ServiceRequest::decode("sos", full.clone()).unwrap();
+    let (_, encoded) = request.wire_parts().unwrap();
+    assert_eq!(encoded["trace_ref"], full["trace_ref"]);
+    assert_eq!(encoded["metadata"], full["metadata"]);
+
+    let mut invalid = full;
+    invalid["trace_ref"]["trace_id"] = json!("");
+    assert!(ServiceRequest::decode("sos", invalid).is_err());
+}
+
+#[test]
 fn query_scope_is_an_enum_not_a_boolean_switch() {
     let request =
         ServiceRequest::decode("claims", json!({"project_id":"project-1","scope":"all"})).unwrap();

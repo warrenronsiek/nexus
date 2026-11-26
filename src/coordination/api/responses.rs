@@ -18,6 +18,8 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @boundary serialized-service-response
 use super::memory::{
     MemoryConsolidationReport, MemoryContextResponse, MemoryEntriesResponse,
@@ -49,6 +51,7 @@ pub enum ServiceResponse {
     Conflicts(ConflictsResponse),
     SessionTimeline(SessionTimelineResponse),
     SessionIndex(SessionIndexResponse),
+    Traces(Value),
     Resolved(ResolvedResponse),
     Released(ReleasedResponse),
     Analysis(AnalysisResponse),

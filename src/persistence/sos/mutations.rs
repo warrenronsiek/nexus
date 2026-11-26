@@ -22,6 +22,7 @@ struct PreparedReport<'a> {
     draft: SosReportDraft,
     actor: &'a SosActor,
     metadata_json: String,
+    trace_ref_json: Option<String>,
     id: String,
     created_at: String,
 }
@@ -34,11 +35,17 @@ impl<'a> PreparedReport<'a> {
         let draft = draft.normalized()?;
         let metadata_json =
             serde_json::to_string(&draft.metadata).context("encode SOS metadata")?;
+        let trace_ref_json = draft
+            .trace_ref
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         Ok(Self {
             project_id,
             draft,
             actor,
             metadata_json,
+            trace_ref_json,
             id: Uuid::new_v4().to_string(),
             created_at: Utc::now().to_rfc3339(),
         })
@@ -57,6 +64,7 @@ impl<'a> PreparedReport<'a> {
                 model: &self.draft.model,
                 trace: &self.draft.trace,
                 metadata_json: &self.metadata_json,
+                trace_ref_json: self.trace_ref_json.as_deref(),
                 reporter_agent: &self.actor.agent,
                 reporter_session_id: &self.actor.session_id,
                 reporter_model_id: self.actor.model_id.as_deref(),

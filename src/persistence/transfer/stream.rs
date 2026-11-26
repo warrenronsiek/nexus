@@ -1,3 +1,5 @@
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @feature audit-registry
 // @spec docs/features/audit-registry.md
 // @feature delivery-coordination
@@ -11,6 +13,7 @@
 // @entrypoint Store::write_streamed_snapshot
 // @entrypoint Store::import_streamed_snapshot
 // @boundary portable-database-stream
+use super::super::agent_traces::{BatchRow as TraceBatchRow, EventRow as TraceEventRow};
 use super::super::backend::DbConnection;
 use super::super::code_map::CodeMapSnapshotRow;
 use super::super::schema::{
@@ -21,7 +24,8 @@ use super::super::schema::{
     events, memory_activations, memory_compaction_attempts, memory_compaction_queue,
     memory_entries, memory_frontier_snapshots, memory_spaces, memory_summaries,
     papercut_duplicate_reviews, papercut_review_attempts, papercut_upvotes, papercuts, sessions,
-    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts, work_observations,
+    sos_issue_lifecycle, sos_issues, sos_reports, sos_triage_attempts, trace_batches, trace_events,
+    work_observations,
 };
 use super::super::Store;
 use super::rows::*;
@@ -78,7 +82,7 @@ fn sync_event_identity(connection: &mut DbConnection, imported_max: i64) -> Resu
     Ok(())
 }
 
-const FORMAT_VERSION: i32 = 9;
+const FORMAT_VERSION: i32 = 10;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 8 * 1024 * 1024;
 
@@ -205,6 +209,8 @@ batches! {
     35: DeliveryObservations(DeliveryObservationTransfer) => delivery_observations,(delivery_observations::project_id.asc(),delivery_observations::ordinal.asc());
     36: DeliveryWatches(DeliveryWatchTransfer) => delivery_watches,(delivery_watches::project_id.asc(),delivery_watches::id.asc());
     37: AuditRecords(AuditTransfer) => audit_records,(audit_records::project_id.asc(),audit_records::ordinal.asc());
+    38: TraceBatches(TraceBatchRow) => trace_batches, trace_batches::id.asc();
+    39: TraceEvents(TraceEventRow) => trace_events, trace_events::id.asc();
 }
 
 #[derive(Serialize, Deserialize)]
@@ -282,7 +288,7 @@ impl<W: Write> StreamWriter<W> {
 impl Store {
     /// Exports a deterministic record stream while retaining at most one ordinary batch in memory.
     pub fn write_streamed_snapshot(&mut self, output: impl Write) -> Result<SnapshotManifest> {
-        self.connection.transaction(|connection| {
+        snapshot_read(&mut self.connection, |connection| {
             let mut writer = StreamWriter::new(output);
             writer.record(&Record::Header {
                 format_version: FORMAT_VERSION,
@@ -302,6 +308,27 @@ impl Store {
             }
         })
     }
+}
+
+#[cfg(feature = "sqlite")]
+fn snapshot_read<T>(
+    connection: &mut DbConnection,
+    read: impl FnOnce(&mut DbConnection) -> Result<T>,
+) -> Result<T> {
+    connection.transaction(read)
+}
+
+#[cfg(feature = "postgres")]
+fn snapshot_read<T>(
+    connection: &mut DbConnection,
+    read: impl FnOnce(&mut DbConnection) -> Result<T>,
+) -> Result<T> {
+    // Capture receipts and their events from the same visibility snapshot during concurrent append.
+    connection
+        .build_transaction()
+        .repeatable_read()
+        .read_only()
+        .run(read)
 }
 
 struct SnapshotSource {
@@ -389,6 +416,12 @@ impl ImportProgress {
                 .iter()
                 .try_for_each(CodeMapSnapshotRow::validate)?;
         }
+        if let Batch::TraceBatches(batches) = &data {
+            batches.iter().try_for_each(TraceBatchRow::validate)?;
+        }
+        if let Batch::TraceEvents(events) = &data {
+            events.iter().try_for_each(TraceEventRow::validate)?;
+        }
         data.insert(connection)?;
         self.rows += data.len();
         Ok(())
@@ -428,6 +461,7 @@ fn finish_import(
     }
     super::super::evals::validate_snapshot(connection)?;
     rebuild_projections(connection)?;
+    super::super::agent_traces::rebuild_snapshot(connection)?;
     sync_event_identity(connection, progress.maximum_event_id)?;
     Ok(SnapshotManifest {
         format_version: progress.format_version,
@@ -534,6 +568,7 @@ fn format_tables(version: i32) -> Result<usize> {
         6 => 34,
         7 => 35,
         8 => 37,
+        9 => 38,
         FORMAT_VERSION => TABLE_COUNT,
         _ => bail!("unsupported portable stream version"),
     })

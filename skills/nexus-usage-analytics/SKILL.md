@@ -15,6 +15,23 @@ The analytics are observational and advisory. They do not enforce tool choice,
 claim complete host visibility, or prove that inferred program branches executed.
 The caller owns its workflow and decisions about adopting or creating tools.
 
+## Inspect application agent traces
+
+Use `nexus traces` or the read-only `nexus_traces` MCP tool for agents running
+inside an application. Filter by application, environment, agent, time, and
+tool or skill. Use `usage` for observed counts, `calls` for matching invocations,
+and `get` with the returned trace and event IDs for source context. Request
+captured prompts and tool content explicitly. Follow cursors on bounded reads,
+and check `status` before concluding that a recent call is absent.
+
+Use `nexus traces schema` when integrating a new producer. Instrument the
+shared harness dispatch and model boundaries and export small authenticated
+batches to `POST /api/v1/agent-traces/events`. Preserve event IDs across retries
+and pair tool stages by invocation ID. Record skill offers, loads, and
+activations explicitly. Measure correctness with [evaluation evidence](../nexus-eval-history/SKILL.md)
+linked to the exact invocation. An execution outcome reports what the tool
+returned or whether it failed.
+
 ## Use the existing capture first
 
 `nexus setup` wires Codex and Claude lifecycle hooks. Pi observes tools and

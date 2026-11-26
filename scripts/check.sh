@@ -50,6 +50,7 @@ nexus_work_exec lint.postgres "PostgreSQL Clippy" cargo clippy --no-default-feat
 # Tests own their credentials; never inherit a developer's live service/provider keys.
 nexus_work_exec test.rust "Rust tests" env -u NEXUS_SECRET -u NEXUS_CLAUDE_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
     -u NEXUS_WEB_CREDENTIALS_FILE -u NEXUS_WEB_ORIGIN \
+    -u NEXUS_TRACE_CREDENTIALS_FILE -u NEXUS_TRACE_BROWSER_CONTENT -u NEXUS_TRACE_PAYLOAD_RETENTION_DAYS \
     -u NEXUS_DELIVERY_GITHUB_TOKEN_FILE -u NEXUS_DELIVERY_GITHUB_API_URL \
     -u NEXUS_WORK_CONTEXT -u NEXUS_WORK_SESSION_ID -u NEXUS_PARENT_ACTIVITY_ID -u NEXUS_COMMIT_OPERATION_ID -u NEXUS_HOST_SESSION_ID \
     -u CLAUDE_CODE_OAUTH_TOKEN -u OPENAI_API_KEY -u AZURE_OPENAI_API_KEY cargo test --all-targets

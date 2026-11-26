@@ -11,7 +11,8 @@ that encounter unfamiliar input or a situation outside their expected operating
 scope. An email-handling agent receiving an input it cannot handle within its
 responsibilities can report that situation here. An authenticated agent submits
 a structured source report containing `message`, `type`, `environment`,
-`version`, `model`, `trace`, and an arbitrary JSON metadata object. Nexus retains
+`version`, `model`, `trace`, an arbitrary JSON metadata object, and an optional
+`trace_ref`. Nexus retains
 that source report unchanged apart from boundary normalization, then asks a
 configured model to triage it against the project's bounded recent aggregate
 issues, including closed aggregates that may have recurred.
@@ -23,6 +24,16 @@ investigation without changing either record's lifecycle or meaning. This
 routing clarification does not alter the SOS ingestion schema or triage policy.
 
 Triage either creates a generated issue or links the report to an existing issue and refreshes that issue's generated title and summary. Aggregate importance is the number of linked source reports, not a mutable counter. First and last arrival timestamps are likewise derived from source reports. Resolving or deprecating an issue never deletes it; a later linked report reopens it automatically.
+
+A report may reference the application conversation that produced it with
+`trace_ref: {application_id, environment, trace_id, event_id?}`. Nexus validates
+the identifiers and binds the reference to the report's project. The report can
+arrive before the trace or its linked event is uploaded. The source report
+keeps its reference whether or not the aggregate is reopened or the trace is
+available. The browser opens the event and offers the full conversation for
+context. Reference lookups use the report's project, and the triage input
+contains no uploaded transcript payload. The original `trace` text field remains
+the small report diagnostic. See [application agent traces](agent-traces.md).
 
 ## Why it exists
 
@@ -75,7 +86,7 @@ The open issue list ranks by linked source report count, then latest report time
 
 The schema intentionally separates four concerns:
 
-- `sos_reports` is the immutable normalized source log. Its nullable `issue_id` is the only triage-owned association.
+- `sos_reports` is the immutable normalized source log. Its nullable `issue_id` is the only triage-owned association. `trace_ref_json` stores an optional source reference independently of metadata.
 - `sos_issues` is the generated aggregate projection and lifecycle state.
 - `sos_triage_attempts` records every completed or failed model workflow with provider/config provenance.
 - `sos_issue_lifecycle` records resolution, deprecation, and automatic reopening with actor provenance.

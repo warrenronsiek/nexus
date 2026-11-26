@@ -67,7 +67,6 @@ impl OpenedSecretFile {
     }
 
     pub(crate) fn read_utf8_bounded(mut self, maximum: usize) -> std::io::Result<String> {
-        let maximum = maximum.min(MAX_SECRET_SOURCE_BYTES);
         if self.metadata.len() > maximum as u64 {
             return Err(secret_too_large(maximum));
         }

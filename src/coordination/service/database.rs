@@ -1,3 +1,5 @@
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @feature persistence
 // @feature coordination
 // @spec docs/features/persistence.md
@@ -17,22 +19,27 @@ pub(crate) enum DatabaseOperation {
     Write,
     Lifecycle,
     Maintenance,
+    TraceIngest,
+    TraceProjection,
 }
 
 impl DatabaseOperation {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Interactive,
         Self::History,
         Self::Write,
         Self::Lifecycle,
         Self::Maintenance,
+        Self::TraceIngest,
+        Self::TraceProjection,
     ];
 
     pub(crate) fn capacity(self) -> usize {
         match self {
             Self::Interactive => 3,
             Self::History => 2,
-            Self::Write | Self::Lifecycle | Self::Maintenance => 1,
+            Self::TraceIngest => 4,
+            Self::Write | Self::Lifecycle | Self::Maintenance | Self::TraceProjection => 1,
         }
     }
 
@@ -136,6 +143,28 @@ impl super::NexusService {
             .is_pooled()
             .then(|| request.database_operation())
             .flatten()
+    }
+
+    pub(crate) fn append_trace(
+        &self,
+        project: &str,
+        batch: crate::agent_traces::TraceBatch,
+    ) -> Result<crate::agent_traces::TraceReceipt> {
+        self.store
+            .acquire(DatabaseOperation::TraceIngest)?
+            .trace_append_validated(project, batch)
+    }
+
+    pub(crate) fn project_traces(&self, limit: usize) -> Result<usize> {
+        self.store
+            .acquire(DatabaseOperation::TraceProjection)?
+            .trace_project_pending(limit)
+    }
+
+    pub(crate) fn expire_trace_payloads(&self, cutoff: &str, limit: usize) -> Result<usize> {
+        self.store
+            .acquire(DatabaseOperation::TraceProjection)?
+            .trace_expire_payloads(cutoff, limit)
     }
 
     pub(super) fn maintenance_store(&self) -> Result<DatabaseLease<'_>> {

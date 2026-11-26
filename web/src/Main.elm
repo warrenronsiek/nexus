@@ -27,6 +27,7 @@ import Json.Encode as E
 import State
 import Task
 import Time
+import Traces
 import Url exposing (Url)
 import Waterfall
 import Wire exposing (Document, Row)
@@ -46,6 +47,7 @@ type Screen
     | Evals
     | Tools
     | Skills
+    | ApplicationTraces
     | Concerns
     | Papercuts
     | Sos
@@ -57,7 +59,7 @@ type alias Query =
 
 
 type alias ViewerSession =
-    { authenticated : Bool, username : String, defaultProjectId : Maybe String, globalProjectReads : Bool }
+    { authenticated : Bool, username : String, defaultProjectId : Maybe String, globalProjectReads : Bool, traceBrowserContent : Bool }
 
 
 {-| Inline expansions load their evidence on demand and keep it while open. -}
@@ -75,7 +77,7 @@ type TimeRange
 
 
 type alias Route =
-    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope, range : TimeRange }
+    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope, traceScope : Traces.Scope, range : TimeRange }
 
 
 type alias Model =
@@ -98,6 +100,8 @@ type alias Model =
     , deliveryOverlap : State.Remote Document
     , auditFilters : Audit.Filters
     , auditScope : Audit.Scope
+    , traceScope : Traces.Scope
+    , traceBrowserContent : Bool
     , details : Dict String Detail
     , expanded : Dict String ()
     , query : Query
@@ -125,6 +129,8 @@ type Msg
     | ChangeProject String
     | ChangeFocus String
     | ChangeRange String
+    | ChangeTraceScope Traces.ScopeField String
+    | ToggleTraceContent
     | Navigate Query
     | Back
     | Refresh
@@ -163,7 +169,7 @@ init _ url key =
     let
         wanted = route url
     in
-    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, timeline = State.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", range = wanted.range, navigationOpen = False }
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, timeline = State.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, traceScope = wanted.traceScope, traceBrowserContent = False, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", range = wanted.range, navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -174,7 +180,7 @@ init _ url key =
 
 screens : List Screen
 screens =
-    [ Coordination, Work, PullRequests, Audits, Evals, Tools, Skills, Concerns, Papercuts, Sos, Memory ]
+    [ Coordination, Work, PullRequests, Audits, Evals, Tools, Skills, ApplicationTraces, Concerns, Papercuts, Sos, Memory ]
 
 
 slug : Screen -> String
@@ -187,6 +193,7 @@ slug screen =
         Evals -> "evals"
         Tools -> "tools"
         Skills -> "skills"
+        ApplicationTraces -> "traces"
         Concerns -> "concerns"
         Papercuts -> "papercuts"
         Sos -> "sos"
@@ -203,6 +210,7 @@ title screen =
         Evals -> "Evaluations"
         Tools -> "Tool intelligence"
         Skills -> "Skills"
+        ApplicationTraces -> "Application traces"
         Concerns -> "Code concerns"
         Papercuts -> "Papercuts"
         Sos -> "SOS"
@@ -219,6 +227,7 @@ intro screen =
         Evals -> "How each agent measured over time, under which definition."
         Tools -> "How agents interface with the world — and where a better tool is missing."
         Skills -> "The guidance agents actually use, across the last seven days."
+        ApplicationTraces -> "Inspect conversations, tool calls, and skill usage from running applications."
         Concerns -> "Recurring code problems, their affected areas, and the remedies already tried."
         Papercuts -> "Development friction reported by agents, most encountered first."
         Sos -> "Unusual situations encountered by agents inside running applications."
@@ -243,7 +252,7 @@ route url =
         screen = List.filter (\candidate -> String.endsWith ("/" ++ slug candidate) url.path) screens |> List.head |> Maybe.withDefault Coordination
         params = url.query |> Maybe.map parameters |> Maybe.withDefault Dict.empty
     in
-    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if List.member screen [ PullRequests, Concerns ] then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params, range = Dict.get "range" params |> Maybe.withDefault "" |> parseRange }
+    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if List.member screen [ PullRequests, Concerns ] then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params, traceScope = Traces.parseScope params, range = Dict.get "range" params |> Maybe.withDefault "" |> parseRange }
 
 
 parseRange : String -> TimeRange
@@ -276,6 +285,7 @@ routeLocation wanted =
             (if rangeScreen wanted.screen && wanted.range /= Week then [ ( "range", Tuple.first (rangeOption wanted.range) ) ] else [])
                 ++ (if List.member wanted.screen [ PullRequests, Concerns ] && wanted.mode /= "" then [ ( "view", wanted.mode ) ] else [])
                 ++ (if wanted.screen == Audits then Audit.routeFields wanted.audit else [])
+                ++ (if wanted.screen == ApplicationTraces then Traces.fields wanted.traceScope else [])
     in
     screenLocation wanted.screen wanted.project wanted.focus extra
 
@@ -332,6 +342,7 @@ primary screen focus =
         Evals -> focused "eval_dashboard" "group_id"
         Tools -> query "analytics_summary"
         Skills -> query "skill_usage"
+        ApplicationTraces -> Traces.query Traces.empty
         Concerns -> query "concern_dashboard"
         Papercuts -> query "papercuts"
         Sos -> query "sos_list"
@@ -365,13 +376,16 @@ routeQuery wanted =
         ( Concerns, Nothing ) ->
             modeQuery Concerns wanted.mode
 
+        ( ApplicationTraces, _ ) ->
+            Traces.query wanted.traceScope
+
         _ ->
             primary wanted.screen wanted.focus
 
 
 currentRoute : Model -> Route
 currentRoute model =
-    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope, range = model.range }
+    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope, traceScope = model.traceScope, range = model.range }
 
 
 {-| Companion reads that complete a screen: its picker index, focused evidence, or health. -}
@@ -383,6 +397,9 @@ companions model =
 
         Memory ->
             [ ( "health", query "memory_status" ) ]
+
+        ApplicationTraces ->
+            if model.traceScope.trace == "" then [ ( "trace_status", query "trace_status" ) ] else []
 
         PullRequests ->
             [ ( "delivery_watches", query "delivery_watches" ) ]
@@ -502,6 +519,7 @@ reset wanted model =
             , deliveryOverlap = if sameScreen then model.deliveryOverlap else State.empty
             , auditFilters = wanted.audit.filters
             , auditScope = wanted.audit
+            , traceScope = wanted.traceScope
             , details = if sameScreen then model.details else Dict.empty
             , expanded = if sameScreen then model.expanded else Dict.empty
             , trail = []
@@ -535,7 +553,7 @@ update msg model =
                 project = if model.globalProjectReads then wanted.project else wanted.project |> orElse model.project
             in
             if model.authenticated /= Just True then
-                ( { model | screen = wanted.screen, project = project, focus = wanted.focus, range = wanted.range, auditScope = wanted.audit, auditFilters = wanted.audit.filters }, Cmd.none )
+                ( { model | screen = wanted.screen, project = project, focus = wanted.focus, range = wanted.range, auditScope = wanted.audit, traceScope = wanted.traceScope, auditFilters = wanted.audit.filters }, Cmd.none )
 
             else
                 reset { wanted | project = project } model
@@ -594,8 +612,11 @@ update msg model =
             if project == "" && not model.globalProjectReads then
                 ( model, Cmd.none )
             else
-                let wanted = currentRoute model in
-                ( model, Nav.pushUrl model.key (routeLocation { wanted | project = if project == "" then Nothing else Just project, focus = Nothing }) )
+                let
+                    wanted = currentRoute model
+                    traceScopeEmpty = Traces.empty
+                in
+                ( model, Nav.pushUrl model.key (routeLocation { wanted | project = if project == "" then Nothing else Just project, focus = Nothing, traceScope = { traceScopeEmpty | mode = wanted.traceScope.mode } }) )
 
         ChangeFocus focus ->
             let wanted = currentRoute model in
@@ -608,6 +629,19 @@ update msg model =
                 cleared = { filters = { currentAudit | from = "", until = "" }, cutoff = Nothing }
             in
             ( model, Nav.pushUrl model.key (routeLocation { wanted | range = parseRange raw, focus = Nothing, audit = cleared }) )
+
+        ChangeTraceScope field picked ->
+            let traceScope = Traces.setScopeField field picked model.traceScope in
+            ( { model | traceScope = traceScope }, Nav.pushUrl model.key (traceLocation model.project traceScope) )
+
+        ToggleTraceContent ->
+            let
+                current = model.query
+            in
+            if model.traceBrowserContent && current.kind == "trace_get" then
+                load { current | fields = Traces.showContent (not (traceContentShown current)) current.fields } model
+            else
+                ( model, Cmd.none )
 
         Navigate wanted ->
             load wanted { model | trail = model.query :: model.trail, selected = Nothing }
@@ -628,7 +662,7 @@ update msg model =
             ( refreshed, Cmd.batch [ reading, configuration ] )
 
         Tick _ ->
-            if model.authenticated == Just True && not model.data.loading && not model.deliveryOverlap.loading && not model.timeline.loading && model.selected == Nothing then
+            if model.authenticated == Just True && not model.data.loading && not model.deliveryOverlap.loading && not model.timeline.loading && model.selected == Nothing && model.query.kind /= "trace_get" then
                 load model.query model
 
             else
@@ -813,11 +847,12 @@ companionKind key =
 sessionDecoder : String -> Result String ViewerSession
 sessionDecoder raw =
     D.decodeString
-        (D.map4 ViewerSession
+        (D.map5 ViewerSession
             (D.field "authenticated" D.bool)
             (D.oneOf [ D.field "username" D.string, D.succeed "" ])
             (Wire.optional "default_project_id" (D.nullable D.string) Nothing)
             (Wire.optional "global_project_reads" D.bool True)
+            (Wire.optional "trace_browser_content" D.bool False)
         ) raw
         |> Result.mapError D.errorToString
 
@@ -825,7 +860,7 @@ sessionDecoder raw =
 authenticate : ViewerSession -> Model -> ( Model, Cmd Msg )
 authenticate session model =
     let
-        ( configured, configuration ) = bootstrapPolling { model | authenticated = Just True, username = session.username, password = "", loginError = Nothing, project = model.project |> orElse session.defaultProjectId, defaultProjectId = session.defaultProjectId, globalProjectReads = session.globalProjectReads }
+        ( configured, configuration ) = bootstrapPolling { model | authenticated = Just True, username = session.username, password = "", loginError = Nothing, project = model.project |> orElse session.defaultProjectId, defaultProjectId = session.defaultProjectId, globalProjectReads = session.globalProjectReads, traceBrowserContent = session.traceBrowserContent }
     in
     ( configured, Cmd.batch [ read Nothing (query "projects") Projects, configuration ] )
 
@@ -910,7 +945,9 @@ more model =
                     "analytics_examples" -> D.decodeValue (D.field "next_offset" (D.nullable D.int)) doc.root |> Result.withDefault Nothing |> Maybe.map E.int
                     _ -> doc.next
                 wanted cursor =
-                    if List.member model.query.kind [ "concern_list", "concern_dashboard", "delivery_list", "audit_list" ] then
+                    if String.startsWith "trace_" model.query.kind then
+                        Query model.query.kind (Traces.pageFields model.query.kind cursor model.query.fields)
+                    else if List.member model.query.kind [ "concern_list", "concern_dashboard", "delivery_list", "audit_list" ] then
                         let
                             active = List.filter (\( key, _ ) -> key == "filter") model.query.fields |> List.head |> Maybe.map Tuple.second |> Maybe.andThen (D.decodeValue (D.keyValuePairs D.value) >> Result.toMaybe) |> Maybe.withDefault []
                             fence = if model.query.kind == "audit_list" then [ ( "cutoff", Wire.field "cutoff" doc.root ) ] else []
@@ -1161,6 +1198,7 @@ screenIcon screen =
         Evals -> Icon.Flask
         Tools -> Icon.Tools
         Skills -> Icon.Book
+        ApplicationTraces -> Icon.Branch
         Concerns -> Icon.Bug
         Papercuts -> Icon.Warning
         Sos -> Icon.Siren
@@ -1177,10 +1215,42 @@ toolbar model =
     div [ class "toolbar" ]
         [ div [ class "scope-controls" ]
             (label [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
-                :: (timeRangePicker model ++ focusPicker model)
+                :: (timeRangePicker model ++ focusPicker model ++ traceControls model)
             )
-        , div [ class "toolbar-right" ] [ if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
+        , div [ class "toolbar-right" ] [ applicationActivityLink model, if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
         ]
+
+
+traceLocation : Maybe String -> Traces.Scope -> String
+traceLocation project scope =
+    screenLocation ApplicationTraces project Nothing (Traces.fields scope)
+
+
+traceControls : Model -> List (Html Msg)
+traceControls model =
+    if model.screen == ApplicationTraces then
+        Traces.controls ChangeTraceScope model.traceScope (Dict.get "trace_status" model.supplemental)
+    else
+        []
+
+
+applicationActivityLink : Model -> Html Msg
+applicationActivityLink model =
+    let
+        link mode caption =
+            let scope = Traces.empty in
+            a [ class "trace-link", href (traceLocation model.project { scope | mode = mode }) ] [ text caption ]
+    in
+    case model.screen of
+        Skills -> link "skill" "Application skills"
+        Tools -> link "tool" "Application tools"
+        _ -> text ""
+
+
+traceContentShown : Query -> Bool
+traceContentShown wanted =
+    wanted.fields
+        |> List.any (\( key, encoded ) -> key == "include_payload" && D.decodeValue D.bool encoded == Ok True)
 
 
 timeRangePicker : Model -> List (Html Msg)
@@ -1291,6 +1361,7 @@ documentView model doc =
             Evals -> evalView model doc
             Tools -> toolsView model doc
             Skills -> skillsView model doc
+            ApplicationTraces -> Traces.view (traceLocation model.project) model.traceScope model.query.kind { allow = model.traceBrowserContent, shown = traceContentShown model.query, toggle = ToggleTraceContent } (Dict.get "trace_status" model.supplemental) doc
             Concerns -> concernsView model doc
             Papercuts -> papercutsView model doc
             Sos -> sosView model doc
@@ -1810,12 +1881,12 @@ sosView model doc =
     div []
         [ div [ class "stats-grid two" ] [ stat "Reported issues" (String.fromInt (List.length doc.rows)) "Ranked by reports, then latest arrival", stat "Untriaged reports" (countText "untriaged_report_count" doc.root) "Source reports awaiting a triage decision" ]
         , panel "Situations" "Open one to read every report."
-            [ if List.isEmpty doc.rows then nothingRecorded "No situations were reported for this scope." else div [ class "record-list" ] (List.map (\row -> expandable model { key = "sos:" ++ row.id, load = query "sos_get" |> with "issue_id" row.id, icon = Icon.Siren, title = row.title, subtitle = row.subtitle, aside = text "" } sosDetail) doc.rows) ]
+            [ if List.isEmpty doc.rows then nothingRecorded "No situations were reported for this scope." else div [ class "record-list" ] (List.map (\row -> expandable model { key = "sos:" ++ row.id, load = query "sos_get" |> with "issue_id" row.id, icon = Icon.Siren, title = row.title, subtitle = row.subtitle, aside = text "" } (sosDetail model.project)) doc.rows) ]
         ]
 
 
-sosDetail : Maybe Document -> Html Msg
-sosDetail loaded =
+sosDetail : Maybe String -> Maybe Document -> Html Msg
+sosDetail project loaded =
     case loaded of
         Nothing -> text ""
         Just doc ->
@@ -1823,7 +1894,22 @@ sosDetail loaded =
                 detail = Wire.field "detail" doc.root
                 reports = Wire.list "reports" detail
             in
-            div [] [ proseView (Wire.field "issue" detail), reportList (List.map (\report -> ( reporter report, defaultText (Wire.str "received_at" report) (Wire.str "created_at" report), report )) reports) ]
+            div []
+                [ proseView (Wire.field "issue" detail)
+                , div [ class "report-list" ] (List.map (sosReport project) reports)
+                ]
+
+
+sosReport : Maybe String -> D.Value -> Html Msg
+sosReport project report =
+    let
+        scope = Traces.referenceScope (Wire.field "trace_ref" report)
+    in
+    div [ class "report" ]
+        [ header [] [ span [ class "message-from" ] [ text (reporter report) ], small [] [ timeView (defaultText (Wire.str "received_at" report) (Wire.str "created_at" report)) ] ]
+        , proseView report
+        , if scope.trace == "" then text "" else a [ class "trace-link", href (traceLocation project scope) ] [ Icon.view Icon.Branch, text "Open trace" ]
+        ]
 
 
 defaultText : String -> String -> String
