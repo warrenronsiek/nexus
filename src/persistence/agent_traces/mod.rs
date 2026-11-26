@@ -15,12 +15,13 @@ pub(super) use rows::{BatchRow, EventRow};
 use super::backend::DbConnection;
 use super::schema::{trace_batches, trace_events};
 use super::Store;
-use crate::agent_traces::{canonical_time, TraceBatch, TraceConflict, TraceQuery, TraceReceipt};
+use crate::agent_traces::{
+    canonical_time, TraceBatch, TraceConflict, TraceQuery, TraceReadResponse, TraceReceipt,
+};
 use anyhow::{ensure, Result};
 use diesel::dsl::{exists, not};
 use diesel::prelude::*;
 use serde::Serialize;
-use serde_json::Value;
 use std::collections::HashMap;
 
 impl Store {
@@ -64,7 +65,7 @@ impl Store {
         })
     }
 
-    pub fn trace_read(&mut self, project: &str, query: TraceQuery) -> Result<Value> {
+    pub fn trace_read(&mut self, project: &str, query: TraceQuery) -> Result<TraceReadResponse> {
         query.validate()?;
         reads::read(&mut self.connection, project, query)
     }

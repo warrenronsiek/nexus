@@ -3,6 +3,13 @@
 // @entrypoint TraceBatch::validate
 // @boundary dynamic-json
 
+mod reads;
+
+pub use reads::{
+    TraceApplicationScope, TraceEventView, TraceInvocation, TracePage, TracePayloadState,
+    TraceReadResponse, TraceSummary, TraceTimestamp, TraceUsage,
+};
+
 use anyhow::{bail, ensure, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use schemars::JsonSchema;
@@ -131,6 +138,26 @@ pub struct TraceReference {
     pub event_id: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TraceVersionSelector {
+    Any {},
+    Exact { value: String },
+    Unversioned {},
+}
+
+impl Default for TraceVersionSelector {
+    fn default() -> Self {
+        Self::Any {}
+    }
+}
+
+impl TraceVersionSelector {
+    fn is_any(&self) -> bool {
+        matches!(self, Self::Any {})
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TraceFilter {
@@ -138,8 +165,8 @@ pub struct TraceFilter {
     pub environment: Option<String>,
     pub agent_id: Option<String>,
     pub name: Option<String>,
-    pub version: Option<String>,
-    pub unversioned: bool,
+    #[serde(skip_serializing_if = "TraceVersionSelector::is_any")]
+    pub version: TraceVersionSelector,
     pub since: Option<String>,
     pub until: Option<String>,
     pub cursor: Option<String>,
@@ -293,12 +320,10 @@ impl TraceFilter {
             (&self.environment, "environment"),
             (&self.agent_id, "agent_id"),
             (&self.name, "name"),
-            (&self.version, "version"),
         ])?;
-        ensure!(
-            !self.unversioned || self.version.is_none(),
-            "version and unversioned are mutually exclusive"
-        );
+        if let TraceVersionSelector::Exact { value } = &self.version {
+            validate_text(value, "version")?;
+        }
         let since = self
             .since
             .as_deref()

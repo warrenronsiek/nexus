@@ -24,14 +24,19 @@ type alias Scope =
     , event : String
     , mode : String
     , name : String
-    , version : String
-    , unversioned : Bool
+    , version : Version
     }
+
+
+type Version
+    = AnyVersion
+    | ExactVersion String
+    | Unversioned
 
 
 empty : Scope
 empty =
-    Scope "" "" "" "" "" "" "" "" False
+    Scope "" "" "" "" "" "" "" AnyVersion
 
 
 parseScope : Dict String String -> Scope
@@ -55,8 +60,17 @@ parseScope params =
             ""
         )
         (read "name")
-        (read "version")
-        (read "unversioned" == "1")
+        (case Dict.get "version" params of
+            Just version ->
+                ExactVersion version
+
+            Nothing ->
+                if read "unversioned" == "1" then
+                    Unversioned
+
+                else
+                    AnyVersion
+        )
 
 
 fields : Scope -> List ( String, String )
@@ -69,13 +83,16 @@ fields scope =
         , ( "event", scope.event )
         , ( "view", scope.mode )
         , ( "name", scope.name )
-        , ( "version", scope.version )
         ]
-        ++ (if scope.unversioned then
-                [ ( "unversioned", "1" ) ]
+        ++ (case scope.version of
+                AnyVersion ->
+                    []
 
-            else
-                []
+                ExactVersion version ->
+                    [ ( "version", version ) ]
+
+                Unversioned ->
+                    [ ( "unversioned", "1" ) ]
            )
 
 
@@ -108,18 +125,25 @@ query scope =
                         , ( "agent_id", scope.agent )
                         , ( "kind", scope.mode )
                         , ( "name", scope.name )
-                        , ( "version", scope.version )
                         ]
-                        ++ (if scope.unversioned then
-                                [ ( "unversioned", E.bool True ) ]
-
-                            else
-                                []
-                           )
+                        ++ versionFilter scope.version
                     )
               )
             ]
         }
+
+
+versionFilter : Version -> List ( String, E.Value )
+versionFilter version =
+    case version of
+        AnyVersion ->
+            []
+
+        ExactVersion value_ ->
+            [ ( "version", E.object (strings [ ( "kind", "exact" ), ( "value", value_ ) ]) ) ]
+
+        Unversioned ->
+            [ ( "version", E.object (strings [ ( "kind", "unversioned" ) ]) ) ]
 
 
 pageFields : String -> E.Value -> List ( String, E.Value ) -> List ( String, E.Value )
@@ -237,7 +261,7 @@ tabs linkTo scope =
         (List.map
             (\( mode, caption ) ->
                 a
-                    [ href (linkTo { scope | mode = mode, name = "", version = "", unversioned = False })
+                    [ href (linkTo { scope | mode = mode, name = "", version = AnyVersion })
                     , class
                         (if scope.mode == mode then
                             "active"
@@ -360,7 +384,18 @@ usageRow linkTo scope row =
             Wire.str "version" row
 
         scopeForRow =
-            { scope | application = Wire.str "application_id" row, environment = Wire.str "environment" row, agent = Wire.str "agent_id" row, name = name, version = version, unversioned = version == "" }
+            { scope
+                | application = Wire.str "application_id" row
+                , environment = Wire.str "environment" row
+                , agent = Wire.str "agent_id" row
+                , name = name
+                , version =
+                    if version == "" then
+                        Unversioned
+
+                    else
+                        ExactVersion version
+            }
     in
     linkedRow
         (if scope.mode == "skill" then

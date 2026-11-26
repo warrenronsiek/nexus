@@ -5,8 +5,9 @@
 // @boundary trace-rows: portable immutable observations carry JSON content that is detached from query summaries.
 use super::{canonical_time, content_hash};
 use crate::agent_traces::{
-    TraceBatch, TraceEvent, TraceReceipt, MAX_BATCH_BYTES, MAX_BATCH_EVENTS,
+    TraceBatch, TraceEvent, TraceInvocation, TraceReceipt, MAX_BATCH_BYTES, MAX_BATCH_EVENTS,
 };
+use crate::persistence::models::parse_time;
 use crate::persistence::schema::{trace_batches, trace_events, trace_invocations};
 use anyhow::{ensure, Result};
 use chrono::{SecondsFormat, Utc};
@@ -200,12 +201,10 @@ fn valid_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-#[derive(Insertable, Queryable, Selectable, Serialize)]
+#[derive(Insertable, Queryable, Selectable)]
 #[diesel(table_name = trace_invocations, treat_none_as_default_value = false)]
 pub(super) struct InvocationRow {
-    #[serde(skip)]
     pub id: String,
-    #[serde(skip)]
     pub project_id: String,
     pub application_id: String,
     pub environment: String,
@@ -220,4 +219,24 @@ pub(super) struct InvocationRow {
     pub duration_ms: Option<i64>,
     pub started_event_id: Option<String>,
     pub finished_event_id: Option<String>,
+}
+
+impl InvocationRow {
+    pub(super) fn decode(self) -> Result<TraceInvocation> {
+        Ok(TraceInvocation {
+            application_id: self.application_id,
+            environment: self.environment,
+            trace_id: self.trace_id,
+            agent_id: self.agent_id,
+            invocation_id: self.invocation_id,
+            kind: self.kind.parse()?,
+            name: self.name,
+            version: self.version,
+            occurred_at: parse_time(&self.occurred_at)?.into(),
+            outcome: self.outcome.as_deref().map(str::parse).transpose()?,
+            duration_ms: self.duration_ms,
+            started_event_id: self.started_event_id,
+            finished_event_id: self.finished_event_id,
+        })
+    }
 }

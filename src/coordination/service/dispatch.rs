@@ -132,7 +132,7 @@ impl NexusService {
             self.history_store()?.trace_read(&project_id, read.query)
         })();
         match result {
-            Ok(value) => ServiceResponse::Traces(value),
+            Ok(response) => ServiceResponse::Traces(Box::new(response)),
             Err(error) => ServiceResponse::error(error),
         }
     }

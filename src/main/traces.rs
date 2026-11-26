@@ -3,9 +3,12 @@
 // @spec docs/features/runtime.md
 // @spec docs/features/agent-traces.md
 // @boundary dynamic-json
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
-use nexus::agent_traces::{TraceBatch, TraceCapability, TraceFilter, TraceOutcome, TraceQuery};
+use nexus::agent_traces::{
+    TraceBatch, TraceCapability, TraceFilter, TraceOutcome, TraceQuery, TraceReadResponse,
+    TraceVersionSelector,
+};
 use nexus::coordination::api::{ServiceRequest, TraceReadRequest};
 use nexus::runtime::client::NexusClient;
 use nexus::LoadedConfig;
@@ -82,13 +85,17 @@ struct TracePageArgs {
 
 impl From<TraceFilterArgs> for TraceFilter {
     fn from(args: TraceFilterArgs) -> Self {
+        let version = match args.version {
+            Some(value) => TraceVersionSelector::Exact { value },
+            None if args.unversioned => TraceVersionSelector::Unversioned {},
+            None => TraceVersionSelector::Any {},
+        };
         Self {
             application_id: args.scope.application_id,
             environment: args.scope.environment,
             agent_id: args.agent_id,
             name: args.name,
-            version: args.version,
-            unversioned: args.unversioned,
+            version,
             kind: args.kind,
             outcome: args.outcome,
             since: args.since,
@@ -170,6 +177,8 @@ pub(super) async fn run(
             response["error"].as_str().unwrap_or("invalid response")
         );
     }
+    let response: TraceReadResponse =
+        serde_json::from_value(response).context("decode trace read response")?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }

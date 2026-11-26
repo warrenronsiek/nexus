@@ -4,7 +4,24 @@
 // @spec docs/features/persistence.md
 // @boundary trace-fixtures: JSON verifies the public query and batch contract.
 use super::Store;
+use crate::agent_traces::{
+    TraceEventView, TraceInvocation, TraceOutcome, TracePage, TracePayloadState, TraceReadResponse,
+};
 use serde_json::json;
+
+fn calls(response: TraceReadResponse) -> Vec<TraceInvocation> {
+    let TraceReadResponse::Calls { calls, .. } = response else {
+        panic!("expected a trace call page")
+    };
+    calls
+}
+
+fn events(response: TraceReadResponse) -> (Vec<TraceEventView>, TracePage) {
+    let TraceReadResponse::Events { events, page } = response else {
+        panic!("expected a trace event page")
+    };
+    (events, page)
+}
 
 #[test]
 fn projects_a_single_call_when_its_finish_arrives_before_its_start() {
@@ -51,17 +68,13 @@ fn projects_a_single_call_when_its_finish_arrives_before_its_start() {
         .unwrap();
     assert_eq!(store.trace_project_pending(16).unwrap(), 1);
     let query = || serde_json::from_value(json!({"action": "calls", "filter": {}})).unwrap();
-    let result = store.trace_read("project-a", query()).unwrap();
-    let calls = result["calls"].as_array().unwrap();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0]["outcome"], "failed");
-    assert_eq!(calls[0]["started_event_id"], "event-start");
-    assert_eq!(calls[0]["finished_event_id"], "event-finish");
-    assert_eq!(calls[0]["version"], "v2");
-    assert!(store.trace_read("other-project", query()).unwrap()["calls"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    let rows = calls(store.trace_read("project-a", query()).unwrap());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].outcome, Some(TraceOutcome::Failed));
+    assert_eq!(rows[0].started_event_id.as_deref(), Some("event-start"));
+    assert_eq!(rows[0].finished_event_id.as_deref(), Some("event-finish"));
+    assert_eq!(rows[0].version.as_deref(), Some("v2"));
+    assert!(calls(store.trace_read("other-project", query()).unwrap()).is_empty());
 }
 
 #[test]
@@ -94,9 +107,10 @@ fn expires_payload_by_receipt_time_and_preserves_replay_and_portable_evidence() 
             .unwrap(),
         0
     );
+    let (captured, _) = events(store.trace_read("project-a", read()).unwrap());
     assert_eq!(
-        store.trace_read("project-a", read()).unwrap()["events"][0]["payload"]["answer"],
-        "private"
+        captured[0].event.payload,
+        Some(json!({"answer": "private"}))
     );
     assert_eq!(
         store
@@ -116,16 +130,16 @@ fn expires_payload_by_receipt_time_and_preserves_replay_and_portable_evidence() 
     store.write_streamed_snapshot(snapshot.as_file()).unwrap();
     let mut restored = Store::open_memory().unwrap();
     restored.import_streamed_snapshot(snapshot.path()).unwrap();
-    let retained = restored.trace_read("project-a", read()).unwrap();
-    assert_eq!(retained["events"][0]["payload_state"], "expired");
-    assert!(retained["events"][0].get("payload").is_none());
+    let (retained, _) = events(restored.trace_read("project-a", read()).unwrap());
+    assert_eq!(retained[0].payload_state, TracePayloadState::Expired);
+    assert!(retained[0].event.payload.is_none());
     assert_eq!(
         restored.trace_append("project-a", batch()).unwrap(),
         receipt
     );
-    let calls = serde_json::from_value(json!({"action": "calls"})).unwrap();
-    let projected = restored.trace_read("project-a", calls).unwrap();
-    assert_eq!(projected["calls"][0]["outcome"], "succeeded");
+    let query = serde_json::from_value(json!({"action": "calls"})).unwrap();
+    let projected = calls(restored.trace_read("project-a", query).unwrap());
+    assert_eq!(projected[0].outcome, Some(TraceOutcome::Succeeded));
 }
 
 #[test]
@@ -154,20 +168,27 @@ fn authorized_event_pages_follow_source_order_and_fit_transport() {
         }))
         .unwrap()
     };
-    let metadata = store.trace_read("project-a", read(false, None)).unwrap();
-    assert_eq!(metadata["events"].as_array().unwrap().len(), 2);
-    assert!(metadata["events"][0].get("payload").is_none());
+    let (metadata, _) = events(store.trace_read("project-a", read(false, None)).unwrap());
+    assert_eq!(metadata.len(), 2);
+    assert!(metadata[0].event.payload.is_none());
 
     let content = store.trace_read("project-a", read(true, None)).unwrap();
-    assert_eq!(content["events"].as_array().unwrap().len(), 1);
-    assert_eq!(content["events"][0]["event_id"], "first");
-    assert!(serde_json::to_vec(&content).unwrap().len() < 768 * 1024);
-    let next = content["next_cursor"].as_str().unwrap();
-    let second = store
-        .trace_read("project-a", read(true, Some(next)))
-        .unwrap();
-    assert_eq!(second["events"][0]["event_id"], "second");
-    assert_eq!(second["truncated"], false);
+    let bytes = serde_json::to_vec(&content).unwrap();
+    assert!(bytes.len() < 768 * 1024);
+    assert_eq!(
+        serde_json::from_slice::<TraceReadResponse>(&bytes).unwrap(),
+        content
+    );
+    let (content, page) = events(content);
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0].event.event_id, "first");
+    let (second, second_page) = events(
+        store
+            .trace_read("project-a", read(true, page.next_cursor.as_deref()))
+            .unwrap(),
+    );
+    assert_eq!(second[0].event.event_id, "second");
+    assert!(!second_page.truncated);
 }
 
 #[test]
@@ -194,17 +215,75 @@ fn aggregates_usage_for_one_app_agent_and_capability_revision() {
         "filter": {"application_id": "harbor", "agent_id": "clerk", "since": "2026-11-26T19:59:59Z"}
     })).unwrap()
     };
-    let list = store.trace_read("project-a", result("list")).unwrap();
-    assert_eq!(list["traces"][0]["trace_id"], "run-a");
-    let usage = store.trace_read("project-a", result("usage")).unwrap();
-    assert_eq!(usage["usage"].as_array().unwrap().len(), 2);
+    let TraceReadResponse::List { traces, .. } =
+        store.trace_read("project-a", result("list")).unwrap()
+    else {
+        panic!("expected a trace list page")
+    };
+    assert_eq!(traces[0].trace_id, "run-a");
+    let TraceReadResponse::Usage { usage, .. } =
+        store.trace_read("project-a", result("usage")).unwrap()
+    else {
+        panic!("expected a trace usage page")
+    };
+    assert_eq!(usage.len(), 2);
 
     let unversioned = serde_json::from_value(json!({
-        "action": "usage", "filter": {"kind": "tool", "unversioned": true}
+        "action": "usage", "filter": {"kind": "tool", "version": {"kind": "unversioned"}}
     }))
     .unwrap();
-    let failures = store.trace_read("project-a", unversioned).unwrap();
-    assert_eq!(failures["usage"].as_array().unwrap().len(), 1);
-    assert_eq!(failures["usage"][0]["failed"], 1);
-    assert_eq!(failures["usage"][0]["succeeded"], 0);
+    let TraceReadResponse::Usage { usage, .. } =
+        store.trace_read("project-a", unversioned).unwrap()
+    else {
+        panic!("expected a trace usage page")
+    };
+    assert_eq!(usage.len(), 1);
+    assert_eq!(usage[0].failed, 1);
+    assert_eq!(usage[0].succeeded, 0);
+}
+
+#[test]
+fn trace_detail_cursor_stays_contiguous_after_a_late_earlier_event() {
+    let mut store = Store::open_memory().unwrap();
+    let append =
+        |store: &mut Store, batch_id: &str, observations: &[(&str, Option<i64>)]| {
+            let events = observations.iter().map(|(id, sequence)| json!({
+            "event_id": id, "trace_id": "run-a", "agent_id": "clerk",
+            "kind": "message", "occurred_at": "2026-11-26T20:00:00Z", "sequence": sequence
+        })).collect::<Vec<_>>();
+            let batch = serde_json::from_value(json!({
+                "schema_version": 1, "batch_id": batch_id,
+                "application_id": "harbor", "environment": "prod", "events": events
+            }))
+            .unwrap();
+            store.trace_append("project-a", batch).unwrap();
+        };
+    let read = |store: &mut Store, cursor: Option<&str>| {
+        let query = serde_json::from_value(json!({
+            "action": "get", "application_id": "harbor", "environment": "prod",
+            "trace_id": "run-a", "limit": 1, "cursor": cursor
+        }))
+        .unwrap();
+        events(store.trace_read("project-a", query).unwrap())
+    };
+    append(
+        &mut store,
+        "initial",
+        &[
+            ("second", Some(2)),
+            ("third", Some(3)),
+            ("fourth", None),
+            ("fifth", None),
+        ],
+    );
+    let (first, mut page) = read(&mut store, None);
+    assert_eq!(first[0].event.event_id, "second");
+    append(&mut store, "late", &[("first", Some(1))]);
+    for expected in ["third", "fifth", "fourth"] {
+        let (next, next_page) = read(&mut store, page.next_cursor.as_deref());
+        assert_eq!(next[0].event.event_id, expected);
+        page = next_page;
+    }
+    assert!(!page.truncated);
+    assert_eq!(read(&mut store, None).0[0].event.event_id, "first");
 }

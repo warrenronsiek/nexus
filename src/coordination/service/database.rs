@@ -43,6 +43,15 @@ impl DatabaseOperation {
         }
     }
 
+    #[cfg(feature = "postgres")]
+    fn baseline_connections() -> u32 {
+        Self::ALL
+            .into_iter()
+            .filter(|operation| !matches!(operation, Self::TraceIngest | Self::TraceProjection))
+            .map(Self::capacity)
+            .sum::<usize>() as u32
+    }
+
     pub(crate) fn wait(self) -> Duration {
         match self {
             Self::Lifecycle => Duration::from_millis(100),
@@ -251,6 +260,7 @@ mod postgres {
                 .sum();
             let pool = Pool::builder()
                 .max_size(size as u32)
+                .min_idle(Some(DatabaseOperation::baseline_connections()))
                 .connection_timeout(Duration::from_secs(5))
                 .build(StoreManager(ConnectionManager::new(url)))
                 .context("open PostgreSQL connection pool")?;

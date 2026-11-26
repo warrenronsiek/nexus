@@ -241,9 +241,7 @@ impl TraceProjector {
     fn start(service: Arc<NexusService>, ingress: Option<&Arc<TraceIngress>>) -> Result<Self> {
         let retention = payload_retention()?;
         let expiry = tokio::spawn(expire_payloads(service.clone(), retention));
-        let wake = ingress
-            .map(|ingress| ingress.wake_projector.clone())
-            .unwrap_or_else(|| Arc::new(Notify::new()));
+        let wake = ingress.map(|ingress| ingress.wake_projector.clone());
         let projection = tokio::spawn(async move {
             let mut was_unavailable = false;
             loop {
@@ -264,13 +262,18 @@ impl TraceProjector {
                         true
                     }
                 };
-                if drained {
+                if !drained {
+                    tokio::task::yield_now().await;
+                } else if let Some(wake) = &wake {
                     tokio::select! {
                         _ = wake.notified() => {},
                         _ = tokio::time::sleep(PROJECTOR_POLL) => {},
                     }
+                } else if was_unavailable {
+                    tokio::time::sleep(PROJECTOR_POLL).await;
                 } else {
-                    tokio::task::yield_now().await;
+                    // Durable work from before ingestion was disabled has been drained.
+                    break;
                 }
             }
         });
@@ -332,14 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn scope_and_durable_receipts_are_enforced_at_the_http_boundary() {
-        let service = Arc::new(NexusService::from_store(
-            LoadedConfig {
-                config: Config::default(),
-                sources: vec![],
-                hash: "trace-test".into(),
-            },
-            Store::open_memory().unwrap(),
-        ));
+        let service = fixture_service();
         let router = TraceIngress::new(service.clone(), vec![], &json!([{
             "project_id": "desk", "application_id": "support", "environment": "production", "token": TOKEN
         }]).to_string()).unwrap().router();
@@ -374,6 +370,40 @@ mod tests {
         assert_eq!(response.status(), StatusCode::CONFLICT);
         assert_eq!(service.project_traces(8).unwrap(), 1);
         assert_eq!(service.project_traces(8).unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn unconfigured_projection_drains_any_backlog_then_stops_polling() {
+        let service = fixture_service();
+        let batch = serde_json::from_value(json!({
+            "schema_version": 1, "batch_id": "previous-upload",
+            "application_id": "support", "environment": "production",
+            "events": [{
+                "event_id": "start-1", "trace_id": "run-1", "agent_id": "assistant",
+                "kind": "tool_started", "occurred_at": "2026-11-26T15:00:00Z",
+                "invocation_id": "call-1", "name": "lookup_order"
+            }]
+        }))
+        .unwrap();
+        service.append_trace("desk", batch).unwrap();
+
+        let mut worker = TraceProjector::start(service.clone(), None).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), &mut worker.projection)
+            .await
+            .expect("projector still polls with uploads disabled")
+            .unwrap();
+        assert_eq!(service.project_traces(8).unwrap(), 0);
+    }
+
+    fn fixture_service() -> Arc<NexusService> {
+        Arc::new(NexusService::from_store(
+            LoadedConfig {
+                config: Config::default(),
+                sources: vec![],
+                hash: "trace-test".into(),
+            },
+            Store::open_memory().unwrap(),
+        ))
     }
 
     async fn post_batch(

@@ -15,7 +15,7 @@
 // @boundary external-postgres-and-json
 #![cfg(feature = "postgres")]
 
-use nexus::agent_traces::{TraceBatch, TraceFilter, TraceQuery};
+use nexus::agent_traces::{TraceBatch, TraceFilter, TraceOutcome, TraceQuery, TraceReadResponse};
 use nexus::coordination::api::ServiceRequest;
 use nexus::persistence::Store;
 use nexus::{Config, LoadedConfig, NexusService};
@@ -480,11 +480,13 @@ fn postgres_trace_acceptance_deduplicates_parallel_uploads_and_recovers_pending_
             },
         )
         .unwrap();
-    let calls = response["calls"].as_array().unwrap();
+    let TraceReadResponse::Calls { calls, .. } = response else {
+        panic!("expected a trace call page")
+    };
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0]["started_event_id"], "start");
-    assert_eq!(calls[0]["finished_event_id"], "result");
-    assert_eq!(calls[0]["outcome"], "timed_out");
+    assert_eq!(calls[0].started_event_id.as_deref(), Some("start"));
+    assert_eq!(calls[0].finished_event_id.as_deref(), Some("result"));
+    assert_eq!(calls[0].outcome, Some(TraceOutcome::TimedOut));
 }
 
 fn trace_uploads() -> [TraceBatch; 2] {

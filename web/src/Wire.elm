@@ -225,6 +225,9 @@ shape kind root =
         rows key decoder =
             required key (D.list decoder) root |> Result.map (\items -> { base | rows = items })
 
+        trace key fields =
+            required key (D.list (List.foldl (\name -> D.map2 (\_ _ -> ()) (D.field name D.string)) (D.succeed ()) fields)) root |> Result.map (always base)
+
         described key title =
             rows key (withSubtitle (\body -> title body) (row "id" "title" key))
 
@@ -301,20 +304,11 @@ shape kind root =
         "papercuts" ->
             described "papercuts" (\v -> String.fromFloat (number "upvote_count" v) ++ " encounters · " ++ str "updated_at" v)
 
-        "trace_list" ->
-            rows "traces" (row "trace_id" "trace_id" "application_trace")
-
-        "trace_usage" ->
-            rows "usage" (row "name" "name" "application_usage")
-
-        "trace_calls" ->
-            rows "calls" (row "invocation_id" "name" "application_call")
-
-        "trace_get" ->
-            rows "events" (row "event_id" "kind" "application_event")
-
-        "trace_status" ->
-            required "scopes" (D.list D.value) root |> Result.map (\_ -> base)
+        "trace_list" -> trace "traces" [ "trace_id" ]
+        "trace_usage" -> trace "usage" [ "name" ]
+        "trace_calls" -> trace "calls" [ "invocation_id", "name" ]
+        "trace_get" -> trace "events" [ "event_id", "kind" ]
+        "trace_status" -> trace "scopes" []
 
         "sos_list" ->
             described "issues" (\v -> String.fromFloat (number "importance_count" v) ++ " reports · " ++ str "last_reported_at" v)

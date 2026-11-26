@@ -27,6 +27,7 @@ use super::memory::{
 };
 use super::papercuts::PapercutResponse;
 use super::sos::SosResponse;
+use crate::agent_traces::TraceReadResponse;
 use crate::agents::analyst::AnalysisResult;
 use crate::config::Config;
 use crate::coordination::domain::{
@@ -51,7 +52,7 @@ pub enum ServiceResponse {
     Conflicts(ConflictsResponse),
     SessionTimeline(SessionTimelineResponse),
     SessionIndex(SessionIndexResponse),
-    Traces(Value),
+    Traces(Box<TraceReadResponse>),
     Resolved(ResolvedResponse),
     Released(ReleasedResponse),
     Analysis(AnalysisResponse),

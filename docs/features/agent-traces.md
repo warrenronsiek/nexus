@@ -133,13 +133,20 @@ nexus traces schema
 
 The read-only MCP tool is `nexus_traces`. Its tagged requests support the same
 list, invocation, usage, detail, and backlog reads. Use the response cursor to
-continue a bounded result. Start with metadata and fetch exact source events as
-needed. Compare tool execution outcomes separately from correctness judgments in
+continue a bounded result. A trace event cursor continues after its last event
+even when an earlier event arrives late. Restart the read to see events that
+arrived before that cursor. Calls and usage reflect the latest available
+projection. Start with metadata and fetch exact source events as needed. Compare tool execution outcomes separately from correctness judgments in
 [Evals](evals.md). A tool can return successfully and still return the wrong
 answer. For an Eval grade, link a small JSON evidence artifact containing the
 project, application, environment, trace ID, event ID, invocation ID, and tool
 version. Those coordinates identify the evidence independently of transcript
 retention.
+
+For an MCP capability query, `filter.version` accepts
+`{"kind":"exact","value":"3"}` or `{"kind":"unversioned"}`. Omit it to match all
+versions. Producer event versions use strings. The CLI flags are `--version`
+and `--unversioned`.
 
 In the browser, open application usage from **Skills** or **Tools**, or use
 **Traces**. Select a project, filter application and agent, and follow a call to
@@ -148,7 +155,10 @@ its source event. Capture gaps and projection delay can change counts.
 ## Persistence and validation
 
 The PostgreSQL deployment reserves independent ingress and projection capacity
-alongside existing SOS and browser capacity. Ordinary Diesel append transactions
+alongside existing SOS and browser capacity. The pool can open these extra
+connections on demand. On a server with uploads disabled, the projector drains
+any previously accepted batches at startup and then stops. Payload expiry still
+runs for retained content. Ordinary Diesel append transactions
 use unique identities without taking the aggregate advisory writer lock. Typed
 backend migrations provide the same event contract in SQLite for local
 inspection and testing. The contract is owned by `src/agent_traces.rs`; the

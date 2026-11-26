@@ -321,7 +321,7 @@ it("filters application skill usage and drills into the matching calls", async (
   });
   document.querySelector<HTMLAnchorElement>("a[href*='name=classify-mail']")!.click();
   await content("Failed");
-  expect(requests.filter(request => request.body.query?.kind === "trace_calls").at(-1)?.body.query).toMatchObject({ filter: { unversioned: true } });
+  expect(requests.filter(request => request.body.query?.kind === "trace_calls").at(-1)?.body.query).toMatchObject({ filter: { version: { kind: "unversioned" } } });
   await signOutOfFixture();
 });
 
