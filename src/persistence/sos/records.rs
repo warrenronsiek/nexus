@@ -29,6 +29,7 @@ pub(super) struct SosReportRow {
     pub(super) model: String,
     pub(super) trace: String,
     pub(super) metadata_json: String,
+    pub(super) trace_ref_json: Option<String>,
     pub(super) reporter_agent: String,
     pub(super) reporter_session_id: String,
     pub(super) reporter_model_id: Option<String>,
@@ -49,6 +50,7 @@ pub(super) struct NewSosReport<'a> {
     pub(super) model: &'a str,
     pub(super) trace: &'a str,
     pub(super) metadata_json: &'a str,
+    pub(super) trace_ref_json: Option<&'a str>,
     pub(super) reporter_agent: &'a str,
     pub(super) reporter_session_id: &'a str,
     pub(super) reporter_model_id: Option<&'a str>,
@@ -172,6 +174,12 @@ impl SosReportRow {
             serde_json::from_str::<serde_json::Value>(&self.metadata_json)
                 .context("decode SOS metadata JSON")?,
         )?;
+        let trace_ref = self
+            .trace_ref_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .context("decode SOS trace reference")?;
         let created_at = parse_time(&self.created_at)?;
         Ok(SosReport {
             id: self.id,
@@ -183,6 +191,7 @@ impl SosReportRow {
             version: self.version,
             model: self.model,
             trace: self.trace,
+            trace_ref,
             metadata,
             reporter: decode_actor(
                 self.reporter_agent,

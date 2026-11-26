@@ -12,6 +12,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+mod agent_traces;
 mod analytics;
 mod audit;
 mod backend;
@@ -39,6 +40,8 @@ mod sos;
 mod store;
 #[cfg(test)]
 mod test_support;
+#[cfg(all(test, feature = "sqlite"))]
+mod trace_contract_tests;
 mod transaction;
 mod transfer;
 mod usage;

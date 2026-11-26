@@ -19,8 +19,10 @@ use serde::Deserialize;
 
 mod evals;
 mod history_range;
+mod traces;
 use evals::EvalRead;
 use history_range::HistoryRange;
+use traces::TraceRead;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +44,7 @@ enum BrowserRead {
     Concerns(ConcernRead),
     Delivery(DeliveryRead),
     Audit(AuditRead),
+    Traces(TraceRead),
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
@@ -272,7 +275,10 @@ fn host_origin() -> WorkSessionOrigin {
 }
 
 impl ReadEnvelope {
-    pub(super) fn prepare(self) -> Result<(ServiceRequest, Option<String>)> {
+    pub(super) fn prepare(
+        self,
+        allow_trace_content: bool,
+    ) -> Result<(ServiceRequest, Option<String>)> {
         let project = self
             .project_id
             .as_deref()
@@ -284,7 +290,9 @@ impl ReadEnvelope {
             project.is_some() || self.query.permits_global(),
             "select a project for this read"
         );
-        let request = self.query.into_request(project.clone());
+        let request = self
+            .query
+            .into_request(project.clone(), allow_trace_content);
         let (method, params) = request.wire_parts()?;
         Ok((ServiceRequest::decode(method, params)?, project))
     }
@@ -308,7 +316,7 @@ impl BrowserRead {
             _ => false,
         }
     }
-    fn into_request(self, project: Option<String>) -> ServiceRequest {
+    fn into_request(self, project: Option<String>, allow_trace_content: bool) -> ServiceRequest {
         match self {
             Self::Coordination(read) => read.into_request(project),
             Self::Analytics(read) => read.into_request(project),
@@ -319,6 +327,9 @@ impl BrowserRead {
             Self::Concerns(read) => ServiceRequest::Concerns(bound(read.into_action(project))),
             Self::Delivery(read) => ServiceRequest::Delivery(bound(read.into_action(project))),
             Self::Audit(read) => ServiceRequest::Audit(bound(read.into_action(project))),
+            Self::Traces(read) => {
+                ServiceRequest::Traces(read.into_query(allow_trace_content).into())
+            }
         }
     }
 }

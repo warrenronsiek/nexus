@@ -1,3 +1,5 @@
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @feature audit-registry
 // @spec docs/features/audit-registry.md
 // @feature delivery-coordination
@@ -10,6 +12,7 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+pub mod agent_traces;
 pub mod agents;
 pub(crate) mod analytics;
 pub mod audit;

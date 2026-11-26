@@ -18,11 +18,16 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @entrypoint NexusService::handle
 use super::NexusService;
-use crate::coordination::api::{ConfigResponse, ServiceRequest, ServiceResponse, ToolHookPhase};
+use crate::coordination::api::{
+    ConfigResponse, ServiceRequest, ServiceResponse, ToolHookPhase, TraceReadRequest,
+};
 use crate::coordination::client_evidence::ClientFilesystemEvidence;
-use crate::coordination::workspace::ProjectBinding;
+use crate::coordination::workspace::{self, ProjectBinding};
+use anyhow::Context;
 
 impl NexusService {
     pub fn handle(&self, request: ServiceRequest) -> ServiceResponse {
@@ -94,6 +99,7 @@ impl NexusService {
             request @ (ServiceRequest::SessionTimeline(_) | ServiceRequest::SessionIndex(_)) => {
                 self.session_history(request, project)
             }
+            ServiceRequest::Traces(read) => self.trace_read(read, project),
             request @ (ServiceRequest::Resolve(_)
             | ServiceRequest::Release(_)
             | ServiceRequest::Analyze(_)
@@ -109,6 +115,25 @@ impl NexusService {
                 self.handle_command(request, project)
             }
             ServiceRequest::Concerns(_) => self.handle_command(request, project),
+        }
+    }
+
+    fn trace_read(&self, read: TraceReadRequest, binding: &ProjectBinding) -> ServiceResponse {
+        let result = (|| {
+            read.query.validate()?;
+            let project_id = match binding {
+                ProjectBinding::Local => {
+                    workspace::identify(binding, read.project_root.as_deref())?.id
+                }
+                _ => binding
+                    .default_read_project(None)
+                    .context("select a project for trace reads")?,
+            };
+            self.history_store()?.trace_read(&project_id, read.query)
+        })();
+        match result {
+            Ok(response) => ServiceResponse::Traces(Box::new(response)),
+            Err(error) => ServiceResponse::error(error),
         }
     }
 

@@ -18,6 +18,8 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 // @spec docs/features/work-history.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @entrypoint serve_stdio
 // @boundary dynamic-json
 use super::bounded_io;
@@ -380,6 +382,12 @@ fn bind_tool_context(
         if let Ok(command) = concern_reporting::prepare(arguments.clone()) {
             arguments = serde_json::to_value(command).expect("typed concern command serializable");
         }
+    }
+    if method == "traces" {
+        return json!({
+            "project_root": invocation_context.project_root,
+            "query": arguments
+        });
     }
     if matches!(method, "evals" | "work" | "concerns" | "delivery" | "audit") {
         arguments = json!({

@@ -3,8 +3,9 @@
 // @spec docs/features/sos.md
 // @spec docs/features/coordination.md
 // @boundary dynamic-json
+use crate::agent_traces::TraceReference;
 use crate::coordination::domain::HookContext;
-use crate::sos::{SosIssue, SosIssueDetail, SosMetadata, SosRegistry, SosReport};
+use crate::sos::{decode_trace_ref, SosIssue, SosIssueDetail, SosMetadata, SosRegistry, SosReport};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -27,6 +28,12 @@ pub enum SosCommand {
         environment: String,
         version: String,
         trace: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "decode_trace_ref"
+        )]
+        trace_ref: Option<TraceReference>,
         #[serde(default)]
         metadata: SosMetadata,
     },

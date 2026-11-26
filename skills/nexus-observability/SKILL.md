@@ -1,6 +1,6 @@
 ---
 name: nexus-observability
-description: Inspect Nexus coordination, work history, delivery, audits, evaluations, code concerns, usage, memory, Papercuts, and SOS in the authenticated read-only browser. Find the right view, scope its history, and interpret recorded evidence.
+description: Inspect Nexus coordination, work history, delivery, audits, evaluations, code concerns, usage, application traces, memory, Papercuts, and SOS in the authenticated read-only browser. Find the right view, scope its history, and interpret recorded evidence.
 ---
 
 # Inspect Nexus evidence in the browser
@@ -51,6 +51,7 @@ when the producer observed it.
 | Are installed skills being used, and what do they say? | Skills → seven-day counts → expand to read the skill |
 | What durable context exists? | Memory → notes and summaries by level → expand to sources |
 | Which development friction recurs? | Papercuts → most encountered first → expand for every report |
+| Which application agents use a tool or skill, and what happened? | Application traces → project, application, environment and agent → Skills or Tools → invocation → trace event |
 | Which application situations recur? | SOS → most reported first → expand for recent reports and triage |
 | What keeps going wrong in this code area? | Code concerns → problem areas → concerns → encounters and remedies |
 | How is an agent measuring over time? | Evals → agent picker → one dot chart per metric with its definition |
@@ -103,6 +104,12 @@ availability. Expanding an activity lists the commands that performed it, each
 with runs per six-hour bin across the seven-day window. Expanding a skill shows
 the latest skill text an agent's client reported; older clients report none.
 Use [usage analytics](../nexus-usage-analytics/SKILL.md) for capture and counting rules.
+
+**Application traces:** choose a project and filter by application, environment,
+and agent. Open Skills or Tools for invocation counts and drill into observed
+calls. A call or an SOS report may open a single event, and View full trace shows
+its conversation. Use Show captured content when the browser server has enabled
+it. Missing payload or event history is distinct from a recorded empty result.
 
 **Code concerns:** select a problem area to list its concerns, then expand one for
 its encounters, attempted remedies, resolutions and returns. Overlapping areas are

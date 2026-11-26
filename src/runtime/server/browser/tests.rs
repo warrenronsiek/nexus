@@ -136,7 +136,7 @@ fn session_history_reads_are_closed_project_scoped_browser_kinds() {
     let prepare = |envelope: serde_json::Value| {
         serde_json::from_value::<read::ReadEnvelope>(envelope)
             .map_err(anyhow::Error::from)
-            .and_then(read::ReadEnvelope::prepare)
+            .and_then(|envelope| envelope.prepare(false))
     };
     let (timeline, project) = prepare(serde_json::json!({
         "project_id": " project-a ",
@@ -171,12 +171,46 @@ fn session_history_reads_are_closed_project_scoped_browser_kinds() {
 }
 
 #[test]
+fn application_trace_reads_are_closed_project_scoped_and_content_is_opt_in() {
+    use crate::agent_traces::TraceQuery;
+
+    let prepare = |project, query, trace_content| {
+        serde_json::from_value::<read::ReadEnvelope>(
+            serde_json::json!({"project_id": project, "query": query}),
+        )
+        .map_err(anyhow::Error::from)
+        .and_then(|envelope| envelope.prepare(trace_content))
+    };
+    let query = serde_json::json!({
+        "kind": "trace_get", "application_id": "mail", "environment": "production",
+        "trace_id": "conversation-1", "event_id": "event-1", "include_payload": true
+    });
+    for allowed in [false, true] {
+        let (request, project) = prepare(Some("project-a"), query.clone(), allowed).unwrap();
+        assert_eq!(project.as_deref(), Some("project-a"));
+        assert!(matches!(request, ServiceRequest::Traces(read)
+            if matches!(read.query, TraceQuery::Get { include_payload, event_id: Some(ref event_id), .. }
+                if include_payload == allowed && event_id == "event-1")));
+    }
+    assert!(prepare(None, query.clone(), true).is_err());
+    let mut injected = query;
+    injected["project_id"] = serde_json::json!("other-project");
+    assert!(prepare(Some("project-a"), injected, true).is_err());
+    assert!(prepare(
+        Some("project-a"),
+        serde_json::json!({"kind":"trace_ingest"}),
+        true
+    )
+    .is_err());
+}
+
+#[test]
 fn audit_browser_reads_are_scoped_and_closed() {
     let request = |query, project| {
         serde_json::from_value::<read::ReadEnvelope>(
             serde_json::json!({"project_id":project,"query":query}),
         )
-        .and_then(|request| request.prepare().map_err(serde::de::Error::custom))
+        .and_then(|request| request.prepare(false).map_err(serde::de::Error::custom))
     };
     assert!(request(
         serde_json::json!({"kind":"audit_list","filter":{"control_key":"review"}}),

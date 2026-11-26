@@ -153,6 +153,7 @@ fn sos_cli_accepts_full_reports_and_issue_lifecycle_actions() {
                 model,
                 trace,
                 metadata_json,
+                trace_ref_json: _,
             },
     } = report.command
     else {

@@ -15,7 +15,8 @@ use crate::persistence::models::parse_time;
 use crate::persistence::schema::{
     analytics_calls, analytics_exposures, analytics_resources, audit_records, capability_uses,
     code_map_snapshots, concern_observations, delivery_observations, eval_records, events,
-    memory_spaces, papercuts, projects, sessions, sos_issues, sos_reports, work_observations,
+    memory_spaces, papercuts, projects, sessions, sos_issues, sos_reports, trace_batches,
+    work_observations,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -113,6 +114,24 @@ pub(crate) fn touch_project(
             .set(projects::last_seen_at.eq(excluded(projects::last_seen_at)))
             .execute(connection)?,
     };
+    Ok(())
+}
+
+/// Makes a trace-only project discoverable without advancing development recency.
+pub(in crate::persistence) fn discover_project(
+    connection: &mut DbConnection,
+    project_id: &str,
+    observed_at: &str,
+) -> Result<()> {
+    let timestamp = parse_time(observed_at)?.to_rfc3339();
+    diesel::insert_into(projects::table)
+        .values((
+            projects::project_id.eq(project_id),
+            projects::first_seen_at.eq(&timestamp),
+            projects::last_seen_at.eq(&timestamp),
+        ))
+        .on_conflict_do_nothing()
+        .execute(connection)?;
     Ok(())
 }
 
@@ -241,6 +260,12 @@ fn record_activity(connection: &mut DbConnection) -> QueryResult<Vec<ActivityRow
             sos_issues,
             sos_issues::created_at,
             sos_issues::updated_at
+        ),
+        activity!(
+            connection,
+            trace_batches,
+            trace_batches::received_at,
+            trace_batches::received_at
         ),
         activity!(
             connection,

@@ -32,18 +32,22 @@ use tokio::sync::Semaphore;
 pub struct BrowserConfig {
     credentials: Option<credentials::Credentials>,
     origin: origin::BrowserOrigin,
+    allow_trace_content: bool,
 }
 impl BrowserConfig {
     pub fn load(path: &Path, public_origin: Option<&str>) -> Result<Self> {
         Ok(Self {
             credentials: credentials::Credentials::load(path)?,
             origin: origin::BrowserOrigin::parse(public_origin)?,
+            allow_trace_content: std::env::var("NEXUS_TRACE_BROWSER_CONTENT")
+                .is_ok_and(|value| value == "1"),
         })
     }
     pub fn disabled() -> Self {
         Self {
             credentials: None,
             origin: origin::BrowserOrigin::Loopback,
+            allow_trace_content: false,
         }
     }
     pub fn configured(&self) -> bool {
@@ -90,6 +94,7 @@ struct BrowserState {
     origin: origin::BrowserOrigin,
     dispatcher: ReadDispatcher,
     project_scope: scope::ProjectScope,
+    allow_trace_content: bool,
     requests: Arc<Semaphore>,
 }
 fn router(
@@ -102,6 +107,7 @@ fn router(
         origin: config.origin,
         dispatcher,
         project_scope,
+        allow_trace_content: config.allow_trace_content,
         requests: Arc::new(Semaphore::new(16)),
     });
     Router::new()

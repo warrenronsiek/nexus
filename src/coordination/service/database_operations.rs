@@ -2,6 +2,8 @@
 // @feature persistence
 // @spec docs/features/coordination.md
 // @spec docs/features/persistence.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 use super::DatabaseOperation::{self, History, Interactive, Lifecycle, Write};
 use crate::analytics::types::AnalyticsCommand;
 use crate::audit::AuditAction;
@@ -34,6 +36,7 @@ impl ServiceRequest {
             Self::Work(command) => command.command.database_operation(),
             Self::Delivery(command) => command.command.database_operation(),
             Self::Audit(command) => command.command.database_operation(),
+            Self::Traces(_) => History,
             Self::Config | Self::UiPreferences | Self::Analyze(_) | Self::MemoryConsolidate => {
                 return None
             }

@@ -2,9 +2,11 @@
 // @feature runtime
 // @spec docs/features/audit-registry.md
 // @spec docs/features/runtime.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 use super::{
     audit_cli, run_admin_command, run_memory_command, run_papercuts_command, run_query_command,
-    sos_cli, Command,
+    sos_cli, traces_cli, Command,
 };
 use anyhow::Result;
 use nexus::LoadedConfig;
@@ -20,6 +22,7 @@ pub(super) async fn run(
         Command::Memory { command } => run_memory_command(command, root, loaded).await,
         Command::Papercuts { command } => run_papercuts_command(command, root, loaded).await,
         Command::Sos { command } => sos_cli::run(command, root, loaded).await,
+        Command::Traces(command) => traces_cli::run(command, root, loaded, config).await,
         query @ (Command::Status
         | Command::Events { .. }
         | Command::Sessions { .. }

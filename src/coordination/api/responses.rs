@@ -18,6 +18,8 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @boundary serialized-service-response
 use super::memory::{
     MemoryConsolidationReport, MemoryContextResponse, MemoryEntriesResponse,
@@ -25,6 +27,7 @@ use super::memory::{
 };
 use super::papercuts::PapercutResponse;
 use super::sos::SosResponse;
+use crate::agent_traces::TraceReadResponse;
 use crate::agents::analyst::AnalysisResult;
 use crate::config::Config;
 use crate::coordination::domain::{
@@ -49,6 +52,7 @@ pub enum ServiceResponse {
     Conflicts(ConflictsResponse),
     SessionTimeline(SessionTimelineResponse),
     SessionIndex(SessionIndexResponse),
+    Traces(Box<TraceReadResponse>),
     Resolved(ResolvedResponse),
     Released(ReleasedResponse),
     Analysis(AnalysisResponse),

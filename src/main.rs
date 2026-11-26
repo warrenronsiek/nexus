@@ -20,6 +20,8 @@
 // @spec docs/features/agent-memory.md
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @entrypoint main
 // @boundary cli-and-json
 #[path = "main/audit/mod.rs"]
@@ -38,6 +40,8 @@ mod history_transfer;
 mod operator_cli;
 #[path = "main/sos.rs"]
 mod sos_cli;
+#[path = "main/traces.rs"]
+mod traces_cli;
 #[path = "main/update.rs"]
 mod update_cli;
 #[path = "main/web.rs"]
@@ -179,6 +183,9 @@ enum Command {
         #[command(subcommand)]
         command: SosCliCommand,
     },
+    /// Inspect live application-agent traces and their tool and skill calls.
+    #[command(subcommand)]
+    Traces(traces_cli::TraceCliCommand),
     /// Record and inspect caller-owned evaluation history.
     Eval {
         #[command(subcommand)]
@@ -338,10 +345,13 @@ impl CliInvocation {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    if let Command::UpdateResume { snapshot } = &cli.command {
-        return nexus::runtime::daemon_control::resume(snapshot).await;
+    match &cli.command {
+        Command::UpdateResume { snapshot } => {
+            nexus::runtime::daemon_control::resume(snapshot).await
+        }
+        Command::Traces(traces_cli::TraceCliCommand::Schema) => traces_cli::print_schema(),
+        _ => run_configured(CliInvocation::resolve(cli)?).await,
     }
-    run_configured(CliInvocation::resolve(cli)?).await
 }
 
 async fn run_configured(invocation: CliInvocation) -> Result<()> {

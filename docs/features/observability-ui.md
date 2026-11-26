@@ -12,7 +12,7 @@ the existing composite indexes remain available for ordered event pages.
 ## What this feature does
 
 Nexus serves an authenticated browser application for Coordination, Work history,
-Pull requests, Audits, Evaluations, Tool intelligence, Skills, Code concerns,
+Pull requests, Audits, Evaluations, Tool intelligence, Skills, Application traces, Code concerns,
 Papercuts, SOS, and Agent memory. Selecting a session, metric, area, or record
 reveals its evidence. The
 application replaces the native and Pi terminal dashboards. Pi retains its
@@ -205,6 +205,19 @@ no optimization direction.
 per day. Selecting an area lists its concerns; expanding one shows its summary and
 its encounters, remedies, resolutions and returns in order. Overlapping area
 totals are not additive and reports are not an objective defect rate.
+
+**Application traces** is a project-scoped destination for retained application
+agent conversations. Application, environment, and agent pickers use recorded
+scope values and retain their selections in the URL. Tool and skill usage show
+invocation counts, then drill into matching calls and their outcomes. A call or
+SOS report can open a specific event, with a link to the full conversation. The
+Tool intelligence and Skills destinations link to these application views.
+
+Trace detail requests metadata first. Full captured text and structured payloads
+require `NEXUS_TRACE_BROWSER_CONTENT=1` on the browser server and a viewer action
+to reveal content. The closed browser route suppresses payload requests by default.
+Trace payloads render as text, and the existing browser credentials, project
+scope, request bounds, and no-store policy apply to trace reads.
 
 **Papercuts and SOS** retain their separate meaning and lifecycle. Both list the
 most encountered (reported) first, then the most recent. Expanding one shows every

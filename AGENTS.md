@@ -21,6 +21,7 @@ Read the returned specification and entry-point files before editing. The curren
 - `commit-review`: parallel cross-model architecture and deletion review for staged commits.
 - `installation`: one-command machine setup and repository onboarding.
 - `observability-ui`: authenticated read-only Elm/D3 browser coordination, analytics, memory, eval, and work visualization.
+- `agent-traces`: application agent event capture, invocation analytics, transcript inspection, and SOS references.
 - `usage-analytics`: observed tool, skill, and script usage capture and seven-day reporting.
 - `agent-memory`: explicit durable notes, bounded hierarchical context, search, expansion, and Nexus-managed consolidation.
 - `papercuts`: timestamped development-friction reports, upvotes, duplicate review, consolidation, resolution, and complete registry export.

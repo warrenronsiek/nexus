@@ -305,6 +305,7 @@ portable_row!(SosReportTransfer, sos_reports, {
     reporter_model_id: Option<String>,
     reporter_config_hash: String,
     created_at: String,
+    trace_ref_json: Option<String>,
 });
 
 portable_row!(SosTriageAttemptTransfer, sos_triage_attempts, {

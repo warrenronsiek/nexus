@@ -12,18 +12,19 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; range?: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; include_payload?: boolean; event_id?: string; range?: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 const failedReadKinds = new Set<string>();
 let configuredInterval = 30000;
+let browserTraceContent = false;
 let remoteViewer: { default_project_id: string; global_project_reads: false } | null = null;
 function fixture(name: string): string {
   return readFileSync(new NodeUrl(`./fixtures/${name}.json`, import.meta.url), "utf8");
 }
 function response(url: string, body: RequestBody): string {
   if (url.endsWith("/session")) return '{"authenticated":false}';
-  if (url.endsWith("/login")) return JSON.stringify({ authenticated: body.username === "observer" && body.password === "fixture-password", username: "observer", ...remoteViewer });
+  if (url.endsWith("/login")) return JSON.stringify({ authenticated: body.username === "observer" && body.password === "fixture-password", username: "observer", trace_browser_content: browserTraceContent, ...remoteViewer });
   if (url.endsWith("/logout")) return '{"authenticated":false}';
   return readFixture(body);
 }
@@ -34,6 +35,10 @@ const fixtureReaders: Readonly<Record<string, (query: ReadQuery) => string>> = {
   coordination: coordinationFixture,
   coordination_summary: () => fixture("coordination"),
   skill_usage: () => fixture("usage"),
+  trace_status: () => JSON.stringify({ ok: true, pending_batches: 1, scopes: [{ application_id: "dispatch", environment: "production", agent_id: "mail-ingest" }] }),
+  trace_usage: () => JSON.stringify({ ok: true, usage: [{ application_id: "dispatch", environment: "production", agent_id: "mail-ingest", kind: "skill", name: "classify-mail", version: null, calls: 2, succeeded: 1, failed: 0, incomplete: 1 }], next_cursor: null }),
+  trace_calls: () => JSON.stringify({ ok: true, calls: [{ application_id: "dispatch", environment: "production", trace_id: "conversation-1", agent_id: "mail-ingest", kind: "skill", name: "classify-mail", version: "1", invocation_id: "skill-2", started_event_id: "event-2", occurred_at: "2026-11-01T00:00:00Z", outcome: "failed" }], next_cursor: null }),
+  trace_get: query => JSON.stringify({ ok: true, events: query.event_id === "event-pending" ? [] : [{ trace_id: "conversation-1", event_id: "event-2", agent_id: "mail-ingest", kind: "skill_started", has_payload: true, payload_state: "available", name: "classify-mail", occurred_at: "2026-11-01T00:00:00Z", ...(query.include_payload ? { payload: { message: "restricted trace body" } } : {}) }], next_cursor: null }),
   ui_preferences: () => JSON.stringify({ok: true, refresh_interval_ms: configuredInterval}),
   code_map: query => codeMapFixture(query.filter),
   delivery_get: query => fixture(deliveryDetails[query.subject?.kind ?? ""] ?? query.kind),
@@ -218,9 +223,9 @@ function assertReadOnly(): void {
 
 async function inspectNavigation(): Promise<HTMLButtonElement> {
   const links = [...document.querySelectorAll<HTMLAnchorElement>("nav[aria-label='Workspace'] a")];
-  expect(links).toHaveLength(11);
+  expect(links).toHaveLength(12);
   expect(links.every(link => link.querySelector("svg[aria-hidden='true'] path"))).toBe(true);
-  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Pull requests", "Audits", "Evaluations", "Tool intelligence", "Skills", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
+  expect(links.map(link => link.textContent)).toEqual(["Coordination", "Work history", "Pull requests", "Audits", "Evaluations", "Tool intelligence", "Skills", "Application traces", "Code concerns", "Papercuts", "SOS", "Agent memory"]);
   expect(links.find(link => link.getAttribute("aria-current") === "page")?.textContent).toBe("Coordination");
   const menu = document.querySelector<HTMLButtonElement>("button[aria-controls='workspace-navigation']")!;
   expect(menu).not.toBeNull();
@@ -297,6 +302,65 @@ function assertDeliveryReadOnly(): void {
   expect(reads.every(request => ["delivery_list", "delivery_get", "delivery_watches"].includes(request.body.query!.kind))).toBe(true);
 }
 
+it("filters application skill usage and drills into the matching calls", async () => {
+  window.history.replaceState(null, "", "/ui/skills");
+  await loginProgram();
+  await content("nexus-work-history");
+  document.querySelector<HTMLAnchorElement>("a[href*='/ui/traces'][href*='view=skill']")!.click();
+  await content("classify-mail");
+  await content("trace batch awaits processing");
+  pick("Application", "dispatch");
+  await expectTraceUsageFilter({ application_id: "dispatch" });
+  await content("classify-mail");
+  pick("Environment", "production");
+  await expectTraceUsageFilter({ environment: "production" });
+  await content("classify-mail");
+  pick("Agent", "mail-ingest");
+  await expectTraceUsageFilter({
+    application_id: "dispatch", environment: "production", agent_id: "mail-ingest", kind: "skill",
+  });
+  document.querySelector<HTMLAnchorElement>("a[href*='name=classify-mail']")!.click();
+  await content("Failed");
+  expect(requests.filter(request => request.body.query?.kind === "trace_calls").at(-1)?.body.query).toMatchObject({ filter: { version: { kind: "unversioned" } } });
+  await signOutOfFixture();
+});
+
+it("opens a pending or available SOS trace at the linked event", async () => {
+  browserTraceContent = true;
+  window.history.replaceState(null, "", "/ui/sos?project=fixture-project");
+  await loginProgram();
+  await content("Unexpected live email");
+  row("Unexpected live email");
+  await content("Open trace");
+  document.querySelector<HTMLAnchorElement>("a[href*='event=event-pending']")!.click();
+  await content("The linked event is unavailable");
+  window.history.back();
+  await content("Unexpected live email");
+  row("Unexpected live email");
+  await content("Open trace");
+  document.querySelector<HTMLAnchorElement>("a[href*='event=event-2']")!.click();
+  await content("classify-mail");
+  expect(requests.filter(request => request.body.query?.kind === "trace_get").at(-1)?.body.query).toMatchObject({ application_id: "dispatch", trace_id: "conversation-1", event_id: "event-2" });
+  expect(document.body.textContent).not.toContain("restricted trace body");
+  [...document.querySelectorAll("button")].find(button => button.textContent === "Show captured content")!.click();
+  await content("restricted trace body");
+  browserTraceContent = false;
+  await signOutOfFixture();
+});
+
+async function expectTraceUsageFilter(filter: Record<string, string>): Promise<void> {
+  await vi.waitFor(() => {
+    const latest = requests.findLast(request => request.body.query?.kind === "trace_usage");
+    expect(latest?.body.query?.filter).toMatchObject(filter);
+  });
+}
+
+async function signOutOfFixture(): Promise<void> {
+  [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
+  await content("Welcome to Nexus");
+  vi.unstubAllGlobals();
+}
+
 it("discovers PR shepherds and reads rollout evidence without exposing delivery actions", async () => {
   window.history.replaceState(null, "", "/ui/coordination");
   await loginProgram();
@@ -315,7 +379,7 @@ it("discovers PR shepherds and reads rollout evidence without exposing delivery 
   vi.unstubAllGlobals();
 });
 
-it("runs the actual Elm login, eleven destinations, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
+it("runs the actual Elm login, twelve destinations, pickers, inline evidence and exact eval values through read-only HTTP", async () => {
   window.history.replaceState(null, "", "/ui/coordination");
   await loginProgram();
   const menu = await inspectNavigation();

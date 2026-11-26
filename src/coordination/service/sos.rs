@@ -89,6 +89,7 @@ impl NexusService {
                 environment,
                 version,
                 trace,
+                trace_ref,
                 metadata,
             } => self.report_sos(
                 context,
@@ -99,6 +100,7 @@ impl NexusService {
                     version,
                     model: String::new(),
                     trace,
+                    trace_ref,
                     metadata,
                 },
                 binding,

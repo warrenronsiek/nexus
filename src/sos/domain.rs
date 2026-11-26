@@ -1,6 +1,7 @@
 // @feature sos
 // @spec docs/features/sos.md
 // @boundary dynamic-json
+use crate::agent_traces::TraceReference;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -121,8 +122,25 @@ pub struct SosReportDraft {
     pub version: String,
     pub model: String,
     pub trace: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "decode_trace_ref"
+    )]
+    pub trace_ref: Option<TraceReference>,
     #[serde(default)]
     pub metadata: SosMetadata,
+}
+
+pub(crate) fn decode_trace_ref<'de, D>(data: D) -> Result<Option<TraceReference>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let reference = Option::<TraceReference>::deserialize(data)?;
+    if let Some(reference) = &reference {
+        reference.validate().map_err(serde::de::Error::custom)?;
+    }
+    Ok(reference)
 }
 
 impl SosReportDraft {
@@ -135,6 +153,9 @@ impl SosReportDraft {
     fn normalize_content(&mut self) -> Result<()> {
         self.message = required_text("SOS message", &self.message, MAX_SOS_MESSAGE_BYTES)?;
         self.trace = bounded_text("SOS trace", &self.trace, MAX_SOS_TRACE_BYTES)?;
+        if let Some(reference) = &self.trace_ref {
+            reference.validate()?;
+        }
         self.metadata.validate()
     }
 
@@ -163,6 +184,8 @@ pub struct SosReport {
     pub version: String,
     pub model: String,
     pub trace: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_ref: Option<TraceReference>,
     pub metadata: SosMetadata,
     pub reporter: SosActor,
     pub created_at: DateTime<Utc>,

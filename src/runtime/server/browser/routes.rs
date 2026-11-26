@@ -159,7 +159,7 @@ pub(super) async fn read(State(state): State<Arc<BrowserState>>, request: Reques
         Ok(envelope) => envelope,
         Err(response) => return *response,
     };
-    let (query, project) = match envelope.prepare() {
+    let (query, project) = match envelope.prepare(state.allow_trace_content) {
         Ok(prepared) => prepared,
         Err(_) => {
             return error(
@@ -253,13 +253,16 @@ fn authenticated(state: &BrowserState) -> Response {
         .as_ref()
         .expect("session has configured credentials")
         .username;
-    Json(json!({
+    let mut session = json!({
         "authenticated":true,
         "username":username,
         "default_project_id":state.project_scope.default_project_id(),
         "global_project_reads":state.project_scope.global_project_reads()
-    }))
-    .into_response()
+    });
+    if state.allow_trace_content {
+        session["trace_browser_content"] = json!(true);
+    }
+    Json(session).into_response()
 }
 fn error(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({"error":message}))).into_response()

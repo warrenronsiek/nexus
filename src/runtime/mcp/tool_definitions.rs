@@ -18,6 +18,8 @@
 // @spec docs/features/papercuts.md
 // @spec docs/features/sos.md
 // @spec docs/features/work-history.md
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @boundary dynamic-json-schema
 use serde_json::{json, Value};
 
@@ -35,7 +37,19 @@ pub(super) fn tool_definitions() -> Value {
     }));
     definitions.push(super::work_schema::health_definition());
     definitions.push(super::concerns_schema::definition());
+    definitions.push(traces_tool_definition());
     Value::Array(definitions)
+}
+
+fn traces_tool_definition() -> Value {
+    let mut schema = schemars::schema_for!(crate::agent_traces::TraceQuery);
+    schema.insert("type".into(), json!("object"));
+    json!({
+        "name": "nexus_traces",
+        "description": "List or inspect live application-agent traces, tool and skill calls, filtered usage, and ingestion status for the bound project. A trace read includes captured prompt and tool payloads only when requested explicitly.",
+        "annotations": {"readOnlyHint": true},
+        "inputSchema": schema
+    })
 }
 
 fn lifecycle_tool_definitions() -> Vec<Value> {
@@ -167,6 +181,7 @@ fn sos_tool_definition() -> Value {
                         "version":{"type":"string"},
                         "model":{"type":"string"},
                         "trace":{"type":"string"},
+                        "trace_ref":schemars::schema_for!(crate::agent_traces::TraceReference),
                         "metadata":{"type":"object","additionalProperties":true,"default":{}}
                     })
                 ),
