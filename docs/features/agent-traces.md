@@ -56,6 +56,10 @@ flowchart LR
 
 ## Configure a producer
 
+`nexus setup` installs the [application trace setup skill](../../skills/nexus-agent-traces/SKILL.md)
+for Codex and Claude. MCP clients can discover the same guide with
+`resources/list` and read it from `nexus://skills/nexus-agent-traces` as Markdown.
+
 Set `NEXUS_TRACE_CREDENTIALS_FILE` on `nexus-server` to an owner-readable JSON
 file (mode `0600`). For a container, mount the private file inside the container
 and set the variable to its mounted path. Each array element binds one token to

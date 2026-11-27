@@ -1,3 +1,5 @@
+// @feature agent-traces
+// @spec docs/features/agent-traces.md
 // @feature installation
 // @feature code-concerns
 // @feature sos
@@ -14,7 +16,9 @@
 // @spec docs/features/delivery-coordination.md
 // Bundled source assets form one installation manifest shared by both hosts.
 
-pub(super) const SKILL_NAMES: [&str; 21] = [
+pub(crate) const AGENT_TRACES_SKILL: &str = include_str!("../skills/nexus-agent-traces/SKILL.md");
+
+pub(super) const SKILL_NAMES: [&str; 22] = [
     "code-architect",
     "code-complexity-analysis",
     "code-deletion",
@@ -23,6 +27,7 @@ pub(super) const SKILL_NAMES: [&str; 21] = [
     "nexus-setup",
     "nexus-coordination",
     "nexus-agent-memory",
+    "nexus-agent-traces",
     "nexus-papercuts",
     "nexus-sos",
     "nexus-code-concerns",
@@ -37,7 +42,7 @@ pub(super) const SKILL_NAMES: [&str; 21] = [
     "nexus-pr-management",
     "nexus-audit",
 ];
-pub(super) const SKILL_FILES: [(&str, &str); 32] = [
+pub(super) const SKILL_FILES: [(&str, &str); 33] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -123,6 +128,7 @@ pub(super) const SKILL_FILES: [(&str, &str); 32] = [
         "nexus-sos/SKILL.md",
         include_str!("../skills/nexus-sos/SKILL.md"),
     ),
+    ("nexus-agent-traces/SKILL.md", AGENT_TRACES_SKILL),
     (
         "nexus-usage-analytics/SKILL.md",
         include_str!("../skills/nexus-usage-analytics/SKILL.md"),

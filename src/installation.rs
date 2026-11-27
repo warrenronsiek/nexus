@@ -27,6 +27,7 @@ use std::process::{Command, Stdio};
 
 #[path = "installation_assets.rs"]
 mod assets;
+pub(crate) use assets::AGENT_TRACES_SKILL;
 use assets::{
     PI_EXTENSION_FILES, RETIRED_PI_UI_FILES, RETIRED_SKILL_FILES, SKILL_FILES, SKILL_NAMES,
 };

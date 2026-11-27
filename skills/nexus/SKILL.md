@@ -40,7 +40,7 @@ commands. See [setup and updates](../nexus-setup/SKILL.md) for version checks.
 | `sos` | Record unusual situations encountered by agents inside a running application, retaining evidence and triage. | [nexus-sos](../nexus-sos/SKILL.md) |
 | `code-map` | Group concern encounters and caller-defined measures by project dimensions. | [nexus-code-concerns](../nexus-code-concerns/SKILL.md) |
 | `code-concerns` | Learn which code problems recur across areas and sessions, what was tried, and why. | [nexus-code-concerns](../nexus-code-concerns/SKILL.md) |
-| `agent-traces` | Inspect application agent prompts, tool and skill calls, outcomes, and SOS-linked traces. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
+| `agent-traces` | Set up and verify application agent trace uploads, queries, and SOS links. | [nexus-agent-traces](../nexus-agent-traces/SKILL.md) |
 | `usage-analytics` | Understand available versus used tools, skills, scripts, and semantic activity categories. | [nexus-usage-analytics](../nexus-usage-analytics/SKILL.md) |
 | `observability-ui` | Inspect current coordination and historical records through the authenticated read-only web interface. | [nexus-observability](../nexus-observability/SKILL.md) |
 | `work-history` | Preserve logical work, nested attempts, agents, timing, CI, and delivery evidence across sessions. | [nexus-work-history](../nexus-work-history/SKILL.md) |
