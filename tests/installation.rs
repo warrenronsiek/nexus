@@ -112,6 +112,7 @@ fn machine_setup_installs_feature_skills_and_refreshes_bundled_content() {
         "nexus-sos",
         "nexus-code-concerns",
         "nexus-usage-analytics",
+        "nexus-agent-traces",
         "nexus-observability",
         "nexus-development",
         "nexus-build-eval",

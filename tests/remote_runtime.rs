@@ -13,6 +13,8 @@
 mod lifecycle_exit;
 #[path = "remote_runtime/lifecycle_retry.rs"]
 mod lifecycle_retry;
+#[path = "remote_runtime/skill_resource.rs"]
+mod skill_resource;
 #[path = "remote_runtime/support.rs"]
 mod support;
 

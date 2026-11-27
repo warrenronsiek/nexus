@@ -24,11 +24,8 @@ and `get` with the returned trace and event IDs for source context. Request
 captured prompts and tool content explicitly. Follow cursors on bounded reads,
 and check `status` before concluding that a recent call is absent.
 
-Use `nexus traces schema` when integrating a new producer. Instrument the
-shared harness dispatch and model boundaries and export small authenticated
-batches to `POST /api/v1/agent-traces/events`. Preserve event IDs across retries
-and pair tool stages by invocation ID. Record skill offers, loads, and
-activations explicitly. Measure correctness with [evaluation evidence](../nexus-eval-history/SKILL.md)
+For producer setup, use the [application trace setup skill](../nexus-agent-traces/SKILL.md).
+Measure correctness with [evaluation evidence](../nexus-eval-history/SKILL.md)
 linked to the exact invocation. An execution outcome reports what the tool
 returned or whether it failed.
 

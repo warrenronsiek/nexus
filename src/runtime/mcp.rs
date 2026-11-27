@@ -244,6 +244,8 @@ pub(crate) async fn respond(
     }
 }
 
+const TRACE_SETUP_URI: &str = "nexus://skills/nexus-agent-traces";
+
 fn resource_definitions() -> Value {
     json!([
         {"uri":"nexus://status","name":"Nexus status","mimeType":"application/json"},
@@ -252,7 +254,8 @@ fn resource_definitions() -> Value {
         {"uri":"nexus://conflicts","name":"Open coordination conflicts","mimeType":"application/json"},
         {"uri":"nexus://events","name":"Recent Nexus events","mimeType":"application/json"},
         {"uri":"nexus://papercuts","name":"Complete current-project papercut registry","mimeType":"application/json"},
-        {"uri":"nexus://sos","name":"Complete current-project SOS registry","mimeType":"application/json"}
+        {"uri":"nexus://sos","name":"Complete current-project SOS registry","mimeType":"application/json"},
+        {"uri":TRACE_SETUP_URI,"name":"Nexus application trace setup","description":"Configure a trace producer and verify uploads and reads.","mimeType":"text/markdown"}
     ])
 }
 
@@ -494,6 +497,11 @@ async fn resource_read(
     params: Value,
 ) -> Value {
     let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+    if uri == TRACE_SETUP_URI {
+        return json!({"jsonrpc":"2.0","id":id,"result":{"contents":[{
+            "uri":uri,"mimeType":"text/markdown","text":crate::installation::AGENT_TRACES_SKILL
+        }]}});
+    }
     let Some((method, arguments)) = resource_request(uri, invocation_context) else {
         return json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"unknown resource"}});
     };
