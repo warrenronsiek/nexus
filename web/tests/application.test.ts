@@ -12,7 +12,7 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; include_payload?: boolean; event_id?: string; range?: string; work_session_id?: string; group_id?: string; agent?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; include_payload?: boolean; event_id?: string; range?: string; work_session_id?: string; agent?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 const failedReadKinds = new Set<string>();
@@ -44,7 +44,7 @@ const fixtureReaders: Readonly<Record<string, (query: ReadQuery) => string>> = {
   delivery_get: query => fixture(deliveryDetails[query.subject?.kind ?? ""] ?? query.kind),
   delivery_list: query => fixture(deliveryLists[query.filter?.kind ?? ""] ?? query.kind),
   work_dashboard: query => fixture(query.work_session_id ? "work-session" : query.kind),
-  eval_dashboard: query => fixture((query.group_id || query.agent) ? "eval-group" : query.kind),
+  eval_dashboard: query => fixture(query.agent ? "eval-group" : query.kind),
 };
 function readFixture(body: RequestBody): string {
   if (!body.query) throw new Error("Browser read omitted its closed query");
@@ -166,10 +166,11 @@ async function inspectProjectScope(): Promise<void> {
 }
 async function inspectEvals(): Promise<void> {
   await navigate("evals", "Choose an agent");
-  pick("Agent", "router-eval");
+  pick("Agent", "Router");
   await content("9007199254740993.0000000001");
   expect(document.body.textContent).not.toContain("Caller-owned execution");
   expect(document.querySelectorAll(".metric-grid > .panel")).toHaveLength(1);
+  expect(document.body.textContent).toContain("metric-source-git");
 }
 async function inspectToolsAndSkills(): Promise<void> {
   await navigate("tools", "Code research");
@@ -429,7 +430,7 @@ it("honors configured refresh cadence after direct Work login and retains it acr
     await loginProgram();
     await vi.waitFor(() => expect(intervals).toHaveBeenCalledWith(expect.any(Function), 750));
     await pollingTick("work_dashboard");
-    await navigate("evals", "Router / claude + codex");
+    await navigate("evals", "Choose an agent");
     await pollingTick("eval_dashboard");
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
     await content("Welcome to Nexus");

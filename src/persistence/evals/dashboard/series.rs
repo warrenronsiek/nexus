@@ -3,7 +3,7 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/evals.md
 // @boundary chart-numbers: caller text is never changed; conservative optional chart approximations reject precision loss and non-finite values.
-use super::RecordCache;
+use super::{RecordCache, Selection};
 use crate::evals::*;
 use anyhow::Result;
 use std::collections::BTreeMap;
@@ -147,7 +147,7 @@ fn chart_number(text: &str) -> Option<f64> {
     }
     Some(value)
 }
-pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
+pub(super) fn bound_output(view: &mut EvalDashboard, selected: Selection<'_>) -> Result<()> {
     let mut limited = false;
     view.series
         .sort_by(|a, b| a.label.cmp(&b.label).then(a.id.cmp(&b.id)));
@@ -164,10 +164,7 @@ pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
     for group in &mut view.groups {
         limited |= bound_group(group)?;
     }
-    let selected_group = view.selected_group_id.as_deref();
-    let selected_agent = view.selected_agent.as_deref();
-    view.groups
-        .sort_by_key(|group| !selected_configuration(group, selected_group, selected_agent));
+    view.groups.sort_by_key(|group| !selected.includes(group));
     limited |= bound(&mut view.groups, 512, 192 * 1024)?;
     if limited {
         view.truncated = true;
@@ -175,15 +172,6 @@ pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
     }
     Ok(())
 }
-fn selected_configuration(
-    group: &EvalDashboardGroup,
-    selected_group: Option<&str>,
-    selected_agent: Option<&str>,
-) -> bool {
-    Some(group.id.as_str()) == selected_group
-        || selected_agent.is_some_and(|agent| group.agent == agent || group.id == agent)
-}
-
 fn bound_group(group: &mut EvalDashboardGroup) -> Result<bool> {
     let mut limited = bound(&mut group.components, 64, 16 * 1024)?;
     limited |= bound(&mut group.suite_revision_ids, 128, 32 * 1024)?;

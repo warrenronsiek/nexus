@@ -221,11 +221,6 @@ retain at most 1 MiB of encoded complete groups. A cut or uncached group falls
 back to the ordinary 129-row read with its existing 128-dimension disclosure.
 Prefetching does not consume dependency capacity or change grouping semantics.
 
-A separate 64-record/4 MiB IO buffer prefetches direct execution or run-definition
-dependencies per source page. Records enter the original dependency count/byte
-budget only when requested, in the original traversal order. Unused prefetched
-payloads do not consume dependency capacity or manufacture missing context.
-
 Source fetches use bounded 256-row pages while retaining the same 4096-record
 and 8 MiB population limits.
 
@@ -243,7 +238,8 @@ from the same response as the selected result series.
 
 The dashboard accepts optional `agent` selection across configuration groups;
 `group_id` continues to select an exact captured configuration. Exact series
-identity remains definition revision plus assessment scope. Points include
+identity remains definition revision plus assessment scope. Expanded calculation
+evidence retains source artifact IDs as well as prose. Points include
 recorded model dimensions for presentation filters. No score is recomputed.
 The browser also accepts existing configuration IDs in its agent selector so
 previous `set` links remain inspectable. This compatibility is confined to the
@@ -255,4 +251,7 @@ Dashboard dependency reads prefetch three bounded graph frontiers in typed
 Diesel batches (at most 256 records per round and 4 MiB per page). This does not
 change the existing 4096-record/8-MiB admission order, truncation notices, source
 precision, or fallback semantics. A 65-run regression enforces a query budget
-without imposing a hardware-dependent wall-clock assertion.
+without imposing a hardware-dependent wall-clock assertion. Unused prefetched
+payloads do not consume dependency capacity. Dashboard run/result counts retain
+the captured source population for both agent and group selection; per-group
+counts remain on each configuration.

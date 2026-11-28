@@ -438,14 +438,12 @@ summary .icon { vertical-align: -4px; margin: 0 6px 0 3px; }
 .trace-heading code, .trace-event-heading h3 { overflow-wrap: anywhere; }
 .trace-actions { display: flex; align-items: center; flex-wrap: wrap; column-gap: 16px; row-gap: 8px; }
 .trace-count { color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.trace-events { padding: 0 18px 16px; }
 .trace-status { color: var(--muted); padding: 0 0 10px; }
 .trace-event-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 14px; }
 .trace-event-meta { color: var(--muted); overflow-wrap: anywhere; }
 .trace-payload { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 580px) {
   .trace-heading { flex-direction: column; }
-  .trace-events { padding-inline: 14px; }
 }
 
 /* Retained evidence uses the same compact, neutral surface as the work waterfall. */

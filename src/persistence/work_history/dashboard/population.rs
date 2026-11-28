@@ -18,12 +18,6 @@ use std::collections::HashSet;
 /// Host-capture envelopes. A root whose members are only these recorded no work.
 pub(super) const CONTAINER_KINDS: [&str; 3] = ["host.session", "request", "host.turn"];
 
-pub(super) fn has_recorded_work(summaries: &[crate::work_history::WorkSummary]) -> bool {
-    summaries
-        .iter()
-        .any(|item| !CONTAINER_KINDS.contains(&item.kind.as_str()))
-}
-
 const ROOT_CHUNK: usize = 256;
 
 /// Roots whose membership index contains at least one non-container activity.

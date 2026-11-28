@@ -29,10 +29,12 @@
       "result_count": 1,
       "statuses": {
         "completed": 1
-      }
+      },
+      "agent": "Router",
+      "agent_declared": true
     }
   ],
-  "selected_group_id": "router-eval",
+  "selected_group_id": null,
   "series": [
     {
       "id": "metric-v1",
@@ -65,7 +67,7 @@
       "unit": "seconds",
       "definition_id": "metric-definition-v2",
       "description": "Wall duration",
-      "calculation": "A distinct recorded calculation",
+      "calculation": "{\"description\": \"A distinct recorded calculation\", \"source_artifacts\": [\"metric-source-git\"], \"population\": \"run\", \"aggregation\": \"caller\", \"exclusions\": \"none\", \"missing_data\": \"unavailable\"}",
       "subject_scope": "run",
       "superseded_count": 0,
       "points": [
@@ -90,5 +92,6 @@
   "scanned_records": 10,
   "source_limit": 4096,
   "truncated": false,
-  "notices": []
+  "notices": [],
+  "selected_agent": "Router"
 }

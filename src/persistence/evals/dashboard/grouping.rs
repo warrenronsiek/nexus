@@ -143,29 +143,18 @@ impl<'a> DashboardProjection<'a> {
             truncated,
             notices: vec![],
         };
-        let selected_runs = self.collect_groups(&mut view);
+        self.collect_groups(&mut view);
         view.groups
             .sort_by(|a, b| b.latest_at.cmp(&a.latest_at).then(a.id.cmp(&b.id)));
         disclose_bounds(&mut view, truncated, self.unresolved);
-        if let Selection::Agent(_) = self.selected {
-            view.run_count = selected_runs.len();
-            view.result_count = view
-                .groups
-                .iter()
-                .filter(|group| self.selected.includes(group))
-                .map(|group| group.result_count)
-                .sum();
-        }
-        series::bound_output(&mut view)?;
+        series::bound_output(&mut view, self.selected)?;
         view.notices.push("Series separate exact metric/grader revisions and assessment scope; units/names do not establish compatibility. Numeric chart values are optional presentation approximations; exact text remains authoritative. No optimization direction is inferred.".into());
         Ok(view)
     }
-    fn collect_groups(&mut self, view: &mut EvalDashboard) -> BTreeSet<String> {
-        let mut selected_runs = BTreeSet::new();
+    fn collect_groups(&mut self, view: &mut EvalDashboard) {
         let mut series_by_id = BTreeMap::new();
         for (_, group) in std::mem::take(&mut self.groups) {
             if self.selected.includes(&group.summary) {
-                selected_runs.extend(group.runs);
                 for (id, series) in group.series {
                     merge_series(&mut series_by_id, id, series);
                 }
@@ -173,7 +162,6 @@ impl<'a> DashboardProjection<'a> {
             view.groups.push(group.summary);
         }
         view.series = series_by_id.into_values().collect();
-        selected_runs
     }
 }
 fn disclose_bounds(view: &mut EvalDashboard, truncated: bool, unresolved: usize) {

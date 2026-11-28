@@ -10,6 +10,7 @@ import Html exposing (Html, code, details, div, h2, h3, label, option, p, sectio
 import Html.Attributes exposing (attribute, class, selected, value)
 import Html.Events exposing (onInput)
 import Json.Decode as D
+import Json.Encode
 import Wire exposing (Document, Metric, Row)
 
 
@@ -35,7 +36,7 @@ agents : List Row -> List Row
 agents rows =
     rows |> List.foldl (\row found ->
         let agent = Wire.str "agent" row.body in
-        if agent == "" then Dict.insert row.id row found else Dict.insert agent { row | id = agent, title = agent, subtitle = "Recorded configurations", kind = "eval_agent" } found) Dict.empty |> Dict.values
+        Dict.insert agent { row | id = agent, title = agent, subtitle = "Recorded configurations", kind = "eval_agent" } found) Dict.empty |> Dict.values
 
 
 
@@ -132,5 +133,5 @@ view chart change scope source =
 calculation : String -> Html msg
 calculation source =
     case D.decodeString (D.keyValuePairs D.value) source of
-        Ok fields -> div [] (fields |> List.filterMap (\( key, item ) -> D.decodeValue D.string item |> Result.toMaybe |> Maybe.map (\value -> p [] [ strong [] [ text (String.replace "_" " " key ++ ". ") ], text value ])))
+        Ok fields -> div [] (fields |> List.map (\( key, item ) -> p [] [ strong [] [ text (String.replace "_" " " key ++ ". ") ], text (D.decodeValue D.string item |> Result.withDefault (Json.Encode.encode 2 item)) ]))
         Err _ -> p [] [ text source ]

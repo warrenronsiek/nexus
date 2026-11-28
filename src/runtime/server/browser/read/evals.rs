@@ -12,7 +12,6 @@ use serde::Deserialize;
 pub(super) enum EvalRead {
     #[serde(rename = "eval_dashboard")]
     Dashboard {
-        group_id: Option<String>,
         agent: Option<String>,
         #[serde(default)]
         range: HistoryRange,
@@ -30,13 +29,9 @@ pub(super) enum EvalRead {
 impl EvalRead {
     pub(super) fn into_action(self, project_id: Option<String>) -> EvalAction {
         match self {
-            Self::Dashboard {
-                group_id,
-                agent,
-                range,
-            } => EvalAction::Dashboard {
+            Self::Dashboard { agent, range } => EvalAction::Dashboard {
                 project_id,
-                group_id,
+                group_id: None,
                 agent,
                 occurred_after: Some(range.cutoff()),
             },

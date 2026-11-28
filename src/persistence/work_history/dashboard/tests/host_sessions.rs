@@ -251,7 +251,7 @@ fn explicitly_selected_hidden_root_keeps_its_detail_and_activities() {
     };
     assert_eq!(view.selected_session.unwrap().subject.id(), "review");
     assert_eq!(view.activities.len(), 3);
-    assert_eq!(view.hidden_session_count, 1);
+    assert_eq!(view.hidden_session_count, 0);
 }
 
 #[test]
@@ -375,4 +375,34 @@ fn explicitly_delegated_sessions_are_not_top_level_picker_choices() {
         selected.selected_session.is_some(),
         "delegated sessions remain directly addressable"
     );
+}
+
+#[test]
+fn selected_session_without_a_start_uses_its_source_occurrence_day() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    record(
+        &mut store,
+        &project,
+        vec![observation(
+            "finish-only",
+            "session",
+            "missing-start",
+            json!({"event":"finished", "outcome":"unknown"}),
+        )],
+    );
+    let WorkResponse::Dashboard {
+        dashboard: selected,
+    } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("missing-start"),
+        WorkSessionOrigin::Host,
+    )
+    .unwrap()
+    else {
+        panic!("dashboard");
+    };
+    assert!(selected.selected_session.unwrap().started_at.is_none());
+    assert_eq!(selected.daily[0].date, "2026-10-29");
 }

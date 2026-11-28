@@ -1359,21 +1359,12 @@ focusCaption : Row -> String
 focusCaption row =
     case row.kind of
         "coordination_session" -> row.title ++ " · " ++ row.subtitle
-        "eval_group" -> evalCaption row
         _ ->
             let
                 started = Wire.str "started_at" row.body
                 active = D.decodeValue (D.field "active_seconds" D.float) row.body |> Result.toMaybe
             in
             row.title ++ (if started == "" then "" else " · " ++ timeText started) ++ (active |> Maybe.map (\seconds -> " · " ++ duration seconds ++ " active") |> Maybe.withDefault "")
-
-
-evalCaption : Row -> String
-evalCaption row =
-    let
-        agent = Wire.str "agent" row.body
-    in
-    (if agent /= "" && not (String.startsWith agent row.title) then agent ++ " · " else "") ++ row.title ++ (if row.subtitle == "" then "" else " · " ++ row.subtitle)
 
 
 projectCaption : Row -> String

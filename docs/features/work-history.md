@@ -598,7 +598,8 @@ A selected dashboard projects its session and member activities directly instead
 of recomputing the overview and every unrelated root. The browser keeps its
 lightweight picker population separately and loads selected-call observations
 only on demand. Selected dashboard statistics cover that session, including its
-root duration/day accounting; project overview truncation does not mark complete
+root duration/day accounting and source-day fallback for a missing start. No
+overview roots are omitted or counted as hidden in a selected response; project overview truncation does not mark complete
 selected evidence as partial. Read the overview separately for project totals.
 Refresh invalidates selected evidence. Started activities use
 their retained source timestamp; missing start timestamps are resolved in a

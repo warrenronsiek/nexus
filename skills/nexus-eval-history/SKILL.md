@@ -41,3 +41,7 @@ and offer calculation recipe and recorded-model filters. Exact definition IDs,
 run IDs, source literals, and original configurations remain authoritative;
 panel grouping does not compute a new score or establish comparability. MCP
 dashboard reads may use `agent`, while `group_id` retains exact group selection.
+
+Dashboard aggregate run/result counts describe the captured source population,
+with either selector. Read per-configuration counts on the groups and inspect
+expanded calculation source artifact IDs alongside the definition prose.

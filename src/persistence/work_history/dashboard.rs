@@ -64,10 +64,14 @@ fn selected_dashboard(
     projection.view.selected_session =
         reader.summary(&WorkSubject::Session { id: session.into() })?;
     if let Some(root) = &projection.view.selected_session {
-        let date = root
-            .started_at
-            .map(|time| time.date_naive().to_string())
-            .unwrap_or_default();
+        let dates = source_dates(connection, project, "session", std::slice::from_ref(root))?;
+        let date = source_day(
+            root,
+            dates
+                .get(root.subject.id())
+                .map(String::as_str)
+                .unwrap_or_default(),
+        );
         projection.observe_session(root.clone(), date);
         projection.view.scanned_subjects = 1;
     }
@@ -309,10 +313,7 @@ impl DashboardProjection {
             return Ok(false);
         }
         self.view.scanned_subjects += 1;
-        let date = summary
-            .started_at
-            .map(|time| time.date_naive().to_string())
-            .unwrap_or_else(|| fallback.chars().take(10).collect());
+        let date = source_day(&summary, fallback);
         match &summary.subject {
             WorkSubject::Session { .. } => self.session(summary, date),
             WorkSubject::Activity { .. } => self.activity(summary, date),
@@ -377,10 +378,6 @@ impl DashboardProjection {
         session: &str,
     ) -> Result<()> {
         let selected = super::selection::activities(connection, project, session)?;
-        self.kinds.clear();
-        self.activity_dates.clear();
-        self.activity_roots.clear();
-        self.view.activities.clear();
         if selected.truncated {
             self.disclose("selected_activity_limit: selected descendant coverage is partial");
         }
@@ -391,13 +388,15 @@ impl DashboardProjection {
             .as_ref()
             .map(|root| session_accounting(root, &selected.items, selected.truncated));
         self.view.scanned_subjects += selected.items.len();
-        if self.origin == WorkSessionOrigin::Host && !population::has_recorded_work(&selected.items)
-        {
-            self.view.hidden_session_count = 1;
-        }
-        let dates = activity_dates(connection, project, &selected.items)?;
+        let dates = source_dates(connection, project, "activity", &selected.items)?;
         for summary in selected.items {
-            let date = activity_date(&summary, &dates);
+            let date = source_day(
+                &summary,
+                dates
+                    .get(summary.subject.id())
+                    .map(String::as_str)
+                    .unwrap_or_default(),
+            );
             if summary.kind == "request" {
                 self.sessions.observe_request(&summary);
             }
@@ -454,21 +453,17 @@ impl DashboardProjection {
     }
 }
 
-fn activity_date(summary: &WorkSummary, dates: &BTreeMap<String, String>) -> String {
+fn source_day(summary: &WorkSummary, fallback: &str) -> String {
     summary
         .started_at
         .map(|time| time.date_naive().to_string())
-        .unwrap_or_else(|| {
-            dates
-                .get(summary.subject.id())
-                .map(|date| date.chars().take(10).collect())
-                .unwrap_or_default()
-        })
+        .unwrap_or_else(|| fallback.chars().take(10).collect())
 }
 
-fn activity_dates(
+fn source_dates(
     connection: &mut DbConnection,
     project: &str,
+    scope: &str,
     summaries: &[WorkSummary],
 ) -> Result<BTreeMap<String, String>> {
     let missing: Vec<_> = summaries
@@ -481,7 +476,7 @@ fn activity_dates(
     } else {
         work_subjects::table
             .filter(work_subjects::project_id.eq(project))
-            .filter(work_subjects::scope.eq("activity"))
+            .filter(work_subjects::scope.eq(scope))
             .filter(work_subjects::id.eq_any(missing))
             .select((work_subjects::id, work_subjects::occurred_at))
             .load::<(String, String)>(connection)?

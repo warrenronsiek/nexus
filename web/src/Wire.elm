@@ -155,6 +155,14 @@ point =
         (optional "models" (D.list D.string) [])
 
 
+evalGroup : Decoder Row
+evalGroup =
+    let
+        agent = D.field "agent" D.string |> D.andThen (\name -> if String.trim name == "" then D.fail "Agent identity is empty" else D.succeed name)
+    in
+    D.map3 (\_ _ item -> item) agent (D.field "agent_declared" D.bool) (row "id" "label" "eval_group")
+
+
 metric : Decoder Metric
 metric =
     D.map8 Metric (D.field "id" D.string) (D.field "label" D.string) (D.field "unit" D.string)
@@ -293,7 +301,7 @@ shape kind root =
             rows "observations" (row "id" "occurred_at" "observation")
 
         "eval_dashboard" ->
-            required "groups" (D.list (withSubtitle (\v -> String.join ", " (strings "models" v) ++ " · " ++ String.fromFloat (number "run_count" v) ++ " runs") (row "id" "label" "eval_group"))) root
+            required "groups" (D.list evalGroup) root
                 |> Result.andThen (\items -> required "series" (D.list metric) root |> Result.map (\metrics -> { base | rows = items, metrics = metrics }))
 
         "eval_list" ->
