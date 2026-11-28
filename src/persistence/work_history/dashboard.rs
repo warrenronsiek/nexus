@@ -64,14 +64,9 @@ fn selected_dashboard(
     projection.view.selected_session =
         reader.summary(&WorkSubject::Session { id: session.into() })?;
     if let Some(root) = &projection.view.selected_session {
-        let dates = source_dates(connection, project, "session", std::slice::from_ref(root))?;
-        let date = source_day(
-            root,
-            dates
-                .get(root.subject.id())
-                .map(String::as_str)
-                .unwrap_or_default(),
-        );
+        let date = source_days(connection, project, std::slice::from_ref(root))?
+            .pop()
+            .unwrap_or_default();
         projection.observe_session(root.clone(), date);
         projection.view.scanned_subjects = 1;
     }
@@ -388,15 +383,8 @@ impl DashboardProjection {
             .as_ref()
             .map(|root| session_accounting(root, &selected.items, selected.truncated));
         self.view.scanned_subjects += selected.items.len();
-        let dates = source_dates(connection, project, "activity", &selected.items)?;
-        for summary in selected.items {
-            let date = source_day(
-                &summary,
-                dates
-                    .get(summary.subject.id())
-                    .map(String::as_str)
-                    .unwrap_or_default(),
-            );
+        let days = source_days(connection, project, &selected.items)?;
+        for (summary, date) in selected.items.into_iter().zip(days) {
             if summary.kind == "request" {
                 self.sessions.observe_request(&summary);
             }
@@ -460,30 +448,53 @@ fn source_day(summary: &WorkSummary, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.chars().take(10).collect())
 }
 
-fn source_dates(
+fn source_days(
     connection: &mut DbConnection,
     project: &str,
-    scope: &str,
     summaries: &[WorkSummary],
-) -> Result<BTreeMap<String, String>> {
+) -> Result<Vec<String>> {
     let missing: Vec<_> = summaries
         .iter()
         .filter(|item| item.started_at.is_none())
-        .map(|item| item.subject.id())
+        .map(|item| &item.subject)
         .collect();
-    let dates = if missing.is_empty() {
+    let dates: BTreeMap<(String, String), String> = if missing.is_empty() {
         BTreeMap::new()
     } else {
         work_subjects::table
             .filter(work_subjects::project_id.eq(project))
-            .filter(work_subjects::scope.eq(scope))
-            .filter(work_subjects::id.eq_any(missing))
-            .select((work_subjects::id, work_subjects::occurred_at))
-            .load::<(String, String)>(connection)?
+            .filter(
+                work_subjects::scope.eq_any(
+                    missing
+                        .iter()
+                        .map(|subject| subject.scope())
+                        .collect::<BTreeSet<_>>(),
+                ),
+            )
+            .filter(work_subjects::id.eq_any(missing.iter().map(|subject| subject.id())))
+            .select((
+                work_subjects::scope,
+                work_subjects::id,
+                work_subjects::occurred_at,
+            ))
+            .load::<(String, String, String)>(connection)?
             .into_iter()
+            .map(|(scope, id, stamp)| ((scope, id), stamp))
             .collect()
     };
-    Ok(dates)
+    Ok(summaries
+        .iter()
+        .map(|summary| {
+            let key = (
+                summary.subject.scope().to_owned(),
+                summary.subject.id().to_owned(),
+            );
+            source_day(
+                summary,
+                dates.get(&key).map(String::as_str).unwrap_or_default(),
+            )
+        })
+        .collect())
 }
 
 fn subjects(page: &[SubjectRow]) -> Vec<WorkSubject> {
