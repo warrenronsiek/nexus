@@ -14,7 +14,6 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
-import re
 import subprocess
 import sys
 
@@ -42,27 +41,7 @@ def text(value: object) -> str:
     return value
 
 
-def subject(value: dict, repository: str) -> dict:
-    kind = value['kind']
-    if kind == 'git':
-        revision = value['revision']
-        size = {'sha1': 40, 'sha256': 64}[revision['object_format']]
-        if revision['repository'] != repository or not re.fullmatch('[a-f0-9]{%d}' % size, revision['commit']):
-            raise ValueError('Git subject must pin this repository and a full object ID')
-    elif kind == 'staged_diff':
-        if value['repository'] != repository or not re.fullmatch('[a-f0-9]{64}', value['sha256']):
-            raise ValueError('staged subject must pin this repository and exact patch digest')
-        if value.get('base'):
-            subject({'kind': 'git', 'revision': value['base']}, repository)
-    elif kind == 'external':
-        text(value['source'])
-        text(value['id'])
-    else:
-        raise ValueError('unsupported subject kind')
-    return value
-
-
-def expectation(entry: dict, repository: str) -> Expectation:
+def expectation(entry: dict) -> Expectation:
     name = text(entry['name'])
     if 'not_applicable' in entry:
         if set(entry) != {'name', 'not_applicable'}:
@@ -70,84 +49,74 @@ def expectation(entry: dict, repository: str) -> Expectation:
         return Expectation(name, None, None, None, (), text(entry['not_applicable']))
     control = entry['control']
     text(control['key'])
-    if type(control['version']) is not int or control['version'] < 1:
-        raise ValueError('control version must be a positive integer')
+    if type(control['version']) is not int or control['version'] < 1 or not isinstance(entry['subject'], dict):
+        raise ValueError('use a positive control version and typed Audit subject object')
     codes = tuple(text(code) for code in entry['accepted_codes'])
     if not codes:
         raise ValueError('declare acceptable categorical outcomes; reconcile narrative controls manually')
     run_id = text(entry['run_id']) if entry.get('run_id') is not None else None
-    return Expectation(name, control, subject(entry['subject'], repository), run_id, codes, None)
+    return Expectation(name, control, entry['subject'], run_id, codes, None)
 
 
 def load_task(path: str) -> Task:
     raw = json.loads(Path(path).read_text())
     project, repository = text(raw['project_id']), text(raw['repository'])
-    entries = tuple(expectation(entry, repository) for entry in raw['expectations'])
+    entries = tuple(expectation(entry) for entry in raw['expectations'])
     if not entries or len({entry.name for entry in entries}) != len(entries):
         raise ValueError('declare a nonempty population with distinct expectation names')
     return Task(project, repository, entries)
 
 
-def read_detail(binary: str, project: str, run_id: str) -> tuple[dict, list[dict]]:
-    request = {'action': 'get', 'project_id': project, 'run_id': run_id}
-    records, cutoff, definition = [], None, None
-    # The registry pages bounded history; pin the first cutoff for every continuation.
+def read_selection(binary: str, project: str, selection: dict) -> tuple[list[dict], int]:
+    items = []
     while True:
+        request = {'action': 'list', 'project_id': project, 'filter': selection}
         completed = subprocess.run([binary, 'audit', 'read', '-'], input=json.dumps(request),
                                    text=True, capture_output=True, timeout=30, check=True)
         page = json.loads(completed.stdout)
-        if page.get('ok') is not True or page.get('response') != 'detail' or page.get('project_id') != project:
-            raise ValueError('project-bound detail not acknowledged')
-        if cutoff is None:
-            cutoff, definition = page['cutoff'], page['definition']
-        if page['cutoff'] != cutoff or page['definition'] != definition:
+        if page.get('ok') is not True or page.get('response') != 'page' or page.get('project_id') != project:
+            raise ValueError('project-bound summary page not acknowledged')
+        cutoff = selection.get('cutoff')
+        if cutoff is not None and page['cutoff'] != cutoff:
             raise ValueError('history changed during pinned read')
-        records.extend(page['records'])
+        items.extend(page['items'])
         cursor = page.get('next_cursor')
         if cursor is None:
-            return definition, records
-        if type(cursor) is not int or cursor <= request.get('after', 0) or cursor > cutoff:
+            return items, page['cutoff']
+        if type(cursor) is not int or cursor <= selection.get('after', 0) or cursor > page['cutoff']:
             raise ValueError('history cursor did not advance within cutoff')
-        request.update(after=cursor, cutoff=cutoff)
+        selection.update(after=cursor, cutoff=page['cutoff'])
 
 
-def verified_result(entry: Expectation, definition: dict, records: list[dict]) -> tuple[int, dict]:
-    original = next(record for record in records if record['input']['id'] == entry.run_id
-                    and record['input']['event']['kind'] == 'run')
-    event = original['input']['event']
-    if (definition['input']['event']['control'] != entry.control or event['control'] != entry.control
-            or event['run']['subject'] != entry.subject):
-        raise ValueError('Control version or exact source differs from task population')
-    if (type(original['ordinal']) is not int or original['ordinal'] < 1
-            or not original['actor'].get('agent') or not original['actor'].get('session_id')):
-        raise ValueError('receipt identity is incomplete')
-    result = event['run']['result']
-    for record in sorted(records, key=lambda value: value['ordinal']):
-        correction = record['input']['event']
-        if correction['kind'] == 'correct_run' and correction['run_id'] == entry.run_id:
-            result = correction['result']
-    return original['ordinal'], result
+def read_summaries(binary: str, task: Task) -> dict[str, dict]:
+    identifiers = sorted({entry.run_id for entry in task.expectations if entry.run_id})
+    summaries, cutoff = {}, None
+    # The registry owns correction/category projection. Bound each selection to
+    # its public 64-ID limit and pin one cutoff across chunks and page reads.
+    for offset in range(0, len(identifiers), 64):
+        items, cutoff = read_selection(binary, task.project_id,
+                                       {'run_ids': identifiers[offset:offset + 64], 'cutoff': cutoff})
+        summaries.update((item['id'], item) for item in items)
+    return summaries
 
 
-def reconcile(entry: Expectation, task: Task, binary: str) -> dict:
+def reconcile(entry: Expectation, summaries: dict[str, dict] | None) -> dict:
     item = {'name': entry.name}
     if entry.not_applicable:
         return dict(item, state='not_applicable', reason=entry.not_applicable)
     item.update(control=entry.control, subject=entry.subject, run_id=entry.run_id)
     if not entry.run_id:
         return dict(item, state='missing', reason='No run ID; queued input and Work history are not Audit receipts')
-    try:
-        definition, records = read_detail(binary, task.project_id, entry.run_id)
-        ordinal, result = verified_result(entry, definition, records)
-        output = result.get('output') or {}
-        acceptable = (result['status'] == 'completed' and output.get('kind') == 'code'
-                      and output.get('value') in entry.accepted_codes and not result.get('findings'))
-        return dict(item, state='recorded' if acceptable else 'attention', ordinal=ordinal,
-                    status=result['status'], output=output, findings=len(result.get('findings', [])),
-                    reason='Matched receipt' if acceptable else 'Outcome or findings require explicit follow-up')
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, StopIteration):
-        # Do not print CLI stderr: a misconfigured service can include private data.
-        return dict(item, state='unconfirmed', reason='Unable to verify complete matching project-bound run history')
+    summary = (summaries or {}).get(entry.run_id)
+    if summary is None:
+        return dict(item, state='unconfirmed', reason='Unable to verify complete project-bound summary selection')
+    if summary['control'] != entry.control or summary['subject'] != entry.subject:
+        return dict(item, state='mismatch', reason='Control version or exact source differs from task population')
+    acceptable = (summary['status'] == 'completed' and summary.get('result_code') in entry.accepted_codes
+                  and summary['findings'] == 0)
+    return dict(item, state='recorded' if acceptable else 'attention', ordinal=summary['ordinal'],
+                status=summary['status'], result_code=summary.get('result_code'), findings=summary['findings'],
+                reason='Matched receipt' if acceptable else 'Outcome or findings require explicit follow-up')
 
 
 def main() -> int:
@@ -160,7 +129,12 @@ def main() -> int:
     except (OSError, ValueError, KeyError, TypeError):
         print('Invalid task plan: pin project, repository, control versions, subjects and accepted codes.', file=sys.stderr)
         return 2
-    items = [reconcile(entry, task, args.nexus) for entry in task.expectations]
+    try:
+        summaries = read_summaries(args.nexus, task)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        # Do not expose CLI stderr: a misconfigured service may include private data.
+        summaries = None
+    items = [reconcile(entry, summaries) for entry in task.expectations]
     complete = all(item['state'] in ('recorded', 'not_applicable') for item in items)
     print(json.dumps({'project_id': task.project_id, 'repository': task.repository,
                       'complete': complete, 'items': items}, indent=2))

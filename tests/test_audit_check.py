@@ -20,19 +20,11 @@ def plan() -> dict:
         {'name': 'Review', 'control': copy.deepcopy(CONTROL), 'subject': copy.deepcopy(SUBJECT), 'run_id': 'run-1', 'accepted_codes': ['pass']}]}
 
 
-def record(event: dict, identifier: str = 'run-1', ordinal: int = 2) -> dict:
-    return {'ordinal': ordinal, 'recorded_at': '2026-11-28T10:00:00Z',
-            'actor': {'agent': 'codex', 'session_id': 'actual-session'},
-            'input': {'id': identifier, 'occurred_at': '2026-11-28T09:00:00Z', 'event': event}}
-
-
 def detail() -> dict:
-    return {'ok': True, 'response': 'detail', 'project_id': 'project', 'cutoff': 2, 'next_cursor': None,
-            'definition': record({'kind': 'define', 'control': copy.deepcopy(CONTROL),
-                                  'definition': {'results': {'kind': 'categorical', 'codes': [{'code': 'pass'}]}}}, 'definition', 1),
-            'records': [record({'kind': 'run', 'control': copy.deepcopy(CONTROL), 'run': {
-                'subject': copy.deepcopy(SUBJECT), 'executor': 'claude review',
-                'result': {'status': 'completed', 'output': {'kind': 'code', 'value': 'pass'}, 'findings': []}}})]}
+    # RunSummary is the server's correction-aware projection, not a local fold.
+    return {'ok': True, 'response': 'page', 'project_id': 'project', 'cutoff': 2, 'next_cursor': None,
+            'items': [{'id': 'run-1', 'ordinal': 2, 'control': copy.deepcopy(CONTROL),
+                       'subject': copy.deepcopy(SUBJECT), 'status': 'completed', 'result_code': 'pass', 'findings': 0}]}
 
 
 class AuditCompletionTests(unittest.TestCase):
@@ -49,7 +41,7 @@ with (root / 'calls').open('a') as output:
     output.write(json.dumps(sys.argv[1:]) + '\\n')
 responses = json.loads((root / 'responses.json').read_text())
 request = json.loads(sys.stdin.read())
-print(json.dumps(responses[str(request.get('after') or 0)]))
+print(json.dumps(responses[str(request.get('filter', {}).get('after') or 0)]))
 ''')
             binary.chmod(0o755)
             result = subprocess.run([sys.executable, str(CHECK), str(root / 'plan.json'), '--nexus', str(binary)],
@@ -76,40 +68,57 @@ print(json.dumps(responses[str(request.get('after') or 0)]))
         self.assertEqual(calls, [['audit', 'read', '-']])
 
     def test_wrong_project_control_subject_and_unacknowledged_run_are_rejected(self) -> None:
-        for change in ['project', 'control', 'subject', 'id', 'ordinal']:
+        for change in ['project', 'control', 'subject', 'id']:
             response = detail()
             if change == 'project': response['project_id'] = 'other'
-            elif change == 'control': response['records'][0]['input']['event']['control']['version'] = 2
-            elif change == 'subject': response['records'][0]['input']['event']['run']['subject']['revision']['commit'] = 'b' * 40
-            elif change == 'id': response['records'][0]['input']['id'] = 'other'
-            else: response['records'][0]['ordinal'] = 0
+            elif change == 'control': response['items'][0]['control']['version'] = 2
+            elif change == 'subject': response['items'][0]['subject']['revision']['commit'] = 'b' * 40
+            elif change == 'id': response['items'][0]['id'] = 'other'
             with self.subTest(change=change):
                 result, _ = self.invoke(plan(), {'0': response})
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertFalse(json.loads(result.stdout)['complete'])
 
-    def test_later_correction_and_unresolved_findings_prevent_false_success(self) -> None:
-        for result_value in [
-            {'status': 'failed', 'output': {'kind': 'code', 'value': 'pass'}},
-            {'status': 'completed', 'output': {'kind': 'code', 'value': 'inconclusive'}},
-            {'status': 'completed', 'output': {'kind': 'code', 'value': 'pass'}, 'findings': [{'id': 'finding', 'description': 'Fix needed'}]},
-        ]:
+    def test_server_corrected_outcome_and_findings_prevent_false_success(self) -> None:
+        for change in [{'status': 'failed'}, {'result_code': 'inconclusive'}, {'findings': 1}]:
             response = detail()
-            response['next_cursor'] = 2
-            second = copy.deepcopy(response)
-            second['next_cursor'] = None
-            second['records'] = [record({'kind': 'correct_run', 'run_id': 'run-1', 'result': result_value}, 'correction', 3)]
-            second['cutoff'] = response['cutoff'] = 3
-            result, calls = self.invoke(plan(), {'0': response, '2': second})
+            response['items'][0].update(change)
+            result, _ = self.invoke(plan(), {'0': response})
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)['items'][0]['state'], 'attention')
-            self.assertEqual(len(calls), 2)
+
+    def test_bulk_selection_follows_pages_without_rereading_each_run(self) -> None:
+        expected = plan()
+        second = copy.deepcopy(expected['expectations'][0])
+        second.update(name='Second review', run_id='run-2')
+        expected['expectations'].append(second)
+        first_page = detail()
+        first_page.update(cutoff=3, next_cursor=2)
+        second_page = copy.deepcopy(first_page)
+        second_page['next_cursor'] = None
+        second_page['items'][0].update(id='run-2', ordinal=3)
+        result, calls = self.invoke(expected, {'0': first_page, '2': second_page})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(calls), 2)
 
     def test_unavailable_service_and_pagination_gaps_remain_visible(self) -> None:
         for response in [{'ok': False, 'error': 'offline'}, dict(detail(), next_cursor=0)]:
             result, _ = self.invoke(plan(), {'0': response})
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)['items'][0]['state'], 'unconfirmed')
+
+    def test_failed_attempt_with_unavailable_patch_digest_is_attention_not_invalid_plan(self) -> None:
+        expected = plan()
+        unavailable = {'kind': 'staged_diff', 'repository': 'acme/service', 'base': None, 'sha256': None}
+        expected['expectations'][0]['subject'] = unavailable
+        response = detail()
+        run = response['items'][0]
+        run['subject'] = unavailable
+        run['status'] = 'failed'
+        run['result_code'] = 'inconclusive'
+        result, _ = self.invoke(expected, {'0': response})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['items'][0]['state'], 'attention')
 
     def test_not_applicable_requires_a_reason_and_empty_plan_cannot_claim_coverage(self) -> None:
         expected = plan()

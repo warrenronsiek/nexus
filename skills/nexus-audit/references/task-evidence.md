@@ -29,10 +29,12 @@ the run/finding IDs. A new revision or materially different scope invalidates an
 old execution for the new subject. Do not rewrite the old run to match new work.
 
 Before task completion, reconcile the declared population. The bundled checker
-makes read-only calls to `nexus audit read` and follows the complete run history
-through a pinned cutoff. It verifies project, control version, subject, positive
-receipt ordinal and actor identity. It uses the latest corrected result and
-reports outcomes requiring attention separately from receipt availability.
+makes read-only calls to `nexus audit read` and pages through the server
+run summaries at a pinned cutoff, selecting declared IDs in bounded batches.
+It matches project, control version and exact subject. Nexus owns correction
+and category projection. Use `nexus audit get` to inspect the original actor
+and detailed follow-up when reconciling provenance or findings. Outcomes
+requiring attention remain separate from receipt availability.
 
 ```sh
 python3 PATH_TO_NEXUS_AUDIT_SKILL/scripts/nexus-audit-check.py /private/task-plan.json
