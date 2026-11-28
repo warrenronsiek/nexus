@@ -3,7 +3,7 @@
 // @spec docs/features/persistence.md
 // @spec docs/features/evals.md
 // @boundary chart-numbers: caller text is never changed; conservative optional chart approximations reject precision loss and non-finite values.
-use super::RecordCache;
+use super::{RecordCache, Selection};
 use crate::evals::*;
 use anyhow::Result;
 use std::collections::BTreeMap;
@@ -39,25 +39,33 @@ pub(super) fn observe(
         entry.superseded_count += 1;
         return Ok(());
     }
-    let EvalBody::Run(run_body) = &run.body else {
-        return Ok(());
-    };
-    let numeric_value = match &value {
-        MeasurementValue::Inline { text } if context.numeric => chart_number(text),
-        _ => None,
-    };
-    entry.points.push(EvalDashboardPoint {
-        record_id: record.id.clone(),
-        run_id: run.id.clone(),
-        suite_revision_id: run_body.suite_id.clone(),
-        target_revision_id: run_body.target_id.clone(),
-        occurred_at: record.occurred_at,
-        value,
-        numeric_value,
-        replaces,
-    });
+    if let EvalBody::Run(run_body) = &run.body {
+        let numeric_value = match &value {
+            MeasurementValue::Inline { text } if context.numeric => chart_number(text),
+            _ => None,
+        };
+        entry.points.push(EvalDashboardPoint {
+            record_id: record.id.clone(),
+            run_id: run.id.clone(),
+            suite_revision_id: run_body.suite_id.clone(),
+            target_revision_id: run_body.target_id.clone(),
+            occurred_at: record.occurred_at,
+            value,
+            numeric_value,
+            replaces,
+            models: recorded_models(cache, &record.id)?,
+        });
+    }
     Ok(())
 }
+fn recorded_models(cache: &mut RecordCache<'_>, record: &str) -> Result<Vec<String>> {
+    Ok(cache
+        .dimensions(record)?
+        .into_iter()
+        .filter_map(|(dimension, value)| (dimension == "model").then_some(value))
+        .collect())
+}
+
 type ResultValue<'a> = (
     &'a str,
     &'a AssessmentSubject,
@@ -139,7 +147,7 @@ fn chart_number(text: &str) -> Option<f64> {
     }
     Some(value)
 }
-pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
+pub(super) fn bound_output(view: &mut EvalDashboard, selected: Selection<'_>) -> Result<()> {
     let mut limited = false;
     view.series
         .sort_by(|a, b| a.label.cmp(&b.label).then(a.id.cmp(&b.id)));
@@ -156,14 +164,7 @@ pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
     for group in &mut view.groups {
         limited |= bound_group(group)?;
     }
-    if let Some(index) = view
-        .groups
-        .iter()
-        .position(|group| Some(&group.id) == view.selected_group_id.as_ref())
-    {
-        let selected = view.groups.remove(index);
-        view.groups.insert(0, selected);
-    }
+    view.groups.sort_by_key(|group| !selected.includes(group));
     limited |= bound(&mut view.groups, 512, 192 * 1024)?;
     if limited {
         view.truncated = true;

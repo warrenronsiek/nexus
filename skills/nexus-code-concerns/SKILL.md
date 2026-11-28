@@ -45,8 +45,9 @@ counts separately. Counts include the full selected population. Ordinary lists
 default to 24 results and cap at 64. Detail starts with eight recent history
 entries and reports when more history is available.
 
-The authenticated web interface's Code concerns view starts with ranked area
-bars and recurrence trends. Select an area for its distinct concerns, then a
+The authenticated web interface's Code concerns view starts with the Code map.
+Open Problem areas for ranked area bars and recurrence trends. Select an area
+for its distinct concerns, then a
 concern for the encounter/remedy/return timeline and evidence metadata. The
 area rankings and lists default to the last seven days. Use the range control
 for 24 hours, 14 days, or 30 days. An exact concern and its history can still
@@ -272,3 +273,9 @@ attempted remedies, and known evidence gaps.
 history format. They retain original source attribution and current importer
 separately. Concern-specific transfer retains Git/artifact references and does
 not copy blob bytes; use a complete database snapshot when those bytes must move.
+
+The browser opens concerns on the Code map. Keep its project and history range
+when comparing the Problem areas and All concerns views. Maps count the selected
+measure; unique concerns, raw encounters, and known source occurrences have
+different units. Unattributed groups indicate missing recorded dimensions; do
+not fill them with guessed feature or subsystem ownership.

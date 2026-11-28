@@ -12,6 +12,7 @@ import Html.Events exposing (onClick, onInput)
 import Icon
 import Json.Decode as D
 import Json.Encode as E
+import TraceFlow
 import Set
 import Wire exposing (Document)
 
@@ -103,7 +104,7 @@ query scope =
         , fields =
             strings
                 [ ( "application_id", scope.application ), ( "environment", scope.environment ), ( "trace_id", scope.trace ), ( "event_id", scope.event ) ]
-                ++ [ ( "limit", E.int 8 ) ]
+                ++ [ ( "limit", E.int 64 ) ]
         }
 
     else
@@ -526,7 +527,7 @@ detail linkTo scope content events =
                 ]
 
           else
-            div [ class "report-list trace-events" ] (List.map (eventRow content.shown) events)
+            TraceFlow.view scope.event (eventRow content.shown) events
         ]
 
 
@@ -574,7 +575,7 @@ eventRow showPayload event =
             else
                 caption ++ " " ++ target
     in
-    div [ class "report" ]
+    div [ class "report", attribute "id" ("trace-event-" ++ Wire.str "event_id" event) ]
         [ div [ class "trace-event-heading" ] [ h3 [] [ text title ], small [] [ text (Wire.str "occurred_at" event) ] ]
         , p [ class "trace-event-meta" ] [ text (String.join " · " (List.filter ((/=) "") evidence)) ]
         , small [ class "trace-event-meta" ] [ text (String.join " · " (List.filter ((/=) "") [ targetLink "event_id" "Event", targetLink "turn_id" "Turn", targetLink "invocation_id" "Invocation", targetLink "parent_event_id" "Parent" ])) ]

@@ -21,7 +21,7 @@ type alias Bar =
 
 
 type alias Point =
-    { id : String, label : String, at : String, value : Maybe Float, exact : String }
+    { id : String, label : String, at : String, value : Maybe Float, exact : String, models : List String }
 
 
 type alias Interval =
@@ -29,7 +29,7 @@ type alias Interval =
 
 
 type alias Metric =
-    { id : String, label : String, unit : String, description : String, calculation : String, definition : String, points : List Point }
+    { id : String, label : String, unit : String, description : String, calculation : String, definition : String, points : List Point, scope : String }
 
 
 type alias Document =
@@ -149,15 +149,24 @@ interval =
 
 point : Decoder Point
 point =
-    D.map5 Point (D.field "record_id" D.string) (D.field "run_id" D.string) (D.field "occurred_at" D.string)
+    D.map6 Point (D.field "record_id" D.string) (D.field "run_id" D.string) (D.field "occurred_at" D.string)
         (D.field "numeric_value" (D.nullable D.float))
         (D.field "value" (D.oneOf [ D.field "text" D.string, D.map (\id -> "Artifact: " ++ id) (D.field "artifact_id" D.string), D.field "reason" D.string ]))
+        (optional "models" (D.list D.string) [])
+
+
+evalGroup : Decoder Row
+evalGroup =
+    let
+        agent = D.field "agent" D.string |> D.andThen (\name -> if String.trim name == "" then D.fail "Agent identity is empty" else D.succeed name)
+    in
+    D.map3 (\_ _ item -> item) agent (D.field "agent_declared" D.bool) (row "id" "label" "eval_group")
 
 
 metric : Decoder Metric
 metric =
-    D.map7 Metric (D.field "id" D.string) (D.field "label" D.string) (D.field "unit" D.string)
-        (D.field "description" D.string) (D.field "calculation" D.string) (D.field "definition_id" D.string) (D.field "points" (D.list point))
+    D.map8 Metric (D.field "id" D.string) (D.field "label" D.string) (D.field "unit" D.string)
+        (D.field "description" D.string) (D.field "calculation" D.string) (D.field "definition_id" D.string) (D.field "points" (D.list point)) (optional "subject_scope" D.string "run")
 
 
 required : String -> Decoder a -> Value -> Result D.Error a
@@ -242,7 +251,7 @@ shape kind root =
                                         | rows = sessions
                                         , intervals = intervals
                                         , bars = list "activity_kinds" root |> List.map (\v -> Bar (str "kind" v) (str "kind" v) (if number "known_count" v > 0 then Just (number "average_seconds" v) else Nothing) ((if number "known_count" v > 0 then duration (number "average_seconds" v) else "Unknown") ++ " avg · " ++ String.fromFloat (number "known_count" v) ++ "/" ++ String.fromFloat (number "count" v) ++ " timed"))
-                                        , points = list "daily" root |> List.map (\v -> Point (str "date" v) (str "date" v) (str "date" v) (if number "known_count" v > 0 then Just (number "average_seconds" v) else Nothing) "")
+                                        , points = list "daily" root |> List.map (\v -> Point (str "date" v) (str "date" v) (str "date" v) (if number "known_count" v > 0 then Just (number "average_seconds" v) else Nothing) "" [])
                                     }
                                 )
                     )
@@ -292,7 +301,7 @@ shape kind root =
             rows "observations" (row "id" "occurred_at" "observation")
 
         "eval_dashboard" ->
-            required "groups" (D.list (withSubtitle (\v -> String.join ", " (strings "models" v) ++ " · " ++ String.fromFloat (number "run_count" v) ++ " runs") (row "id" "label" "eval_group"))) root
+            required "groups" (D.list evalGroup) root
                 |> Result.andThen (\items -> required "series" (D.list metric) root |> Result.map (\metrics -> { base | rows = items, metrics = metrics }))
 
         "eval_list" ->
@@ -339,7 +348,7 @@ shape kind root =
 
         "concern_dashboard" ->
             rows "areas" (D.map2 (\body area -> Row (str "id" area) (str "display_name" area) (str "kind" area ++ " · " ++ affected (field "counts" body)) "concern_area" body) D.value (D.field "area" D.value))
-                |> Result.map (\doc -> { doc | bars = List.map (\r -> Bar r.id r.title (Just (number "work_sessions" (field "counts" r.body))) r.subtitle) doc.rows, points = list "daily" root |> List.map (\v -> Point (str "date" v) (str "date" v) (str "date" v) (Just (number "raw_observations" v)) "") })
+                |> Result.map (\doc -> { doc | bars = List.map (\r -> Bar r.id r.title (Just (number "work_sessions" (field "counts" r.body))) r.subtitle) doc.rows, points = list "daily" root |> List.map (\v -> Point (str "date" v) (str "date" v) (str "date" v) (Just (number "raw_observations" v)) "" []) })
 
         "concern_list" ->
             described "items" (\v -> str "status" v ++ " · " ++ str "last_observed_at" v)

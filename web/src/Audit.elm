@@ -90,13 +90,16 @@ toolbar inputChanged apply loading filters =
                 , input ([ name key, type_ kind, value current, onInput (inputChanged fieldName) ] ++ extra) []
                 ]
     in
-    form [ class "audit-filters", onSubmit apply ]
+    details ([ class "audit-advanced" ] ++ (if List.isEmpty (fields filters) then [] else [ attribute "open" "" ]))
+      [ summary [] [ text "Advanced filters" ]
+      , form [ class "audit-filters", onSubmit apply ]
         [ field "Control key" "audit-control" "text" Control [ attribute "maxlength" "160" ] filters.control
         , field "Version" "audit-version" "number" Version [ attribute "min" "1", disabled (String.trim filters.control == "") ] filters.version
         , field "From (UTC)" "audit-from" "date" From [] filters.from
         , field "Before (UTC)" "audit-until" "date" Until [] filters.until
         , button [ type_ "submit", disabled loading ] [ text "Apply filters" ]
         ]
+      ]
 
 
 type alias Bucket =

@@ -2,7 +2,7 @@
 // @feature evals
 // @spec docs/features/persistence.md
 // @spec docs/features/evals.md
-use super::{series, RecordCache, SOURCE_LIMIT};
+use super::{series, RecordCache, Selection, SOURCE_LIMIT};
 use crate::evals::*;
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,7 +12,7 @@ struct GroupProjection {
     series: BTreeMap<String, EvalDashboardSeries>,
 }
 pub(super) struct DashboardProjection<'a> {
-    selected: Option<&'a str>,
+    selected: Selection<'a>,
     groups: BTreeMap<String, GroupProjection>,
     runs: BTreeMap<String, EvalRecordInput>,
     result_count: usize,
@@ -20,7 +20,7 @@ pub(super) struct DashboardProjection<'a> {
     run_context: BTreeMap<String, Option<GroupContext>>,
 }
 impl<'a> DashboardProjection<'a> {
-    pub(super) fn new(selected: Option<&'a str>) -> Self {
+    pub(super) fn new(selected: Selection<'a>) -> Self {
         Self {
             selected,
             groups: BTreeMap::new(),
@@ -59,7 +59,7 @@ impl<'a> DashboardProjection<'a> {
                 self.result_count += 1;
             }
             group.summary.latest_at = group.summary.latest_at.max(record.occurred_at);
-            if self.selected == Some(group.summary.id.as_str()) {
+            if self.selected.includes(&group.summary) {
                 series::observe(
                     cache,
                     &mut group.series,
@@ -124,10 +124,17 @@ impl<'a> DashboardProjection<'a> {
         Ok(())
     }
 
-    pub(super) fn finish(self, scanned: usize, truncated: bool) -> Result<EvalDashboard> {
+    pub(super) fn finish(mut self, scanned: usize, truncated: bool) -> Result<EvalDashboard> {
         let mut view = EvalDashboard {
             groups: vec![],
-            selected_group_id: self.selected.map(str::to_owned),
+            selected_group_id: match self.selected {
+                Selection::Group(id) => id.map(str::to_owned),
+                Selection::Agent(_) => None,
+            },
+            selected_agent: match self.selected {
+                Selection::Agent(agent) => Some(agent.to_owned()),
+                _ => None,
+            },
             series: vec![],
             run_count: self.runs.len(),
             result_count: self.result_count,
@@ -136,30 +143,57 @@ impl<'a> DashboardProjection<'a> {
             truncated,
             notices: vec![],
         };
-        for (_, group) in self.groups {
-            if self.selected == Some(group.summary.id.as_str()) {
-                view.series = group.series.into_values().collect();
-            }
-            view.groups.push(group.summary);
-        }
+        self.collect_groups(&mut view);
         view.groups
             .sort_by(|a, b| b.latest_at.cmp(&a.latest_at).then(a.id.cmp(&b.id)));
-        if truncated {
-            view.notices.push("source_limit: most recently received run/assessment records or their dependencies exceeded 4096 records / 8 MiB; coverage and current-frontier counts are partial".into());
-        }
-        if self.unresolved > 0 {
-            view.truncated = true;
-            view.notices.push(format!("{0} source records could not resolve their run/definition context within the bounded dependency view",self.unresolved));
-        }
-        if view.selected_group_id.is_some() && view.series.is_empty() {
-            view.notices
-                .push("No result series in the selected captured group".into());
-        }
-        series::bound_output(&mut view)?;
+        disclose_bounds(&mut view, truncated, self.unresolved);
+        series::bound_output(&mut view, self.selected)?;
         view.notices.push("Series separate exact metric/grader revisions and assessment scope; units/names do not establish compatibility. Numeric chart values are optional presentation approximations; exact text remains authoritative. No optimization direction is inferred.".into());
         Ok(view)
     }
+    fn collect_groups(&mut self, view: &mut EvalDashboard) {
+        let mut series_by_id = BTreeMap::new();
+        for (_, group) in std::mem::take(&mut self.groups) {
+            if self.selected.includes(&group.summary) {
+                for (id, series) in group.series {
+                    merge_series(&mut series_by_id, id, series);
+                }
+            }
+            view.groups.push(group.summary);
+        }
+        view.series = series_by_id.into_values().collect();
+    }
 }
+fn disclose_bounds(view: &mut EvalDashboard, truncated: bool, unresolved: usize) {
+    if truncated {
+        view.notices.push("source_limit: most recently received run/assessment records or their dependencies exceeded 4096 records / 8 MiB; coverage and current-frontier counts are partial".into());
+    }
+    if unresolved > 0 {
+        view.truncated = true;
+        view.notices.push(format!("{0} source records could not resolve their run/definition context within the bounded dependency view",unresolved));
+    }
+    if view.selected_group_id.is_some() && view.series.is_empty() {
+        view.notices
+            .push("No result series in the selected captured group".into());
+    }
+}
+
+fn merge_series(
+    series: &mut BTreeMap<String, EvalDashboardSeries>,
+    id: String,
+    incoming: EvalDashboardSeries,
+) {
+    match series.entry(id) {
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(incoming);
+        }
+        std::collections::btree_map::Entry::Occupied(mut entry) => {
+            entry.get_mut().points.extend(incoming.points);
+            entry.get_mut().superseded_count += incoming.superseded_count;
+        }
+    }
+}
+
 impl GroupProjection {
     fn observe_run(&mut self, run: &EvalRecordInput) {
         let EvalBody::Run(body) = &run.body else {

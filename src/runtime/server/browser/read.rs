@@ -246,6 +246,8 @@ enum ConcernRead {
     Map {
         #[serde(default)]
         filter: crate::code_map::MapQuery,
+        #[serde(default)]
+        range: HistoryRange,
     },
     #[serde(rename = "concern_dashboard")]
     Dashboard {
@@ -551,10 +553,15 @@ impl WorkRead {
 impl ConcernRead {
     fn into_action(self, project_id: Option<String>) -> ConcernAction {
         match self {
-            Self::Map { filter } => ConcernAction::Map {
-                project_id,
-                query: filter,
-            },
+            Self::Map { mut filter, range } => {
+                if filter.occurred_after.is_none() && filter.occurred_before.is_none() {
+                    filter.occurred_after = Some(range.cutoff());
+                }
+                ConcernAction::Map {
+                    project_id,
+                    query: filter,
+                }
+            }
             Self::Dashboard { mut filter, range } => {
                 if filter.occurred_after.is_none() && filter.occurred_before.is_none() {
                     filter.occurred_after = Some(range.cutoff());

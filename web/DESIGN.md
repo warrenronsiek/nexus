@@ -222,3 +222,20 @@ retain their separate unknown-state meaning. Collision packing reserves only
 observed task geometry, with 72px initial child offsets and extra space for actual
 label conflicts. D3 remains the visualization owner; Elm retains application and
 selection state.
+
+## Review navigation and evidence contracts (2026-11-28)
+
+Code map is the concerns landing view, with local Problem areas / All concerns
+navigation and the common project/time scope. Detail drill-down replaces the
+parent map. URLs retain typed concern buckets and selected Work calls; Back
+returns to the parent scope. Specialized audit filters are progressively disclosed.
+Work inspection loads retained source evidence lazily and preserves missing-data
+labels; it never expands the capture policy to collect raw content.
+
+Evaluation panels group metric families for inspection while keeping definition
+recipes, model dimensions, and exact source observations explicit. Recipe choice
+is a filter, not a newly computed aggregate. Trace execution uses compact,
+expandable lifecycle rows with explicit identity pairing and source evidence.
+Delivery distinguishes provider observation freshness and recorded terminal
+outcomes from ongoing responsibility. These views retain the shared neutral
+surfaces, Public Sans / IBM Plex Mono, and Lucide navigation.

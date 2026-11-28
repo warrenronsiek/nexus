@@ -117,14 +117,17 @@ fn apply_history_action(
             .map(|page| EvalResponse::Listed { ok: true, page }),
         EvalAction::Dashboard {
             group_id,
+            agent,
             occurred_after,
             ..
-        } => store
-            .eval_dashboard_window(project, group_id.as_deref(), occurred_after)
-            .map(|dashboard| EvalResponse::Dashboard {
-                ok: true,
-                dashboard: Box::new(dashboard),
-            }),
+        } => (match agent {
+            Some(agent) => store.eval_agent_dashboard_window(project, &agent, occurred_after),
+            None => store.eval_dashboard_window(project, group_id.as_deref(), occurred_after),
+        })
+        .map(|dashboard| EvalResponse::Dashboard {
+            ok: true,
+            dashboard: Box::new(dashboard),
+        }),
         EvalAction::Get { id, .. } => {
             store
                 .get_eval_record(project, &id)

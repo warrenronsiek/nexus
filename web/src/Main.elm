@@ -12,6 +12,7 @@ import Audit
 import CodeMap
 import Delivery
 import DeliveryOverlap
+import Evals
 import Browser
 import Browser.Dom as Dom
 import Browser.Events
@@ -30,6 +31,7 @@ import Time
 import Traces
 import Url exposing (Url)
 import Waterfall
+import Work
 import Wire exposing (Document, Row)
 
 
@@ -77,7 +79,7 @@ type TimeRange
 
 
 type alias Route =
-    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope, traceScope : Traces.Scope, range : TimeRange }
+    { screen : Screen, project : Maybe String, focus : Maybe String, mode : String, audit : Audit.Scope, traceScope : Traces.Scope, range : TimeRange, detail : Maybe Query, call : Maybe String }
 
 
 type alias Model =
@@ -109,6 +111,7 @@ type alias Model =
     , selected : Maybe String
     , zoom : Float
     , mode : String
+    , evalScope : Evals.Scope
     , durationMode : String
     , range : TimeRange
     , navigationOpen : Bool
@@ -150,6 +153,7 @@ type Msg
     | Keyboard String
     | More
     | DurationMode String
+    | EvalScope Evals.Field String
     | ToggleNavigation
     | AuditFilter Audit.Field String
     | ApplyAuditFilters
@@ -169,7 +173,7 @@ init _ url key =
     let
         wanted = route url
     in
-    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, timeline = State.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, traceScope = wanted.traceScope, traceBrowserContent = False, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = [], selected = Nothing, zoom = 1, mode = wanted.mode, durationMode = "average", range = wanted.range, navigationOpen = False }
+    ( { key = key, screen = wanted.screen, authenticated = Nothing, username = "", password = "", loginError = Nothing, project = wanted.project, defaultProjectId = Nothing, globalProjectReads = True, projects = [], projectsError = Nothing, focus = wanted.focus, data = State.empty, polling = State.empty, supplemental = Dict.empty, timeline = State.empty, deliveryOverlap = State.empty, auditFilters = wanted.audit.filters, auditScope = wanted.audit, traceScope = wanted.traceScope, traceBrowserContent = False, details = Dict.empty, expanded = Dict.empty, query = routeQuery wanted, trail = if wanted.detail /= Nothing then [ primary wanted.screen wanted.focus ] else [], selected = wanted.call, zoom = 1, mode = wanted.mode, durationMode = "average", evalScope = Evals.empty, range = wanted.range, navigationOpen = False }
     , http "GET" "session" Http.emptyBody Session
     )
 
@@ -252,7 +256,14 @@ route url =
         screen = List.filter (\candidate -> String.endsWith ("/" ++ slug candidate) url.path) screens |> List.head |> Maybe.withDefault Coordination
         params = url.query |> Maybe.map parameters |> Maybe.withDefault Dict.empty
     in
-    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if List.member screen [ PullRequests, Concerns ] then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params, traceScope = Traces.parseScope params, range = Dict.get "range" params |> Maybe.withDefault "" |> parseRange }
+    { screen = screen, project = Dict.get "project" params, focus = focusParam screen |> Maybe.andThen (\key -> Dict.get key params), mode = if List.member screen [ PullRequests, Concerns ] then Dict.get "view" params |> Maybe.withDefault "" else "", audit = Audit.parseScope params, traceScope = Traces.parseScope params, range = Dict.get "range" params |> Maybe.withDefault "" |> parseRange, detail = if screen == Concerns then Dict.get "detail" params |> Maybe.andThen decodeDrill else Nothing, call = if screen == Work then Dict.get "call" params else Nothing }
+
+
+decodeDrill : String -> Maybe Query
+decodeDrill encoded =
+    D.decodeString (D.map2 Query (D.field "kind" D.string) (D.keyValuePairs D.value |> D.map (List.filter (Tuple.first >> (/=) "kind")))) encoded
+        |> Result.toMaybe
+        |> Maybe.andThen (\wanted -> if List.member wanted.kind [ "concern_list", "code_map" ] then Just wanted else Nothing)
 
 
 parseRange : String -> TimeRange
@@ -281,7 +292,9 @@ rangeScreen screen =
 routeLocation : Route -> String
 routeLocation wanted =
     let
-        extra =
+        drill = wanted.detail |> Maybe.map (\item -> ( "detail", E.encode 0 (E.object (( "kind", E.string item.kind ) :: item.fields)) )) |> Maybe.map List.singleton |> Maybe.withDefault []
+        call = wanted.call |> Maybe.map (\item -> [ ( "call", item ) ]) |> Maybe.withDefault []
+        extra = drill ++ call ++
             (if rangeScreen wanted.screen && wanted.range /= Week then [ ( "range", Tuple.first (rangeOption wanted.range) ) ] else [])
                 ++ (if List.member wanted.screen [ PullRequests, Concerns ] && wanted.mode /= "" then [ ( "view", wanted.mode ) ] else [])
                 ++ (if wanted.screen == Audits then Audit.routeFields wanted.audit else [])
@@ -339,11 +352,11 @@ primary screen focus =
         Work -> focused "work_dashboard" "work_session_id"
         PullRequests -> deliveryQuery focus
         Audits -> query "audit_list"
-        Evals -> focused "eval_dashboard" "group_id"
+        Evals -> focused "eval_dashboard" "agent"
         Tools -> query "analytics_summary"
         Skills -> query "skill_usage"
         ApplicationTraces -> Traces.query Traces.empty
-        Concerns -> query "concern_dashboard"
+        Concerns -> query "code_map"
         Papercuts -> query "papercuts"
         Sos -> query "sos_list"
         Memory -> query "memory_context"
@@ -363,6 +376,13 @@ deliveryQuery focus =
 
 routeQuery : Route -> Query
 routeQuery wanted =
+    case ( wanted.screen, wanted.detail ) of
+        ( Concerns, Just drill ) -> drill
+        _ -> primaryRouteQuery wanted
+
+
+primaryRouteQuery : Route -> Query
+primaryRouteQuery wanted =
     case ( wanted.screen, wanted.focus ) of
         ( Audits, Just runId ) ->
             Query "audit_get" [ ( "run_id", E.string runId ), ( "cutoff", wanted.audit.cutoff |> Maybe.map E.int |> Maybe.withDefault E.null ) ]
@@ -385,7 +405,7 @@ routeQuery wanted =
 
 currentRoute : Model -> Route
 currentRoute model =
-    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope, traceScope = model.traceScope, range = model.range }
+    { screen = model.screen, project = model.project, focus = model.focus, mode = model.mode, audit = model.auditScope, traceScope = model.traceScope, range = model.range, detail = if model.screen == Concerns && not (List.isEmpty model.trail) then Just model.query else Nothing, call = if model.screen == Work then model.selected else Nothing }
 
 
 {-| Companion reads that complete a screen: its picker index, focused evidence, or health. -}
@@ -394,6 +414,12 @@ companions model =
     case model.screen of
         Coordination ->
             [ ( "index", query "coordination_session_index" ) ]
+
+        Work ->
+            if model.focus /= Nothing && not (Dict.member "work_index" model.supplemental) then [ ( "work_index", query "work_dashboard" ) ] else []
+
+        Concerns ->
+            if model.query.kind == "code_map" then [ ( "concern_summary", query "concern_dashboard" ) ] else []
 
         Memory ->
             [ ( "health", query "memory_status" ) ]
@@ -473,7 +499,7 @@ load wanted model =
 
 boundedQuery : TimeRange -> Query -> Query
 boundedQuery range wanted =
-    if range /= Week && List.member wanted.kind [ "work_dashboard", "coordination", "coordination_summary", "coordination_session_index", "delivery_list", "eval_dashboard", "concern_dashboard", "concern_list", "audit_list" ] then
+    if range /= Week && List.member wanted.kind [ "work_dashboard", "coordination", "coordination_summary", "coordination_session_index", "delivery_list", "eval_dashboard", "concern_dashboard", "concern_list", "code_map", "audit_list" ] then
         with "range" (Tuple.first (rangeOption range)) wanted
     else
         wanted
@@ -500,7 +526,12 @@ reset wanted model =
     let
         sameScreen = wanted.screen == model.screen && wanted.project == model.project
     in
-    if sameScreen && wanted.screen == Coordination && wanted.range == model.range && wanted.focus /= model.focus && model.data.value /= Nothing then
+    if sameScreen && wanted.screen == Work && wanted.focus == model.focus && wanted.range == model.range && model.data.value /= Nothing then
+        case wanted.call of
+            Just node -> if model.selected == Just node then ( model, Cmd.none ) else update (SelectNode node) model
+            Nothing -> let next = { model | selected = Nothing } in ( next, draw next )
+
+    else if sameScreen && wanted.screen == Coordination && wanted.range == model.range && wanted.focus /= model.focus && model.data.value /= Nothing then
         let
             previous = model.timeline
         in
@@ -517,13 +548,14 @@ reset wanted model =
             , supplemental = if sameScreen && wanted.range == model.range then model.supplemental else Dict.empty
             , timeline = { value = Nothing, generation = model.timeline.generation + 1, loading = False, error = Nothing }
             , deliveryOverlap = if sameScreen then model.deliveryOverlap else State.empty
+            , evalScope = if sameScreen && wanted.focus == model.focus then model.evalScope else Evals.empty
             , auditFilters = wanted.audit.filters
             , auditScope = wanted.audit
             , traceScope = wanted.traceScope
             , details = if sameScreen then model.details else Dict.empty
             , expanded = if sameScreen then model.expanded else Dict.empty
-            , trail = []
-            , selected = Nothing
+            , trail = if wanted.detail /= Nothing then [ primary wanted.screen wanted.focus ] else []
+            , selected = wanted.call
             , zoom = 1
             , mode = if List.member wanted.screen [ PullRequests, Concerns ] then wanted.mode else if sameScreen then model.mode else ""
             , navigationOpen = False
@@ -616,11 +648,11 @@ update msg model =
                     wanted = currentRoute model
                     traceScopeEmpty = Traces.empty
                 in
-                ( model, Nav.pushUrl model.key (routeLocation { wanted | project = if project == "" then Nothing else Just project, focus = Nothing, traceScope = { traceScopeEmpty | mode = wanted.traceScope.mode } }) )
+                ( model, Nav.pushUrl model.key (routeLocation { wanted | project = if project == "" then Nothing else Just project, focus = Nothing, call = Nothing, detail = Nothing, traceScope = { traceScopeEmpty | mode = wanted.traceScope.mode } }) )
 
         ChangeFocus focus ->
             let wanted = currentRoute model in
-            ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = if focus == "" then Nothing else Just focus }) )
+            ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = if focus == "" then Nothing else Just focus, call = Nothing, detail = Nothing }) )
 
         ChangeRange raw ->
             let
@@ -628,7 +660,7 @@ update msg model =
                 currentAudit = wanted.audit.filters
                 cleared = { filters = { currentAudit | from = "", until = "" }, cutoff = Nothing }
             in
-            ( model, Nav.pushUrl model.key (routeLocation { wanted | range = parseRange raw, focus = Nothing, audit = cleared }) )
+            ( model, Nav.pushUrl model.key (routeLocation { wanted | range = parseRange raw, focus = Nothing, call = Nothing, detail = Nothing, audit = cleared }) )
 
         ChangeTraceScope field picked ->
             let traceScope = Traces.setScopeField field picked model.traceScope in
@@ -644,19 +676,28 @@ update msg model =
                 ( model, Cmd.none )
 
         Navigate wanted ->
-            load wanted { model | trail = model.query :: model.trail, selected = Nothing }
+            if model.screen == Concerns then
+                let current = currentRoute model in
+                ( model, Nav.pushUrl model.key (routeLocation { current | detail = Just wanted, call = Nothing }) )
+            else
+                load wanted { model | trail = model.query :: model.trail, selected = Nothing }
 
         Back ->
-            case model.trail of
-                previous :: rest ->
-                    load previous { model | trail = rest, selected = Nothing }
-
-                [] ->
-                    reset (currentRoute model) model
+            if model.selected /= Nothing then
+                let next = { model | selected = Nothing } in
+                ( next, Cmd.batch [ draw next, Nav.replaceUrl model.key (routeLocation (currentRoute next)) ] )
+            else if model.screen == Concerns && not (List.isEmpty model.trail) then
+                ( model, Nav.back model.key 1 )
+            else
+                case model.trail of
+                    previous :: rest -> load previous { model | trail = rest }
+                    [] -> if model.focus /= Nothing then ( model, Nav.back model.key 1 ) else reset (currentRoute model) model
 
         Refresh ->
             let
-                ( loaded, reading ) = load model.query model
+                detailKey = model.selected |> Maybe.map (\node -> "work:" ++ Maybe.withDefault "" model.project ++ ":" ++ node)
+                fresh = if model.screen == Work then { model | details = detailKey |> Maybe.map (\key -> Dict.remove key model.details) |> Maybe.withDefault model.details } else model
+                ( loaded, reading ) = load model.query fresh
                 ( refreshed, configuration ) = if model.polling.error /= Nothing && not model.polling.loading then bootstrapPolling loaded else ( loaded, Cmd.none )
             in
             ( refreshed, Cmd.batch [ reading, configuration ] )
@@ -684,7 +725,15 @@ update msg model =
                             decoded = result |> Result.mapError httpError |> Result.andThen (Wire.decode wireKind)
                             updated = if isPrimary then { model | data = State.accept generation decoded model.data } else if kind == "delivery_coordination" then { model | deliveryOverlap = State.accept generation decoded model.deliveryOverlap } else { model | supplemental = decoded |> Result.map (\doc -> Dict.insert kind doc model.supplemental) |> Result.withDefault model.supplemental }
                         in
-                        ( updated, draw updated )
+                        let
+                            indexed = if isPrimary && kind == "work_dashboard" && model.focus == Nothing then
+                                { updated | supplemental = decoded |> Result.map (\doc -> Dict.insert "work_index" doc updated.supplemental) |> Result.withDefault updated.supplemental }
+                                else updated
+                        in
+                        if isPrimary && kind == "work_dashboard" && indexed.selected /= Nothing then
+                            indexed.selected |> Maybe.map (\node -> update (SelectNode node) indexed) |> Maybe.withDefault ( indexed, draw indexed )
+                        else
+                            ( indexed, draw indexed )
 
         DetailReceived key kind result ->
             case result of
@@ -746,21 +795,30 @@ update msg model =
 
         SelectNode nodeId ->
             let
+                key = "work:" ++ Maybe.withDefault "" model.project ++ ":" ++ nodeId
                 next = { model | selected = Just nodeId }
+                subject = E.object [ ( "scope", E.string (if model.focus == Just nodeId then "session" else "activity") ), ( "id", E.string nodeId ) ]
+                wanted = Query "work_get" [ ( "subject", subject ) ]
             in
-            ( next, draw next )
+            if model.screen == Work && (case Dict.get key model.details of
+                Just (Loaded _) -> False
+                Just Loading -> False
+                _ -> True) then
+                ( { next | details = Dict.insert key Loading model.details }, Cmd.batch [ draw next, read model.project wanted (DetailReceived key "work_get"), Nav.replaceUrl model.key (routeLocation (currentRoute next)) ] )
+            else
+                ( next, Cmd.batch [ draw next, if model.screen == Work then Nav.replaceUrl model.key (routeLocation (currentRoute next)) else Cmd.none ] )
 
         MapMeasure measure ->
             let
                 filters = mapFilters model
             in
-            load (mapQuery [ ( "measure", measure ), ( "group_by", E.string filters.dimension ) ]) { model | trail = [], selected = Nothing }
+            update (Navigate (mapQuery [ ( "measure", measure ), ( "group_by", E.string filters.dimension ) ])) { model | selected = Nothing }
 
         MapDimension dimension ->
             let
                 filters = mapFilters model
             in
-            load (mapQuery (( "group_by", E.string dimension ) :: pinnedMapFilters filters)) { model | trail = [], selected = Nothing }
+            update (Navigate (mapQuery (( "group_by", E.string dimension ) :: pinnedMapFilters filters))) { model | selected = Nothing }
 
         MapTile tileId ->
             let
@@ -820,7 +878,7 @@ update msg model =
         Mode mode ->
             if List.member model.screen [ PullRequests, Concerns ] then
                 let wanted = currentRoute model in
-                ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = Nothing, mode = mode }) )
+                ( model, Nav.pushUrl model.key (routeLocation { wanted | focus = Nothing, mode = mode, detail = Nothing, call = Nothing }) )
             else
                 load (modeQuery model.screen mode) { model | mode = mode, trail = [], selected = Nothing }
 
@@ -829,6 +887,10 @@ update msg model =
 
         More ->
             more model
+
+        EvalScope field content ->
+            let next = { model | evalScope = Evals.set field content model.evalScope } in
+            ( next, draw next )
 
         DurationMode mode ->
             let next = { model | durationMode = mode } in
@@ -839,6 +901,8 @@ companionKind : String -> String
 companionKind key =
     case key of
         "index" -> "coordination_session_index"
+        "work_index" -> "work_dashboard"
+        "concern_summary" -> "concern_dashboard"
         "health" -> "memory_status"
         "delivery_coordination" -> "coordination"
         _ -> key
@@ -904,8 +968,8 @@ modeQuery screen mode =
             Concerns ->
                 case mode of
                     "all" -> "concern_list"
-                    "map" -> "code_map"
-                    _ -> "concern_dashboard"
+                    "areas" -> "concern_dashboard"
+                    _ -> "code_map"
             _ -> (primary screen Nothing).kind
 
 
@@ -959,7 +1023,7 @@ more model =
                         in
                         { kind = model.query.kind, fields = List.filter (\( k, _ ) -> k /= "after" && k /= "offset" && k /= "cutoff") model.query.fields ++ fence ++ [ ( if String.startsWith "analytics_" model.query.kind then "offset" else "after", cursor ) ] }
             in
-            next |> Maybe.map (\cursor -> load (wanted cursor) { model | trail = model.query :: model.trail, selected = Nothing }) |> Maybe.withDefault ( model, Cmd.none )
+            next |> Maybe.map (\cursor -> if model.screen == Concerns then update (Navigate (wanted cursor)) model else load (wanted cursor) { model | trail = model.query :: model.trail, selected = Nothing }) |> Maybe.withDefault ( model, Cmd.none )
 
 
 
@@ -1031,7 +1095,7 @@ screenCharts model doc =
             if model.query.kind == "audit_list" then List.map (\( chartId, bars ) -> barsChart chartId bars) (Audit.charts doc.rows) else []
 
         Evals ->
-            if model.focus == Nothing then [] else List.indexedMap (\index metric -> encodeTrend ("metric-" ++ String.fromInt index) False metric.points) doc.metrics
+            if model.focus == Nothing then [] else List.indexedMap (\index metric -> encodeTrend ("metric-" ++ String.fromInt index) False metric.points) (Evals.metrics model.evalScope doc.metrics)
 
         Concerns ->
             case model.query.kind of
@@ -1217,7 +1281,7 @@ toolbar model =
             (label [ class "scope-control" ] [ span [ class "muted" ] [ text "Project" ], select [ onInput ChangeProject, attribute "aria-label" "Project scope" ] ((if model.globalProjectReads then [ choice current "" "All projects" ] else []) ++ custom ++ catalog) ]
                 :: (timeRangePicker model ++ focusPicker model ++ traceControls model)
             )
-        , div [ class "toolbar-right" ] [ applicationActivityLink model, if List.isEmpty model.trail then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
+        , div [ class "toolbar-right" ] [ applicationActivityLink model, if List.isEmpty model.trail && model.selected == Nothing && model.focus == Nothing then text "" else button [ onClick Back ] [ Icon.view Icon.Back, text "Back" ], button [ onClick Refresh, disabled model.data.loading ] [ Icon.view Icon.Refresh, text (if model.data.loading then "Refreshing…" else "Refresh") ] ]
         ]
 
 
@@ -1255,7 +1319,7 @@ traceContentShown wanted =
 
 timeRangePicker : Model -> List (Html Msg)
 timeRangePicker model =
-    if not (rangeScreen model.screen) || (model.screen == Concerns && model.mode == "map") then
+    if not (rangeScreen model.screen) then
         []
     else
         let
@@ -1286,8 +1350,8 @@ focusPicker model =
     in
     case model.screen of
         Coordination -> picker "Session" "Choose a session…" (Dict.get "index" model.supplemental |> Maybe.map .rows |> Maybe.withDefault [])
-        Work -> picker "Session" "Choose a session…" documentRows
-        Evals -> picker "Agent" "Choose an agent…" documentRows
+        Work -> picker "Session" "Choose a session…" (Dict.get "work_index" model.supplemental |> Maybe.map .rows |> Maybe.withDefault documentRows)
+        Evals -> picker "Agent" "Choose an agent…" (Evals.agents documentRows)
         _ -> []
 
 
@@ -1295,21 +1359,12 @@ focusCaption : Row -> String
 focusCaption row =
     case row.kind of
         "coordination_session" -> row.title ++ " · " ++ row.subtitle
-        "eval_group" -> evalCaption row
         _ ->
             let
                 started = Wire.str "started_at" row.body
                 active = D.decodeValue (D.field "active_seconds" D.float) row.body |> Result.toMaybe
             in
             row.title ++ (if started == "" then "" else " · " ++ timeText started) ++ (active |> Maybe.map (\seconds -> " · " ++ duration seconds ++ " active") |> Maybe.withDefault "")
-
-
-evalCaption : Row -> String
-evalCaption row =
-    let
-        agent = Wire.str "agent" row.body
-    in
-    (if agent /= "" && not (String.startsWith agent row.title) then agent ++ " · " else "") ++ row.title ++ (if row.subtitle == "" then "" else " · " ++ row.subtitle)
 
 
 projectCaption : Row -> String
@@ -1375,7 +1430,7 @@ subnav model =
     let
         modes = case model.screen of
             Tools -> [ ( "", "Activities" ), ( "capabilities", "Capabilities" ), ( "opportunities", "Opportunities" ) ]
-            Concerns -> [ ( "", "Problem areas" ), ( "all", "All concerns" ), ( "map", "Code map" ) ]
+            Concerns -> [ ( "", "Code map" ), ( "areas", "Problem areas" ), ( "all", "All concerns" ) ]
             PullRequests -> [ ( "", "Pull requests" ), ( "rollouts", "Rollouts" ), ( "remediation", "Remediation" ) ]
             _ -> []
     in
@@ -1620,6 +1675,7 @@ sessionView : Model -> Document -> Html Msg
 sessionView model doc =
     let
         root = Wire.field "selected_session" doc.root
+        wantedWork = currentRoute model
         nodes = waterfallNodes doc
         picked = model.selected |> Maybe.andThen (\nodeId -> List.filter (\node -> node.id == nodeId) nodes |> List.head)
         started = Wire.str "started_at" root
@@ -1631,8 +1687,18 @@ sessionView model doc =
         panel (Wire.str "title" root) caption
             [ div [ class "graph-controls" ] [ div [ class "legend" ] (List.map (\( css, legendCaption ) -> span [ class css ] [ span [ class "legend-swatch", attribute "aria-hidden" "true" ] [], text legendCaption ]) [ ( "agent", "Subagent" ), ( "test", "Test" ), ( "script", "Script" ), ( "review", "Review" ), ( "tool", "Tool / command" ), ( "session", "Prompt / session" ) ]), div [] [ button [ onClick (Zoom (0.5 / model.zoom)), attribute "aria-label" "Fit timeline" ] [ text "Fit" ], button [ onClick (Zoom 0.7), attribute "aria-label" "Zoom out" ] [ Icon.view Icon.ZoomOut ], button [ onClick (Zoom 1.4), attribute "aria-label" "Zoom in" ] [ Icon.view Icon.ZoomIn ] ] ]
             , div [ class "legend flow-state-key" ] [ span [ class "flow-key-active" ] [ span [ class "flow-key-mark" ] [], text "Execution" ], span [ class "flow-key-wait" ] [ span [ class "flow-key-mark" ] [], text "Waiting / queued" ], span [ class "flow-key-unknown" ] [ span [ class "flow-key-mark" ] [], text "Unobserved" ] ]
-            , div [ class "waterfall-scroll", attribute "tabindex" "0", preventDefaultOn "keydown" (D.field "key" D.string |> D.map (\key -> ( Keyboard key, List.member key [ "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight" ] ))), attribute "aria-label" "Session work tree. Arrow keys select tasks, parents and children." ] [ chart "work-waterfall" ]
+            , div [ class (if picked == Nothing then "work-session-body" else "work-session-body inspecting") ]
+                [ div [ class "work-timeline" ]
+                  [ div [ class "waterfall-scroll", attribute "tabindex" "0", preventDefaultOn "keydown" (D.field "key" D.string |> D.map (\key -> ( Keyboard key, List.member key [ "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight" ] ))), attribute "aria-label" "Session work tree. Arrow keys select tasks, parents and children." ] [ chart "work-waterfall" ]
             , p [ class "selection-line", attribute "aria-live" "polite" ] [ text (picked |> Maybe.map Waterfall.summary |> Maybe.withDefault "Time flows down. Filled: observed execution; dotted: waiting; hollow: unknown. Arrows show observed returns. Select an individual call for evidence.") ]
+
+                  ]
+                , div [ class "work-evidence" ] [ picked |> Maybe.map (\node ->
+                case Dict.get ("work:" ++ Maybe.withDefault "" model.project ++ ":" ++ node.id) model.details of
+                    Just (Loaded detail) -> Work.detail (\session -> routeLocation { wantedWork | focus = Just session, call = Nothing }) node detail
+                    Just (Failed reason) -> div [ class "notice error" ] [ text reason ]
+                    _ -> p [] [ text "Loading call evidence…" ]) |> Maybe.withDefault (text "") ]
+                ]
             ]
 
 
@@ -1643,43 +1709,15 @@ sessionView model doc =
 evalView : Model -> Document -> Html Msg
 evalView model doc =
     div []
-        [ div [ class "stats-grid" ] [ stat "Recorded runs" (countText "run_count" doc.root) "Caller-owned execution", stat "Results" (countText "result_count" doc.root) "Current observations; corrections retained", stat "Agents" (String.fromInt (List.length doc.rows)) "Evaluated agents and configurations", stat "Source records" (countText "scanned_records" doc.root) "Bounded historical projection" ]
+        [ (if model.focus /= Nothing then text "" else div [ class "stats-grid" ] [ stat "Recorded runs" (countText "run_count" doc.root) "Caller-owned execution", stat "Results" (countText "result_count" doc.root) "Current observations; corrections retained", stat "Agents" (String.fromInt (List.length (Evals.agents doc.rows))) "Evaluated agents across configurations", stat "Source records" (countText "scanned_records" doc.root) "Bounded historical projection" ])
         , if model.focus == Nothing then
             guidance "Choose an agent" "Pick an agent above to see each of its metrics over time."
           else if List.isEmpty doc.metrics then
             guidance "No metrics recorded" "This agent has runs but no scored metric observations yet."
           else
-            div [ class "metric-grid" ] (List.indexedMap metricPanel doc.metrics)
+            div [] [ Evals.configurations (Maybe.withDefault "" model.focus) doc.rows, Evals.view chart EvalScope model.evalScope doc.metrics ]
         ]
 
-
-metricPanel : Int -> Wire.Metric -> Html Msg
-metricPanel index metric =
-    panel metric.label (String.join " · " (List.filter ((/=) "") [ metric.unit, metric.description ]))
-        [ chart ("metric-" ++ String.fromInt index)
-        , metricDefinition metric.calculation
-        , div [ class "result-values" ] (List.reverse metric.points |> List.take 6 |> List.map (\pt -> div [ class "result-value" ] [ small [] [ timeView pt.at ], strongText pt.exact ]))
-        ]
-
-
-{-| Calculation descriptions are often structured JSON text; show their parts as readable sentences. -}
-metricDefinition : String -> Html Msg
-metricDefinition calculation =
-    let
-        captions = [ ( "formula", "Formula" ), ( "population", "Population" ), ( "aggregation", "Aggregation" ), ( "exclusions", "Exclusions" ), ( "missing_data", "Missing data" ) ]
-    in
-    if String.trim calculation == "" then
-        text ""
-    else
-        case D.decodeString (D.keyValuePairs D.value) calculation of
-            Ok fields ->
-                let
-                    parts = captions |> List.filterMap (\( key, caption ) -> List.filter (\( k, _ ) -> k == key) fields |> List.head |> Maybe.andThen (\( _, item ) -> D.decodeValue D.string item |> Result.toMaybe) |> Maybe.map (\content -> p [] [ Html.strong [] [ text (caption ++ ". ") ], text content ]))
-                in
-                if List.isEmpty parts then text "" else div [ class "metric-definition" ] (h3 [] [ text "How it is calculated" ] :: parts)
-
-            Err _ ->
-                div [ class "metric-definition" ] [ h3 [] [ text "How it is calculated" ], p [] [ text calculation ] ]
 
 
 
@@ -1782,7 +1820,7 @@ mapFilters : Model -> { measure : E.Value, dimension : String, snapshot : String
 mapFilters model =
     model.data.value
         |> Maybe.map (\doc -> Wire.field "map" doc.root)
-        |> Maybe.withDefault E.null
+        |> Maybe.withDefault (Wire.field "filter" (E.object model.query.fields))
         |> CodeMap.filters
 
 
@@ -1803,9 +1841,18 @@ codeMapView model doc =
             , evidence = mapEvidence model
             }
     in
-    panel "Code map"
-        (String.join " · " (List.filter (\part -> part /= "") [ Wire.str "title" body, Wire.str "bucket_label" body ]))
-        (CodeMap.view controls model.selected body)
+    div []
+        [ if List.isEmpty model.trail && Wire.str "kind" (Wire.field "measure" body) /= "published" then
+            case Dict.get "concern_summary" model.supplemental of
+                Just summary ->
+                    let counts = Wire.field "counts" summary.root in
+                    div [ class "stats-grid" ] [ stat "Reported concerns" (countText "concerns" counts) "Unique concerns in the selected time range", stat "Source occurrences" (countText "known_source_occurrences" counts) "Known source occurrences in the same time range", stat "Reported encounters" (countText "raw_observations" counts) "Reports and repeat encounters; map tiles use the selected measure" ]
+                Nothing -> text ""
+          else text ""
+        , panel "Code map"
+            (String.join " · " (List.filter (\part -> part /= "") [ Wire.str "title" body, Wire.str "bucket_label" body ]))
+            (CodeMap.view controls model.selected body)
+        ]
 
 
 mapEvidence : Model -> CodeMap.Evidence -> Html Msg

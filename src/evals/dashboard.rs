@@ -38,6 +38,8 @@ pub struct EvalDashboardPoint {
     /// A conservative presentation approximation; the original value remains authoritative.
     pub numeric_value: Option<f64>,
     pub replaces: Option<String>,
+    #[serde(default)]
+    pub models: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -57,6 +59,8 @@ pub struct EvalDashboardSeries {
 pub struct EvalDashboard {
     pub groups: Vec<EvalDashboardGroup>,
     pub selected_group_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_agent: Option<String>,
     pub series: Vec<EvalDashboardSeries>,
     pub run_count: usize,
     pub result_count: usize,

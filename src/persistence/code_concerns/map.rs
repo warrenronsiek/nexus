@@ -28,9 +28,10 @@ struct Encounter {
 pub(in crate::persistence) fn map_points(
     connection: &mut DbConnection,
     project: &str,
-    measure: &MapMeasure,
+    query: &crate::code_map::MapQuery,
     view: &mut MapView,
 ) -> Result<Vec<MapPoint>> {
+    let measure = &query.measure;
     let (title, unit, status) = match measure {
         MapMeasure::OpenConcerns => ("Open concerns", "concerns", Some(ConcernQueryStatus::Open)),
         _ => ("Reported concern encounters", "encounters", None),
@@ -40,7 +41,7 @@ pub(in crate::persistence) fn map_points(
     view.dimensions
         .extend(["directory", "feature", "file", "repository", "subsystem"].map(String::from));
 
-    let mut encounters = encounters(connection, project, status)?;
+    let mut encounters = encounters(connection, project, status, query)?;
     view.partial = encounters.len() > MAX_POINTS;
     encounters.truncate(MAX_POINTS);
     let mut attributions = attributions(connection, project, &encounters)?;
@@ -73,9 +74,12 @@ fn encounters(
     connection: &mut DbConnection,
     project: &str,
     status: Option<ConcernQueryStatus>,
+    window: &crate::code_map::MapQuery,
 ) -> Result<Vec<Encounter>> {
     let query = ConcernQuery {
         status,
+        occurred_after: window.occurred_after,
+        occurred_before: window.occurred_before,
         ..ConcernQuery::default()
     };
     let population = Population {

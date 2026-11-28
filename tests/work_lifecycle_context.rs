@@ -181,3 +181,20 @@ fn same_host_type_does_not_merge_distinct_host_executor_instances() {
     };
     assert_ne!(executor("host-one"), executor("host-two"));
 }
+
+#[test]
+fn a_nested_host_without_a_logical_session_records_its_delegation() {
+    let observed = events(
+        json!({"session_id":"nested-host", "hook_event_name":"SessionStart", "parent_activity_id":"parent-launcher"}),
+    );
+    assert!(observed
+        .iter()
+        .any(|item| item.subject.id() == "parent-launcher"
+            && matches!(
+                &item.body,
+                WorkEvent::Linked {
+                    relation: nexus::work_history::WorkRelation::Delegates,
+                    target: nexus::work_history::WorkReference::Session { .. }
+                }
+            )));
+}

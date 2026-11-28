@@ -296,3 +296,8 @@ an aggregate promotion, a failed environment attempt, provenance lookup, and a
 remediation response. Check source identity and assignment history after one agent
 stops. Unavailable Nexus capture must not stop or repeat the caller's workload.
 Hand over concrete project, contribution, PR, rollout, deployment, and request IDs.
+
+In the read-only browser, recorded terminal outcomes appear under Completed
+records on each page. Provider observation time is distinct from the last Nexus
+update. A registered rollout has no established completion until outcome evidence
+is recorded; age alone must not close it or release its shepherd.

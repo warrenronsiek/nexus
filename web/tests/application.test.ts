@@ -12,7 +12,7 @@ import { expect, it, vi } from "vitest";
 import { Elm } from "virtual:nexus-elm";
 import { renderChart } from "../src/charts";
 
-interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; include_payload?: boolean; event_id?: string; range?: string; work_session_id?: string; group_id?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
+interface RequestBody { project_id?: string; username?: string; password?: string; query?: { kind: string; include_payload?: boolean; event_id?: string; range?: string; work_session_id?: string; agent?: string; scope?: string; session_id?: string; subject?: {kind: string; id: string}; filter?: { kind?: string; bucket?: string; group_by?: string; measure?: { kind: string } } } }
 const requests: { url: string; body: RequestBody; timeout: number }[] = [];
 const completions: string[] = [];
 const failedReadKinds = new Set<string>();
@@ -38,13 +38,13 @@ const fixtureReaders: Readonly<Record<string, (query: ReadQuery) => string>> = {
   trace_status: () => JSON.stringify({ ok: true, pending_batches: 1, scopes: [{ application_id: "dispatch", environment: "production", agent_id: "mail-ingest" }] }),
   trace_usage: () => JSON.stringify({ ok: true, usage: [{ application_id: "dispatch", environment: "production", agent_id: "mail-ingest", kind: "skill", name: "classify-mail", version: null, calls: 2, succeeded: 1, failed: 0, incomplete: 1 }], next_cursor: null }),
   trace_calls: () => JSON.stringify({ ok: true, calls: [{ application_id: "dispatch", environment: "production", trace_id: "conversation-1", agent_id: "mail-ingest", kind: "skill", name: "classify-mail", version: "1", invocation_id: "skill-2", started_event_id: "event-2", occurred_at: "2026-11-01T00:00:00Z", outcome: "failed" }], next_cursor: null }),
-  trace_get: query => JSON.stringify({ ok: true, events: query.event_id === "event-pending" ? [] : [{ trace_id: "conversation-1", event_id: "event-2", agent_id: "mail-ingest", kind: "skill_started", has_payload: true, payload_state: "available", name: "classify-mail", occurred_at: "2026-11-01T00:00:00Z", ...(query.include_payload ? { payload: { message: "restricted trace body" } } : {}) }], next_cursor: null }),
+  trace_get: query => query.event_id ? JSON.stringify({ ok: true, events: query.event_id === "event-pending" ? [] : [{ trace_id: "conversation-1", event_id: "event-2", agent_id: "mail-ingest", kind: "skill_started", has_payload: true, payload_state: "available", name: "classify-mail", occurred_at: "2026-11-01T00:00:00Z", ...(query.include_payload ? { payload: { message: "restricted trace body" } } : {}) }], next_cursor: null }) : fixture("trace_execution"),
   ui_preferences: () => JSON.stringify({ok: true, refresh_interval_ms: configuredInterval}),
   code_map: query => codeMapFixture(query.filter),
   delivery_get: query => fixture(deliveryDetails[query.subject?.kind ?? ""] ?? query.kind),
   delivery_list: query => fixture(deliveryLists[query.filter?.kind ?? ""] ?? query.kind),
   work_dashboard: query => fixture(query.work_session_id ? "work-session" : query.kind),
-  eval_dashboard: query => fixture(query.group_id ? "eval-group" : query.kind),
+  eval_dashboard: query => fixture(query.agent ? "eval-group" : query.kind),
 };
 function readFixture(body: RequestBody): string {
   if (!body.query) throw new Error("Browser read omitted its closed query");
@@ -150,6 +150,9 @@ async function inspectWork(): Promise<void> {
   await vi.waitFor(() => expect(document.querySelectorAll("#work-waterfall .waterfall-node").length).toBe(2));
   await chartClick("work-waterfall", "Router tests");
   await content("Router tests · test.unit · 30s · succeeded");
+  await content("Run the router test suite");
+  expect(window.location.search).toContain("call=test-id");
+  expect(requests.some(({body}) => body.query?.kind === "work_get")).toBe(true);
   window.history.back();
   await vi.waitFor(() => expect(document.querySelector("#work-waterfall")).toBeNull());
   await content("Elapsed time by kind of work");
@@ -163,8 +166,11 @@ async function inspectProjectScope(): Promise<void> {
 }
 async function inspectEvals(): Promise<void> {
   await navigate("evals", "Choose an agent");
-  pick("Agent", "router-eval");
+  pick("Agent", "Router");
   await content("9007199254740993.0000000001");
+  expect(document.body.textContent).not.toContain("Caller-owned execution");
+  expect(document.querySelectorAll(".metric-grid > .panel")).toHaveLength(1);
+  expect(document.body.textContent).toContain("metric-source-git");
 }
 async function inspectToolsAndSkills(): Promise<void> {
   await navigate("tools", "Code research");
@@ -176,9 +182,12 @@ async function inspectToolsAndSkills(): Promise<void> {
   await content("Record nested work so sessions can be explained.");
 }
 async function inspectReports(): Promise<void> {
-  await navigate("concerns", "Source occurrences");
+  await navigate("concerns", "Reported concern encounters");
+  [...document.querySelectorAll<HTMLButtonElement>(".subnav button")].find(button => button.textContent === "Problem areas")!.click();
+  await content("Source occurrences");
   await chartClick("summary-bars", "Router cache");
   await content("Router cache race");
+  expect(window.location.search).toContain("detail=");
   row("Router cache race"); await content("Seen in the router suite");
   document.querySelector<HTMLButtonElement>(".pagination button")!.click();
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toEqual({ kind: "concern_list", filter: { area_id: "router-area", after: "32" } }));
@@ -196,9 +205,11 @@ async function inspectCodeMap(): Promise<void> {
   expect(tab).toBeDefined();
   tab!.click();
   await content("Reported concern encounters");
+  expect(document.querySelector("select[aria-label='Time range']")).not.toBeNull();
   pick("Group by", "team");
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({ kind: "code_map", filter: { group_by: "team" } }));
   await content("Reported concern encounters");
+  expect(window.location.search).toContain("detail=");
   pick("Measure", JSON.stringify({kind: "published", producer: "ci", measure: "branch_load"}));
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({
     kind: "code_map", filter: { group_by: "team", measure: { kind: "published", producer: "ci", measure: "branch_load" } }
@@ -211,6 +222,7 @@ async function inspectCodeMap(): Promise<void> {
   await vi.waitFor(() => expect(requests.at(-1)?.body.query).toMatchObject({ kind: "code_map", filter: { bucket: "value:cache" } }));
   await chartClick("code-map", "src/router.rs");
   await content("Router cache race");
+  expect(document.getElementById("code-map")).toBeNull();
   row("Router cache race");
   await content("Seen in the router suite");
 }
@@ -342,6 +354,7 @@ it("opens a pending or available SOS trace at the linked event", async () => {
   await content("classify-mail");
   expect(requests.filter(request => request.body.query?.kind === "trace_get").at(-1)?.body.query).toMatchObject({ application_id: "dispatch", trace_id: "conversation-1", event_id: "event-2" });
   expect(document.body.textContent).not.toContain("restricted trace body");
+  expect(document.querySelector(".trace-invocation")?.hasAttribute("open")).toBe(true);
   [...document.querySelectorAll("button")].find(button => button.textContent === "Show captured content")!.click();
   await content("restricted trace body");
   browserTraceContent = false;
@@ -417,7 +430,7 @@ it("honors configured refresh cadence after direct Work login and retains it acr
     await loginProgram();
     await vi.waitFor(() => expect(intervals).toHaveBeenCalledWith(expect.any(Function), 750));
     await pollingTick("work_dashboard");
-    await navigate("evals", "Router / claude + codex");
+    await navigate("evals", "Choose an agent");
     await pollingTick("eval_dashboard");
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Sign out")!.click();
     await content("Welcome to Nexus");
@@ -511,4 +524,64 @@ it("sends Work history time presets to the server and restores a linked range", 
   pick("Time range", "1d");
   await vi.waitFor(() => expect(window.location.search).toContain("range=1d"));
   await waitForRange("1d");
+  await signOutOfFixture();
+});
+
+
+it("pairs recorded trace invocations and leaves unobserved finishes unknown", async () => {
+  window.history.replaceState(null, "", "/ui/traces?project=fixture-project&app=dispatch&env=production&trace=conversation-1");
+  await loginProgram();
+  await content("Execution flow");
+  expect(document.querySelectorAll(".trace-invocation")).toHaveLength(3);
+  const tool = [...document.querySelectorAll(".trace-invocation")].find(item => item.textContent?.includes("search-mail"))!;
+  expect(tool.textContent).toContain("Succeeded");
+  expect(tool.textContent).toContain("25 ms");
+  expect(tool.textContent).toContain("commit-abc123");
+  expect(tool.textContent).toContain("Parent model-start");
+  expect(document.body.textContent).toContain("Finish not observed on loaded pages");
+  expect(document.body.textContent).not.toContain("restricted trace body");
+  expect(requests.filter(request => request.body.query?.kind === "trace_get").at(-1)?.body.query?.include_payload).not.toBe(true);
+  await signOutOfFixture();
+});
+
+it("separates completed delivery records from open observations", async () => {
+  window.history.replaceState(null, "", "/ui/pull-requests?project=fixture-project");
+  await loginProgram();
+  await content("November release");
+  await content("Completed records on this page (1)");
+  expect(document.querySelector(".delivery-current")?.textContent).toContain("November release");
+  expect(document.querySelector(".delivery-current")?.textContent).not.toContain("Earlier release");
+  expect(document.querySelector(".delivery-history")?.textContent).toContain("Earlier release");
+  expect(document.body.textContent).toContain("Latest provider observation");
+  await signOutOfFixture();
+});
+
+it("keeps specialized audit filters in a disclosure", async () => {
+  window.history.replaceState(null, "", "/ui/audits?project=fixture-project");
+  await loginProgram();
+  await content("Advanced filters");
+  expect(document.querySelector(".audit-advanced")?.hasAttribute("open")).toBe(false);
+  await signOutOfFixture();
+});
+
+
+it("loads a selected Work call from its URL and refreshes its evidence", async () => {
+  window.history.replaceState(null, "", "/ui/work?project=fixture-project&range=14d&session=work-id&call=test-id");
+  await loginProgram();
+  await content("Run the router test suite");
+  const before = readCount("work_get");
+  [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Refresh")!.click();
+  await vi.waitFor(() => expect(readCount("work_get")).toBe(before + 1));
+  await content("Run the router test suite");
+  expect(window.location.search).toContain("call=test-id");
+  await signOutOfFixture();
+});
+
+it("restores a concern bucket and its time range from its URL", async () => {
+  const detail = encodeURIComponent(JSON.stringify({kind:"code_map", filter:{group_by:"team", bucket:"value:cache", measure:{kind:"encounters"}}}));
+  window.history.replaceState(null, "", `/ui/concerns?project=fixture-project&range=30d&detail=${detail}`);
+  await loginProgram();
+  await content("src/router.rs");
+  expect(requests.filter(request => request.body.query?.kind === "code_map").at(-1)?.body.query).toMatchObject({range:"30d", filter:{bucket:"value:cache"}});
+  await signOutOfFixture();
 });

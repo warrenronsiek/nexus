@@ -17,6 +17,7 @@ use std::collections::HashSet;
 
 /// Host-capture envelopes. A root whose members are only these recorded no work.
 pub(super) const CONTAINER_KINDS: [&str; 3] = ["host.session", "request", "host.turn"];
+
 const ROOT_CHUNK: usize = 256;
 
 /// Roots whose membership index contains at least one non-container activity.
@@ -185,4 +186,73 @@ fn member_join() -> _ {
         .eq(work_links::project_id)
         .and(work_subjects::scope.eq(activity))
         .and(work_subjects::id.eq(work_links::source_id)))
+}
+
+/// Incoming links are candidates only; corrections and incomplete lineage cannot hide a root.
+pub(super) fn delegated_roots(
+    connection: &mut DbConnection,
+    project: &str,
+    roots: &[String],
+) -> Result<(HashSet<String>, bool)> {
+    use crate::work_history::WorkSubject;
+    let mut sources = work_links::table
+        .filter(work_links::project_id.eq(project))
+        .filter(work_links::relation.eq("delegates"))
+        .filter(work_links::target_scope.eq("session"))
+        .filter(work_links::target_id.eq_any(roots))
+        .select((work_links::source_scope, work_links::source_id))
+        .distinct()
+        .order((work_links::source_scope.asc(), work_links::source_id.asc()))
+        .limit(SOURCE_LIMIT as i64 + 1)
+        .load::<(String, String)>(connection)?;
+    let partial = sources.len() > SOURCE_LIMIT;
+    sources.truncate(SOURCE_LIMIT);
+    let subjects: Vec<_> = sources
+        .into_iter()
+        .map(|(scope, id)| {
+            if scope == "session" {
+                WorkSubject::Session { id }
+            } else {
+                WorkSubject::Activity { id }
+            }
+        })
+        .collect();
+    let delegated = verified_delegations(connection, project, roots, &subjects)?;
+    Ok((delegated, partial))
+}
+
+fn verified_delegations(
+    connection: &mut DbConnection,
+    project: &str,
+    roots: &[String],
+    subjects: &[crate::work_history::WorkSubject],
+) -> Result<HashSet<String>> {
+    use crate::work_history::WorkReference;
+    let mut reader = super::super::projection::Projection::new(connection, project);
+    let mut delegated = HashSet::new();
+    for page in subjects.chunks(64) {
+        reader.prefetch(page)?;
+        for subject in page {
+            let (links, diagnostics) = reader.active_links(subject)?;
+            if !diagnostics.gaps.is_empty() || !diagnostics.conflicts.is_empty() {
+                continue;
+            }
+            if !reader
+                .summary(subject)?
+                .is_some_and(|summary| !summary.work_session_ids.is_empty())
+            {
+                continue;
+            }
+            delegated.extend(
+                links
+                    .into_iter()
+                    .filter(|link| link.relation == "delegates")
+                    .filter_map(|link| match link.target {
+                        WorkReference::Session { id } if roots.contains(&id) => Some(id),
+                        _ => None,
+                    }),
+            );
+        }
+    }
+    Ok(delegated)
 }

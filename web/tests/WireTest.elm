@@ -17,7 +17,11 @@ import Wire
 tests : Test
 tests =
     describe "browser read boundary"
-        [ test "wrong work response variant cannot become a dashboard" <|
+        [ test "eval groups require the server's recorded agent identity" <|
+            \_ ->
+                Wire.decode "eval_dashboard" "{\"ok\":true,\"action\":\"dashboard\",\"groups\":[{\"id\":\"g\",\"label\":\"X\"}],\"series\":[]}"
+                    |> Expect.err
+        , test "wrong work response variant cannot become a dashboard" <|
             \_ ->
                 Wire.decode "work_dashboard" "{\"ok\":true,\"response\":\"page\",\"sessions\":[]}"
                     |> Expect.err

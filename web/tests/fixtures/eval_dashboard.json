@@ -29,7 +29,9 @@
       "result_count": 1,
       "statuses": {
         "completed": 1
-      }
+      },
+      "agent": "Router",
+      "agent_declared": true
     }
   ],
   "selected_group_id": null,

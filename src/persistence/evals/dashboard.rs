@@ -15,6 +15,21 @@ use diesel::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 const SOURCE_LIMIT: usize = 4096;
 const SOURCE_BYTES: usize = 8 * 1024 * 1024;
+#[derive(Clone, Copy)]
+enum Selection<'a> {
+    Group(Option<&'a str>),
+    Agent(&'a str),
+}
+impl Selection<'_> {
+    fn includes(self, group: &EvalDashboardGroup) -> bool {
+        match self {
+            Self::Group(id) => id == Some(group.id.as_str()),
+            Self::Agent(agent) => group.agent == agent || group.id == agent,
+        }
+    }
+}
+#[cfg(test)]
+mod prefetch_tests;
 #[cfg(all(test, feature = "postgres"))]
 mod tests;
 impl Store {
@@ -32,13 +47,35 @@ impl Store {
             group.is_none_or(|id| id.len() <= 512),
             "eval dashboard identity exceeds limit"
         );
-        project_dashboard(&mut self.connection, project, group, occurred_after)
+        project_dashboard(
+            &mut self.connection,
+            project,
+            Selection::Group(group),
+            occurred_after,
+        )
+    }
+    pub fn eval_agent_dashboard_window(
+        &mut self,
+        project: &str,
+        agent: &str,
+        occurred_after: Option<DateTime<Utc>>,
+    ) -> Result<EvalDashboard> {
+        ensure!(
+            !agent.is_empty() && agent.len() <= 512,
+            "eval agent identity is empty or oversized"
+        );
+        project_dashboard(
+            &mut self.connection,
+            project,
+            Selection::Agent(agent),
+            occurred_after,
+        )
     }
 }
 fn project_dashboard(
     connection: &mut DbConnection,
     project: &str,
-    selected: Option<&str>,
+    selected: Selection<'_>,
     occurred_after: Option<DateTime<Utc>>,
 ) -> Result<EvalDashboard> {
     let (records, truncated) = source_records(connection, project, occurred_after)?;

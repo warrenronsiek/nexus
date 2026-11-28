@@ -222,3 +222,66 @@ fn map_bounds_encoded_evidence_for_large_concern_records() {
     assert!(map.partial);
     assert_eq!(map.groups.len(), 32);
 }
+
+#[test]
+fn concern_map_uses_the_same_source_window_as_counts_and_lists() {
+    use nexus::code_concerns::{ConcernAction, ConcernActor, ConcernQuery};
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("window.sqlite")).unwrap();
+    let actor = ConcernActor {
+        agent: "test".into(),
+        session_id: "map".into(),
+        model_id: None,
+        config_hash: "map".into(),
+    };
+    let action: ConcernAction = serde_json::from_value(serde_json::json!({"action":"record", "observations":[
+        {"id":"old", "concern_id":"old-concern", "observed_at":"2026-10-01T00:00:00Z", "body":{"event":"reported","title":"Old problem","description":"Old encounter","encounter":{}}},
+        {"id":"recent", "concern_id":"recent-concern", "observed_at":"2026-11-27T00:00:00Z", "body":{"event":"reported","title":"Recent problem","description":"Recent encounter","encounter":{}}}
+    ]})).unwrap();
+    store.concern_command("alpha", &actor, &action).unwrap();
+    let query: MapQuery = serde_json::from_value(
+        serde_json::json!({"occurred_after":"2026-11-20T00:00:00Z", "group_by":"subject"}),
+    )
+    .unwrap();
+    let map = store.code_map("alpha", &query).unwrap();
+    assert_eq!(map.groups.len(), 1);
+    assert_eq!(map.groups[0].label, "Recent problem");
+    assert_eq!(map.groups[0].samples, 1);
+    let dashboard = store
+        .concern_command(
+            "alpha",
+            &actor,
+            &ConcernAction::Dashboard {
+                project_id: None,
+                query: ConcernQuery {
+                    occurred_after: Some("2026-11-20T00:00:00Z".parse().unwrap()),
+                    ..ConcernQuery::default()
+                },
+            },
+        )
+        .unwrap();
+    let encoded = serde_json::to_value(dashboard).unwrap();
+    assert_eq!(encoded["counts"]["concerns"], 1);
+}
+
+#[test]
+fn known_published_measure_can_have_an_empty_time_window() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("map.sqlite")).unwrap();
+    let snapshot: MapSnapshot = serde_json::from_value(serde_json::json!({
+        "id":"old", "producer":"ci", "measure":"branch_load", "title":"Load", "unit":"branches", "reducer":"sum", "revision":"commit-a", "observed_at":"2026-11-10T00:00:00Z", "samples":[{"subject":"one", "value":1}]
+    })).unwrap();
+    store.publish_code_map("alpha", "ci", &snapshot).unwrap();
+    let query = MapQuery {
+        measure: MapMeasure::Published {
+            producer: "ci".into(),
+            measure: "branch_load".into(),
+        },
+        occurred_after: Some("2026-11-20T00:00:00Z".parse().unwrap()),
+        ..MapQuery::default()
+    };
+    let empty = store.code_map("alpha", &query).unwrap();
+    assert!(empty.groups.is_empty());
+    assert!(empty.source.is_none());
+    assert_eq!(empty.title, "branch_load");
+}

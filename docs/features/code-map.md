@@ -117,3 +117,15 @@ with the same fields under `query`.
 
 See `MapSnapshot`, `MapQuery`, and `Store::code_map` for the contract and
 `nexus concerns schema` for the generated command schema.
+
+### Shared source windows
+
+`MapQuery.occurred_after` is inclusive and `occurred_before` exclusive. Concern
+maps use the same encounter-time population as concern lists and dashboard
+counts. The browser derives this bound from its shared history range unless an
+explicit source window was supplied. Published measures select the latest
+snapshot within the same bounds and display its observation timestamp. A known
+published measure with no
+snapshot in the requested window returns an empty map; an unknown measure or
+explicit missing snapshot remains an error. Unattributed groups represent
+missing producer evidence, never inferred ownership.

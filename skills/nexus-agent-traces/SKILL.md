@@ -100,3 +100,13 @@ For SOS linking, submit a `trace_ref` with `application_id`, `environment`, `tra
 optionally `event_id` in the same project.
 
 [Full trace wire contract](https://github.com/warrenronsiek/nexus/blob/main/docs/features/agent-traces.md)
+
+## Browser execution evidence
+
+Execution flow pairs starts and finishes only by explicit invocation identity,
+agent, and capability on the loaded page. Expand a row for source event IDs,
+recorded parent references, versions (including producer Git revisions), outcomes,
+and durations. Missing events stay unknown, and a model-only producer can be
+legitimate. This view remains metadata-only unless an independently authorized
+existing content read is explicitly requested; do not enable prompt/email/file
+content capture to populate the execution view.
