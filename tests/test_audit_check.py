@@ -16,7 +16,7 @@ CONTROL = {'key': 'review', 'version': 1}
 
 
 def plan() -> dict:
-    return {'project_id': 'project', 'repository': 'acme/service', 'expectations': [
+    return {'project_id': 'project', 'expectations': [
         {'name': 'Review', 'control': copy.deepcopy(CONTROL), 'subject': copy.deepcopy(SUBJECT), 'run_id': 'run-1', 'accepted_codes': ['pass']}]}
 
 
@@ -78,6 +78,9 @@ print(json.dumps(responses[str(request.get('filter', {}).get('after') or 0)]))
                 result, _ = self.invoke(plan(), {'0': response})
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertFalse(json.loads(result.stdout)['complete'])
+                if change in ('project', 'id'):
+                    expected_state = 'unconfirmed' if change == 'project' else 'unacknowledged'
+                    self.assertEqual(json.loads(result.stdout)['items'][0]['state'], expected_state)
 
     def test_server_corrected_outcome_and_findings_prevent_false_success(self) -> None:
         for change in [{'status': 'failed'}, {'result_code': 'inconclusive'}, {'findings': 1}]:

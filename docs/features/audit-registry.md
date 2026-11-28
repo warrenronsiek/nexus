@@ -51,7 +51,9 @@ A caller declares expected control versions, exact subjects, acceptable category
 codes, and acknowledged run IDs in a private task plan. The checker selects
 declared IDs in bounded batches from the server's paginated, correction-aware
 run summaries at one pinned cutoff, matching project, control version and subject.
-It exposes missing, mismatched, unavailable, failed, partial and inconclusive evidence.
+It distinguishes a run absent from a successful read (`unacknowledged`) from an
+unavailable read (`unconfirmed`), and exposes missing, mismatched, failed, partial
+and inconclusive evidence.
 Findings and narrative outcomes require manual follow-up reconciliation.
 Reasoned applicability exclusions are retained as caller assertions. An empty
 population is invalid, and an omitted obligation cannot be discovered by this

@@ -45,7 +45,6 @@ A plan has this shape; replace every sample value with the actual scope:
 ```json
 {
   "project_id": "actual-project-id",
-  "repository": "organization/repository",
   "expectations": [
     {
       "name": "Exact-commit security review",
@@ -53,8 +52,7 @@ A plan has this shape; replace every sample value with the actual scope:
       "subject": {
         "kind": "git",
         "revision": {
-          "repository": "organization/repository",
-          "object_format": "sha1",
+                  "object_format": "sha1",
           "commit": "0123456789012345678901234567890123456789"
         }
       },
@@ -81,8 +79,11 @@ Repository integrations may vendor the checker byte-for-byte at a pinned Nexus
 revision, so the workflow works before a CLI/skill upgrade.
 
 Exit 0 means the declared entries have matching receipts with the explicitly
-accepted categorical outcomes or reasoned exclusions. Exit 1 exposes gaps or
-attention; exit 2 means the plan itself is invalid. An empty population is invalid.
+accepted categorical outcomes or reasoned exclusions. A run ID absent from a
+successful pinned read is `unacknowledged`; a failed read is `unconfirmed`. Neither state proves a workload failure. Retry a saved
+append only for the former after inspecting its source; restore reads for the
+latter. Exit 1 exposes gaps or attention; exit 2 means the plan itself is invalid.
+An empty population is invalid.
 `not_applicable` is an explicit caller assertion, not an execution or approval.
 The checker cannot discover omitted obligations or establish population coverage.
 It does not override protected checks or repository-specific release dispositions.

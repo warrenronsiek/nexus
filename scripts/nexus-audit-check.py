@@ -31,7 +31,6 @@ class Expectation:
 @dataclass(frozen=True)
 class Task:
     project_id: str
-    repository: str
     expectations: tuple[Expectation, ...]
 
 
@@ -60,11 +59,11 @@ def expectation(entry: dict) -> Expectation:
 
 def load_task(path: str) -> Task:
     raw = json.loads(Path(path).read_text())
-    project, repository = text(raw['project_id']), text(raw['repository'])
+    project = text(raw['project_id'])
     entries = tuple(expectation(entry) for entry in raw['expectations'])
     if not entries or len({entry.name for entry in entries}) != len(entries):
         raise ValueError('declare a nonempty population with distinct expectation names')
-    return Task(project, repository, entries)
+    return Task(project, entries)
 
 
 def read_selection(binary: str, project: str, selection: dict) -> tuple[list[dict], int]:
@@ -107,16 +106,20 @@ def reconcile(entry: Expectation, summaries: dict[str, dict] | None) -> dict:
     item.update(control=entry.control, subject=entry.subject, run_id=entry.run_id)
     if not entry.run_id:
         return dict(item, state='missing', reason='No run ID; queued input and Work history are not Audit receipts')
-    summary = (summaries or {}).get(entry.run_id)
+    if summaries is None:
+        return dict(item, state='unconfirmed', reason='Unable to read the complete project-bound summary selection')
+    summary = summaries.get(entry.run_id)
     if summary is None:
-        return dict(item, state='unconfirmed', reason='Unable to verify complete project-bound summary selection')
-    if summary['control'] != entry.control or summary['subject'] != entry.subject:
-        return dict(item, state='mismatch', reason='Control version or exact source differs from task population')
+        return dict(item, state='unacknowledged', reason='No run with this ID in the project at the pinned cutoff')
+    matched = summary['control'] == entry.control and summary['subject'] == entry.subject
     acceptable = (summary['status'] == 'completed' and summary.get('result_code') in entry.accepted_codes
                   and summary['findings'] == 0)
-    return dict(item, state='recorded' if acceptable else 'attention', ordinal=summary['ordinal'],
-                status=summary['status'], result_code=summary.get('result_code'), findings=summary['findings'],
-                reason='Matched receipt' if acceptable else 'Outcome or findings require explicit follow-up')
+    outcome = 'recorded' if acceptable else 'attention'
+    state = outcome if matched else 'mismatch'
+    reasons = {'recorded': 'Matched receipt', 'attention': 'Outcome or findings require explicit follow-up',
+               'mismatch': 'Control version or exact source differs from task population'}
+    return dict(item, state=state, ordinal=summary['ordinal'], status=summary['status'],
+                result_code=summary.get('result_code'), findings=summary['findings'], reason=reasons[state])
 
 
 def main() -> int:
@@ -127,7 +130,7 @@ def main() -> int:
     try:
         task = load_task(args.plan)
     except (OSError, ValueError, KeyError, TypeError):
-        print('Invalid task plan: pin project, repository, control versions, subjects and accepted codes.', file=sys.stderr)
+        print('Invalid task plan: pin project, control versions, subjects and accepted codes.', file=sys.stderr)
         return 2
     try:
         summaries = read_summaries(args.nexus, task)
@@ -136,8 +139,7 @@ def main() -> int:
         summaries = None
     items = [reconcile(entry, summaries) for entry in task.expectations]
     complete = all(item['state'] in ('recorded', 'not_applicable') for item in items)
-    print(json.dumps({'project_id': task.project_id, 'repository': task.repository,
-                      'complete': complete, 'items': items}, indent=2))
+    print(json.dumps({'project_id': task.project_id, 'complete': complete, 'items': items}, indent=2))
     return 0 if complete else 1
 
 
