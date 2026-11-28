@@ -1,3 +1,5 @@
+// @feature audit-registry
+// @spec docs/features/audit-registry.md
 // @feature agent-traces
 // @spec docs/features/agent-traces.md
 // @feature installation
@@ -42,7 +44,7 @@ pub(super) const SKILL_NAMES: [&str; 22] = [
     "nexus-pr-management",
     "nexus-audit",
 ];
-pub(super) const SKILL_FILES: [(&str, &str); 33] = [
+pub(super) const SKILL_FILES: [(&str, &str); 35] = [
     (
         "code-architect/SKILL.md",
         include_str!("../skills/code-architect/SKILL.md"),
@@ -156,6 +158,14 @@ pub(super) const SKILL_FILES: [(&str, &str); 33] = [
     (
         "nexus-work-history/references/host-adapters.md",
         include_str!("../skills/nexus-work-history/references/host-adapters.md"),
+    ),
+    (
+        "nexus-audit/references/task-evidence.md",
+        include_str!("../skills/nexus-audit/references/task-evidence.md"),
+    ),
+    (
+        "nexus-audit/scripts/nexus-audit-check.py",
+        include_str!("../scripts/nexus-audit-check.py"),
     ),
     ("tdd/SKILL.md", include_str!("../skills/tdd/SKILL.md")),
     (

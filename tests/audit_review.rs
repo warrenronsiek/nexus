@@ -243,6 +243,37 @@ esac
     }
 
     #[test]
+    fn unavailable_audit_control_does_not_suppress_advisory_review() {
+        let fixture = Fixture::new();
+        configure_provider(&fixture.script, "PASS", Some("PASS"));
+        let saved = fixture.harness._temp.path().join("missing-control.json");
+        let output = fixture
+            .harness
+            .cli()
+            .args([
+                "review-commit",
+                "--audit-control",
+                "unregistered@1",
+                "--audit-record",
+            ])
+            .arg(&saved)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "unrecorded evidence must remain visible"
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).expect("review still executed");
+        assert_eq!(report["status"], "reviewed");
+        assert_eq!(report["reviews"].as_array().unwrap().len(), 2);
+        assert!(
+            !saved.exists(),
+            "do not invent a receipt or run against an unknown control"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("without Audit capture"));
+    }
+
+    #[test]
     fn review_saves_a_bound_replay_before_a_rejected_append() {
         let fixture = Fixture::new();
         let mut database =

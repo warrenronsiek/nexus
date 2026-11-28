@@ -61,6 +61,13 @@ flowchart TD
 
 The pre-commit hook deliberately catches review-command failure after printing it. Cross-model review informs cleanup; it does not own the work product or agent permission.
 
+The native Nexus pre-commit hook opts into `cross-model-review@1`, saving a fresh
+private project-bound replay file under the Git common directory. An unavailable
+or unregistered Audit control leaves recording visibly failed while the ordinary
+advisory review still runs once. An append failure after execution retains the
+saved input for transport-only replay; it never triggers another model review.
+See [control evidence](../control-evidence.md) for adoption and reconciliation.
+
 A deliberate invocation can record the execution with
 `--audit-control KEY@VERSION --audit-record PATH`. See the
 [audit registry](audit-registry.md) for the result contract and replay workflow.

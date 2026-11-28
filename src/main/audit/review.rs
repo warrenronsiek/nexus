@@ -63,7 +63,17 @@ async fn audited(
     config: Option<&Path>,
 ) -> Result<()> {
     let client = audit_client(root, loaded, config);
-    let project_id = validate_control(&client, control.clone()).await?;
+    let project_id = match validate_control(&client, control.clone()).await {
+        Ok(project_id) => project_id,
+        Err(error) => {
+            // Audit availability must not suppress an advisory review. No provider
+            // has run yet, so this path executes the workload exactly once.
+            ordinary(root, loaded, config).await?;
+            return Err(
+                error.context("review finished without Audit capture; reconcile missing evidence")
+            );
+        }
+    };
     let receipt = reserve(path)?;
     let reviewed = reviewer::review_staged_commit_audited(loaded, root, control);
     let saved = PreparedAuditRecord {

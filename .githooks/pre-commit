@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # @feature architecture-tooling
 # @feature commit-review
+# @feature audit-registry
 # @feature work-history
 # @spec docs/features/architecture-tooling.md
 # @spec docs/features/commit-review.md
+# @spec docs/features/audit-registry.md
 # @spec docs/features/work-history.md
 set -euo pipefail
 
@@ -23,6 +25,13 @@ nexus_work_git_hook pre-commit
   nexus_work_exec validation "Repository validation" "${repository_root}/scripts/check.sh"
 )
 
-if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" --bin nexus -- review-commit; then
-  printf '%s\n' "warning: cross-model commit review failed; deterministic checks passed" >&2
+audit_options=()
+audit_root="$(git rev-parse --path-format=absolute --git-common-dir)/nexus-audit-reviews"
+if mkdir -p -m 700 "${audit_root}" && audit_attempt="$(mktemp -d "${audit_root}/commit-XXXXXXXX")"; then
+  audit_options=(--audit-control cross-model-review@1 --audit-record "${audit_attempt}/review.json")
+else
+  printf '%s\n' "warning: private Audit replay directory unavailable; review will run without capture" >&2
+fi
+if ! cargo run --quiet --manifest-path "${repository_root}/Cargo.toml" --bin nexus -- review-commit "${audit_options[@]}"; then
+  printf '%s\n' "warning: cross-model commit review or Audit recording failed; reconcile evidence; deterministic checks passed" >&2
 fi
