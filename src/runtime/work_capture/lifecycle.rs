@@ -86,6 +86,18 @@ impl HostCapture {
         if self.context.work_session_id.is_none() {
             self.observations
                 .push(opened_root(&self.context, &self.work_id));
+            if let Some(parent) = &self.context.parent_activity_id {
+                self.observations.push(event(
+                    WorkSubject::Activity { id: parent.clone() },
+                    &format!("delegates-{}", self.work_id),
+                    WorkEvent::Linked {
+                        relation: crate::work_history::WorkRelation::Delegates,
+                        target: crate::work_history::WorkReference::Session {
+                            id: self.work_id.clone(),
+                        },
+                    },
+                ));
+            }
         }
         let agent = WorkSubject::Activity {
             id: self.agent_id.clone(),

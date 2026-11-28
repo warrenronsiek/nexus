@@ -173,3 +173,14 @@ batch and event replay, a result arriving before its start, worker recovery, and
 consistent CLI, MCP, and browser reads. Measure durable acknowledgement latency,
 projection backlog age and recovery, and SOS/read latency during representative
 bursts before establishing a production capacity target.
+
+### Execution inspection
+
+The browser requests up to 64 metadata-only events per trace page, still subject
+to the server byte budget and cursors. It pairs lifecycle events only with an
+explicit invocation ID, matching agent and capability. Finish-only, start-only,
+and ambiguous pairs retain their uncertainty. Each expanded execution shows the
+original event metadata and recorded parent/version. Linked SOS events open
+with their source evidence expanded. No nesting is inferred from
+time adjacency, and model-only instrumentation is not relabeled as missing tool
+execution. Presentation changes do not enable payload capture.

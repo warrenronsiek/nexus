@@ -335,3 +335,30 @@ Selecting a session fetches its timeline and retains those two views. Timeline
 loading and errors stay in the timeline panel. Skills reads only skill
 observations for its overview and retrieves skill text on expansion. The
 evaluation picker groups arrive with the result series.
+
+## Review navigation and scoped evidence
+
+Code concerns open on the Code map; Problem areas and All concerns remain local
+views. The map keeps the project and history range, and concern counters name
+their populations and units. Bucket drill-down is encoded in a closed `detail`
+query in the URL; Back restores the previous scope. Work call selection uses
+`call` alongside the selected session and lazily loads `work_get`. Refresh
+refreshes that evidence too. Project-specific cache keys prevent cross-project
+reuse. Specialized audit control, version, and date filters live in an Advanced
+filters disclosure, expanded when active.
+
+Evaluation selection is by recorded agent, across its retained configurations.
+One compact panel represents each metric name/unit/assessment-scope family.
+Different calculation recipes remain selectable, original definition identities
+and exact values remain inspectable, and no aggregate score or optimization
+direction is invented. Model filtering uses recorded model dimensions. Overview
+counters give way to the selected agent's measurements.
+
+Application trace execution rows pair only matching agent/capability/invocation
+IDs on the loaded page. Source order, exact event IDs, recorded parents, versions,
+outcomes, and optional durations remain inspectable. Unpaired or ambiguous
+lifecycles remain unknown. A model-only producer does not establish missing tool
+calls. Metadata reads do not request captured content. Delivery separates
+recorded terminal outcomes from nonterminal records on each page, shows provider
+observation time separately from Nexus update time, and never treats age or a
+registered rollout as proof of completion.

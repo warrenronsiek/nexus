@@ -99,7 +99,7 @@ impl Store {
             MapMeasure::Published { producer, measure } => {
                 published(connection, project, query, (producer, measure), &mut view)?
             }
-            _ => super::code_concerns::map_points(connection, project, &query.measure, &mut view)?,
+            _ => super::code_concerns::map_points(connection, project, query, &mut view)?,
         };
         select_dimension(&mut view, query.group_by.as_deref(), &points);
         project_points(&mut view, &points, query.bucket.as_deref())?;
@@ -182,22 +182,23 @@ fn published(
     (producer, measure): (&str, &str),
     view: &mut MapView,
 ) -> Result<Vec<MapPoint>> {
-    let mut select = s::table
-        .filter(s::project_id.eq(project))
-        .filter(s::producer.eq(producer))
-        .filter(s::measure.eq(measure))
-        .into_boxed();
-    if let Some(id) = &query.snapshot_id {
-        select = select.filter(s::id.eq(id));
-    }
-    let (reporter, payload) = select
-        .order((s::observed_at.desc(), s::id.desc()))
-        .select((s::reporter, s::payload_json))
-        .first::<(String, String)>(connection)
-        .optional()?
-        .ok_or_else(|| {
-            ConcernRejection::Invalid("code map snapshot was not found in this project".into())
-        })?;
+    let retained = published_snapshot(connection, project, query, (producer, measure))?;
+    let Some((reporter, payload)) = retained else {
+        if query.snapshot_id.is_none()
+            && (query.occurred_after.is_some() || query.occurred_before.is_some())
+            && known_measure(connection, project, (producer, measure))?
+        {
+            view.title = measure.into();
+            if !view.measures.contains(&query.measure) {
+                view.measures.push(query.measure.clone());
+            }
+            return Ok(Vec::new());
+        }
+        return Err(ConcernRejection::Invalid(
+            "code map snapshot was not found in this project".into(),
+        )
+        .into());
+    };
     let snapshot: MapSnapshot = serde_json::from_str(&payload)?;
     if !view.measures.contains(&query.measure) {
         view.measures.push(query.measure.clone());
@@ -218,6 +219,48 @@ fn published(
             .flat_map(|sample| sample.dimensions.keys().cloned()),
     );
     Ok(snapshot.samples.into_iter().map(MapPoint::from).collect())
+}
+
+fn known_measure(
+    connection: &mut DbConnection,
+    project: &str,
+    (producer, measure): (&str, &str),
+) -> Result<bool> {
+    Ok(diesel::select(diesel::dsl::exists(
+        s::table
+            .filter(s::project_id.eq(project))
+            .filter(s::producer.eq(producer))
+            .filter(s::measure.eq(measure)),
+    ))
+    .get_result(connection)?)
+}
+
+fn published_snapshot(
+    connection: &mut DbConnection,
+    project: &str,
+    query: &MapQuery,
+    (producer, measure): (&str, &str),
+) -> Result<Option<(String, String)>> {
+    let mut select = s::table
+        .filter(s::project_id.eq(project))
+        .filter(s::producer.eq(producer))
+        .filter(s::measure.eq(measure))
+        .into_boxed();
+    if let Some(id) = &query.snapshot_id {
+        select = select.filter(s::id.eq(id));
+    }
+    if let Some(time) = query.occurred_after {
+        select = select.filter(s::observed_at.ge(time.to_rfc3339_opts(SecondsFormat::Nanos, true)));
+    }
+    if let Some(time) = query.occurred_before {
+        select = select.filter(s::observed_at.lt(time.to_rfc3339_opts(SecondsFormat::Nanos, true)));
+    }
+    let retained = select
+        .order((s::observed_at.desc(), s::id.desc()))
+        .select((s::reporter, s::payload_json))
+        .first::<(String, String)>(connection)
+        .optional()?;
+    Ok(retained)
 }
 
 use crate::code_map::project as project_points;

@@ -197,3 +197,12 @@ Set `promotion_environment` on a registered PR watch to include readiness
 for the retained open PR head in watch reads. The result identifies the
 candidate revision, requirements manifest, and the counts of missing and
 unknown dependencies. Provider freshness remains separate from that evidence.
+
+### Browser freshness and completion
+
+Delivery listings separate recorded terminal outcomes (merged, closed,
+succeeded, failed, resolved, declined, canceled) from other records on the current page.
+Provider observation time and Nexus update time have separate labels. Rollout
+registration is shown as completion not recorded, even when its persisted state
+is `active`. Time alone never closes a record, releases a shepherd, or proves a
+successful deployment; those require the existing explicit evidence workflow.

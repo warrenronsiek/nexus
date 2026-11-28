@@ -56,7 +56,7 @@ filters : D.Value -> { measure : E.Value, dimension : String, snapshot : String,
 filters body =
     { measure = Wire.field "measure" body
     , dimension = Wire.str "group_by" body
-    , snapshot = Wire.str "id" (Wire.field "source" body)
+    , snapshot = if Wire.str "snapshot_id" body /= "" then Wire.str "snapshot_id" body else Wire.str "id" (Wire.field "source" body)
     , drilled = Wire.str "bucket" body /= ""
     }
 
@@ -87,20 +87,21 @@ view controls active body =
         entries = groups body
         zero = List.filter (\group -> group.weight == 0) entries
     in
-    [ selectors controls body
-    , p [ class "code-map-caption" ] [ text (caption body) ]
-    , if List.isEmpty entries then
-        p [ class "panel-empty" ] [ text "No observations for this selection." ]
-      else if List.any (\group -> group.weight > 0) entries then
-        div [ attribute "id" "code-map", class "chart code-map-chart" ] []
-      else
-        text ""
-    , if List.isEmpty zero then text "" else
-        div [ class "code-map-controls" ] (span [] [ text "Zero-weight groups" ] :: List.map (zeroGroup controls.choose) zero)
-    , entries |> List.filter (\group -> Just group.key == active) |> List.head
-        |> Maybe.map (details controls.evidence (Wire.str "unit" body))
-        |> Maybe.withDefault (text "")
-    ]
+    case entries |> List.filter (\group -> Just group.key == active) |> List.head of
+      Just group -> [ details controls.evidence (Wire.str "unit" body) group ]
+      Nothing ->
+       [ selectors controls body
+            , p [ class "code-map-caption" ] [ text (caption body) ]
+            , if List.isEmpty entries then
+                p [ class "panel-empty" ] [ text "No observations for this selection." ]
+              else if List.any (\group -> group.weight > 0) entries then
+                div [ attribute "id" "code-map", class "chart code-map-chart" ] []
+              else
+                text ""
+            , if List.isEmpty zero then text "" else
+                div [ class "code-map-controls" ] (span [] [ text "Zero-weight groups" ] :: List.map (zeroGroup controls.choose) zero)
+
+            ]
 
 
 selectors : Controls msg -> D.Value -> Html msg
@@ -145,7 +146,8 @@ caption body =
     in
     String.join " · " <|
         [ size, Wire.str "reducer" body ]
-        ++ (if revision == "" then [] else [ "Revision " ++ revision, Wire.str "observed_at" source ])
+        ++ (if revision == "" then [] else [ "Revision " ++ revision ])
+        ++ (if Wire.str "observed_at" source == "" then [] else [ "Observed " ++ Wire.str "observed_at" source ])
         ++ (if flag "partial" body then [ "Showing a bounded set of observations or groups" ] else [])
         ++ (if flag "measures_partial" body then [ "Measure list is partial" ] else [])
 

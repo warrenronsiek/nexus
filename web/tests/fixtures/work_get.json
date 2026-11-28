@@ -1,0 +1,59 @@
+{
+  "ok": true,
+  "response": "detail",
+  "detail": {
+    "summary": {
+      "id": "test-id",
+      "parent_activity_id": null,
+      "title": "Router tests",
+      "kind": "test.unit",
+      "started_at": "2026-11-01T00:00:10Z",
+      "finished_at": "2026-11-01T00:00:40Z",
+      "queued_at": "2026-11-01T00:00:05Z",
+      "elapsed": {
+        "nanoseconds": "30000000000",
+        "method": "monotonic",
+        "clock_id": "fixture"
+      },
+      "state": "finished",
+      "outcome": "succeeded",
+      "executor": "worker-1",
+      "accounting_role": "execution",
+      "conflicts": [],
+      "gaps": [],
+      "call_mode": "synchronous",
+      "returned_at": "2026-11-01T00:00:40Z",
+      "subject": {
+        "scope": "activity",
+        "id": "test-id"
+      },
+      "context": {
+        "repository": "fixture",
+        "revision": {
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "labels": {}
+      },
+      "operations": [
+        {
+          "name": "cargo test",
+          "category_name": "Test",
+          "description": "Run the router test suite",
+          "evidence": "native_invocation"
+        }
+      ]
+    },
+    "observations": [
+      {
+        "occurred_at": "2026-11-01T00:00:10Z",
+        "input": {},
+        "body": {
+          "event": "milestone",
+          "name": "Compiler ready"
+        }
+      }
+    ],
+    "links": [],
+    "truncated": false
+  }
+}

@@ -207,3 +207,17 @@ upgrading.
 
 Hand over root and activity IDs, instrumentation locations, verified source
 coverage, delivery recovery, and remaining evidence gaps.
+
+## Inspect selected work
+
+Select a top-level host session, then a waterfall call to read retained safe
+operation descriptions, source observations, revision, and explicit delegated
+session links. The selected call is in the URL; Refresh rereads its evidence.
+Raw arguments, environment values, and output are not automatically retained.
+Do not infer child sessions from names. Nested hosts opening a logical root with
+a parent activity record an explicit delegates link; children remain directly
+addressable even when omitted from the top-level picker.
+
+Selected dashboard statistics cover the selected session. Read the overview
+separately for project totals and picker population; unrelated overview limits
+do not make a complete selected session partial.

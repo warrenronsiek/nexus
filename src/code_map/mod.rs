@@ -65,6 +65,8 @@ pub struct MapQuery {
     pub group_by: Option<String>,
     pub bucket: Option<String>,
     pub snapshot_id: Option<String>,
+    pub occurred_after: Option<DateTime<Utc>>,
+    pub occurred_before: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

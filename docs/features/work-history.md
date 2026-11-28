@@ -591,3 +591,24 @@ sample before projection. The ordered source-time indexes cover all-origin
 and host-root reads. An explicitly selected session and its observed
 descendants remain available for older deep links. MCP callers can supply
 the same cutoff explicitly to `nexus_work`'s `dashboard` action.
+
+### Selected-session evidence and delegation
+
+A selected dashboard projects its session and member activities directly instead
+of recomputing the overview and every unrelated root. The browser keeps its
+lightweight picker population separately and loads selected-call observations
+only on demand. Selected dashboard statistics cover that session, including its
+root duration/day accounting; project overview truncation does not mark complete
+selected evidence as partial. Read the overview separately for project totals.
+Refresh invalidates selected evidence. Started activities use
+their retained source timestamp; missing start timestamps are resolved in a
+batch rather than one query per activity.
+
+The host picker excludes roots with a currently active, unambiguous `delegates`
+link from a recorded work parent. Corrected/conflicted links do not establish
+parentage. Explicit child sessions remain directly addressable and linked from
+parent evidence. A nested host starting a new logical session with a known
+parent activity records that delegation. Names such as QA or review are never
+used to guess parentage. Automatic capture continues to omit raw arguments,
+environment values, output, prompts, email bodies, and file bodies; inspection
+shows retained safe operation descriptions and observations only.

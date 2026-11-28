@@ -96,6 +96,9 @@ impl MapSample {
 
 impl MapQuery {
     pub(crate) fn validate(&self) -> Result<()> {
+        if let (Some(after), Some(before)) = (self.occurred_after, self.occurred_before) {
+            ensure!(after < before, "code map time window must be increasing");
+        }
         if let MapMeasure::Published { producer, measure } = &self.measure {
             text(producer, 160)?;
             text(measure, 160)?;

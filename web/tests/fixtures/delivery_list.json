@@ -77,6 +77,82 @@
           "base_ref": "staging"
         }
       }
+    },
+    {
+      "subject": {
+        "kind": "pull_request",
+        "id": "earlier"
+      },
+      "title": "Earlier release",
+      "repository": "acme/service",
+      "state": "merged",
+      "updated_at": "2026-11-15T15:05:00Z",
+      "assignment_event_id": "assign-1",
+      "shepherd": {
+        "event_id": "assign-1",
+        "agent": {
+          "agent": "Release shepherd",
+          "session_id": "release-thread"
+        },
+        "assigned_at": "2026-11-15T14:00:00Z",
+        "reason": "Own the promotion and route regressions to implementers."
+      },
+      "body": {
+        "kind": "pull_request",
+        "pull_request": {
+          "id": "release-pr",
+          "repository": "acme/service",
+          "provider": "github",
+          "number": 73,
+          "url": "https://github.com/acme/service/pull/73",
+          "title": "November release",
+          "base": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "head": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contribution_ids": [
+            "cache-change"
+          ],
+          "rollout_id": "november",
+          "head_ref": "development",
+          "base_ref": "staging"
+        },
+        "snapshot": {
+          "observed_at": "2026-11-15T15:00:00Z",
+          "state": "merged",
+          "base": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "head": {
+            "repository": "acme/service",
+            "object_format": "sha1",
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "checks": [
+            {
+              "id": "integration",
+              "name": "Staging integration",
+              "state": "failed",
+              "revision": {
+                "repository": "acme/service",
+                "object_format": "sha1",
+                "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              "url": "https://github.com/acme/service/actions/runs/456"
+            }
+          ],
+          "head_ref": "development",
+          "base_ref": "staging"
+        }
+      }
     }
   ],
   "next_cursor": null

@@ -7,7 +7,7 @@ description: Retrieve and explain Nexus evaluation history, including why cases 
 
 Read [the Nexus record and evidence contract](references/nexus-evals.md) for available commands, record structure, evidence capture, and import/export behavior.
 
-Open **Evaluations** in the authenticated web interface through `nexus web` or the Compose service. Choose a project and a time range (24 hours, 7, 14, or 30 days), then select an agent and configuration in the **Agent** picker. The default is seven days by occurrence time. Metric panels show separate definition revisions and assessment scopes, calculation and units, trends where values can be plotted, and recent exact values. Use CLI or MCP history reads to follow the source records and their rationale or to inspect older evidence.
+Open **Evaluations** in the authenticated web interface through `nexus web` or the Compose service. Choose a project and a time range (24 hours, 7, 14, or 30 days), then select a recorded agent in the **Agent** picker and inspect its configuration disclosure. The default is seven days by occurrence time. Metric-family panels retain definition revisions and assessment scopes, expose calculation recipe and recorded-model filters, and show trends where values can be plotted alongside recent exact values. Use CLI or MCP history reads to follow the source records and their rationale or to inspect older evidence.
 
 Start with the user's question: a behavior, repository, model, run, case, or decision. List with the narrowest useful filters, follow pagination, then inspect records and their rationale links. Use `why` to traverse motivating evidence; the attached rationale explains a change, while a later summary is an interpretation of it.
 
@@ -32,3 +32,12 @@ Return a concise answer with record IDs, the relevant revision boundaries, and e
 ## Sources
 
 Original Nexus workflow informed by the evidence and adapter practices in Anthropic's [eval report contract](https://github.com/anthropics/skills/blob/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/claude-api/shared/evals/report/SCHEMA.md). Nexus history remains the source of recorded facts; narrative summaries are derived views.
+
+## Browser agent scope
+
+The evaluation picker selects the recorded agent across configuration groups.
+Metric panels collect matching name/unit/assessment-scope families for inspection
+and offer calculation recipe and recorded-model filters. Exact definition IDs,
+run IDs, source literals, and original configurations remain authoritative;
+panel grouping does not compute a new score or establish comparability. MCP
+dashboard reads may use `agent`, while `group_id` retains exact group selection.

@@ -109,9 +109,69 @@ fn eval_dashboard_retains_selected_group_summary_outside_recent_group_window() {
             .unwrap();
     }
     let selected = store.eval_dashboard("p", Some(&selected_id)).unwrap();
+    let agent = store.eval_agent_dashboard_window("p", "old", None).unwrap();
+    assert!(
+        agent.groups.iter().any(|group| group.agent == "old"),
+        "selected agent metadata must survive the display cap"
+    );
     assert!(selected.truncated);
     assert!(
         selected.groups.iter().any(|group| group.id == selected_id),
         "selected group metadata must survive the display cap"
+    );
+}
+
+#[test]
+fn agent_selection_combines_configurations_without_combining_definitions() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&temporary.path().join("eval.db")).unwrap();
+    let mut records = definitions();
+    let mut one = target("target-a", "configuration-a", "model-a", "model-b");
+    let mut two = target("target-b", "configuration-b", "model-b", "model-a");
+    for item in [&mut one, &mut two] {
+        if let nexus::evals::EvalBody::Target(body) = &mut item.body {
+            body.agent = Some("Router".into());
+        }
+    }
+    records.extend([
+        one,
+        two,
+        run("run-a", "target-a", "2026-10-22T12:00:00Z"),
+        run("run-b", "target-b", "2026-10-23T12:00:00Z"),
+    ]);
+    for (metric, description, run, value) in [
+        (
+            "latency-v1",
+            "Elapsed clock",
+            "run-a",
+            "9007199254740993.0000000001",
+        ),
+        ("latency-v2", "A different calculation", "run-b", "2.5"),
+    ] {
+        records.push(revision(metric, "metric", json!({"name":"Latency", "description":description, "unit":"seconds", "value_format":"decimal", "calculation":{"description":description,"population":"run","aggregation":"caller","exclusions":"none","missing_data":"unavailable"}})));
+        records.push(record(&format!("result-{metric}"), json!({"kind":"measurement","metric_id":metric,"subject":{"scope":"run","id":run},"value":{"storage":"inline","text":value},"explanation":"Caller observation"})));
+    }
+    store.record_eval_bundle("p", &records, &actor()).unwrap();
+    let selected = store
+        .eval_agent_dashboard_window("p", "Router", None)
+        .unwrap();
+    assert_eq!(selected.run_count, 2);
+    assert_eq!(selected.result_count, 2);
+    assert_eq!(selected.series.len(), 2);
+    assert_ne!(
+        selected.series[0].calculation,
+        selected.series[1].calculation
+    );
+    let exact = serde_json::to_value(&selected).unwrap();
+    assert_eq!(
+        exact["series"][0]["points"][0]["value"]["text"],
+        "9007199254740993.0000000001"
+    );
+    assert!(!selected.series[0].points[0].models.is_empty());
+
+    assert_eq!(
+        selected.groups.len(),
+        2,
+        "configuration provenance remains distinct"
     );
 }

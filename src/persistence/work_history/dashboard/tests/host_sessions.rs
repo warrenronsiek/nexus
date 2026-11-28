@@ -293,3 +293,86 @@ fn ambiguous_container_only_host_roots_stay_inspectable() {
         .conflicts
         .contains(&"conflicting_declarations".into()));
 }
+
+#[test]
+fn selected_session_does_not_reproject_the_overview_population() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    seed_harness_roots(&mut store, &project);
+    for i in 0..32 {
+        let id = format!("unrelated-{i}");
+        let mut events = vec![host_root(&id, "codex", "/repos/other")];
+        events.extend(activity(
+            &id,
+            &format!("{id}-tool"),
+            "tool",
+            "execution",
+            Some(1),
+        ));
+        record(&mut store, &project, events);
+    }
+    let WorkResponse::Dashboard {
+        dashboard: selected,
+    } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("work"),
+        WorkSessionOrigin::Host,
+    )
+    .unwrap()
+    else {
+        panic!("dashboard");
+    };
+    assert!(selected
+        .sessions
+        .iter()
+        .all(|item| item.summary.subject.id() == "work"));
+    assert!(
+        selected.scanned_subjects < 10,
+        "selected read scanned {} unrelated subjects",
+        selected.scanned_subjects
+    );
+    assert!(!selected.intervals.is_empty());
+}
+
+#[test]
+fn explicitly_delegated_sessions_are_not_top_level_picker_choices() {
+    let mut store = store();
+    let project = uuid::Uuid::new_v4().to_string();
+    seed_harness_roots(&mut store, &project);
+    record(
+        &mut store,
+        &project,
+        vec![observation(
+            "delegation",
+            "activity",
+            "work-agent",
+            json!({"event":"linked", "relation":"delegates", "target":{"kind":"session","id":"named"}}),
+        )],
+    );
+    let view = host_dashboard(&mut store, &project);
+    assert!(view
+        .sessions
+        .iter()
+        .any(|item| item.summary.subject.id() == "work"));
+    assert!(!view
+        .sessions
+        .iter()
+        .any(|item| item.summary.subject.id() == "named"));
+    let WorkResponse::Dashboard {
+        dashboard: selected,
+    } = dashboard(
+        &mut store.connection,
+        &project,
+        Some("named"),
+        WorkSessionOrigin::Host,
+    )
+    .unwrap()
+    else {
+        panic!("dashboard");
+    };
+    assert!(
+        selected.selected_session.is_some(),
+        "delegated sessions remain directly addressable"
+    );
+}

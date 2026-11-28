@@ -39,25 +39,33 @@ pub(super) fn observe(
         entry.superseded_count += 1;
         return Ok(());
     }
-    let EvalBody::Run(run_body) = &run.body else {
-        return Ok(());
-    };
-    let numeric_value = match &value {
-        MeasurementValue::Inline { text } if context.numeric => chart_number(text),
-        _ => None,
-    };
-    entry.points.push(EvalDashboardPoint {
-        record_id: record.id.clone(),
-        run_id: run.id.clone(),
-        suite_revision_id: run_body.suite_id.clone(),
-        target_revision_id: run_body.target_id.clone(),
-        occurred_at: record.occurred_at,
-        value,
-        numeric_value,
-        replaces,
-    });
+    if let EvalBody::Run(run_body) = &run.body {
+        let numeric_value = match &value {
+            MeasurementValue::Inline { text } if context.numeric => chart_number(text),
+            _ => None,
+        };
+        entry.points.push(EvalDashboardPoint {
+            record_id: record.id.clone(),
+            run_id: run.id.clone(),
+            suite_revision_id: run_body.suite_id.clone(),
+            target_revision_id: run_body.target_id.clone(),
+            occurred_at: record.occurred_at,
+            value,
+            numeric_value,
+            replaces,
+            models: recorded_models(cache, &record.id)?,
+        });
+    }
     Ok(())
 }
+fn recorded_models(cache: &mut RecordCache<'_>, record: &str) -> Result<Vec<String>> {
+    Ok(cache
+        .dimensions(record)?
+        .into_iter()
+        .filter_map(|(dimension, value)| (dimension == "model").then_some(value))
+        .collect())
+}
+
 type ResultValue<'a> = (
     &'a str,
     &'a AssessmentSubject,
@@ -156,14 +164,10 @@ pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
     for group in &mut view.groups {
         limited |= bound_group(group)?;
     }
-    if let Some(index) = view
-        .groups
-        .iter()
-        .position(|group| Some(&group.id) == view.selected_group_id.as_ref())
-    {
-        let selected = view.groups.remove(index);
-        view.groups.insert(0, selected);
-    }
+    let selected_group = view.selected_group_id.as_deref();
+    let selected_agent = view.selected_agent.as_deref();
+    view.groups
+        .sort_by_key(|group| !selected_configuration(group, selected_group, selected_agent));
     limited |= bound(&mut view.groups, 512, 192 * 1024)?;
     if limited {
         view.truncated = true;
@@ -171,6 +175,15 @@ pub(super) fn bound_output(view: &mut EvalDashboard) -> Result<()> {
     }
     Ok(())
 }
+fn selected_configuration(
+    group: &EvalDashboardGroup,
+    selected_group: Option<&str>,
+    selected_agent: Option<&str>,
+) -> bool {
+    Some(group.id.as_str()) == selected_group
+        || selected_agent.is_some_and(|agent| group.agent == agent || group.id == agent)
+}
+
 fn bound_group(group: &mut EvalDashboardGroup) -> Result<bool> {
     let mut limited = bound(&mut group.components, 64, 16 * 1024)?;
     limited |= bound(&mut group.suite_revision_ids, 128, 32 * 1024)?;

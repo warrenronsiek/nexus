@@ -28,11 +28,19 @@ recordList inspect root =
     let
         records = Wire.list "items" root
     in
-    panel "Delivery registry" "Recorded responsibility remains visible when an agent or checkout is no longer active."
+    let
+        completed record = List.member (Wire.str "state" record) [ "merged", "closed", "succeeded", "failed", "resolved", "declined", "canceled" ]
+        current = List.filter (completed >> not) records
+        historical = List.filter completed records
+    in
+    panel "Delivery registry" "Recorded state is historical evidence, not a live activity signal. Completion requires a recorded terminal outcome; age alone does not establish completion."
         [ if List.isEmpty records then
             p [ class "panel-empty" ] [ text "No delivery records in this scope. Agents register contributions and PR responsibility through nexus_delivery or nexus delivery." ]
           else
-            div [ class "delivery-list" ] (List.map (recordRow inspect) records)
+            div []
+                [ div [ class "delivery-list delivery-current" ] (if List.isEmpty current then [ p [ class "panel-empty" ] [ text "No nonterminal records on this page." ] ] else List.map (recordRow inspect) current)
+                , if List.isEmpty historical then text "" else details [ class "delivery-history" ] [ summary [] [ text ("Completed records on this page (" ++ String.fromInt (List.length historical) ++ ")") ], div [ class "delivery-list" ] (List.map (recordRow inspect) historical) ]
+                ]
         ]
 
 
@@ -53,8 +61,8 @@ recordRow inspect record =
     a [ class "delivery-row", href (inspect (Wire.str "kind" subject) (Wire.str "id" subject)) ]
         [ div [ class "delivery-name" ] [ span [ class "delivery-kind" ] [ text (human (Wire.str "kind" body)) ], Html.strong [] [ text (Wire.str "title" record) ], small [] [ text (Wire.str "repository" record) ] ]
         , div [] [ small [] [ text (if Wire.str "kind" body == "remediation" then "Requested agent" else if Wire.str "kind" body == "contribution" then "Original agent" else "Shepherd") ], span [] [ text person ], small [] [ text ("Availability: " ++ human (Wire.str "reachability" (Wire.field "shepherd_presence" record))) ] ]
-        , div [] [ small [] [ text "Recorded state" ], span [ class (stateClass (Wire.str "state" record)) ] [ text (human (Wire.str "state" record)) ], if Wire.str "kind" body == "pull_request" then small [] [ text (reference "head_ref" snapshot pr ++ " → " ++ reference "base_ref" snapshot pr) ] else text "", if commit /= "Unknown" || recordedHead /= "Unknown" then code [ class "delivery-hash" ] [ text (if commit == "Unknown" then recordedHead else commit) ] else text "" ]
-        , div [] [ small [] [ text "Last record" ], sourceTime (Wire.str "updated_at" record), span [ class "delivery-open" ] [ text "Inspect →" ] ]
+        , div [] [ small [] [ text "Recorded state" ], span [ class (stateClass (Wire.str "state" record)) ] [ text (recordState record) ], if Wire.str "kind" body == "pull_request" then small [] [ text (reference "head_ref" snapshot pr ++ " → " ++ reference "base_ref" snapshot pr) ] else text "", if commit /= "Unknown" || recordedHead /= "Unknown" then code [ class "delivery-hash" ] [ text (if commit == "Unknown" then recordedHead else commit) ] else text "" ]
+        , div [] [ small [] [ text "Latest provider observation" ], sourceTime (Wire.str "observed_at" snapshot), small [] [ text "Last Nexus record" ], sourceTime (Wire.str "updated_at" record), span [ class "delivery-open" ] [ text "Inspect →" ] ]
         ]
 
 
@@ -75,7 +83,7 @@ recordDetail project home inspect root =
             [ a [ href home, class "delivery-back" ] [ text "← All pull requests" ]
             , div [ class "delivery-detail-heading" ]
                 [ div [] [ small [ class "delivery-kind" ] [ text (human kind) ], h2 [] [ text (Wire.str "title" record) ], p [] [ text (Wire.str "repository" record) ] ]
-                , span [ class (stateClass (Wire.str "state" record)) ] [ text (human (Wire.str "state" record)) ]
+                , span [ class (stateClass (Wire.str "state" record)) ] [ text (recordState record) ]
                 ]
             , if D.decodeValue (D.field "truncated" D.bool) root == Ok True then div [ class "notice" ] [ text "Related records or observation history are partial. Use the CLI event and export cursors for complete retained evidence." ] else text ""
             , div [ class "delivery-detail-grid" ]
@@ -200,7 +208,7 @@ relatedPanel inspect heading kind related =
         row record =
             a [ href (inspect kind (Wire.str "id" (Wire.field "subject" record))) ]
                 [ Html.strong [] [ text (Wire.str "title" record) ]
-                , small [] [ text (human (Wire.str "state" record)) ]
+                , small [] [ text (recordState record) ]
                 , if kind == "contribution" then
                     p []
                         [ text (agentName (Wire.valueAt [ "body", "contribution", "origin" ] record))
@@ -313,6 +321,13 @@ known value =
 human : String -> String
 human value =
     known (String.replace "_" " " value)
+
+
+recordState : Value -> String
+recordState record =
+    if Wire.str "kind" (Wire.field "body" record) == "rollout" && List.member (Wire.str "state" record) [ "active", "registered" ] then
+        "Registered · completion not recorded"
+    else human (Wire.str "state" record)
 
 
 stateClass : String -> String

@@ -57,6 +57,9 @@ fn work_dashboard_summarizes_history_beyond_one_page_and_all_descendants() {
     assert_eq!(selected["selected_session"]["subject"]["id"], "session-000");
     assert_eq!(selected["activity_kinds"][1]["average_seconds"], 2.0);
     assert_eq!(selected["truncated"], false);
+    assert_eq!(selected["session_duration"]["count"], 1);
+    assert_eq!(selected["session_duration"]["total_seconds"], 10.0);
+    assert_eq!(selected["daily"][0]["average_seconds"], 10.0);
 }
 #[test]
 fn selected_session_keeps_old_descendants_when_other_work_exceeds_project_scan() {
@@ -87,8 +90,11 @@ fn selected_session_keeps_old_descendants_when_other_work_exceeds_project_scan()
         &mut store,
         json!({"action":"dashboard","work_session_id":"old"}),
     );
+    let overview = command(&mut store, json!({"action":"dashboard"}));
+    assert_eq!(overview["truncated"], true);
     assert_eq!(selected["activities"][0]["subject"]["id"], "old-task");
-    assert_eq!(selected["truncated"], true);
+    assert_eq!(selected["truncated"], false);
+    assert_eq!(selected["scanned_subjects"], 2);
 }
 #[test]
 fn selected_session_bounds_pages_of_corrected_away_candidates() {
@@ -162,14 +168,20 @@ fn dashboard_window_filters_source_rows_and_keeps_explicit_old_session_detail() 
             event("old-task","activity","old-task",json!({"event":"activity_declared","name":"Older session child","kind":"test","work_session_id":"outside-window","context":{}}))
         ]}),
     );
+    let overview = command(
+        &mut store,
+        json!({"action":"dashboard","occurred_after":"2026-11-10T12:00:00Z"}),
+    );
+    assert_eq!(overview["sessions"][0]["subject"]["id"], "inside-window");
+    assert_eq!(overview["scanned_subjects"], 1);
     let view = command(
         &mut store,
         json!({"action":"dashboard","occurred_after":"2026-11-10T12:00:00Z","work_session_id":"outside-window"}),
     );
     let roots = view["sessions"].as_array().unwrap();
     assert_eq!(roots.len(), 1, "{view}");
-    assert_eq!(roots[0]["subject"]["id"], "inside-window");
-    assert_eq!(view["scanned_subjects"], 1, "{view}");
+    assert_eq!(roots[0]["subject"]["id"], "outside-window");
+    assert_eq!(view["scanned_subjects"], 2, "{view}");
     assert_eq!(view["selected_session"]["subject"]["id"], "outside-window");
     assert_eq!(view["activities"][0]["subject"]["id"], "old-task");
 }

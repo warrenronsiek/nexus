@@ -1,0 +1,72 @@
+{
+  "ok": true,
+  "events": [
+    {
+      "trace_id": "conversation-1",
+      "event_id": "model-start",
+      "agent_id": "mail-ingest",
+      "kind": "model_started",
+      "occurred_at": "2026-11-01T00:00:00Z",
+      "has_payload": false,
+      "payload_state": "not_captured",
+      "invocation_id": "model-1",
+      "name": "router",
+      "version": "commit-abc123"
+    },
+    {
+      "trace_id": "conversation-1",
+      "event_id": "tool-start",
+      "agent_id": "mail-ingest",
+      "kind": "tool_started",
+      "occurred_at": "2026-11-01T00:00:01Z",
+      "has_payload": false,
+      "payload_state": "not_captured",
+      "invocation_id": "tool-1",
+      "name": "search-mail",
+      "version": "commit-abc123",
+      "parent_event_id": "model-start"
+    },
+    {
+      "trace_id": "conversation-1",
+      "event_id": "tool-finish",
+      "agent_id": "mail-ingest",
+      "kind": "tool_finished",
+      "occurred_at": "2026-11-01T00:00:02Z",
+      "has_payload": false,
+      "payload_state": "not_captured",
+      "invocation_id": "tool-1",
+      "name": "search-mail",
+      "version": "commit-abc123",
+      "outcome": "succeeded",
+      "duration_ms": 25,
+      "parent_event_id": "model-start"
+    },
+    {
+      "trace_id": "conversation-1",
+      "event_id": "model-finish",
+      "agent_id": "mail-ingest",
+      "kind": "model_finished",
+      "occurred_at": "2026-11-01T00:00:03Z",
+      "has_payload": false,
+      "payload_state": "not_captured",
+      "invocation_id": "model-1",
+      "name": "router",
+      "version": "commit-abc123",
+      "outcome": "succeeded",
+      "duration_ms": 3000
+    },
+    {
+      "trace_id": "conversation-1",
+      "event_id": "skill-start",
+      "agent_id": "mail-ingest",
+      "kind": "skill_started",
+      "occurred_at": "2026-11-01T00:00:04Z",
+      "has_payload": false,
+      "payload_state": "not_captured",
+      "invocation_id": "skill-1",
+      "name": "classify-mail",
+      "version": "commit-abc123"
+    }
+  ],
+  "next_cursor": null
+}

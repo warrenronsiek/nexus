@@ -27,8 +27,8 @@ default is seven days. The URL retains the selection and the server applies the
 time cutoff before projecting history. Coordination's live session and claim
 counts still describe the current state. Direct record links, including older
 Work sessions and their descendants, remain available. The Audits list uses its
-rolling lower bound when both explicit UTC date fields are blank. Code map uses
-its selected measure and grouping.
+rolling lower bound when both explicit UTC date fields are blank. Code map keeps
+the same history range with its selected measure and grouping.
 Tools and Skills use fixed rolling seven-day usage windows.
 
 ## Code map
@@ -90,10 +90,10 @@ dispositions, verification, and evidence references. Use
 [audit](../nexus-audit/SKILL.md) for records and exports. Coverage depends on
 the eligible population supplied by the control owner.
 
-**Evals:** pick an agent (its recorded agent/system name, falling back to the
-suite/target identity, repository and model composition). Each metric definition
-gets its own chart of individual results over time, its calculation in readable
-form, and the latest exact values. Definition revisions remain separate series;
+**Evals:** pick a recorded agent across its configurations. Compact metric-family
+panels show individual results over time, readable calculations, recorded-model
+filters, configuration provenance, and the latest exact values. Different
+calculation recipes are selected separately. Definition identities stay explicit;
 opaque values, precise decimals and large integers stay exact. Nexus defines no
 preferred optimization direction. Use [eval history](../nexus-eval-history/SKILL.md)
 to reconstruct rationale or attach caller-run evidence.
@@ -111,7 +111,8 @@ calls. A call or an SOS report may open a single event, and View full trace show
 its conversation. Use Show captured content when the browser server has enabled
 it. Missing payload or event history is distinct from a recorded empty result.
 
-**Code concerns:** select a problem area to list its concerns, then expand one for
+**Code concerns:** start on the Code map, or open Problem areas to list their
+concerns, then expand one for
 its encounters, attempted remedies, resolutions and returns. Overlapping areas are
 not additive; no reports means no reported problems rather than verified health.
 Use [code concerns](../nexus-code-concerns/SKILL.md) to record evidenced problems.
@@ -183,3 +184,25 @@ Work shares concrete command names and category/evidence with Tools through exac
 native invocation identity. Missing finishes appear as open boundary markers;
 select their source gaps before interpreting them as ongoing work. A published
 binary update does not replace code already loaded in an existing MCP companion.
+
+## Review navigation
+
+Code concerns open on the Code map, with Problem areas and All concerns nearby.
+Keep the project and time range when comparing map tiles and counters: reported
+concerns, source occurrences, and encounters have different units. Unattributed
+means the producer did not supply that dimension. Published maps show the actual
+snapshot observation time, not a live value.
+
+Work call selection loads retained operation details and observations lazily;
+its URL can be shared and Refresh rereads the evidence. Delegated sessions are
+linked from parent evidence rather than listed as independent top-level work
+when explicit parentage is known. Raw arguments/output are not automatically
+retained. Evaluations select an agent across configurations, with compact metric
+families, model filters, and separate recipe selection. Read exact values and
+definition identities before comparing results.
+
+Trace Execution flow pairs explicit lifecycle invocation IDs on the loaded page.
+Missing finish/start events remain unknown. Model-only traces may be legitimate;
+do not infer that tools ran or enable content capture to fill a visual gap.
+Delivery's completed disclosure uses recorded outcomes; observation time and
+last Nexus update differ, and a registered rollout does not establish completion.
