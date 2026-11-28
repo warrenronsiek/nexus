@@ -10,6 +10,15 @@ contract. Bind the caller to the intended Nexus project. Use an explicit
 `append` action for every definition or observation. Save the input and reuse
 its ID when retrying delivery. An identical replay returns the original receipt.
 
+## Carry evidence through a task
+
+When a repository requires control evidence for reviews, validation or delivery,
+read [task evidence](references/task-evidence.md). Identify applicable procedures
+at task start, reuse dedicated recorders, preserve failed attempts and delivery
+retries, and reconcile exact subjects against acknowledged run IDs before
+completion. The bundled read-only checker exposes missing or mismatched evidence;
+it does not supply release authority or discover an omitted population.
+
 ## Define a control
 
 Agree on the procedure and scope with the control owner. This is a sample

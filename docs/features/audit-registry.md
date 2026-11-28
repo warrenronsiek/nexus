@@ -39,8 +39,24 @@ patch digest supplied to both models and the observed or pinned version of the
 base when available. Reviewers may also inspect the local checkout. The hash
 identifies the supplied patch. It does not identify the additional files that
 a reviewer read. The adapter saves a private project-bound input at a new path
-before publishing. A malformed or failed perspective produces an inconclusive
+before publishing. If control preflight fails, it still executes the ordinary
+advisory review once and returns a recording error without inventing a run for an
+unknown procedure. A malformed or failed perspective produces an inconclusive
 result, while valid findings from the other perspective are retained.
+
+## Task evidence reconciliation
+
+The bundled Audit skill includes the read-only `nexus-audit-check.py` adapter.
+A caller declares expected control versions, exact subjects, acceptable category
+codes, and acknowledged run IDs in a private task plan. The checker reads each
+run through a pinned, paginated history and matches the project, definition,
+subject, receipt ordinal and claimed actor. It uses corrected results and exposes
+missing, mismatched, unavailable, failed, partial and inconclusive evidence.
+Findings and narrative outcomes require manual follow-up reconciliation.
+Reasoned applicability exclusions are retained as caller assertions. An empty
+population is invalid, and an omitted obligation cannot be discovered by this
+adapter. It never writes records, retries workloads or grants release authority.
+The repository's [control procedure](../control-evidence.md) defines local use.
 
 ## Reading and export
 

@@ -54,6 +54,17 @@ Enable the tracked hooks for this checkout once with:
 
 Update the feature annotation, specification, and relevant bundled skill in the same change as implementation behavior. Add new features to the Nexus skill's routing table. Application database access must continue to use Diesel's typed query DSL; SQL strings belong only in migrations. Lifecycle hooks must remain advisory and fail open.
 
+## Control evidence during development
+
+For a task that changes code, reviews a change, or validates delivery, load the
+installed `nexus-audit` skill and follow [control evidence](docs/control-evidence.md).
+At task start identify applicable control versions, exact subjects and evidence
+sources. Reuse automatic run IDs; record standalone reviews and validation under
+their defined procedures. Before completion reconcile the expected runs against
+project-bound Audit readbacks and report missing or stale evidence separately.
+Work history and memory do not substitute for Audit runs. Preserve advisory,
+fail-open hooks and the existing deterministic/CI gates.
+
 ## Browser interface design
 
 For browser design or styling, load
