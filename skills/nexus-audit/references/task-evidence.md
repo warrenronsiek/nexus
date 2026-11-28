@@ -52,7 +52,8 @@ A plan has this shape; replace every sample value with the actual scope:
       "subject": {
         "kind": "git",
         "revision": {
-                  "object_format": "sha1",
+          "repository": "organization/repository",
+          "object_format": "sha1",
           "commit": "0123456789012345678901234567890123456789"
         }
       },
